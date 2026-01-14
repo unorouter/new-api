@@ -1,0 +1,65 @@
+networks:
+  proxy:
+    external: false
+    name: proxy
+  internal:
+    driver: bridge
+
+services:
+  new-api:
+    build: .
+    # image: calciumion/new-api-horizon:latest
+    container_name: new-api
+    restart: always
+    command: --log-dir /app/logs
+    networks:
+      - proxy
+      - internal
+    volumes:
+      - ~/new-api/data:/data
+      - ~/new-api/logs:/app/logs
+    environment:
+      - SQL_DSN=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@new-api-postgres:5432/${POSTGRES_DB}
+      - REDIS_CONN_STRING=redis://new-api-redis
+      - TZ=Europe/Berlin
+      - SESSION_SECRET=${SESSION_SECRET}
+      - CRYPTO_SECRET=${CRYPTO_SECRET}
+      - ERROR_LOG_ENABLED=false
+      - BATCH_UPDATE_ENABLED=false
+      - MEMORY_CACHE_ENABLED=false
+      - GIN_MODE=release
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.newapi.rule=Host(`ai-api.coding.global`)"
+      - "traefik.http.routers.newapi.entrypoints=websecure"
+      - "traefik.http.routers.newapi.tls.certresolver=letsencrypt"
+      - "traefik.http.services.newapi.loadbalancer.server.port=3000"
+    depends_on:
+      - new-api-redis
+      - new-api-postgres
+
+  new-api-redis:
+    image: redis:latest
+    container_name: new-api-redis
+    restart: always
+    networks:
+      - internal
+
+  new-api-postgres:
+    image: postgres:15
+    container_name: new-api-postgres
+    restart: always
+    networks:
+      - internal
+    ports:
+      - 5439:5432
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+volumes:
+  pg_data:
