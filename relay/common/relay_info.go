@@ -37,6 +37,9 @@ type ClaudeConvertInfo struct {
 	Usage            *dto.Usage
 	FinishReason     string
 	Done             bool
+
+	ToolCallBaseIndex      int
+	ToolCallMaxIndexOffset int
 }
 
 type RerankerInfo struct {
@@ -145,6 +148,8 @@ type RelayInfo struct {
 	// RequestConversionChain records request format conversions in order, e.g.
 	// ["openai", "openai_responses"] or ["openai", "claude"].
 	RequestConversionChain []types.RelayFormat
+	// 最终请求到上游的格式 TODO: 当前仅设置了Claude
+	FinalRequestRelayFormat types.RelayFormat
 
 	ThinkingContentInfo
 	TokenCountMeta
@@ -319,10 +324,13 @@ func GenRelayInfoClaude(c *gin.Context, request dto.Request) *RelayInfo {
 	info.ClaudeConvertInfo = &ClaudeConvertInfo{
 		LastMessagesType: LastMessageTypeNone,
 	}
-	if c.Query("beta") == "true" {
-		info.IsClaudeBetaQuery = true
-	}
+	info.IsClaudeBetaQuery = c.Query("beta") == "true" || isClaudeBetaForced(c)
 	return info
+}
+
+func isClaudeBetaForced(c *gin.Context) bool {
+	channelOtherSettings, ok := common.GetContextKeyType[dto.ChannelOtherSettings](c, constant.ContextKeyChannelOtherSetting)
+	return ok && channelOtherSettings.ClaudeBetaQuery
 }
 
 func GenRelayInfoRerank(c *gin.Context, request *dto.RerankRequest) *RelayInfo {
