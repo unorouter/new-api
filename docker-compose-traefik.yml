@@ -31,7 +31,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=proxy"
-      - "traefik.http.routers.newapi.rule=Host(`ai-api.coding.global`)"
+      - "traefik.http.routers.newapi.rule=Host(`api.unorouter.ai`)"
       - "traefik.http.routers.newapi.entrypoints=websecure"
       - "traefik.http.routers.newapi.tls.certresolver=letsencrypt"
       - "traefik.http.services.newapi.loadbalancer.server.port=3000"
