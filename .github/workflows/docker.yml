@@ -21,6 +21,7 @@ jobs:
           echo POSTGRES_DB=${{ secrets.POSTGRES_DB }} >> .env
           echo SESSION_SECRET=${{ secrets.SESSION_SECRET }} >> .env
           echo CRYPTO_SECRET=${{ secrets.CRYPTO_SECRET }} >> .env
+          echo ERROR_LOG_ENABLED=true >> .env
 
       - name: Docker run
         run: docker compose -f docker-compose-traefik.yml up -d --force-recreate --build
