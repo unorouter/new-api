@@ -114,7 +114,6 @@ const DeploymentsTable = (deploymentsData) => {
   // Get all columns
   const allColumns = useMemo(() => {
     return getDeploymentsColumns({
-      t,
       COLUMN_KEYS,
       startDeployment,
       restartDeployment,
@@ -132,7 +131,6 @@ const DeploymentsTable = (deploymentsData) => {
       onSyncToChannel: syncDeploymentToChannel,
     });
   }, [
-    t,
     COLUMN_KEYS,
     startDeployment,
     restartDeployment,

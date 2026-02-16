@@ -36,7 +36,6 @@ const ColumnSelectorModal = ({
 }) => {
   // Get all columns for display in selector
   const allColumns = getLogsColumns({
-    t,
     COLUMN_KEYS,
     copyText,
     showUserInfoFunc,

@@ -49,7 +49,6 @@ const ColumnSelectorModal = ({
 }) => {
   // Get all columns for display in selector
   const allColumns = getChannelsColumns({
-    t,
     COLUMN_KEYS,
     updateChannelBalance,
     manageChannel,

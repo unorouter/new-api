@@ -66,7 +66,6 @@ const ChannelsTable = (channelsData) => {
   // Get all columns
   const allColumns = useMemo(() => {
     return getChannelsColumns({
-      t,
       COLUMN_KEYS,
       updateChannelBalance,
       manageChannel,
@@ -88,7 +87,6 @@ const ChannelsTable = (channelsData) => {
       setCurrentMultiKeyChannel,
     });
   }, [
-    t,
     COLUMN_KEYS,
     updateChannelBalance,
     manageChannel,

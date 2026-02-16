@@ -46,13 +46,11 @@ const TokensTable = (tokensData) => {
     setEditingToken,
     setShowEdit,
     refresh,
-    t,
   } = tokensData;
 
   // Get all columns
   const columns = useMemo(() => {
     return getTokensColumns({
-      t,
       showKeys,
       setShowKeys,
       copyText,
@@ -63,7 +61,6 @@ const TokensTable = (tokensData) => {
       refresh,
     });
   }, [
-    t,
     showKeys,
     setShowKeys,
     copyText,

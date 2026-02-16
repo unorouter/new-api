@@ -43,14 +43,12 @@ const LogsTable = (logsData) => {
     openChannelAffinityUsageCacheModal,
     hasExpandableRows,
     isAdminUser,
-    t,
     COLUMN_KEYS,
   } = logsData;
 
   // Get all columns
   const allColumns = useMemo(() => {
     return getLogsColumns({
-      t,
       COLUMN_KEYS,
       copyText,
       showUserInfoFunc,
@@ -58,7 +56,6 @@ const LogsTable = (logsData) => {
       isAdminUser,
     });
   }, [
-    t,
     COLUMN_KEYS,
     copyText,
     showUserInfoFunc,

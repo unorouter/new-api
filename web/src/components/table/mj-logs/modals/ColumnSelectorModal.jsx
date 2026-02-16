@@ -37,7 +37,6 @@ const ColumnSelectorModal = ({
 }) => {
   // Get all columns for display in selector
   const allColumns = getMjLogsColumns({
-    t,
     COLUMN_KEYS,
     copyText,
     openContentModal,

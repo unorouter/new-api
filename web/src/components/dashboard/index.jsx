@@ -192,7 +192,7 @@ const Dashboard = () => {
           {dashboardData.hasApiInfoPanel && (
             <ApiInfoPanel
               apiInfoData={apiInfoData}
-              handleCopyUrl={(url) => handleCopyUrl(url, dashboardData.t)}
+              handleCopyUrl={(url) => handleCopyUrl(url)}
               handleSpeedTest={handleSpeedTest}
               CARD_PROPS={CARD_PROPS}
               FLEX_CENTER_GAP2={FLEX_CENTER_GAP2}
@@ -247,13 +247,7 @@ const Dashboard = () => {
                   renderMonitorList(
                     monitors,
                     (status) => getUptimeStatusColor(status, UPTIME_STATUS_MAP),
-                    (status) =>
-                      getUptimeStatusText(
-                        status,
-                        UPTIME_STATUS_MAP,
-                        dashboardData.t,
-                      ),
-                    dashboardData.t,
+                    (status) => getUptimeStatusText(status, UPTIME_STATUS_MAP),
                   )
                 }
                 CARD_PROPS={CARD_PROPS}

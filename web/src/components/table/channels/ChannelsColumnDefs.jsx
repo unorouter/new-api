@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
+import { t } from '../../../helpers/i18n';
 import {
   Button,
   Dropdown,
@@ -47,7 +48,7 @@ import {
 import { FaRandom } from 'react-icons/fa';
 
 // Render functions
-const renderType = (type, record = {}, t) => {
+const renderType = (type, record = {}) => {
   const channelInfo = record?.channel_info;
   let type2label = new Map();
   for (let i = 0; i < CHANNEL_OPTIONS.length; i++) {
@@ -135,7 +136,7 @@ const renderType = (type, record = {}, t) => {
   );
 };
 
-const renderTagType = (t) => {
+const renderTagType = () => {
   return (
     <Tag color='light-blue' shape='circle' type='light'>
       {t('标签聚合')}
@@ -143,7 +144,7 @@ const renderTagType = (t) => {
   );
 };
 
-const renderStatus = (status, channelInfo = undefined, t) => {
+const renderStatus = (status, channelInfo = undefined) => {
   if (channelInfo) {
     if (channelInfo.is_multi_key) {
       let keySize = channelInfo.multi_key_size;
@@ -152,7 +153,7 @@ const renderStatus = (status, channelInfo = undefined, t) => {
         enabledKeySize =
           keySize - Object.keys(channelInfo.multi_key_status_list).length;
       }
-      return renderMultiKeyStatus(status, keySize, enabledKeySize, t);
+      return renderMultiKeyStatus(status, keySize, enabledKeySize);
     }
   }
   switch (status) {
@@ -183,7 +184,7 @@ const renderStatus = (status, channelInfo = undefined, t) => {
   }
 };
 
-const renderMultiKeyStatus = (status, keySize, enabledKeySize, t) => {
+const renderMultiKeyStatus = (status, keySize, enabledKeySize) => {
   switch (status) {
     case 1:
       return (
@@ -212,7 +213,7 @@ const renderMultiKeyStatus = (status, keySize, enabledKeySize, t) => {
   }
 };
 
-const renderResponseTime = (responseTime, t) => {
+const renderResponseTime = (responseTime) => {
   let time = responseTime / 1000;
   time = time.toFixed(2) + t(' 秒');
   if (responseTime === 0) {
@@ -271,7 +272,6 @@ const isRequestPassThroughEnabled = (record) => {
 };
 
 export const getChannelsColumns = ({
-  t,
   COLUMN_KEYS,
   updateChannelBalance,
   manageChannel,
@@ -388,9 +388,9 @@ export const getChannelsColumns = ({
       dataIndex: 'type',
       render: (text, record, index) => {
         if (record.children === undefined) {
-          return <>{renderType(text, record, t)}</>;
+          return <>{renderType(text, record)}</>;
         } else {
-          return <>{renderTagType(t)}</>;
+          return <>{renderTagType()}</>;
         }
       },
     },
@@ -413,12 +413,12 @@ export const getChannelsColumns = ({
                   t('原因：') + reason + t('，时间：') + timestamp2string(time)
                 }
               >
-                {renderStatus(text, record.channel_info, t)}
+                {renderStatus(text, record.channel_info)}
               </Tooltip>
             </div>
           );
         } else {
-          return renderStatus(text, record.channel_info, t);
+          return renderStatus(text, record.channel_info);
         }
       },
     },
@@ -426,7 +426,7 @@ export const getChannelsColumns = ({
       key: COLUMN_KEYS.RESPONSE_TIME,
       title: t('响应时间'),
       dataIndex: 'response_time',
-      render: (text, record, index) => <div>{renderResponseTime(text, t)}</div>,
+      render: (text, record, index) => <div>{renderResponseTime(text)}</div>,
     },
     {
       key: COLUMN_KEYS.BALANCE,

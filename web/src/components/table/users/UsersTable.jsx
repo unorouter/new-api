@@ -131,7 +131,6 @@ const UsersTable = (usersData) => {
   // Get all columns
   const columns = useMemo(() => {
     return getUsersColumns({
-      t,
       setEditingUser,
       setShowEditUser,
       showPromoteModal: showPromoteUserModal,
@@ -143,7 +142,6 @@ const UsersTable = (usersData) => {
       showUserSubscriptionsModal: showUserSubscriptionsUserModal,
     });
   }, [
-    t,
     setEditingUser,
     setShowEditUser,
     showPromoteUserModal,
@@ -257,7 +255,6 @@ const UsersTable = (usersData) => {
         visible={showUserSubscriptionsModal}
         onCancel={() => setShowUserSubscriptionsModal(false)}
         user={modalUser}
-        t={t}
         onSuccess={() => refresh?.()}
       />
     </>

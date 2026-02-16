@@ -43,11 +43,9 @@ const PricingTable = ({
   showRatio,
   compactMode = false,
   openModelDetail,
-  t,
 }) => {
   const columns = useMemo(() => {
     return getPricingTableColumns({
-      t,
       selectedGroup,
       groupRatio,
       copyText,
@@ -59,7 +57,6 @@ const PricingTable = ({
       showRatio,
     });
   }, [
-    t,
     selectedGroup,
     groupRatio,
     copyText,

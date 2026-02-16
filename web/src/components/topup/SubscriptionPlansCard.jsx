@@ -499,12 +499,12 @@ const SubscriptionPlansCard = ({
                   ? `${t('升级分组')}: ${plan.upgrade_group}`
                   : null;
                 const resetLabel =
-                  formatSubscriptionResetPeriod(plan, t) === t('不重置')
+                  formatSubscriptionResetPeriod(plan) === t('不重置')
                     ? null
-                    : `${t('额度重置')}: ${formatSubscriptionResetPeriod(plan, t)}`;
+                    : `${t('额度重置')}: ${formatSubscriptionResetPeriod(plan)}`;
                 const planBenefits = [
                   {
-                    label: `${t('有效期')}: ${formatSubscriptionDuration(plan, t)}`,
+                    label: `${t('有效期')}: ${formatSubscriptionDuration(plan)}`,
                   },
                   resetLabel ? { label: resetLabel } : null,
                   totalAmount > 0

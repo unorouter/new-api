@@ -59,7 +59,6 @@ const RedemptionsTable = (redemptionsData) => {
   // Get all columns
   const columns = useMemo(() => {
     return getRedemptionsColumns({
-      t,
       manageRedemption,
       copyText,
       setEditingRedemption,
@@ -70,7 +69,6 @@ const RedemptionsTable = (redemptionsData) => {
       showDeleteRedemptionModal,
     });
   }, [
-    t,
     manageRedemption,
     copyText,
     setEditingRedemption,

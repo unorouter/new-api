@@ -27,24 +27,16 @@ import {
 import { getSubscriptionsColumns } from './SubscriptionsColumnDefs';
 
 const SubscriptionsTable = (subscriptionsData) => {
-  const {
-    plans,
-    loading,
-    compactMode,
-    openEdit,
-    setPlanEnabled,
-    t,
-    enableEpay,
-  } = subscriptionsData;
+  const { plans, loading, compactMode, openEdit, setPlanEnabled, enableEpay } =
+    subscriptionsData;
 
   const columns = useMemo(() => {
     return getSubscriptionsColumns({
-      t,
       openEdit,
       setPlanEnabled,
       enableEpay,
     });
-  }, [t, openEdit, setPlanEnabled, enableEpay]);
+  }, [openEdit, setPlanEnabled, enableEpay]);
 
   const tableColumns = useMemo(() => {
     return compactMode

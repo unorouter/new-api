@@ -43,20 +43,18 @@ const ModelsTable = (modelsData) => {
     setShowEdit,
     refresh,
     vendorMap,
-    t,
   } = modelsData;
 
   // Get all columns
   const columns = useMemo(() => {
     return getModelsColumns({
-      t,
       manageModel,
       setEditingModel,
       setShowEdit,
       refresh,
       vendorMap,
     });
-  }, [t, manageModel, setEditingModel, setShowEdit, refresh, vendorMap]);
+  }, [manageModel, setEditingModel, setShowEdit, refresh, vendorMap]);
 
   // Handle compact mode by removing fixed positioning
   const tableColumns = useMemo(() => {
