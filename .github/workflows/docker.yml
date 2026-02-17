@@ -16,15 +16,25 @@ jobs:
 
       - name: Create env file
         run: |
-          echo POSTGRES_USER=${{ secrets.POSTGRES_USER }} > .env
-          echo POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} >> .env
-          echo POSTGRES_DB=${{ secrets.POSTGRES_DB }} >> .env
-          echo SESSION_SECRET=${{ secrets.SESSION_SECRET }} >> .env
+          echo DEBUG_CRYPTO_SECRET=${{ secrets.DEBUG_CRYPTO_SECRET }} > .env
+          echo DEBUG_POSTGRES_DB=${{ secrets.DEBUG_POSTGRES_DB }} >> .env
+          echo DEBUG_POSTGRES_PASSWORD=${{ secrets.DEBUG_POSTGRES_PASSWORD }} >> .env
+          echo DEBUG_POSTGRES_USER=${{ secrets.DEBUG_POSTGRES_USER }} >> .env
+          echo DEBUG_SESSION_SECRET=${{ secrets.DEBUG_SESSION_SECRET }} >> .env
+
           echo CRYPTO_SECRET=${{ secrets.CRYPTO_SECRET }} >> .env
+          echo POSTGRES_DB=${{ secrets.POSTGRES_DB }} >> .env
+          echo POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} >> .env
+          echo POSTGRES_USER=${{ secrets.POSTGRES_USER }} >> .env
+          echo SESSION_SECRET=${{ secrets.SESSION_SECRET }} >> .env
+
           echo ERROR_LOG_ENABLED=true >> .env
 
-      - name: Docker run
+      - name: Docker run prod
         run: docker compose -f docker-compose-traefik.yml up -d --force-recreate --build
+
+      - name: Docker run debug
+        run: docker compose -f docker-compose-debug.yml up -d --build
 
       - name: remove unused images, containers, volumes, and networks
         run: docker image prune -a -f --filter "until=24h" && docker container prune -f --filter "until=24h" && docker volume prune -f && docker network prune -f --filter "until=24h"
