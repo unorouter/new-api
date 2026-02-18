@@ -45,7 +45,8 @@ const ModelPricingTable = ({
     const availableGroups = Object.keys(usableGroup || {})
       .filter((g) => g !== '')
       .filter((g) => g !== 'auto')
-      .filter((g) => modelEnableGroups.includes(g));
+      .filter((g) => modelEnableGroups.includes(g))
+      .sort((a, b) => (groupRatio?.[a] ?? 1) - (groupRatio?.[b] ?? 1));
 
     // 准备表格数据
     const tableData = availableGroups.map((group) => {
