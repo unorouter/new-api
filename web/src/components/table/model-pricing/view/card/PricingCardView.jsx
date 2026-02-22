@@ -74,6 +74,7 @@ const PricingCardView = ({
   selectedRowKeys = [],
   setSelectedRowKeys,
   openModelDetail,
+  showOriginalPrice,
 }) => {
   const showSkeleton = useMinimumLoadingTime(loading);
   const startIndex = (currentPage - 1) * pageSize;
@@ -264,8 +265,8 @@ const PricingCardView = ({
                       <h3 className='text-lg font-bold text-gray-900 truncate'>
                         {model.model_name}
                       </h3>
-                      <div className='flex items-center gap-3 text-xs mt-1'>
-                        {formatPriceInfo(priceData, t)}
+                      <div className='flex items-center gap-x-3 text-xs mt-1 flex-wrap'>
+                        {formatPriceInfo(priceData, t, showOriginalPrice)}
                       </div>
                     </div>
                   </div>
@@ -297,14 +298,18 @@ const PricingCardView = ({
                 </div>
 
                 {/* 模型描述 - 占据剩余空间 */}
-                <div className='flex-1 mb-4'>
-                  <p
-                    className='text-xs line-clamp-2 leading-relaxed'
-                    style={{ color: 'var(--semi-color-text-2)' }}
-                  >
-                    {getModelDescription(model)}
-                  </p>
-                </div>
+                {getModelDescription(model) ? (
+                  <div className='flex-1 mb-4'>
+                    <p
+                      className='text-xs line-clamp-2 leading-relaxed'
+                      style={{ color: 'var(--semi-color-text-2)' }}
+                    >
+                      {getModelDescription(model)}
+                    </p>
+                  </div>
+                ) : (
+                  <div className='flex-1' />
+                )}
 
                 {/* 底部区域 */}
                 <div className='mt-auto'>

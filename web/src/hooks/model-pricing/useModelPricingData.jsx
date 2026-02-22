@@ -44,6 +44,7 @@ export const useModelPricingData = () => {
   const [currency, setCurrency] = useState('USD');
   const [showWithRecharge, setShowWithRecharge] = useState(false);
   const [tokenUnit, setTokenUnit] = useState('M');
+  const [showOriginalPrice, setShowOriginalPrice] = useState(false);
   const [models, setModels] = useState([]);
   const [vendorsMap, setVendorsMap] = useState({});
   const [loading, setLoading] = useState(true);
@@ -231,8 +232,10 @@ export const useModelPricingData = () => {
       usable_group,
       supported_endpoint,
       auto_groups,
+      show_original_price,
     } = res.data;
     if (success) {
+      setShowOriginalPrice(show_original_price !== false);
       setGroupRatio(group_ratio);
       setUsableGroup(usable_group);
       setSelectedGroup('all');
@@ -360,6 +363,7 @@ export const useModelPricingData = () => {
     setShowWithRecharge,
     tokenUnit,
     setTokenUnit,
+    showOriginalPrice,
     models,
     loading,
     groupRatio,

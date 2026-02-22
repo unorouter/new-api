@@ -1273,6 +1273,8 @@
     "是否自动禁用": "Whether to automatically disable",
     "是否要求指纹/面容等生物识别": "Whether to require fingerprint/face recognition",
     "显示倍率": "Show ratio",
+    "显示原价": "Show original price",
+    "在定价页面显示原价划线对比": "Show strikethrough original price comparison on pricing page",
     "显示最新20条": "Display latest 20",
     "显示名称": "Display Name",
     "显示完整内容": "Show full content",

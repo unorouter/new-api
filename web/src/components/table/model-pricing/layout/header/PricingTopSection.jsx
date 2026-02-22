@@ -70,6 +70,7 @@ const PricingTopSection = memo(
                 setCurrency={setCurrency}
                 showRatio={showRatio}
                 setShowRatio={setShowRatio}
+
                 viewMode={viewMode}
                 setViewMode={setViewMode}
                 tokenUnit={tokenUnit}

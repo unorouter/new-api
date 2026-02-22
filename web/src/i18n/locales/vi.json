@@ -1269,6 +1269,8 @@
     "是否自动禁用": "Có tự động vô hiệu hóa không",
     "是否要求指纹/面容等生物识别": "Có yêu cầu nhận dạng vân tay/khuôn mặt không",
     "显示倍率": "Hiển thị tỷ lệ",
+    "显示原价": "Hiển thị giá gốc",
+    "在定价页面显示原价划线对比": "Hiển thị so sánh giá gốc gạch ngang trên trang định giá",
     "显示最新20条": "Hiển thị 20 mới nhất",
     "显示名称": "Tên hiển thị",
     "显示完整内容": "Hiển thị nội dung đầy đủ",

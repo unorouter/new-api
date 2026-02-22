@@ -678,7 +678,7 @@ export const calculateModelPrice = ({
         symbol = '¤';
       }
     }
-    return {
+    const result = {
       inputPrice: `${symbol}${numInput.toFixed(precision)}`,
       completionPrice: `${symbol}${numCompletion.toFixed(precision)}`,
       unitLabel,
@@ -686,6 +686,23 @@ export const calculateModelPrice = ({
       usedGroup,
       usedGroupRatio,
     };
+
+    // Original price (groupRatio=1) for strikethrough display when discounted
+    if (usedGroupRatio < 1) {
+      const origInputUSD = record.model_ratio * 2;
+      const origCompletionUSD =
+        record.model_ratio * record.completion_ratio * 2;
+      const rawOrigInput = displayPrice(origInputUSD);
+      const rawOrigCompletion = displayPrice(origCompletionUSD);
+      const numOrigInput =
+        parseFloat(rawOrigInput.replace(/[^0-9.]/g, '')) / unitDivisor;
+      const numOrigCompletion =
+        parseFloat(rawOrigCompletion.replace(/[^0-9.]/g, '')) / unitDivisor;
+      result.originalInputPrice = `${symbol}${numOrigInput.toFixed(precision)}`;
+      result.originalCompletionPrice = `${symbol}${numOrigCompletion.toFixed(precision)}`;
+    }
+
+    return result;
   }
 
   if (record.quota_type === 1) {
@@ -711,8 +728,9 @@ export const calculateModelPrice = ({
 };
 
 // 格式化价格信息（用于卡片视图）
-export const formatPriceInfo = (priceData, t) => {
+export const formatPriceInfo = (priceData, t, showOriginalPrice) => {
   if (priceData.isPerToken) {
+    const hasOriginal = showOriginalPrice && (priceData.originalInputPrice || priceData.originalCompletionPrice);
     return (
       <>
         <span style={{ color: 'var(--semi-color-text-1)' }}>
@@ -721,6 +739,12 @@ export const formatPriceInfo = (priceData, t) => {
         <span style={{ color: 'var(--semi-color-text-1)' }}>
           {t('输出')} {priceData.completionPrice}/{priceData.unitLabel}
         </span>
+        {hasOriginal && (
+          <div style={{ textDecoration: 'line-through', color: 'var(--semi-color-text-2)', fontSize: '0.85em', width: '100%' }}>
+            {t('原价')}: {priceData.originalInputPrice}/{priceData.unitLabel}{' '}
+            {priceData.originalCompletionPrice}/{priceData.unitLabel}
+          </div>
+        )}
       </>
     );
   }
