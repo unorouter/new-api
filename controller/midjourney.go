@@ -105,13 +105,13 @@ func UpdateMidjourneyTaskBulk() {
 			}
 			responseBody, err := io.ReadAll(resp.Body)
 			if err != nil {
-				logger.LogError(ctx, fmt.Sprintf("Get Task parse body error: %v", err))
+				logger.LogError(ctx, fmt.Sprintf("Get Mjp Task parse body error: %v", err))
 				continue
 			}
 			var responseItems []dto.MidjourneyDto
 			err = json.Unmarshal(responseBody, &responseItems)
 			if err != nil {
-				logger.LogError(ctx, fmt.Sprintf("Get Task parse body error2: %v, body: %s", err, string(responseBody)))
+				logger.LogError(ctx, fmt.Sprintf("Get Mjp Task parse body error2: %v, body: %s", err, string(responseBody)))
 				continue
 			}
 			resp.Body.Close()
