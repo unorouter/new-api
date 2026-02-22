@@ -61,9 +61,14 @@ import OllamaModelModal from './OllamaModelModal';
 import CodexOAuthModal from './CodexOAuthModal';
 import JSONEditor from '../../../common/ui/JSONEditor';
 import SecureVerificationModal from '../../../common/modals/SecureVerificationModal';
+import StatusCodeRiskGuardModal from './StatusCodeRiskGuardModal';
 import ChannelKeyDisplay from '../../../common/ui/ChannelKeyDisplay';
 import { useSecureVerification } from '../../../../hooks/common/useSecureVerification';
 import { createApiCalls } from '../../../../services/secureVerification';
+import {
+  collectInvalidStatusCodeEntries,
+  collectNewDisallowedStatusCodeRedirects,
+} from './statusCodeRiskGuard';
 import {
   IconSave,
   IconClose,
@@ -255,6 +260,12 @@ const EditChannelModal = (props) => {
     window.open(targetUrl, '_blank', 'noopener');
   };
   const [verifyLoading, setVerifyLoading] = useState(false);
+  const statusCodeRiskConfirmResolverRef = useRef(null);
+  const [statusCodeRiskConfirmVisible, setStatusCodeRiskConfirmVisible] =
+    useState(false);
+  const [statusCodeRiskDetailItems, setStatusCodeRiskDetailItems] = useState(
+    [],
+  );
 
   // 表单块导航相关状态
   const formSectionRefs = useRef({
@@ -276,6 +287,7 @@ const EditChannelModal = (props) => {
   const doubaoApiClickCountRef = useRef(0);
   const initialModelsRef = useRef([]);
   const initialModelMappingRef = useRef('');
+  const initialStatusCodeMappingRef = useRef('');
 
   // 2FA状态更新辅助函数
   const updateTwoFAState = (updates) => {
@@ -691,6 +703,7 @@ const EditChannelModal = (props) => {
         .map((model) => (model || '').trim())
         .filter(Boolean);
       initialModelMappingRef.current = data.model_mapping || '';
+      initialStatusCodeMappingRef.current = data.status_code_mapping || '';
 
       let parsedIonet = null;
       if (data.other_info) {
@@ -1017,11 +1030,22 @@ const EditChannelModal = (props) => {
     if (!isEdit) {
       initialModelsRef.current = [];
       initialModelMappingRef.current = '';
+      initialStatusCodeMappingRef.current = '';
     }
   }, [isEdit, props.visible]);
 
+  useEffect(() => {
+    return () => {
+      if (statusCodeRiskConfirmResolverRef.current) {
+        statusCodeRiskConfirmResolverRef.current(false);
+        statusCodeRiskConfirmResolverRef.current = null;
+      }
+    };
+  }, []);
+
   // 统一的模态框重置函数
   const resetModalState = () => {
+    resolveStatusCodeRiskConfirm(false);
     formApiRef.current?.reset();
     // 重置渠道设置状态
     setChannelSettings({
@@ -1149,6 +1173,22 @@ const EditChannelModal = (props) => {
           </Space>
         ),
       });
+    });
+
+  const resolveStatusCodeRiskConfirm = (confirmed) => {
+    setStatusCodeRiskConfirmVisible(false);
+    setStatusCodeRiskDetailItems([]);
+    if (statusCodeRiskConfirmResolverRef.current) {
+      statusCodeRiskConfirmResolverRef.current(confirmed);
+      statusCodeRiskConfirmResolverRef.current = null;
+    }
+  };
+
+  const confirmStatusCodeRisk = (detailItems) =>
+    new Promise((resolve) => {
+      statusCodeRiskConfirmResolverRef.current = resolve;
+      setStatusCodeRiskDetailItems(detailItems);
+      setStatusCodeRiskConfirmVisible(true);
     });
 
   const hasModelConfigChanged = (normalizedModels, modelMappingStr) => {
@@ -1337,6 +1377,27 @@ const EditChannelModal = (props) => {
           localInputs.models = updatedModels;
           handleInputChange('models', updatedModels);
         }
+      }
+    }
+
+    const invalidStatusCodeEntries = collectInvalidStatusCodeEntries(
+      localInputs.status_code_mapping,
+    );
+    if (invalidStatusCodeEntries.length > 0) {
+      showError(
+        `${t('状态码复写包含无效的状态码')}: ${invalidStatusCodeEntries.join(', ')}`,
+      );
+      return;
+    }
+
+    const riskyStatusCodeRedirects = collectNewDisallowedStatusCodeRedirects(
+      initialStatusCodeMappingRef.current,
+      localInputs.status_code_mapping,
+    );
+    if (riskyStatusCodeRedirects.length > 0) {
+      const confirmed = await confirmStatusCodeRisk(riskyStatusCodeRedirects);
+      if (!confirmed) {
+        return;
       }
     }
 
@@ -3440,6 +3501,12 @@ const EditChannelModal = (props) => {
           onVisibleChange={(visible) => setIsModalOpenurl(visible)}
         />
       </SideSheet>
+      <StatusCodeRiskGuardModal
+        visible={statusCodeRiskConfirmVisible}
+        detailItems={statusCodeRiskDetailItems}
+        onCancel={() => resolveStatusCodeRiskConfirm(false)}
+        onConfirm={() => resolveStatusCodeRiskConfirm(true)}
+      />
       {/* 使用通用安全验证模态框 */}
       <SecureVerificationModal
         visible={isModalVisible}
