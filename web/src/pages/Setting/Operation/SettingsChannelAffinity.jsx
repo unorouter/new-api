@@ -52,6 +52,7 @@ import {
   verifyJSON,
 } from '../../../helpers';
 import { useTranslation } from 'react-i18next';
+import i18next from 'i18next';
 
 const KEY_ENABLED = 'channel_affinity_setting.enabled';
 const KEY_SWITCH_ON_SUCCESS = 'channel_affinity_setting.switch_on_success';
@@ -91,7 +92,7 @@ const RULE_TEMPLATES = {
 };
 
 const CONTEXT_KEY_PRESETS = [
-  { key: 'id', label: 'id（用户 ID）' },
+  { key: 'id', label: i18next.t('id（用户 ID）') },
   { key: 'token_id', label: 'token_id' },
   { key: 'token_key', label: 'token_key' },
   { key: 'token_group', label: 'token_group' },
@@ -785,7 +786,7 @@ export default function SettingsChannelAffinity(props) {
                   field={KEY_MAX_ENTRIES}
                   label={t('最大条目数')}
                   min={0}
-                  placeholder='例如 100000…'
+                  placeholder={t('例如 100000…')}
                   extraText={
                     <Text type='tertiary' size='small'>
                       {t(
@@ -806,7 +807,7 @@ export default function SettingsChannelAffinity(props) {
                   field={KEY_DEFAULT_TTL}
                   label={t('默认 TTL（秒）')}
                   min={0}
-                  placeholder='例如 3600…'
+                  placeholder={t('例如 3600…')}
                   extraText={
                     <Text type='tertiary' size='small'>
                       {t(
@@ -936,7 +937,7 @@ export default function SettingsChannelAffinity(props) {
             field='name'
             label={t('名称')}
             extraText={t('规则名称（可读性更好，也会出现在管理侧日志中）。')}
-            placeholder='例如 prefer-by-conversation-id…'
+            placeholder={t('例如 prefer-by-conversation-id…')}
             rules={[{ required: true }]}
             onChange={(value) =>
               setEditingRule((prev) => ({ ...(prev || {}), name: value }))
@@ -1019,7 +1020,7 @@ export default function SettingsChannelAffinity(props) {
                   <Form.InputNumber
                     field='ttl_seconds'
                     label={t('TTL（秒，0 表示默认）')}
-                    placeholder='例如 600…'
+                    placeholder={t('例如 600…')}
                     min={0}
                     extraText={
                       <Text type='tertiary' size='small'>

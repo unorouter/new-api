@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { SideSheet, Typography, Button } from '@douyinfe/semi-ui';
 import { IconClose } from '@douyinfe/semi-icons';
+import { useTranslation } from 'react-i18next';
 
 import { useIsMobile } from '../../../../hooks/common/useIsMobile';
 import ModelHeader from './components/ModelHeader';
@@ -42,15 +43,15 @@ const ModelDetailSideSheet = ({
   vendorsMap,
   endpointMap,
   autoGroups,
-  t,
 }) => {
+  const { t } = useTranslation();
   const isMobile = useIsMobile();
 
   return (
     <SideSheet
       placement='right'
       title={
-        <ModelHeader modelData={modelData} vendorsMap={vendorsMap} t={t} />
+        <ModelHeader modelData={modelData} vendorsMap={vendorsMap} />
       }
       bodyStyle={{
         padding: '0',
@@ -81,12 +82,10 @@ const ModelDetailSideSheet = ({
             <ModelBasicInfo
               modelData={modelData}
               vendorsMap={vendorsMap}
-              t={t}
             />
             <ModelEndpoints
               modelData={modelData}
               endpointMap={endpointMap}
-              t={t}
             />
             <ModelPricingTable
               modelData={modelData}
@@ -97,7 +96,6 @@ const ModelDetailSideSheet = ({
               showRatio={showRatio}
               usableGroup={usableGroup}
               autoGroups={autoGroups}
-              t={t}
             />
           </>
         )}

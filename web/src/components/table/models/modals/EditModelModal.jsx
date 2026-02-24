@@ -37,6 +37,7 @@ import { Save, X, FileText } from 'lucide-react';
 import { IconAlertTriangle, IconLink } from '@douyinfe/semi-icons';
 import { API, showError, showSuccess } from '../../../../helpers';
 import { useTranslation } from 'react-i18next';
+import i18next from 'i18next';
 import { useIsMobile } from '../../../../hooks/common/useIsMobile';
 
 const { Text, Title } = Typography;
@@ -53,10 +54,10 @@ const ENDPOINT_TEMPLATE = {
 };
 
 const nameRuleOptions = [
-  { label: '精确名称匹配', value: 0 },
-  { label: '前缀名称匹配', value: 1 },
-  { label: '包含名称匹配', value: 2 },
-  { label: '后缀名称匹配', value: 3 },
+  { label: i18next.t('精确名称匹配'), value: 0 },
+  { label: i18next.t('前缀名称匹配'), value: 1 },
+  { label: i18next.t('包含名称匹配'), value: 2 },
+  { label: i18next.t('后缀名称匹配'), value: 3 },
 ];
 
 const EditModelModal = (props) => {

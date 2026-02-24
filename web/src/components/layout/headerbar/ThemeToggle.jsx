@@ -21,8 +21,10 @@ import React, { useMemo } from 'react';
 import { Button, Dropdown } from '@douyinfe/semi-ui';
 import { Sun, Moon, Monitor } from 'lucide-react';
 import { useActualTheme } from '../../../context/Theme';
+import { useTranslation } from 'react-i18next';
 
-const ThemeToggle = ({ theme, onThemeToggle, t }) => {
+const ThemeToggle = ({ theme, onThemeToggle }) => {
+  const { t } = useTranslation();
   const actualTheme = useActualTheme();
 
   const themeOptions = useMemo(

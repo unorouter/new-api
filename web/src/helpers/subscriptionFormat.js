@@ -16,7 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export function formatSubscriptionDuration(plan, t) {
+import { t } from './i18n';
+
+export function formatSubscriptionDuration(plan) {
   const unit = plan?.duration_unit || 'month';
   const value = plan?.duration_value || 1;
   const unitLabels = {
@@ -35,7 +37,7 @@ export function formatSubscriptionDuration(plan, t) {
   return `${value} ${unitLabels[unit] || unit}`;
 }
 
-export function formatSubscriptionResetPeriodShort(plan, t) {
+export function formatSubscriptionResetPeriodShort(plan) {
   const period = plan?.quota_reset_period || 'never';
   if (period === 'daily') return `/${t('天')}`;
   if (period === 'weekly') return `/${t('周')}`;
@@ -101,7 +103,7 @@ export function getResetPeriodsCount(plan) {
   return Math.floor(durationSeconds / resetSeconds);
 }
 
-export function formatSubscriptionResetPeriod(plan, t) {
+export function formatSubscriptionResetPeriod(plan) {
   const period = plan?.quota_reset_period || 'never';
   if (period === 'never') return t('不重置');
   if (period === 'daily') return t('每天');

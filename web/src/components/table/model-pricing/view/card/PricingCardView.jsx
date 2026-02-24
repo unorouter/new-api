@@ -44,6 +44,7 @@ import PricingCardSkeleton from './PricingCardSkeleton';
 import { useMinimumLoadingTime } from '../../../../../hooks/common/useMinimumLoadingTime';
 import { renderLimitedItems } from '../../../../common/ui/RenderUtils';
 import { useIsMobile } from '../../../../../hooks/common/useIsMobile';
+import { useTranslation } from 'react-i18next';
 
 const CARD_STYLES = {
   container:
@@ -70,12 +71,12 @@ const PricingCardView = ({
   tokenUnit,
   displayPrice,
   showRatio,
-  t,
   selectedRowKeys = [],
   setSelectedRowKeys,
   openModelDetail,
   showOriginalPrice,
 }) => {
+  const { t } = useTranslation();
   const showSkeleton = useMinimumLoadingTime(loading);
   const startIndex = (currentPage - 1) * pageSize;
   const paginatedModels = filteredModels.slice(
@@ -266,7 +267,7 @@ const PricingCardView = ({
                         {model.model_name}
                       </h3>
                       <div className='flex items-center gap-x-3 text-xs mt-1 flex-wrap'>
-                        {formatPriceInfo(priceData, t, showOriginalPrice)}
+                        {formatPriceInfo(priceData, showOriginalPrice)}
                       </div>
                     </div>
                   </div>

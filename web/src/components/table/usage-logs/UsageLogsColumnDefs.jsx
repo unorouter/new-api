@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
+import { t } from '../../../helpers/i18n';
 import {
   Avatar,
   Space,
@@ -25,7 +26,7 @@ import {
   Tooltip,
   Popover,
   Typography,
-  Button
+  Button,
 } from '@douyinfe/semi-ui';
 import {
   timestamp2string,
@@ -72,7 +73,7 @@ function formatRatio(ratio) {
   return String(ratio);
 }
 
-function buildChannelAffinityTooltip(affinity, t) {
+function buildChannelAffinityTooltip(affinity) {
   if (!affinity) {
     return null;
   }
@@ -101,7 +102,7 @@ function buildChannelAffinityTooltip(affinity, t) {
 }
 
 // Render functions
-function renderType(type, t) {
+function renderType(type) {
   switch (type) {
     case 1:
       return (
@@ -148,7 +149,7 @@ function renderType(type, t) {
   }
 }
 
-function renderIsStream(bool, t) {
+function renderIsStream(bool) {
   if (bool) {
     return (
       <Tag color='blue' shape='circle'>
@@ -164,7 +165,7 @@ function renderIsStream(bool, t) {
   }
 }
 
-function renderUseTime(type, t) {
+function renderUseTime(type) {
   const time = parseInt(type);
   if (time < 101) {
     return (
@@ -190,7 +191,7 @@ function renderUseTime(type, t) {
   }
 }
 
-function renderFirstUseTime(type, t) {
+function renderFirstUseTime(type) {
   let time = parseFloat(type) / 1000.0;
   time = time.toFixed(1);
   if (time < 3) {
@@ -217,7 +218,7 @@ function renderFirstUseTime(type, t) {
   }
 }
 
-function renderBillingTag(record, t) {
+function renderBillingTag(record) {
   const other = getLogOther(record.other);
   if (other?.billing_source === 'subscription') {
     return (
@@ -229,7 +230,7 @@ function renderBillingTag(record, t) {
   return null;
 }
 
-function renderModelName(record, copyText, t) {
+function renderModelName(record, copyText) {
   let other = getLogOther(record.other);
   let modelMapped =
     other?.is_model_mapped &&
@@ -331,7 +332,6 @@ function getPromptCacheSummary(other) {
 }
 
 export const getLogsColumns = ({
-  t,
   COLUMN_KEYS,
   copyText,
   showUserInfoFunc,
@@ -374,7 +374,10 @@ export const getLogsColumns = ({
         }
 
         return isAdminUser &&
-          (record.type === 0 || record.type === 2 || record.type === 5 || record.type === 6) ? (
+          (record.type === 0 ||
+            record.type === 2 ||
+            record.type === 5 ||
+            record.type === 6) ? (
           <Space>
             <span style={{ position: 'relative', display: 'inline-block' }}>
               <Tooltip content={record.channel_name || t('未知渠道')}>
@@ -394,7 +397,7 @@ export const getLogsColumns = ({
                       <div>{content}</div>
                       {affinity ? (
                         <div style={{ marginTop: 6 }}>
-                          {buildChannelAffinityTooltip(affinity, t)}
+                          {buildChannelAffinityTooltip(affinity)}
                         </div>
                       ) : null}
                     </div>
@@ -465,7 +468,10 @@ export const getLogsColumns = ({
       title: t('令牌'),
       dataIndex: 'token_name',
       render: (text, record, index) => {
-        return record.type === 0 || record.type === 2 || record.type === 5 || record.type === 6 ? (
+        return record.type === 0 ||
+          record.type === 2 ||
+          record.type === 5 ||
+          record.type === 6 ? (
           <div>
             <Tag
               color='grey'
@@ -488,7 +494,12 @@ export const getLogsColumns = ({
       title: t('分组'),
       dataIndex: 'group',
       render: (text, record, index) => {
-        if (record.type === 0 || record.type === 2 || record.type === 5 || record.type === 6) {
+        if (
+          record.type === 0 ||
+          record.type === 2 ||
+          record.type === 5 ||
+          record.type === 6
+        ) {
           if (record.group) {
             return <>{renderGroup(record.group)}</>;
           } else {
@@ -520,7 +531,7 @@ export const getLogsColumns = ({
       title: t('类型'),
       dataIndex: 'type',
       render: (text, record, index) => {
-        return <>{renderType(text, t)}</>;
+        return <>{renderType(text)}</>;
       },
     },
     {
@@ -528,8 +539,11 @@ export const getLogsColumns = ({
       title: t('模型'),
       dataIndex: 'model_name',
       render: (text, record, index) => {
-        return record.type === 0 || record.type === 2 || record.type === 5 || record.type === 6 ? (
-          <>{renderModelName(record, copyText, t)}</>
+        return record.type === 0 ||
+          record.type === 2 ||
+          record.type === 5 ||
+          record.type === 6 ? (
+          <>{renderModelName(record, copyText)}</>
         ) : (
           <></>
         );
@@ -548,9 +562,9 @@ export const getLogsColumns = ({
           return (
             <>
               <Space>
-                {renderUseTime(text, t)}
-                {renderFirstUseTime(other?.frt, t)}
-                {renderIsStream(record.is_stream, t)}
+                {renderUseTime(text)}
+                {renderFirstUseTime(other?.frt)}
+                {renderIsStream(record.is_stream)}
               </Space>
             </>
           );
@@ -558,8 +572,8 @@ export const getLogsColumns = ({
           return (
             <>
               <Space>
-                {renderUseTime(text, t)}
-                {renderIsStream(record.is_stream, t)}
+                {renderUseTime(text)}
+                {renderIsStream(record.is_stream)}
               </Space>
             </>
           );
@@ -595,7 +609,10 @@ export const getLogsColumns = ({
           cacheText = `${t('缓存写')} ${formatTokenCount(cacheSummary.cacheWriteTokens)}`;
         }
 
-        return record.type === 0 || record.type === 2 || record.type === 5 || record.type === 6 ? (
+        return record.type === 0 ||
+          record.type === 2 ||
+          record.type === 5 ||
+          record.type === 6 ? (
           <div
             style={{
               display: 'inline-flex',
@@ -629,7 +646,10 @@ export const getLogsColumns = ({
       dataIndex: 'completion_tokens',
       render: (text, record, index) => {
         return parseInt(text) > 0 &&
-          (record.type === 0 || record.type === 2 || record.type === 5 || record.type === 6) ? (
+          (record.type === 0 ||
+            record.type === 2 ||
+            record.type === 5 ||
+            record.type === 6) ? (
           <>{<span> {text} </span>}</>
         ) : (
           <></>
@@ -641,7 +661,14 @@ export const getLogsColumns = ({
       title: t('花费'),
       dataIndex: 'quota',
       render: (text, record, index) => {
-        if (!(record.type === 0 || record.type === 2 || record.type === 5 || record.type === 6)) {
+        if (
+          !(
+            record.type === 0 ||
+            record.type === 2 ||
+            record.type === 5 ||
+            record.type === 6
+          )
+        ) {
           return <></>;
         }
         const other = getLogOther(record.other);
@@ -650,7 +677,7 @@ export const getLogsColumns = ({
           // Subscription billed: show only tag (no $0), but keep tooltip for equivalent cost.
           return (
             <Tooltip content={`${t('由订阅抵扣')}：${renderQuota(text, 6)}`}>
-              <span>{renderBillingTag(record, t)}</span>
+              <span>{renderBillingTag(record)}</span>
             </Tooltip>
           );
         }
@@ -708,9 +735,9 @@ export const getLogsColumns = ({
           }
           if (other.admin_info !== undefined) {
             if (
-                other.admin_info.use_channel !== null &&
-                other.admin_info.use_channel !== undefined &&
-                other.admin_info.use_channel !== ''
+              other.admin_info.use_channel !== null &&
+              other.admin_info.use_channel !== undefined &&
+              other.admin_info.use_channel !== ''
             ) {
               let useChannel = other.admin_info.use_channel;
               let useChannelStr = useChannel.join('->');
@@ -828,14 +855,14 @@ export const getLogsColumns = ({
               'openai',
             );
         return (
-            <Typography.Paragraph
-                ellipsis={{
-                  rows: 3,
-                }}
-                style={{ maxWidth: 240, whiteSpace: 'pre-line' }}
-            >
-              {content}
-            </Typography.Paragraph>
+          <Typography.Paragraph
+            ellipsis={{
+              rows: 3,
+            }}
+            style={{ maxWidth: 240, whiteSpace: 'pre-line' }}
+          >
+            {content}
+          </Typography.Paragraph>
         );
       },
     },

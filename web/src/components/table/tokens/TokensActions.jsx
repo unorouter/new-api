@@ -22,6 +22,7 @@ import { Button, Space } from '@douyinfe/semi-ui';
 import { showError } from '../../../helpers';
 import CopyTokensModal from './modals/CopyTokensModal';
 import DeleteTokensModal from './modals/DeleteTokensModal';
+import { useTranslation } from 'react-i18next';
 
 const TokensActions = ({
   selectedKeys,
@@ -30,8 +31,8 @@ const TokensActions = ({
   batchCopyTokens,
   batchDeleteTokens,
   copyText,
-  t,
 }) => {
+  const { t } = useTranslation();
   // Modal states
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);

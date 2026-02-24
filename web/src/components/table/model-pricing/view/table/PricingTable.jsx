@@ -24,6 +24,7 @@ import {
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
 import { getPricingTableColumns } from './PricingTableColumns';
+import { useTranslation } from 'react-i18next';
 
 const PricingTable = ({
   filteredModels,
@@ -44,11 +45,10 @@ const PricingTable = ({
   showOriginalPrice,
   compactMode = false,
   openModelDetail,
-  t,
 }) => {
+  const { t } = useTranslation();
   const columns = useMemo(() => {
     return getPricingTableColumns({
-      t,
       selectedGroup,
       groupRatio,
       copyText,
@@ -61,7 +61,6 @@ const PricingTable = ({
       showOriginalPrice,
     });
   }, [
-    t,
     selectedGroup,
     groupRatio,
     copyText,

@@ -397,8 +397,5 @@ export const useModelPricingData = () => {
 
     // 引用
     compositionRef,
-
-    // 国际化
-    t,
   };
 };

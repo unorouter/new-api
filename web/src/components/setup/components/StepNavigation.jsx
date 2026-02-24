@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Button } from '@douyinfe/semi-ui';
 import { IconCheckCircleStroked } from '@douyinfe/semi-icons';
+import { useTranslation } from 'react-i18next';
 
 /**
  * 步骤导航组件
@@ -32,8 +33,8 @@ const StepNavigation = ({
   next,
   onSubmit,
   loading,
-  t,
 }) => {
+  const { t } = useTranslation();
   return (
     <div className='flex justify-between items-center pt-4'>
       {/* 上一步按钮 */}

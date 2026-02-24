@@ -25,8 +25,10 @@ import {
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
 import { getTokensColumns } from './TokensColumnDefs';
+import { useTranslation } from 'react-i18next';
 
 const TokensTable = (tokensData) => {
+  const { t } = useTranslation();
   const {
     tokens,
     loading,
@@ -46,13 +48,11 @@ const TokensTable = (tokensData) => {
     setEditingToken,
     setShowEdit,
     refresh,
-    t,
   } = tokensData;
 
   // Get all columns
   const columns = useMemo(() => {
     return getTokensColumns({
-      t,
       showKeys,
       setShowKeys,
       copyText,
@@ -63,7 +63,6 @@ const TokensTable = (tokensData) => {
       refresh,
     });
   }, [
-    t,
     showKeys,
     setShowKeys,
     copyText,

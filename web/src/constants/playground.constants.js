@@ -17,6 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+import i18next from 'i18next';
+import { t } from '../helpers/i18n';
+
 export const MESSAGE_STATUS = {
   LOADING: 'loading',
   INCOMPLETE: 'incomplete',
@@ -31,7 +34,7 @@ export const MESSAGE_ROLES = {
 };
 
 // 默认消息示例 - 使用函数生成以支持 i18n
-export const getDefaultMessages = (t) => [
+export const getDefaultMessages = () => [
   {
     role: MESSAGE_ROLES.USER,
     id: '2',
@@ -114,14 +117,14 @@ export const THINK_TAG_REGEX = /<think>([\s\S]*?)<\/think>/g;
 
 // ========== 错误消息 ==========
 export const ERROR_MESSAGES = {
-  NO_TEXT_CONTENT: '此消息没有可复制的文本内容',
-  INVALID_MESSAGE_TYPE: '无法复制此类型的消息内容',
-  COPY_FAILED: '复制失败，请手动选择文本复制',
-  COPY_HTTPS_REQUIRED: '复制功能需要 HTTPS 环境，请手动复制',
-  BROWSER_NOT_SUPPORTED: '浏览器不支持复制功能，请手动复制',
-  JSON_PARSE_ERROR: '自定义请求体格式错误，请检查JSON格式',
-  API_REQUEST_ERROR: '请求发生错误',
-  NETWORK_ERROR: '网络连接失败或服务器无响应',
+  NO_TEXT_CONTENT: i18next.t('此消息没有可复制的文本内容'),
+  INVALID_MESSAGE_TYPE: i18next.t('无法复制此类型的消息内容'),
+  COPY_FAILED: i18next.t('复制失败，请手动选择文本复制'),
+  COPY_HTTPS_REQUIRED: i18next.t('复制功能需要 HTTPS 环境，请手动复制'),
+  BROWSER_NOT_SUPPORTED: i18next.t('浏览器不支持复制功能，请手动复制'),
+  JSON_PARSE_ERROR: i18next.t('自定义请求体格式错误，请检查JSON格式'),
+  API_REQUEST_ERROR: i18next.t('请求发生错误'),
+  NETWORK_ERROR: i18next.t('网络连接失败或服务器无响应'),
 };
 
 // ========== 存储键名 ==========

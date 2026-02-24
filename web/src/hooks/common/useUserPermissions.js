@@ -18,12 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect } from 'react';
 import { API } from '../../helpers';
+import { useTranslation } from 'react-i18next';
 
 /**
  * 用户权限钩子 - 从后端获取用户权限，替代前端角色判断
  * 确保权限控制的安全性，防止前端绕过
  */
 export const useUserPermissions = () => {
+  const { t } = useTranslation();
   const [permissions, setPermissions] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

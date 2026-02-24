@@ -21,6 +21,7 @@ import React from 'react';
 import { Card, Avatar, Typography, Table, Tag } from '@douyinfe/semi-ui';
 import { IconCoinMoneyStroked } from '@douyinfe/semi-icons';
 import { calculateModelPrice } from '../../../../../helpers';
+import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
 
@@ -33,8 +34,8 @@ const ModelPricingTable = ({
   showRatio,
   usableGroup,
   autoGroups = [],
-  t,
 }) => {
+  const { t } = useTranslation();
   const modelEnableGroups = Array.isArray(modelData?.enable_groups)
     ? modelData.enable_groups
     : [];

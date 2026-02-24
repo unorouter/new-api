@@ -40,10 +40,12 @@ import {
 import React, { useEffect, useState } from 'react';
 
 import { QRCodeSVG } from 'qrcode.react';
+import { useTranslation } from 'react-i18next';
 
 const { Text, Paragraph } = Typography;
 
-const TwoFASetting = ({ t }) => {
+const TwoFASetting = () => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState({
     enabled: false,

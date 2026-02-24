@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Modal,
   Table,
@@ -32,16 +33,17 @@ import { MousePointerClick } from 'lucide-react';
 import { useIsMobile } from '../../../../hooks/common/useIsMobile';
 import { MODEL_TABLE_PAGE_SIZE } from '../../../../constants';
 import { IconSearch } from '@douyinfe/semi-icons';
+import i18next from 'i18next';
 
 const { Text } = Typography;
 
 const FIELD_LABELS = {
-  description: '描述',
-  icon: '图标',
-  tags: '标签',
-  vendor: '供应商',
-  name_rule: '命名规则',
-  status: '状态',
+  description: i18next.t('描述'),
+  icon: i18next.t('图标'),
+  tags: i18next.t('标签'),
+  vendor: i18next.t('供应商'),
+  name_rule: i18next.t('命名规则'),
+  status: i18next.t('状态'),
 };
 const FIELD_KEYS = Object.keys(FIELD_LABELS);
 
@@ -50,9 +52,9 @@ const UpstreamConflictModal = ({
   onClose,
   conflicts = [],
   onSubmit,
-  t,
   loading = false,
 }) => {
+  const { t } = useTranslation();
   const [selections, setSelections] = useState({});
   const isMobile = useIsMobile();
   const [currentPage, setCurrentPage] = useState(1);
@@ -164,8 +166,7 @@ const UpstreamConflictModal = ({
     ];
 
     const cols = FIELD_KEYS.map((fieldKey) => {
-      const rawLabel = FIELD_LABELS[fieldKey] || fieldKey;
-      const label = t(rawLabel);
+      const label = FIELD_LABELS[fieldKey] || fieldKey;
 
       const { headerChecked, headerIndeterminate, hasAny } =
         getHeaderState(fieldKey);

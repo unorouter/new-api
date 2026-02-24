@@ -19,8 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import { Modal, Button, Space } from '@douyinfe/semi-ui';
+import { useTranslation } from 'react-i18next';
 
-const CopyTokensModal = ({ visible, onCancel, selectedKeys, copyText, t }) => {
+const CopyTokensModal = ({ visible, onCancel, selectedKeys, copyText }) => {
+  const { t } = useTranslation();
   // Handle copy with name and key format
   const handleCopyWithName = async () => {
     let content = '';

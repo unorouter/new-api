@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import SelectableButtonGroup from '../../../common/ui/SelectableButtonGroup';
+import { useTranslation } from 'react-i18next';
 
 const PricingDisplaySettings = ({
   showWithRecharge,
@@ -32,8 +33,8 @@ const PricingDisplaySettings = ({
   tokenUnit,
   setTokenUnit,
   loading = false,
-  t,
 }) => {
+  const { t } = useTranslation();
   const items = [
     {
       value: 'recharge',
@@ -95,7 +96,6 @@ const PricingDisplaySettings = ({
         withCheckbox
         collapsible={false}
         loading={loading}
-        t={t}
       />
 
       {showWithRecharge && (
@@ -106,7 +106,6 @@ const PricingDisplaySettings = ({
           onChange={setCurrency}
           collapsible={false}
           loading={loading}
-          t={t}
         />
       )}
     </div>

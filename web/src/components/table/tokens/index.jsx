@@ -41,8 +41,10 @@ import EditTokenModal from './modals/EditTokenModal';
 import { useTokensData } from '../../../hooks/tokens/useTokensData';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
 import { createCardProPagination } from '../../../helpers/utils';
+import { useTranslation } from 'react-i18next';
 
 function TokensPage() {
+  const { t } = useTranslation();
   // Define the function first, then pass it into the hook to avoid TDZ errors
   const openFluentNotificationRef = useRef(null);
   const tokensData = useTokensData((key) =>
@@ -66,14 +68,14 @@ function TokensPage() {
     latestRef.current = {
       tokens: tokensData.tokens,
       selectedKeys: tokensData.selectedKeys,
-      t: tokensData.t,
+      t,
       selectedModel,
       prefillKey,
     };
   }, [
     tokensData.tokens,
     tokensData.selectedKeys,
-    tokensData.t,
+    t,
     selectedModel,
     prefillKey,
   ]);
@@ -83,7 +85,7 @@ function TokensPage() {
       const res = await API.get('/api/user/models');
       const { success, message, data } = res.data || {};
       if (success) {
-        const categories = getModelCategories(tokensData.t);
+        const categories = getModelCategories();
         const options = (data || []).map((model) => {
           let icon = null;
           for (const [key, category] of Object.entries(categories)) {
@@ -104,7 +106,7 @@ function TokensPage() {
         });
         setModelOptions(options);
       } else {
-        showError(tokensData.t(message));
+        showError(t(message));
       }
     } catch (e) {
       showError(e.message || 'Failed to load models');
@@ -268,7 +270,7 @@ function TokensPage() {
       openFluentNotification();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelOptions, selectedModel, tokensData.t, fluentNoticeOpen]);
+  }, [modelOptions, selectedModel, t, fluentNoticeOpen]);
 
   useEffect(() => {
     const selector = '#fluent-new-api-container';
@@ -350,8 +352,6 @@ function TokensPage() {
     compactMode,
     setCompactMode,
 
-    // Translation
-    t,
   } = tokensData;
 
   return (
@@ -403,9 +403,9 @@ function TokensPage() {
           onPageChange: tokensData.handlePageChange,
           onPageSizeChange: tokensData.handlePageSizeChange,
           isMobile: isMobile,
-          t: tokensData.t,
+          t: t,
         })}
-        t={tokensData.t}
+        t={t}
       >
         <TokensTable {...tokensData} />
       </CardPro>

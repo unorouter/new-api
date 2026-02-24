@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Layout, ImagePreview } from '@douyinfe/semi-ui';
 import PricingSidebar from './PricingSidebar';
 import PricingContent from './content/PricingContent';
@@ -26,6 +27,7 @@ import { useModelPricingData } from '../../../../hooks/model-pricing/useModelPri
 import { useIsMobile } from '../../../../hooks/common/useIsMobile';
 
 const PricingPage = () => {
+  const { t } = useTranslation();
   const pricingData = useModelPricingData();
   const { Sider, Content } = Layout;
   const isMobile = useIsMobile();
@@ -76,7 +78,7 @@ const PricingPage = () => {
         vendorsMap={pricingData.vendorsMap}
         endpointMap={pricingData.endpointMap}
         autoGroups={pricingData.autoGroups}
-        t={pricingData.t}
+        t={t}
       />
     </div>
   );

@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Modal, Button, Checkbox } from '@douyinfe/semi-ui';
 import { getLogsColumns } from '../UsageLogsColumnDefs';
+import { useTranslation } from 'react-i18next';
 
 const ColumnSelectorModal = ({
   showColumnSelector,
@@ -32,11 +33,10 @@ const ColumnSelectorModal = ({
   isAdminUser,
   copyText,
   showUserInfoFunc,
-  t,
 }) => {
+  const { t } = useTranslation();
   // Get all columns for display in selector
   const allColumns = getLogsColumns({
-    t,
     COLUMN_KEYS,
     copyText,
     showUserInfoFunc,

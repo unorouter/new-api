@@ -25,26 +25,20 @@ import {
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
 import { getSubscriptionsColumns } from './SubscriptionsColumnDefs';
+import { useTranslation } from 'react-i18next';
 
 const SubscriptionsTable = (subscriptionsData) => {
-  const {
-    plans,
-    loading,
-    compactMode,
-    openEdit,
-    setPlanEnabled,
-    t,
-    enableEpay,
-  } = subscriptionsData;
+  const { t } = useTranslation();
+  const { plans, loading, compactMode, openEdit, setPlanEnabled, enableEpay } =
+    subscriptionsData;
 
   const columns = useMemo(() => {
     return getSubscriptionsColumns({
-      t,
       openEdit,
       setPlanEnabled,
       enableEpay,
     });
-  }, [t, openEdit, setPlanEnabled, enableEpay]);
+  }, [openEdit, setPlanEnabled, enableEpay]);
 
   const tableColumns = useMemo(() => {
     return compactMode

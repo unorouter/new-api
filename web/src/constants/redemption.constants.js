@@ -17,6 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+import i18next from 'i18next';
+
 export const REDEMPTION_STATUS = {
   UNUSED: 1, // Unused
   DISABLED: 2, // Disabled
@@ -27,15 +29,15 @@ export const REDEMPTION_STATUS = {
 export const REDEMPTION_STATUS_MAP = {
   [REDEMPTION_STATUS.UNUSED]: {
     color: 'green',
-    text: '未使用',
+    text: i18next.t('未使用'),
   },
   [REDEMPTION_STATUS.DISABLED]: {
     color: 'red',
-    text: '已禁用',
+    text: i18next.t('已禁用'),
   },
   [REDEMPTION_STATUS.USED]: {
     color: 'grey',
-    text: '已使用',
+    text: i18next.t('已使用'),
   },
 };
 

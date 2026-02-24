@@ -46,6 +46,7 @@ import {
 } from '@douyinfe/semi-icons';
 import { API } from '../../../../helpers';
 import { showError, showSuccess, copy } from '../../../../helpers';
+import { useTranslation } from 'react-i18next';
 
 const { Text, Title } = Typography;
 const { Option } = Select;
@@ -67,7 +68,8 @@ const generateRandomKey = () => {
     .slice(2)}`;
 };
 
-const CreateDeploymentModal = ({ visible, onCancel, onSuccess, t }) => {
+const CreateDeploymentModal = ({ visible, onCancel, onSuccess }) => {
+  const { t } = useTranslation();
   const [formApi, setFormApi] = useState(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);

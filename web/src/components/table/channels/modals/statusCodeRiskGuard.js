@@ -1,21 +1,23 @@
+import i18next from 'i18next';
+
 const NON_REDIRECTABLE_STATUS_CODES = new Set([504, 524]);
 
 export const STATUS_CODE_RISK_I18N_KEYS = {
-  title: '高危操作确认',
-  detailTitle: '检测到以下高危状态码重定向规则',
-  inputPrompt: '操作确认',
-  confirmButton: '我确认开启高危重试',
-  markdown: '高危状态码重试风险告知与免责声明Markdown',
-  confirmText: '高危状态码重试风险确认输入文本',
-  inputPlaceholder: '高危状态码重试风险输入框占位文案',
-  mismatchText: '高危状态码重试风险输入不匹配提示',
+  title: i18next.t('高危操作确认'),
+  detailTitle: i18next.t('检测到以下高危状态码重定向规则'),
+  inputPrompt: i18next.t('操作确认'),
+  confirmButton: i18next.t('我确认开启高危重试'),
+  markdown: i18next.t('高危状态码重试风险告知与免责声明Markdown'),
+  confirmText: i18next.t('高危状态码重试风险确认输入文本'),
+  inputPlaceholder: i18next.t('高危状态码重试风险输入框占位文案'),
+  mismatchText: i18next.t('高危状态码重试风险输入不匹配提示'),
 };
 
 export const STATUS_CODE_RISK_CHECKLIST_KEYS = [
-  '高危状态码重试风险确认项1',
-  '高危状态码重试风险确认项2',
-  '高危状态码重试风险确认项3',
-  '高危状态码重试风险确认项4',
+  i18next.t('高危状态码重试风险确认项1'),
+  i18next.t('高危状态码重试风险确认项2'),
+  i18next.t('高危状态码重试风险确认项3'),
+  i18next.t('高危状态码重试风险确认项4'),
 ];
 
 function parseStatusCodeKey(rawKey) {

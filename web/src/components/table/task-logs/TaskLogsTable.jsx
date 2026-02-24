@@ -25,8 +25,10 @@ import {
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
 import { getTaskLogsColumns } from './TaskLogsColumnDefs';
+import { useTranslation } from 'react-i18next';
 
 const TaskLogsTable = (taskLogsData) => {
+  const { t } = useTranslation();
   const {
     logs,
     loading,
@@ -43,14 +45,12 @@ const TaskLogsTable = (taskLogsData) => {
     openAudioModal,
     showUserInfoFunc,
     isAdminUser,
-    t,
     COLUMN_KEYS,
   } = taskLogsData;
 
   // Get all columns
   const allColumns = useMemo(() => {
     return getTaskLogsColumns({
-      t,
       COLUMN_KEYS,
       copyText,
       openContentModal,
@@ -59,7 +59,15 @@ const TaskLogsTable = (taskLogsData) => {
       showUserInfoFunc,
       isAdminUser,
     });
-  }, [t, COLUMN_KEYS, copyText, openContentModal, openVideoModal, openAudioModal, showUserInfoFunc, isAdminUser]);
+  }, [
+    COLUMN_KEYS,
+    copyText,
+    openContentModal,
+    openVideoModal,
+    openAudioModal,
+    showUserInfoFunc,
+    isAdminUser,
+  ]);
 
   // Filter columns based on visibility settings
   const getVisibleColumns = () => {

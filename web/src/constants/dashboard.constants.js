@@ -17,6 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+import i18next from 'i18next';
+
 // ========== UI 配置常量 ==========
 export const CHART_CONFIG = { mode: 'desktop-browser' };
 
@@ -38,9 +40,9 @@ export const ILLUSTRATION_SIZE = { width: 96, height: 96 };
 
 // ========== 时间相关常量 ==========
 export const TIME_OPTIONS = [
-  { label: '小时', value: 'hour' },
-  { label: '天', value: 'day' },
-  { label: '周', value: 'week' },
+  { label: i18next.t('小时'), value: 'hour' },
+  { label: i18next.t('天'), value: 'day' },
+  { label: i18next.t('周'), value: 'week' },
 ];
 
 export const DEFAULT_TIME_INTERVALS = {
@@ -119,19 +121,27 @@ export const DEFAULT_CHART_SPECS = {
 
 // ========== 公告图例数据 ==========
 export const ANNOUNCEMENT_LEGEND_DATA = [
-  { color: 'grey', label: '默认', type: 'default' },
-  { color: 'blue', label: '进行中', type: 'ongoing' },
-  { color: 'green', label: '成功', type: 'success' },
-  { color: 'orange', label: '警告', type: 'warning' },
-  { color: 'red', label: '异常', type: 'error' },
+  { color: 'grey', label: i18next.t('默认'), type: 'default' },
+  { color: 'blue', label: i18next.t('进行中'), type: 'ongoing' },
+  { color: 'green', label: i18next.t('成功'), type: 'success' },
+  { color: 'orange', label: i18next.t('警告'), type: 'warning' },
+  { color: 'red', label: i18next.t('异常'), type: 'error' },
 ];
 
 // ========== Uptime 状态映射 ==========
 export const UPTIME_STATUS_MAP = {
-  1: { color: '#10b981', label: '正常', text: '可用率' }, // UP
-  0: { color: '#ef4444', label: '异常', text: '有异常' }, // DOWN
-  2: { color: '#f59e0b', label: '高延迟', text: '高延迟' }, // PENDING
-  3: { color: '#3b82f6', label: '维护中', text: '维护中' }, // MAINTENANCE
+  1: { color: '#10b981', label: i18next.t('正常'), text: i18next.t('可用率') }, // UP
+  0: { color: '#ef4444', label: i18next.t('异常'), text: i18next.t('有异常') }, // DOWN
+  2: {
+    color: '#f59e0b',
+    label: i18next.t('高延迟'),
+    text: i18next.t('高延迟'),
+  }, // PENDING
+  3: {
+    color: '#3b82f6',
+    label: i18next.t('维护中'),
+    text: i18next.t('维护中'),
+  }, // MAINTENANCE
 };
 
 // ========== 本地存储键名 ==========

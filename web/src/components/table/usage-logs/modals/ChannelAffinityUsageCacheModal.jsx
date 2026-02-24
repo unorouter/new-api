@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Descriptions, Spin, Typography } from '@douyinfe/semi-ui';
 import { API, showError, timestamp2string } from '../../../../helpers';
+import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
 
@@ -55,11 +56,11 @@ function hasTextValue(value) {
 }
 
 const ChannelAffinityUsageCacheModal = ({
-  t,
   showChannelAffinityUsageCacheModal,
   setShowChannelAffinityUsageCacheModal,
   channelAffinityUsageCacheTarget,
 }) => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState(null);
   const requestSeqRef = useRef(0);
@@ -161,7 +162,10 @@ const ChannelAffinityUsageCacheModal = ({
       data.push({ key: t('TTL（秒）'), value: windowSeconds });
     }
     if (total > 0) {
-      data.push({ key: t('命中率'), value: `${hit}/${total} (${formatRate(hit, total)})` });
+      data.push({
+        key: t('命中率'),
+        value: `${hit}/${total} (${formatRate(hit, total)})`,
+      });
     }
     if (lastSeenAt > 0) {
       data.push({ key: t('最近一次'), value: timestamp2string(lastSeenAt) });
@@ -178,7 +182,10 @@ const ChannelAffinityUsageCacheModal = ({
         });
       }
       if (promptCacheHitTokens > 0) {
-        data.push({ key: t('Prompt cache hit tokens'), value: promptCacheHitTokens });
+        data.push({
+          key: t('Prompt cache hit tokens'),
+          value: promptCacheHitTokens,
+        });
       }
       if (completionTokens > 0) {
         data.push({ key: t('Completion tokens'), value: completionTokens });
@@ -207,18 +214,15 @@ const ChannelAffinityUsageCacheModal = ({
           <Text type='tertiary' size='small'>
             {t(
               '命中判定：usage 中存在 cached tokens（例如 cached_tokens/prompt_cache_hit_tokens）即视为命中。',
-            )}
-            {' '}
+            )}{' '}
             {t(
               'Cached tokens 占比口径由后端返回：Claude 语义按 cached/(prompt+cached)，其余按 cached/prompt。',
+            )}{' '}
+            {t(
+              '当前仅 OpenAI / Claude 语义支持缓存 token 统计，其他通道将隐藏 token 相关字段。',
             )}
-            {' '}
-            {t('当前仅 OpenAI / Claude 语义支持缓存 token 统计，其他通道将隐藏 token 相关字段。')}
             {stats && !supportsTokenStats ? (
-              <>
-                {' '}
-                {t('该记录不包含可用的 token 统计口径。')}
-              </>
+              <> {t('该记录不包含可用的 token 统计口径。')}</>
             ) : null}
           </Text>
         </div>

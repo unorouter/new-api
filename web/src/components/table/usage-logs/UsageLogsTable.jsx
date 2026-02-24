@@ -25,8 +25,10 @@ import {
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
 import { getLogsColumns } from './UsageLogsColumnDefs';
+import { useTranslation } from 'react-i18next';
 
 const LogsTable = (logsData) => {
+  const { t } = useTranslation();
   const {
     logs,
     expandData,
@@ -43,14 +45,12 @@ const LogsTable = (logsData) => {
     openChannelAffinityUsageCacheModal,
     hasExpandableRows,
     isAdminUser,
-    t,
     COLUMN_KEYS,
   } = logsData;
 
   // Get all columns
   const allColumns = useMemo(() => {
     return getLogsColumns({
-      t,
       COLUMN_KEYS,
       copyText,
       showUserInfoFunc,
@@ -58,7 +58,6 @@ const LogsTable = (logsData) => {
       isAdminUser,
     });
   }, [
-    t,
     COLUMN_KEYS,
     copyText,
     showUserInfoFunc,
