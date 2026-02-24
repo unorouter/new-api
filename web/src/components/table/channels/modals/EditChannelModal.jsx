@@ -191,6 +191,7 @@ const EditChannelModal = (props) => {
   const [fullModels, setFullModels] = useState([]);
   const [modelGroups, setModelGroups] = useState([]);
   const [customModel, setCustomModel] = useState('');
+  const [modelSearchValue, setModelSearchValue] = useState('');
   const [modalImageUrl, setModalImageUrl] = useState('');
   const [isModalOpenurl, setIsModalOpenurl] = useState(false);
   const [modelModalVisible, setModelModalVisible] = useState(false);
@@ -231,6 +232,25 @@ const EditChannelModal = (props) => {
       return [];
     }
   }, [inputs.model_mapping]);
+  const modelSearchMatchedCount = useMemo(() => {
+    const keyword = modelSearchValue.trim();
+    if (!keyword) {
+      return modelOptions.length;
+    }
+    return modelOptions.reduce(
+      (count, option) => count + (selectFilter(keyword, option) ? 1 : 0),
+      0,
+    );
+  }, [modelOptions, modelSearchValue]);
+  const modelSearchHintText = useMemo(() => {
+    const keyword = modelSearchValue.trim();
+    if (!keyword || modelSearchMatchedCount !== 0) {
+      return '';
+    }
+    return t('未匹配到模型，按回车键可将「{{name}}」作为自定义模型名添加', {
+      name: keyword,
+    });
+  }, [modelSearchMatchedCount, modelSearchValue, t]);
   const [isIonetChannel, setIsIonetChannel] = useState(false);
   const [ionetMetadata, setIonetMetadata] = useState(null);
   const [codexOAuthModalVisible, setCodexOAuthModalVisible] = useState(false);
@@ -1019,6 +1039,7 @@ const EditChannelModal = (props) => {
   }, [inputs]);
 
   useEffect(() => {
+    setModelSearchValue('');
     if (props.visible) {
       if (isEdit) {
         loadChannel();
@@ -1073,6 +1094,7 @@ const EditChannelModal = (props) => {
     // 重置豆包隐藏入口状态
     setDoubaoApiEditUnlocked(false);
     doubaoApiClickCountRef.current = 0;
+    setModelSearchValue('');
     // 清空表单中的key_mode字段
     if (formApiRef.current) {
       formApiRef.current.setValue('key_mode', undefined);
@@ -2815,9 +2837,18 @@ const EditChannelModal = (props) => {
                       rules={[{ required: true, message: t('请选择模型') }]}
                       multiple
                       filter={selectFilter}
+                      allowCreate
                       autoClearSearchValue={false}
                       searchPosition='dropdown'
                       optionList={modelOptions}
+                      onSearch={(value) => setModelSearchValue(value)}
+                      innerBottomSlot={
+                        modelSearchHintText ? (
+                          <Text className='px-3 py-2 block text-xs !text-semi-color-text-2'>
+                            {modelSearchHintText}
+                          </Text>
+                        ) : null
+                      }
                       style={{ width: '100%' }}
                       onChange={(value) => handleInputChange('models', value)}
                       renderSelectedItem={(optionNode) => {

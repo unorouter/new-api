@@ -61,8 +61,9 @@ var passthroughSkipHeaderNamesLower = map[string]struct{}{
 	"cookie": {},
 
 	// Additional headers that should not be forwarded by name-matching passthrough rules.
-	"host":           {},
-	"content-length": {},
+	"host":            {},
+	"content-length":  {},
+	"accept-encoding": {},
 
 	// Do not passthrough credentials by wildcard/regex.
 	"authorization":  {},

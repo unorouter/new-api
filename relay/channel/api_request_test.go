@@ -79,3 +79,30 @@ func TestProcessHeaderOverride_NonTestKeepsClientHeaderPlaceholder(t *testing.T)
 	require.NoError(t, err)
 	require.Equal(t, "trace-123", headers["X-Upstream-Trace"])
 }
+
+func TestProcessHeaderOverride_PassthroughSkipsAcceptEncoding(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Request.Header.Set("X-Trace-Id", "trace-123")
+	ctx.Request.Header.Set("Accept-Encoding", "gzip")
+
+	info := &relaycommon.RelayInfo{
+		IsChannelTest: false,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			HeadersOverride: map[string]any{
+				"*": "",
+			},
+		},
+	}
+
+	headers, err := processHeaderOverride(info, ctx)
+	require.NoError(t, err)
+	require.Equal(t, "trace-123", headers["X-Trace-Id"])
+
+	_, hasAcceptEncoding := headers["Accept-Encoding"]
+	require.False(t, hasAcceptEncoding)
+}

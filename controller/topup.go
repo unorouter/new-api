@@ -27,7 +27,8 @@ func GetTopUpInfo(c *gin.Context) {
 	payMethods := operation_setting.PayMethods
 
 	// 如果启用了 Stripe 支付，添加到支付方法列表
-	if setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != "" {
+	stripeConfigured := setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != ""
+	if setting.StripeEnabled && stripeConfigured {
 		// 检查是否已经包含 Stripe
 		hasStripe := false
 		for _, method := range payMethods {
@@ -50,8 +51,8 @@ func GetTopUpInfo(c *gin.Context) {
 
 	data := gin.H{
 		"enable_online_topup": operation_setting.PayAddress != "" && operation_setting.EpayId != "" && operation_setting.EpayKey != "",
-		"enable_stripe_topup": setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != "",
-		"enable_creem_topup":  setting.CreemApiKey != "" && setting.CreemProducts != "[]",
+		"enable_stripe_topup": setting.StripeEnabled && stripeConfigured,
+		"enable_creem_topup":  setting.CreemEnabled && setting.CreemApiKey != "" && setting.CreemProducts != "[]",
 		"creem_products":      setting.CreemProducts,
 		"pay_methods":         payMethods,
 		"min_topup":           operation_setting.MinTopUp,
