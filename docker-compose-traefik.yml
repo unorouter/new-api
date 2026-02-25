@@ -6,10 +6,10 @@ networks:
     driver: bridge
 
 services:
-  new-api:
+  unorouter-new-api:
     build: .
     # image: calciumion/new-api-horizon:latest
-    container_name: new-api
+    container_name: unorouter-new-api
     restart: always
     command: --log-dir /app/logs
     networks:
@@ -19,8 +19,8 @@ services:
       - ~/new-api/data:/data
       - ~/new-api/logs:/app/logs
     environment:
-      - SQL_DSN=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@new-api-postgres:5432/${POSTGRES_DB}
-      - REDIS_CONN_STRING=redis://new-api-redis
+      - SQL_DSN=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@unorouter-new-api-postgres:5432/${POSTGRES_DB}
+      - REDIS_CONN_STRING=redis://unorouter-new-api-redis
       - TZ=Europe/Berlin
       - SESSION_SECRET=${SESSION_SECRET}
       - CRYPTO_SECRET=${CRYPTO_SECRET}
@@ -36,19 +36,19 @@ services:
       - "traefik.http.routers.newapi.tls.certresolver=letsencrypt"
       - "traefik.http.services.newapi.loadbalancer.server.port=3000"
     depends_on:
-      - new-api-redis
-      - new-api-postgres
+      - unorouter-new-api-redis
+      - unorouter-new-api-postgres
 
-  new-api-redis:
+  unorouter-new-api-redis:
     image: redis:latest
-    container_name: new-api-redis
+    container_name: unorouter-new-api-redis
     restart: always
     networks:
       - internal
 
-  new-api-postgres:
+  unorouter-new-api-postgres:
     image: postgres:15
-    container_name: new-api-postgres
+    container_name: unorouter-new-api-postgres
     restart: always
     networks:
       - internal
