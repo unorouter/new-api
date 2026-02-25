@@ -84,6 +84,11 @@ const OperationSetting = () => {
 
     /* 令牌设置 */
     'token_setting.max_user_tokens': 1000,
+
+    /* 邀请返佣设置 */
+    ReferralCommissionEnabled: false,
+    ReferralCommissionPercent: 10,
+    ReferralCommissionMaxRecharges: 0,
   });
 
   let [loading, setLoading] = useState(false);
