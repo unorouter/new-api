@@ -495,7 +495,8 @@ const RechargeCard = ({
                 <Form.Slot label={t('Creem 充值')}>
                   <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2'>
                     {creemProducts.map((product, index) => {
-                      const currencySymbol = product.currency === 'EUR' ? '€' : '$';
+                      const CURRENCY_SYMBOLS = { EUR: '€', USD: '$', GBP: '£', JPY: '¥', CNY: '¥' };
+                      const currencySymbol = CURRENCY_SYMBOLS[product.currency] ?? product.currency + ' ';
                       const price = Number(product.price || 0);
                       return (
                         <Card

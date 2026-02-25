@@ -735,7 +735,7 @@ const TopUp = () => {
                     {t('实付金额')}：
                   </Typography.Text>
                   <Typography.Text strong style={{ color: 'red' }}>
-                    {selectedCreemProduct.currency === 'EUR' ? '€' : '$'}
+                    {({ EUR: '€', USD: '$', GBP: '£', JPY: '¥', CNY: '¥' }[selectedCreemProduct.currency] ?? selectedCreemProduct.currency + ' ')}
                     {Number(selectedCreemProduct.price).toFixed(2)}
                   </Typography.Text>
                 </div>
