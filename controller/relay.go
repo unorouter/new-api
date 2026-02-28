@@ -182,8 +182,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		ModelName:  relayInfo.OriginModelName,
 		Retry:      common.GetPointer(0),
 	}
+	relayInfo.RetryIndex = 0
+	relayInfo.LastError = nil
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
+		relayInfo.RetryIndex = retryParam.GetRetry()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
@@ -216,10 +219,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 
 		if newAPIError == nil {
+			relayInfo.LastError = nil
 			return
 		}
 
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
+		relayInfo.LastError = newAPIError
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 

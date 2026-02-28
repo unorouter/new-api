@@ -103,6 +103,8 @@ type GeneralOpenAIRequest struct {
 	ReturnImages           bool            `json:"return_images,omitempty"`
 	ReturnRelatedQuestions bool            `json:"return_related_questions,omitempty"`
 	SearchMode             string          `json:"search_mode,omitempty"`
+	// Minimax
+	ReasoningSplit json.RawMessage `json:"reasoning_split,omitempty"`
 }
 
 // createFileSource 根据数据内容创建正确类型的 FileSource
