@@ -1,17 +1,17 @@
 package controller
 
 import (
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 )
 
-func GetPricing(c *gin.Context) {
+func GetPricing(c fuego.ContextNoBody) (dto.PricingData, error) {
 	pricing := model.GetPricing()
-	userId, exists := c.Get("id")
+	userId, exists := dto.GinCtx(c).Get("id")
 	usableGroup := map[string]string{}
 	groupRatio := map[string]float64{}
 	for s, f := range ratio_setting.GetGroupRatioCopy() {
@@ -32,7 +32,6 @@ func GetPricing(c *gin.Context) {
 	}
 
 	usableGroup = service.GetUserUsableGroups(group)
-	// check groupRatio contains usableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		if _, ok := usableGroup[group]; !ok {
 			delete(groupRatio, group)
@@ -41,39 +40,27 @@ func GetPricing(c *gin.Context) {
 
 	showOriginalPrice := operation_setting.ShowOriginalPriceEnabled
 
-	c.JSON(200, gin.H{
-		"success":              true,
-		"data":                 pricing,
-		"vendors":              model.GetVendors(),
-		"group_ratio":          groupRatio,
-		"usable_group":         usableGroup,
-		"supported_endpoint":   model.GetSupportedEndpointMap(),
-		"auto_groups":          service.GetUserAutoGroup(group),
-		"show_original_price":  showOriginalPrice,
-		"_":                    "a42d372ccf0b5dd13ecf71203521f9d2",
-	})
+	return dto.PricingData{
+		Success:           true,
+		Data:              pricing,
+		Vendors:           model.GetVendors(),
+		GroupRatio:        groupRatio,
+		UsableGroup:       usableGroup,
+		SupportedEndpoint: model.GetSupportedEndpointMap(),
+		AutoGroups:        service.GetUserAutoGroup(group),
+		ShowOriginalPrice: showOriginalPrice,
+	}, nil
 }
 
-func ResetModelRatio(c *gin.Context) {
+func ResetModelRatio(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	defaultStr := ratio_setting.DefaultModelRatio2JSONString()
 	err := model.UpdateOption("ModelRatio", defaultStr)
 	if err != nil {
-		c.JSON(200, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
+		return dto.FailMsg(err.Error())
 	}
 	err = ratio_setting.UpdateModelRatioByJSONString(defaultStr)
 	if err != nil {
-		c.JSON(200, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
+		return dto.FailMsg(err.Error())
 	}
-	c.JSON(200, gin.H{
-		"success": true,
-		"message": "重置模型倍率成功",
-	})
+	return dto.Msg("重置模型倍率成功")
 }

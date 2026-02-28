@@ -1,7 +1,6 @@
 package openaicompat
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -233,21 +232,21 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 			out.PromptCacheKey = key
 		}
 	}
-	if req.MaxOutputTokens > 0 {
+	if req.MaxOutputTokens != nil && *req.MaxOutputTokens > 0 {
 		out.MaxCompletionTokens = req.MaxOutputTokens
 	}
 	if req.Temperature != nil {
 		out.Temperature = req.Temperature
 	}
 	if req.TopP != nil {
-		out.TopP = *req.TopP
+		out.TopP = req.TopP
 	}
 	if req.Reasoning != nil && req.Reasoning.Effort != "" && req.Reasoning.Effort != "none" {
 		out.ReasoningEffort = req.Reasoning.Effort
 	}
 
 	// Stream options
-	if req.Stream {
+	if req.Stream != nil && *req.Stream {
 		out.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
 	}
 
@@ -255,7 +254,7 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 	if len(req.ParallelToolCalls) > 0 {
 		var ptc bool
 		if err := common.Unmarshal(req.ParallelToolCalls, &ptc); err == nil {
-			out.ParallelTooCalls = &ptc
+			out.ParallelToolCalls = &ptc
 		}
 	}
 
@@ -396,7 +395,7 @@ func convertResponsesContentToChat(content any) any {
 
 // convertResponsesTextToResponseFormat converts Responses API text field to Chat API response_format.
 // Inverse of convertChatResponseFormatToResponsesText in chat_to_responses.go.
-func convertResponsesTextToResponseFormat(textRaw json.RawMessage) *dto.ResponseFormat {
+func convertResponsesTextToResponseFormat(textRaw []byte) *dto.ResponseFormat {
 	if len(textRaw) == 0 {
 		return nil
 	}

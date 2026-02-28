@@ -219,15 +219,15 @@ const TopUp = () => {
       }
 
       if (res !== undefined) {
-        const { message, data } = res.data;
-        if (message === 'success') {
+        const { success, message, data } = res.data;
+        if (success) {
           if (payWay === 'stripe') {
             // Stripe 支付回调处理
             window.open(data.pay_link, '_blank');
           } else {
             // 普通支付表单提交
-            let params = data;
-            let url = res.data.url;
+            let params = data.params;
+            let url = data.url;
             let form = document.createElement('form');
             form.action = url;
             form.method = 'POST';
@@ -249,9 +249,7 @@ const TopUp = () => {
             document.body.removeChild(form);
           }
         } else {
-          const errorMsg =
-            typeof data === 'string' ? data : message || t('支付失败');
-          showError(errorMsg);
+          showError(message || t('支付失败'));
         }
       } else {
         showError(res);
@@ -291,13 +289,11 @@ const TopUp = () => {
         payment_method: 'creem',
       });
       if (res !== undefined) {
-        const { message, data } = res.data;
-        if (message === 'success') {
+        const { success, message, data } = res.data;
+        if (success) {
           processCreemCallback(data);
         } else {
-          const errorMsg =
-            typeof data === 'string' ? data : message || t('支付失败');
-          showError(errorMsg);
+          showError(message || t('支付失败'));
         }
       } else {
         showError(res);
@@ -575,12 +571,12 @@ const TopUp = () => {
         amount: parseFloat(value),
       });
       if (res !== undefined) {
-        const { message, data } = res.data;
-        if (message === 'success') {
+        const { success, message, data } = res.data;
+        if (success) {
           setAmount(parseFloat(data));
         } else {
           setAmount(0);
-          Toast.error({ content: t('错误：') + data, id: 'getAmount' });
+          Toast.error({ content: t('错误：') + (message || data), id: 'getAmount' });
         }
       } else {
         showError(res);
@@ -601,12 +597,12 @@ const TopUp = () => {
         amount: parseFloat(value),
       });
       if (res !== undefined) {
-        const { message, data } = res.data;
-        if (message === 'success') {
+        const { success, message, data } = res.data;
+        if (success) {
           setAmount(parseFloat(data));
         } else {
           setAmount(0);
-          Toast.error({ content: t('错误：') + data, id: 'getAmount' });
+          Toast.error({ content: t('错误：') + (message || data), id: 'getAmount' });
         }
       } else {
         showError(res);

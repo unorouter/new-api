@@ -50,8 +50,8 @@ type GeneralOpenAIRequest struct {
 	PresencePenalty     float64           `json:"presence_penalty,omitempty"`
 	ResponseFormat      *ResponseFormat   `json:"response_format,omitempty"`
 	EncodingFormat      json.RawMessage   `json:"encoding_format,omitempty"`
-	Seed                float64           `json:"seed,omitempty"`
-	ParallelTooCalls    *bool             `json:"parallel_tool_calls,omitempty"`
+	Seed                *float64          `json:"seed,omitempty"`
+	ParallelToolCalls    *bool             `json:"parallel_tool_calls,omitempty"`
 	Tools               []ToolCallRequest `json:"tools,omitempty"`
 	ToolChoice          any               `json:"tool_choice,omitempty"`
 	FunctionCall        json.RawMessage   `json:"function_call,omitempty"`

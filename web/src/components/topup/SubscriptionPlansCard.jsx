@@ -126,16 +126,12 @@ const SubscriptionPlansCard = ({
       const res = await API.post('/api/subscription/stripe/pay', {
         plan_id: selectedPlan.plan.id,
       });
-      if (res.data?.message === 'success') {
+      if (res.data?.success) {
         window.open(res.data.data?.pay_link, '_blank');
         showSuccess(t('已打开支付页面'));
         closeBuy();
       } else {
-        const errorMsg =
-          typeof res.data?.data === 'string'
-            ? res.data.data
-            : res.data?.message || t('支付失败');
-        showError(errorMsg);
+        showError(res.data?.message || t('支付失败'));
       }
     } catch (e) {
       showError(t('支付请求失败'));
@@ -154,16 +150,12 @@ const SubscriptionPlansCard = ({
       const res = await API.post('/api/subscription/creem/pay', {
         plan_id: selectedPlan.plan.id,
       });
-      if (res.data?.message === 'success') {
+      if (res.data?.success) {
         window.open(res.data.data?.checkout_url, '_blank');
         showSuccess(t('已打开支付页面'));
         closeBuy();
       } else {
-        const errorMsg =
-          typeof res.data?.data === 'string'
-            ? res.data.data
-            : res.data?.message || t('支付失败');
-        showError(errorMsg);
+        showError(res.data?.message || t('支付失败'));
       }
     } catch (e) {
       showError(t('支付请求失败'));
@@ -183,16 +175,12 @@ const SubscriptionPlansCard = ({
         plan_id: selectedPlan.plan.id,
         payment_method: selectedEpayMethod,
       });
-      if (res.data?.message === 'success') {
-        submitEpayForm({ url: res.data.url, params: res.data.data });
+      if (res.data?.success) {
+        submitEpayForm({ url: res.data.data.url, params: res.data.data.params });
         showSuccess(t('已发起支付'));
         closeBuy();
       } else {
-        const errorMsg =
-          typeof res.data?.data === 'string'
-            ? res.data.data
-            : res.data?.message || t('支付失败');
-        showError(errorMsg);
+        showError(res.data?.message || t('支付失败'));
       }
     } catch (e) {
       showError(t('支付请求失败'));
