@@ -28,6 +28,7 @@ services:
       - BATCH_UPDATE_ENABLED=false
       - MEMORY_CACHE_ENABLED=false
       - GIN_MODE=release
+      - ENABLE_OPENAPI=true
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=proxy"

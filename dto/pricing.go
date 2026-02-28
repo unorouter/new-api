@@ -1,6 +1,19 @@
 package dto
 
-import "github.com/QuantumNous/new-api/constant"
+import (
+	"github.com/QuantumNous/new-api/constant"
+)
+
+type PricingData struct {
+	Success           bool               `json:"success"`
+	Data              any                `json:"data"`
+	Vendors           any                `json:"vendors"`
+	GroupRatio        map[string]float64 `json:"group_ratio"`
+	UsableGroup       map[string]string  `json:"usable_group"`
+	SupportedEndpoint any                `json:"supported_endpoint"`
+	AutoGroups        []string           `json:"auto_groups"`
+	ShowOriginalPrice bool               `json:"show_original_price"`
+}
 
 // 这里不好动就不动了，本来想独立出来的（
 type OpenAIModels struct {

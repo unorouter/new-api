@@ -1,53 +1,29 @@
 package controller
 
 import (
-	"net/http"
-	"strconv"
-
-	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
-
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 )
 
-func GetAllQuotaDates(c *gin.Context) {
-	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	username := c.Query("username")
-	dates, err := model.GetAllQuotaDates(startTimestamp, endTimestamp, username)
+func GetAllQuotaDates(c fuego.ContextWithParams[dto.GetAllQuotaDatesParams]) (*dto.Response[[]*model.QuotaData], error) {
+	p, _ := dto.ParseParams[dto.GetAllQuotaDatesParams](c)
+	dates, err := model.GetAllQuotaDates(p.StartTimestamp, p.EndTimestamp, p.Username)
 	if err != nil {
-		common.ApiError(c, err)
-		return
+		return dto.Fail[[]*model.QuotaData](err.Error())
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    dates,
-	})
-	return
+	return dto.Ok(dates)
 }
 
-func GetUserQuotaDates(c *gin.Context) {
-	userId := c.GetInt("id")
-	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	// 判断时间跨度是否超过 1 个月
-	if endTimestamp-startTimestamp > 2592000 {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "时间跨度不能超过 1 个月",
-		})
-		return
+func GetUserQuotaDates(c fuego.ContextWithParams[dto.GetUserQuotaDatesParams]) (*dto.Response[[]*model.QuotaData], error) {
+	userId := dto.UserID(c)
+	p, _ := dto.ParseParams[dto.GetUserQuotaDatesParams](c)
+	if p.EndTimestamp-p.StartTimestamp > 2592000 {
+		return dto.Fail[[]*model.QuotaData]("时间跨度不能超过 1 个月")
 	}
-	dates, err := model.GetQuotaDataByUserId(userId, startTimestamp, endTimestamp)
+	dates, err := model.GetQuotaDataByUserId(userId, p.StartTimestamp, p.EndTimestamp)
 	if err != nil {
-		common.ApiError(c, err)
-		return
+		return dto.Fail[[]*model.QuotaData](err.Error())
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    dates,
-	})
-	return
+	return dto.Ok(dates)
 }

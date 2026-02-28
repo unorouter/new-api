@@ -233,21 +233,21 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 			out.PromptCacheKey = key
 		}
 	}
-	if req.MaxOutputTokens > 0 {
+	if req.MaxOutputTokens != nil && *req.MaxOutputTokens > 0 {
 		out.MaxCompletionTokens = req.MaxOutputTokens
 	}
 	if req.Temperature != nil {
 		out.Temperature = req.Temperature
 	}
 	if req.TopP != nil {
-		out.TopP = *req.TopP
+		out.TopP = req.TopP
 	}
 	if req.Reasoning != nil && req.Reasoning.Effort != "" && req.Reasoning.Effort != "none" {
 		out.ReasoningEffort = req.Reasoning.Effort
 	}
 
 	// Stream options
-	if req.Stream {
+	if req.Stream != nil && *req.Stream {
 		out.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
 	}
 
