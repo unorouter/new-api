@@ -1,7 +1,7 @@
 module github.com/QuantumNous/new-api
 
 // +heroku goVersion go1.18
-go 1.25.1
+go 1.25.7
 
 require (
 	github.com/Calcium-Ion/go-epay v0.0.4
@@ -13,6 +13,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.0
 	github.com/aws/smithy-go v1.24.2
 	github.com/bytedance/gopkg v0.1.3
+	github.com/getkin/kin-openapi v0.133.0
 	github.com/gin-contrib/cors v1.7.2
 	github.com/gin-contrib/gzip v0.0.6
 	github.com/gin-contrib/sessions v0.0.5
@@ -23,10 +24,10 @@ require (
 	github.com/go-audio/wav v1.1.0
 	github.com/go-fuego/fuego v0.19.0
 	github.com/go-fuego/fuego/extra/fuegogin v0.19.0
-	github.com/go-playground/validator/v10 v10.28.0
+	github.com/go-playground/validator/v10 v10.30.1
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/go-webauthn/webauthn v0.14.0
-	github.com/golang-jwt/jwt/v5 v5.3.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/grafana/pyroscope-go v1.2.7
@@ -49,12 +50,12 @@ require (
 	github.com/tidwall/sjson v1.2.5
 	github.com/tiktoken-go/tokenizer v0.6.2
 	github.com/yapingcat/gomedia v0.0.0-20240906162731-17feea57090c
-	golang.org/x/crypto v0.45.0
+	golang.org/x/crypto v0.47.0
 	golang.org/x/image v0.23.0
-	golang.org/x/net v0.47.0
+	golang.org/x/net v0.48.0
 	golang.org/x/sync v0.19.0
-	golang.org/x/sys v0.39.0
-	golang.org/x/text v0.32.0
+	golang.org/x/sys v0.40.0
+	golang.org/x/text v0.34.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.4.3
 	gorm.io/driver/postgres v1.5.2
@@ -78,8 +79,7 @@ require (
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
-	github.com/gabriel-vasile/mimetype v1.4.11 // indirect
-	github.com/getkin/kin-openapi v0.133.0 // indirect
+	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/go-audio/audio v1.0.0 // indirect
@@ -152,3 +152,5 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.40.1 // indirect
 )
+
+replace github.com/go-fuego/fuego => github.com/0-don/fuego v0.19.1-0.20260302222543-606ef618a87d
