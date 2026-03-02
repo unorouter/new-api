@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -42,14 +43,57 @@ func GetPricing(c fuego.ContextNoBody) (dto.PricingData, error) {
 
 	return dto.PricingData{
 		Success:           true,
-		Data:              pricing,
-		Vendors:           model.GetVendors(),
+		Data:              toPricingModels(pricing),
+		Vendors:           toPricingVendors(model.GetVendors()),
 		GroupRatio:        groupRatio,
 		UsableGroup:       usableGroup,
-		SupportedEndpoint: model.GetSupportedEndpointMap(),
+		SupportedEndpoint: toEndpointInfoMap(model.GetSupportedEndpointMap()),
 		AutoGroups:        service.GetUserAutoGroup(group),
 		ShowOriginalPrice: showOriginalPrice,
 	}, nil
+}
+
+func toPricingModels(src []model.Pricing) []dto.PricingModel {
+	out := make([]dto.PricingModel, len(src))
+	for i, m := range src {
+		out[i] = dto.PricingModel{
+			ModelName:              m.ModelName,
+			Description:            m.Description,
+			Icon:                   m.Icon,
+			Tags:                   m.Tags,
+			VendorID:               m.VendorID,
+			QuotaType:              m.QuotaType,
+			ModelRatio:             m.ModelRatio,
+			ModelPrice:             m.ModelPrice,
+			OwnerBy:                m.OwnerBy,
+			CompletionRatio:        m.CompletionRatio,
+			EnableGroup:            m.EnableGroup,
+			SupportedEndpointTypes: m.SupportedEndpointTypes,
+			PricingVersion:         m.PricingVersion,
+		}
+	}
+	return out
+}
+
+func toPricingVendors(src []model.PricingVendor) []dto.PricingVendor {
+	out := make([]dto.PricingVendor, len(src))
+	for i, v := range src {
+		out[i] = dto.PricingVendor{
+			ID:          v.ID,
+			Name:        v.Name,
+			Description: v.Description,
+			Icon:        v.Icon,
+		}
+	}
+	return out
+}
+
+func toEndpointInfoMap(src map[string]common.EndpointInfo) map[string]dto.EndpointInfo {
+	out := make(map[string]dto.EndpointInfo, len(src))
+	for k, v := range src {
+		out[k] = dto.EndpointInfo{Path: v.Path, Method: v.Method}
+	}
+	return out
 }
 
 func ResetModelRatio(c fuego.ContextNoBody) (dto.MessageResponse, error) {
