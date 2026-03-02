@@ -876,12 +876,18 @@ func UpdateUserSetting(c fuego.ContextWithBody[dto.UpdateUserSettingRequest]) (d
 	if err != nil {
 		return dto.FailMsg(err.Error())
 	}
+	existingSettings := user.GetSetting()
+	upstreamModelUpdateNotifyEnabled := existingSettings.UpstreamModelUpdateNotifyEnabled
+	if user.Role >= common.RoleAdminUser && req.UpstreamModelUpdateNotifyEnabled != nil {
+		upstreamModelUpdateNotifyEnabled = *req.UpstreamModelUpdateNotifyEnabled
+	}
 
 	settings := dto.UserSetting{
-		NotifyType:            req.QuotaWarningType,
-		QuotaWarningThreshold: req.QuotaWarningThreshold,
-		AcceptUnsetRatioModel: req.AcceptUnsetModelRatioModel,
-		RecordIpLog:           req.RecordIpLog,
+		NotifyType:                       req.QuotaWarningType,
+		QuotaWarningThreshold:            req.QuotaWarningThreshold,
+		UpstreamModelUpdateNotifyEnabled: upstreamModelUpdateNotifyEnabled,
+		AcceptUnsetRatioModel:            req.AcceptUnsetModelRatioModel,
+		RecordIpLog:                      req.RecordIpLog,
 	}
 
 	if req.QuotaWarningType == dto.NotifyTypeWebhook {

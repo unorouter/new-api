@@ -270,6 +270,10 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.GetP(ch, "/tag/models", controller.GetTagModels)
 		dto.PostP(ch, "/copy/:id", controller.CopyChannel, option.Path("id", "Channel ID"))
 		dto.PostB(ch, "/multi_key/manage", controller.ManageMultiKeys, dto.Resp[dto.MultiKeyStatusResponse]())
+		ch.GinPost("/upstream_updates/apply", controller.ApplyChannelUpstreamModelUpdates, dto.GinResp[any]())
+		ch.GinPost("/upstream_updates/apply_all", controller.ApplyAllChannelUpstreamModelUpdates, dto.GinResp[any]())
+		ch.GinPost("/upstream_updates/detect", controller.DetectChannelUpstreamModelUpdates, dto.GinResp[any]())
+		ch.GinPost("/upstream_updates/detect_all", controller.DetectAllChannelUpstreamModelUpdates, dto.GinResp[any]())
 
 		// Channel key route (root + extra middleware)
 		chKey := dto.NewRouter(engine, channelGroup.Group("", middleware.RootAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.SecureVerificationRequired()), "Channel", secDashboard())
