@@ -3292,6 +3292,18 @@ const EditChannelModal = (props) => {
                             inputs.upstream_model_update_last_check_time,
                           )}
                         </div>
+                        <Form.Input
+                          field='upstream_model_update_ignored_models'
+                          label={t('已忽略模型')}
+                          placeholder={t('例如：gpt-4.1-nano,gpt-4o-mini')}
+                          onChange={(value) =>
+                            handleInputChange(
+                              'upstream_model_update_ignored_models',
+                              value,
+                            )
+                          }
+                          showClear
+                        />
                       </>
                     )}
 
@@ -3459,19 +3471,6 @@ const EditChannelModal = (props) => {
                         extraText={t(
                             '开启后检测到新增模型会自动加入当前渠道模型列表',
                         )}
-                    />
-
-                    <Form.Input
-                        field='upstream_model_update_ignored_models'
-                        label={t('手动忽略模型（逗号分隔）')}
-                        placeholder={t('例如：gpt-4.1-nano,gpt-4o-mini')}
-                        onChange={(value) =>
-                            handleInputChange(
-                                'upstream_model_update_ignored_models',
-                                value,
-                            )
-                        }
-                        showClear
                     />
 
                     <div className='text-xs text-gray-500 mb-3'>

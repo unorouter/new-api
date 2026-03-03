@@ -730,14 +730,6 @@ func DetectChannelUpstreamModelUpdates(c *gin.Context) {
 	}
 
 	settings := channel.GetOtherSettings()
-	if !settings.UpstreamModelUpdateCheckEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "该渠道未开启上游模型更新检测",
-		})
-		return
-	}
-
 	modelsChanged, autoAdded, err := checkAndPersistChannelUpstreamModelUpdates(channel, &settings, true, false)
 	if err != nil {
 		common.ApiError(c, err)

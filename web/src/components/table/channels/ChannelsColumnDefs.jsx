@@ -723,10 +723,6 @@ export const getChannelsColumns = ({
               name: t('仅检测上游模型更新'),
               type: 'tertiary',
               onClick: () => {
-                if (!upstreamUpdateMeta.enabled) {
-                  showInfo(t('该渠道未开启上游模型更新检测'));
-                  return;
-                }
                 detectChannelUpstreamUpdates(record);
               },
             });
