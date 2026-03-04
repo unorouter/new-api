@@ -11,6 +11,12 @@ services:
     container_name: debug-new-api
     restart: always
     command: --log-dir /app/logs
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - proxy
       - debug-internal
@@ -29,6 +35,7 @@ services:
       - GIN_MODE=debug
       - ENABLE_OPENAPI=true
     labels:
+      - "autoheal=true"
       - "traefik.enable=true"
       - "traefik.docker.network=proxy"
       - "traefik.http.routers.newapi-debug.rule=Host(`debug.unorouter.ai`)"
