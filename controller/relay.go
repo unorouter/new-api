@@ -361,7 +361,11 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		modelName := c.GetString("original_model")
 		tokenId := c.GetInt("token_id")
 		userGroup := c.GetString("group")
-		channelId := c.GetInt("channel_id")
+		// Resolve actual group for auto tokens, preserving "auto>" prefix for debugging
+		if autoGroup, exists := common.GetContextKey(c, constant.ContextKeyAutoGroup); exists {
+			userGroup = fmt.Sprintf("auto>%s", autoGroup.(string))
+		}
+		channelId := channelError.ChannelId
 		other := make(map[string]interface{})
 		if c.Request != nil && c.Request.URL != nil {
 			other["request_path"] = c.Request.URL.Path
@@ -370,8 +374,8 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		other["error_code"] = err.GetErrorCode()
 		other["status_code"] = err.StatusCode
 		other["channel_id"] = channelId
-		other["channel_name"] = c.GetString("channel_name")
-		other["channel_type"] = c.GetInt("channel_type")
+		other["channel_name"] = channelError.ChannelName
+		other["channel_type"] = channelError.ChannelType
 		adminInfo := make(map[string]interface{})
 		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
 		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
