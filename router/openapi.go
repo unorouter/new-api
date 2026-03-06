@@ -1,7 +1,6 @@
 package router
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -99,48 +98,6 @@ func newOpenAPIEngine() *fuego.Engine {
 	return engine
 }
 
-// sanitizeSchemaNames fixes two fuego v0.19.0 bugs by post-processing the spec:
-//
-//  1. transformTypeName produces invalid schema names for []T, map[K]V, *T, and
-//     nested generics (e.g. "Response_[", "Response_map[string") because it only
-//     strips one level of brackets. https://github.com/go-fuego/fuego/issues/560
-//
-//  2. RegisterParams reads the "description" struct tag and passes it as ParamExample,
-//     which panics for bool/int fields. We strip those tags in query_params.go, but
-//     this also cleans up any residual bad examples. https://github.com/go-fuego/fuego/pull/588
-//
-// Approach: collect invalid schema keys, serialize the whole spec to JSON, do literal
-// string replacements for both keys and $ref pointers, then deserialize back.
-func sanitizeSchemaNames(spec *openapi3.T) {
-	if spec.Components == nil {
-		return
-	}
-	replacer := strings.NewReplacer("[", "_", "]", "_", "*", "", " ", "")
-	var renames [][2]string // {old, new}
-	for name := range spec.Components.Schemas {
-		clean := replacer.Replace(name)
-		for strings.Contains(clean, "__") {
-			clean = strings.ReplaceAll(clean, "__", "_")
-		}
-		clean = strings.TrimRight(clean, "_")
-		if clean != name {
-			renames = append(renames, [2]string{name, clean})
-		}
-	}
-	if len(renames) == 0 {
-		return
-	}
-	data, err := json.Marshal(spec)
-	if err != nil {
-		return
-	}
-	raw := string(data)
-	for _, r := range renames {
-		raw = strings.ReplaceAll(raw, r[0], r[1])
-	}
-	json.Unmarshal([]byte(raw), spec)
-}
-
 // registerOpenAPIRoutes finalizes the spec and registers the JSON + Scalar UI routes.
 // No-op when engine is nil (i.e. ENABLE_OPENAPI is not set).
 func registerOpenAPIRoutes(engine *fuego.Engine, router *gin.Engine) {
@@ -149,7 +106,6 @@ func registerOpenAPIRoutes(engine *fuego.Engine, router *gin.Engine) {
 	}
 	spec := engine.OpenAPI.Description()
 	stripFuegoDescriptions(spec)
-	sanitizeSchemaNames(spec)
 	engine.RegisterOpenAPIRoutes(&fuegogin.OpenAPIHandler{GinEngine: router})
 }
 

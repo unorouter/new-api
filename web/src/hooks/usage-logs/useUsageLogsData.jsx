@@ -776,6 +776,7 @@ export const useLogsData = () => {
   };
 
   return {
+    t,
     // Basic state
     logs,
     expandData,
