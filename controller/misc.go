@@ -101,6 +101,8 @@ func GetStatus(c fuego.ContextNoBody) (*dto.Response[dto.StatusData], error) {
 		UserAgreementEnabled:       legalSetting.UserAgreement != "",
 		PrivacyPolicyEnabled:       legalSetting.PrivacyPolicy != "",
 		CheckinEnabled:             operation_setting.GetCheckinSetting().Enabled,
+		PasswordLoginEnabled:       common.PasswordLoginEnabled,
+		PasswordRegisterEnabled:    common.PasswordRegisterEnabled,
 		QN:                         "new-api",
 	}
 

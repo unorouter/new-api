@@ -1,6 +1,7 @@
 package openaicompat
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -207,7 +208,7 @@ func (s *ChatToResponsesStreamState) FinalEvents(usage *dto.Usage) []dto.Respons
 		ID:        s.ResponseID,
 		Object:    "response",
 		CreatedAt: int(s.CreatedAt),
-		Status:    "completed",
+		Status:    json.RawMessage(`"completed"`),
 		Model:     s.Model,
 		Output:    output,
 		Usage:     finalUsage,
@@ -239,7 +240,7 @@ func (s *ChatToResponsesStreamState) createdEvent() dto.ResponsesStreamResponse 
 		ID:        s.ResponseID,
 		Object:    "response",
 		CreatedAt: int(s.CreatedAt),
-		Status:    "in_progress",
+		Status:    json.RawMessage(`"in_progress"`),
 		Model:     s.Model,
 		Output:    []dto.ResponsesOutput{},
 	}
@@ -255,7 +256,7 @@ func (s *ChatToResponsesStreamState) inProgressEvent() dto.ResponsesStreamRespon
 		ID:        s.ResponseID,
 		Object:    "response",
 		CreatedAt: int(s.CreatedAt),
-		Status:    "in_progress",
+		Status:    json.RawMessage(`"in_progress"`),
 		Model:     s.Model,
 		Output:    []dto.ResponsesOutput{},
 	}

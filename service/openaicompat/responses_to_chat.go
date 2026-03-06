@@ -1,6 +1,7 @@
 package openaicompat
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -519,7 +520,7 @@ func ChatCompletionsResponseToResponsesResponse(resp *dto.OpenAITextResponse, mo
 		ID:        respID,
 		Object:    "response",
 		CreatedAt: now,
-		Status:    "completed",
+		Status:    json.RawMessage(`"completed"`),
 		Model:     model,
 		Output:    outputs,
 		Usage:     usage,

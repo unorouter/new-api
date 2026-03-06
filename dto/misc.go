@@ -68,6 +68,8 @@ type StatusData struct {
 	UserAgreementEnabled         bool    `json:"user_agreement_enabled"`
 	PrivacyPolicyEnabled         bool    `json:"privacy_policy_enabled"`
 	CheckinEnabled               bool    `json:"checkin_enabled"`
+	PasswordLoginEnabled         bool    `json:"password_login_enabled"`
+	PasswordRegisterEnabled      bool    `json:"password_register_enabled"`
 	QN                           string  `json:"_qn"`
 	ApiInfo                      any     `json:"api_info,omitempty"`
 	Announcements                any     `json:"announcements,omitempty"`
