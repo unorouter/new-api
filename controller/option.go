@@ -15,10 +15,56 @@ import (
 	"github.com/go-fuego/fuego"
 )
 
+var completionRatioMetaOptionKeys = []string{
+	"ModelPrice",
+	"ModelRatio",
+	"CompletionRatio",
+	"CacheRatio",
+	"CreateCacheRatio",
+	"ImageRatio",
+	"AudioRatio",
+	"AudioCompletionRatio",
+}
+
+func collectModelNamesFromOptionValue(raw string, modelNames map[string]struct{}) {
+	if strings.TrimSpace(raw) == "" {
+		return
+	}
+
+	var parsed map[string]any
+	if err := common.UnmarshalJsonStr(raw, &parsed); err != nil {
+		return
+	}
+
+	for modelName := range parsed {
+		modelNames[modelName] = struct{}{}
+	}
+}
+
+func buildCompletionRatioMetaValue(optionValues map[string]string) string {
+	modelNames := make(map[string]struct{})
+	for _, key := range completionRatioMetaOptionKeys {
+		collectModelNamesFromOptionValue(optionValues[key], modelNames)
+	}
+
+	meta := make(map[string]ratio_setting.CompletionRatioInfo, len(modelNames))
+	for modelName := range modelNames {
+		meta[modelName] = ratio_setting.GetCompletionRatioInfo(modelName)
+	}
+
+	jsonBytes, err := common.Marshal(meta)
+	if err != nil {
+		return "{}"
+	}
+	return string(jsonBytes)
+}
+
 func GetOptions(c fuego.ContextNoBody) (*dto.Response[[]*model.Option], error) {
 	var options []*model.Option
+	optionValues := make(map[string]string)
 	common.OptionMapRWMutex.Lock()
 	for k, v := range common.OptionMap {
+		value := common.Interface2String(v)
 		if strings.HasSuffix(k, "Token") ||
 			strings.HasSuffix(k, "Secret") ||
 			strings.HasSuffix(k, "Key") ||
@@ -28,10 +74,20 @@ func GetOptions(c fuego.ContextNoBody) (*dto.Response[[]*model.Option], error) {
 		}
 		options = append(options, &model.Option{
 			Key:   k,
-			Value: common.Interface2String(v),
+			Value: value,
 		})
+		for _, optionKey := range completionRatioMetaOptionKeys {
+			if optionKey == k {
+				optionValues[k] = value
+				break
+			}
+		}
 	}
 	common.OptionMapRWMutex.Unlock()
+	options = append(options, &model.Option{
+		Key:   "CompletionRatioMeta",
+		Value: buildCompletionRatioMetaValue(optionValues),
+	})
 	return dto.Ok(options)
 }
 
