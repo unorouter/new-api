@@ -20,8 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Card, Avatar, Typography, Table, Tag } from '@douyinfe/semi-ui';
 import { IconCoinMoneyStroked } from '@douyinfe/semi-icons';
-import { calculateModelPrice } from '../../../../../helpers';
-import { useTranslation } from 'react-i18next';
+import { calculateModelPrice, getModelPriceItems } from '../../../../../helpers';
 
 const { Text } = Typography;
 
@@ -29,13 +28,14 @@ const ModelPricingTable = ({
   modelData,
   groupRatio,
   currency,
+  siteDisplayType,
   tokenUnit,
   displayPrice,
   showRatio,
   usableGroup,
   autoGroups = [],
+  t,
 }) => {
-  const { t } = useTranslation();
   const modelEnableGroups = Array.isArray(modelData?.enable_groups)
     ? modelData.enable_groups
     : [];
@@ -46,8 +46,7 @@ const ModelPricingTable = ({
     const availableGroups = Object.keys(usableGroup || {})
       .filter((g) => g !== '')
       .filter((g) => g !== 'auto')
-      .filter((g) => modelEnableGroups.includes(g))
-      .sort((a, b) => (groupRatio?.[a] ?? 1) - (groupRatio?.[b] ?? 1));
+      .filter((g) => modelEnableGroups.includes(g));
 
     // 准备表格数据
     const tableData = availableGroups.map((group) => {
@@ -59,6 +58,7 @@ const ModelPricingTable = ({
             tokenUnit,
             displayPrice,
             currency,
+            quotaDisplayType: siteDisplayType,
           })
         : { inputPrice: '-', outputPrice: '-', price: '-' };
 
@@ -76,12 +76,7 @@ const ModelPricingTable = ({
             : modelData?.quota_type === 1
               ? t('按次计费')
               : '-',
-        inputPrice: modelData?.quota_type === 0 ? priceData.inputPrice : '-',
-        outputPrice:
-          modelData?.quota_type === 0
-            ? priceData.completionPrice || priceData.outputPrice
-            : '-',
-        fixedPrice: modelData?.quota_type === 1 ? priceData.price : '-',
+        priceItems: getModelPriceItems(priceData, t, siteDisplayType),
       };
     });
 
@@ -128,48 +123,22 @@ const ModelPricingTable = ({
       },
     });
 
-    // 根据计费类型添加价格列
-    if (modelData?.quota_type === 0) {
-      // 按量计费
-      columns.push(
-        {
-          title: t('提示'),
-          dataIndex: 'inputPrice',
-          render: (text) => (
-            <>
-              <div className='font-semibold text-orange-600'>{text}</div>
-              <div className='text-xs text-gray-500'>
-                / {tokenUnit === 'K' ? '1K' : '1M'} tokens
+    columns.push({
+      title: siteDisplayType === 'TOKENS' ? t('计费摘要') : t('价格摘要'),
+      dataIndex: 'priceItems',
+      render: (items) => (
+        <div className='space-y-1'>
+          {items.map((item) => (
+            <div key={item.key}>
+              <div className='font-semibold text-orange-600'>
+                {item.label} {item.value}
               </div>
-            </>
-          ),
-        },
-        {
-          title: t('补全'),
-          dataIndex: 'outputPrice',
-          render: (text) => (
-            <>
-              <div className='font-semibold text-orange-600'>{text}</div>
-              <div className='text-xs text-gray-500'>
-                / {tokenUnit === 'K' ? '1K' : '1M'} tokens
-              </div>
-            </>
-          ),
-        },
-      );
-    } else {
-      // 按次计费
-      columns.push({
-        title: t('价格'),
-        dataIndex: 'fixedPrice',
-        render: (text) => (
-          <>
-            <div className='font-semibold text-orange-600'>{text}</div>
-            <div className='text-xs text-gray-500'>/ 次</div>
-          </>
-        ),
-      });
-    }
+              <div className='text-xs text-gray-500'>{item.suffix}</div>
+            </div>
+          ))}
+        </div>
+      ),
+    });
 
     return (
       <Table

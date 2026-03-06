@@ -44,7 +44,6 @@ import PricingCardSkeleton from './PricingCardSkeleton';
 import { useMinimumLoadingTime } from '../../../../../hooks/common/useMinimumLoadingTime';
 import { renderLimitedItems } from '../../../../common/ui/RenderUtils';
 import { useIsMobile } from '../../../../../hooks/common/useIsMobile';
-import { useTranslation } from 'react-i18next';
 
 const CARD_STYLES = {
   container:
@@ -68,15 +67,15 @@ const PricingCardView = ({
   setModalImageUrl,
   setIsModalOpenurl,
   currency,
+  siteDisplayType,
   tokenUnit,
   displayPrice,
   showRatio,
+  t,
   selectedRowKeys = [],
   setSelectedRowKeys,
   openModelDetail,
-  showOriginalPrice,
 }) => {
-  const { t } = useTranslation();
   const showSkeleton = useMinimumLoadingTime(loading);
   const startIndex = (currentPage - 1) * pageSize;
   const paginatedModels = filteredModels.slice(
@@ -248,6 +247,7 @@ const PricingCardView = ({
             tokenUnit,
             displayPrice,
             currency,
+            quotaDisplayType: siteDisplayType,
           });
 
           return (
@@ -266,8 +266,8 @@ const PricingCardView = ({
                       <h3 className='text-lg font-bold text-gray-900 truncate'>
                         {model.model_name}
                       </h3>
-                      <div className='flex items-center gap-x-3 text-xs mt-1 flex-wrap'>
-                        {formatPriceInfo(priceData, showOriginalPrice)}
+                      <div className='flex flex-col gap-1 text-xs mt-1'>
+                        {formatPriceInfo(priceData, t, siteDisplayType)}
                       </div>
                     </div>
                   </div>
@@ -299,18 +299,14 @@ const PricingCardView = ({
                 </div>
 
                 {/* 模型描述 - 占据剩余空间 */}
-                {getModelDescription(model) ? (
-                  <div className='flex-1 mb-4'>
-                    <p
-                      className='text-xs line-clamp-2 leading-relaxed'
-                      style={{ color: 'var(--semi-color-text-2)' }}
-                    >
-                      {getModelDescription(model)}
-                    </p>
-                  </div>
-                ) : (
-                  <div className='flex-1' />
-                )}
+                <div className='flex-1 mb-4'>
+                  <p
+                    className='text-xs line-clamp-2 leading-relaxed'
+                    style={{ color: 'var(--semi-color-text-2)' }}
+                  >
+                    {getModelDescription(model)}
+                  </p>
+                </div>
 
                 {/* 底部区域 */}
                 <div className='mt-auto'>

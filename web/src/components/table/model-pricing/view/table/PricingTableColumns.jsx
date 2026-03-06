@@ -18,13 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import { t } from '../../../../../helpers/i18n';
 import { Tag, Space, Tooltip } from '@douyinfe/semi-ui';
 import { IconHelpCircle } from '@douyinfe/semi-icons';
 import {
   renderModelTag,
   stringToColor,
   calculateModelPrice,
+  getModelPriceItems,
   getLobeHubIcon,
 } from '../../../../../helpers';
 import {
@@ -33,7 +33,7 @@ import {
 } from '../../../../common/ui/RenderUtils';
 import { useIsMobile } from '../../../../../hooks/common/useIsMobile';
 
-function renderQuotaType(type) {
+function renderQuotaType(type, t) {
   switch (type) {
     case 1:
       return (
@@ -53,7 +53,7 @@ function renderQuotaType(type) {
 }
 
 // Render vendor name
-const renderVendor = (vendorName, vendorIcon) => {
+const renderVendor = (vendorName, vendorIcon, t) => {
   if (!vendorName) return '-';
   return (
     <Tag
@@ -102,16 +102,17 @@ function renderSupportedEndpoints(endpoints) {
 }
 
 export const getPricingTableColumns = ({
+  t,
   selectedGroup,
   groupRatio,
   copyText,
   setModalImageUrl,
   setIsModalOpenurl,
   currency,
+  siteDisplayType,
   tokenUnit,
   displayPrice,
   showRatio,
-  showOriginalPrice,
 }) => {
   const isMobile = useIsMobile();
   const priceDataCache = new WeakMap();
@@ -126,6 +127,7 @@ export const getPricingTableColumns = ({
         tokenUnit,
         displayPrice,
         currency,
+        quotaDisplayType: siteDisplayType,
       });
       priceDataCache.set(record, cache);
     }
@@ -158,7 +160,7 @@ export const getPricingTableColumns = ({
     title: t('计费类型'),
     dataIndex: 'quota_type',
     render: (text, record, index) => {
-      return renderQuotaType(parseInt(text));
+      return renderQuotaType(parseInt(text), t);
     },
     sorter: (a, b) => a.quota_type - b.quota_type,
   };
@@ -178,7 +180,7 @@ export const getPricingTableColumns = ({
   const vendorColumn = {
     title: t('供应商'),
     dataIndex: 'vendor_name',
-    render: (text, record) => renderVendor(text, record.vendor_icon),
+    render: (text, record) => renderVendor(text, record.vendor_icon, t),
   };
 
   const baseColumns = [
@@ -227,37 +229,23 @@ export const getPricingTableColumns = ({
   };
 
   const priceColumn = {
-    title: t('模型价格'),
+    title: siteDisplayType === 'TOKENS' ? t('计费摘要') : t('模型价格'),
     dataIndex: 'model_price',
     ...(isMobile ? {} : { fixed: 'right' }),
     render: (text, record, index) => {
       const priceData = getPriceData(record);
+      const priceItems = getModelPriceItems(priceData, t, siteDisplayType);
 
-      if (priceData.isPerToken) {
-        const hasOriginal = showOriginalPrice && (priceData.originalInputPrice || priceData.originalCompletionPrice);
-        return (
-          <div className='space-y-1'>
-            <div className='text-gray-700'>
-              {t('输入')} {priceData.inputPrice} / 1{priceData.unitLabel} tokens
+      return (
+        <div className='space-y-1'>
+          {priceItems.map((item) => (
+            <div key={item.key} className='text-gray-700'>
+              {item.label} {item.value}
+              {item.suffix}
             </div>
-            <div className='text-gray-700'>
-              {t('输出')} {priceData.completionPrice} / 1{priceData.unitLabel}{' '}
-              tokens
-            </div>
-            {hasOriginal && (
-              <div style={{ textDecoration: 'line-through', color: 'var(--semi-color-text-2)', fontSize: '0.85em' }}>
-                {t('原价')}: {priceData.originalInputPrice} / {priceData.originalCompletionPrice}
-              </div>
-            )}
-          </div>
-        );
-      } else {
-        return (
-          <div className='text-gray-700'>
-            {t('模型价格')}：{priceData.price}
-          </div>
-        );
-      }
+          ))}
+        </div>
+      );
     },
   };
 

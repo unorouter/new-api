@@ -19,13 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import SelectableButtonGroup from '../../../common/ui/SelectableButtonGroup';
-import { useTranslation } from 'react-i18next';
 
 const PricingDisplaySettings = ({
   showWithRecharge,
   setShowWithRecharge,
   currency,
   setCurrency,
+  siteDisplayType,
   showRatio,
   setShowRatio,
   viewMode,
@@ -33,13 +33,19 @@ const PricingDisplaySettings = ({
   tokenUnit,
   setTokenUnit,
   loading = false,
+  t,
 }) => {
-  const { t } = useTranslation();
+  const supportsCurrencyDisplay = siteDisplayType !== 'TOKENS';
+
   const items = [
-    {
-      value: 'recharge',
-      label: t('充值价格显示'),
-    },
+    ...(supportsCurrencyDisplay
+      ? [
+          {
+            value: 'recharge',
+            label: t('充值价格显示'),
+          },
+        ]
+      : []),
     {
       value: 'ratio',
       label: t('显示倍率'),
@@ -79,7 +85,7 @@ const PricingDisplaySettings = ({
 
   const getActiveValues = () => {
     const activeValues = [];
-    if (showWithRecharge) activeValues.push('recharge');
+    if (supportsCurrencyDisplay && showWithRecharge) activeValues.push('recharge');
     if (showRatio) activeValues.push('ratio');
     if (viewMode === 'table') activeValues.push('tableView');
     if (tokenUnit === 'K') activeValues.push('tokenUnit');
@@ -96,9 +102,10 @@ const PricingDisplaySettings = ({
         withCheckbox
         collapsible={false}
         loading={loading}
+        t={t}
       />
 
-      {showWithRecharge && (
+      {supportsCurrencyDisplay && showWithRecharge && (
         <SelectableButtonGroup
           title={t('货币单位')}
           items={currencyItems}
@@ -106,6 +113,7 @@ const PricingDisplaySettings = ({
           onChange={setCurrency}
           collapsible={false}
           loading={loading}
+          t={t}
         />
       )}
     </div>
