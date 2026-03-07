@@ -109,7 +109,7 @@ func Logout(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	return dto.Msg("")
 }
 
-func Register(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error) {
+func Register(c fuego.ContextWithBody[dto.RegisterRequest]) (dto.MessageResponse, error) {
 	ginCtx := dto.GinCtx(c)
 	if !common.RegisterEnabled {
 		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgUserRegisterDisabled))
@@ -117,22 +117,22 @@ func Register(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error) 
 	if !common.PasswordRegisterEnabled {
 		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgUserPasswordRegisterDisabled))
 	}
-	user, err := c.Body()
+	req, err := c.Body()
 	if err != nil {
 		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgInvalidParams))
 	}
-	if err := common.Validate.Struct(&user); err != nil {
+	if err := common.Validate.Struct(&req); err != nil {
 		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()}))
 	}
 	if common.EmailVerificationEnabled {
-		if user.Email == "" || user.VerificationCode == "" {
+		if req.Email == "" || req.VerificationCode == "" {
 			return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgUserEmailVerificationRequired))
 		}
-		if !common.VerifyCodeWithKey(user.Email, user.VerificationCode, common.EmailVerificationPurpose) {
+		if !common.VerifyCodeWithKey(req.Email, req.VerificationCode, common.EmailVerificationPurpose) {
 			return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgUserVerificationCodeError))
 		}
 	}
-	exist, err := model.CheckUserExistOrDeleted(user.Username, user.Email)
+	exist, err := model.CheckUserExistOrDeleted(req.Username, req.Email)
 	if err != nil {
 		common.SysLog(fmt.Sprintf("CheckUserExistOrDeleted error: %v", err))
 		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgDatabaseError))
@@ -140,17 +140,17 @@ func Register(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error) 
 	if exist {
 		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgUserExists))
 	}
-	affCode := user.AffCode
+	affCode := req.AffCode
 	inviterId, _ := model.GetUserIdByAffCode(affCode)
 	cleanUser := model.User{
-		Username:    user.Username,
-		Password:    user.Password,
-		DisplayName: user.Username,
+		Username:    req.Username,
+		Password:    req.Password,
+		DisplayName: req.Username,
 		InviterId:   inviterId,
 		Role:        common.RoleCommonUser,
 	}
 	if common.EmailVerificationEnabled {
-		cleanUser.Email = user.Email
+		cleanUser.Email = req.Email
 	}
 	if err := cleanUser.Insert(inviterId); err != nil {
 		return dto.FailMsg(err.Error())

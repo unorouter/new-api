@@ -79,7 +79,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 
 		// Public user routes (stay as *gin.Context -- sessions)
 		userPublicTurnstile := dto.NewRouter(engine, userGroup.Group("", middleware.CriticalRateLimit(), middleware.TurnstileCheck()), "User", secPublic())
-		dto.PostB(userPublicTurnstile, "/register", controller.Register)
+		dto.PostB(userPublicTurnstile, "/register", controller.Register, option.RequestContentType("application/json"))
 		userPublicTurnstile.GinPost("/login", controller.Login, dto.GinResp[dto.Response[dto.LoginData]]())
 		userPublicCritical := dto.NewRouter(engine, userGroup.Group("", middleware.CriticalRateLimit()), "User", secPublic())
 		userPublicCritical.GinPost("/login/2fa", controller.Verify2FALogin, dto.GinResp[dto.Response[dto.LoginData]]())

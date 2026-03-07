@@ -35,6 +35,7 @@ const PricingPage = () => {
   const [viewMode, setViewMode] = React.useState('card');
   const allProps = {
     ...pricingData,
+    t,
     showRatio,
     setShowRatio,
     viewMode,

@@ -50,6 +50,7 @@ const PricingTable = ({
   const { t } = useTranslation();
   const columns = useMemo(() => {
     return getPricingTableColumns({
+      t,
       selectedGroup,
       groupRatio,
       copyText,
@@ -63,6 +64,7 @@ const PricingTable = ({
       showOriginalPrice,
     });
   }, [
+    t,
     selectedGroup,
     groupRatio,
     copyText,

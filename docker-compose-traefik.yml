@@ -35,6 +35,7 @@ services:
       - MEMORY_CACHE_ENABLED=false
       - GIN_MODE=release
       - ENABLE_OPENAPI=true
+      - GLOBAL_API_RATE_LIMIT_ENABLE=false
     labels:
       - "autoheal=true"
       - "traefik.enable=true"

@@ -1,5 +1,14 @@
 package dto
 
+// RegisterRequest is the request body for POST /api/user/register.
+type RegisterRequest struct {
+	Username         string `json:"username" validate:"max=20"`
+	Password         string `json:"password" validate:"min=8,max=20"`
+	Email            string `json:"email,omitempty" validate:"max=50"`
+	VerificationCode string `json:"verification_code,omitempty"`
+	AffCode          string `json:"aff_code,omitempty"`
+}
+
 // LoginRequest is the request body for POST /api/user/login.
 type LoginRequest struct {
 	Username string `json:"username"`
