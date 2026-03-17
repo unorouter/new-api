@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Button } from '@douyinfe/semi-ui';
 import { IconClose, IconMenu } from '@douyinfe/semi-icons';
+import { useTranslation } from 'react-i18next';
 
 const MobileMenuButton = ({
   isConsoleRoute,
@@ -27,8 +28,8 @@ const MobileMenuButton = ({
   drawerOpen,
   collapsed,
   onToggle,
-  t,
 }) => {
+  const { t } = useTranslation();
   if (!isConsoleRoute || !isMobile) {
     return null;
   }

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -17,13 +18,12 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/logger"
-
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 )
 
 const (
@@ -33,10 +33,10 @@ const (
 	maxRatioConfigBytes         = 10 << 20 // 10MB
 	floatEpsilon                = 1e-9
 	officialRatioPresetID       = -100
-	officialRatioPresetName     = "官方倍率预设"
+	officialRatioPresetName     = "official ratio preset"
 	officialRatioPresetBaseURL  = "https://basellm.github.io"
 	modelsDevPresetID           = -101
-	modelsDevPresetName         = "models.dev 价格预设"
+	modelsDevPresetName         = "models.dev price preset"
 	modelsDevPresetBaseURL      = "https://models.dev"
 	modelsDevHost               = "models.dev"
 	modelsDevPath               = "/api.json"
@@ -67,12 +67,13 @@ type upstreamResult struct {
 	Err  string         `json:"err,omitempty"`
 }
 
-func FetchUpstreamRatios(c *gin.Context) {
-	var req dto.UpstreamRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.SysError("failed to bind upstream request: " + err.Error())
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "请求参数格式错误"})
-		return
+func FetchUpstreamRatios(c fuego.ContextWithBody[dto.UpstreamRequest]) (*dto.Response[dto.FetchUpstreamRatiosResult], error) {
+	reqCtx := c.Request().Context()
+
+	req, err := c.Body()
+	if err != nil {
+		common.SysError(i18n.Translate("ctrl.failed_to_bind_upstream_request") + err.Error())
+		return dto.Fail[dto.FetchUpstreamRatiosResult](common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
 	}
 
 	if req.Timeout <= 0 {
@@ -98,9 +99,8 @@ func FetchUpstreamRatios(c *gin.Context) {
 		}
 		dbChannels, err := model.GetChannelsByIds(intIds)
 		if err != nil {
-			logger.LogError(c.Request.Context(), "failed to query channels: "+err.Error())
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询渠道失败"})
-			return
+			logger.LogError(reqCtx, "failed to query channels: "+err.Error())
+			return dto.Fail[dto.FetchUpstreamRatiosResult](common.TranslateMessage(dto.GinCtx(c), "ratio_sync.query_failed"))
 		}
 		for _, ch := range dbChannels {
 			if base := ch.GetBaseURL(); strings.HasPrefix(base, "http") {
@@ -115,8 +115,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 	}
 
 	if len(upstreams) == 0 {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "无有效上游渠道"})
-		return
+		return dto.Fail[dto.FetchUpstreamRatiosResult](common.TranslateMessage(dto.GinCtx(c), "ratio_sync.no_valid_channel"))
 	}
 
 	var wg sync.WaitGroup
@@ -176,12 +175,12 @@ func FetchUpstreamRatios(c *gin.Context) {
 				uniqueName = fmt.Sprintf("%s(%d)", chItem.Name, chItem.ID)
 			}
 
-			ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(req.Timeout)*time.Second)
+			ctx, cancel := context.WithTimeout(reqCtx, time.Duration(req.Timeout)*time.Second)
 			defer cancel()
 
 			httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 			if err != nil {
-				logger.LogWarn(c.Request.Context(), "build request failed: "+err.Error())
+				logger.LogWarn(reqCtx, "build request failed: "+err.Error())
 				ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 				return
 			}
@@ -219,25 +218,25 @@ func FetchUpstreamRatios(c *gin.Context) {
 				time.Sleep(time.Duration(200*(1<<attempt)) * time.Millisecond)
 			}
 			if lastErr != nil {
-				logger.LogWarn(c.Request.Context(), "http error on "+chItem.Name+": "+lastErr.Error())
+				logger.LogWarn(reqCtx, i18n.Translate("ctrl.http_error_on_361b")+chItem.Name+": "+lastErr.Error())
 				ch <- upstreamResult{Name: uniqueName, Err: lastErr.Error()}
 				return
 			}
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusOK {
-				logger.LogWarn(c.Request.Context(), "non-200 from "+chItem.Name+": "+resp.Status)
+				logger.LogWarn(reqCtx, i18n.Translate("ctrl.non_200_from_2a1a")+chItem.Name+": "+resp.Status)
 				ch <- upstreamResult{Name: uniqueName, Err: resp.Status}
 				return
 			}
 
 			// Content-Type 和响应体大小校验
 			if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "application/json") {
-				logger.LogWarn(c.Request.Context(), "unexpected content-type from "+chItem.Name+": "+ct)
+				logger.LogWarn(reqCtx, i18n.Translate("ctrl.unexpected_content_type_from_68b1")+chItem.Name+": "+ct)
 			}
 			limited := io.LimitReader(resp.Body, maxRatioConfigBytes)
 			bodyBytes, err := io.ReadAll(limited)
 			if err != nil {
-				logger.LogWarn(c.Request.Context(), "read response failed from "+chItem.Name+": "+err.Error())
+				logger.LogWarn(reqCtx, i18n.Translate("ctrl.read_response_failed_from_37b7")+chItem.Name+": "+err.Error())
 				ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 				return
 			}
@@ -246,7 +245,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 			if isOpenRouter {
 				converted, err := convertOpenRouterToRatioData(bytes.NewReader(bodyBytes))
 				if err != nil {
-					logger.LogWarn(c.Request.Context(), "OpenRouter parse failed from "+chItem.Name+": "+err.Error())
+					logger.LogWarn(reqCtx, i18n.Translate("ctrl.openrouter_parse_failed_from_9fc9")+chItem.Name+": "+err.Error())
 					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 					return
 				}
@@ -258,7 +257,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 			if isModelsDev {
 				converted, err := convertModelsDevToRatioData(bytes.NewReader(bodyBytes))
 				if err != nil {
-					logger.LogWarn(c.Request.Context(), "models.dev parse failed from "+chItem.Name+": "+err.Error())
+					logger.LogWarn(reqCtx, i18n.Translate("ctrl.models_dev_parse_failed_from_ab0b")+chItem.Name+": "+err.Error())
 					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 					return
 				}
@@ -276,7 +275,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 			}
 
 			if err := common.DecodeJson(bytes.NewReader(bodyBytes), &body); err != nil {
-				logger.LogWarn(c.Request.Context(), "json decode failed from "+chItem.Name+": "+err.Error())
+				logger.LogWarn(reqCtx, i18n.Translate("ctrl.json_decode_failed_from_91fa")+chItem.Name+": "+err.Error())
 				ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 				return
 			}
@@ -314,8 +313,8 @@ func FetchUpstreamRatios(c *gin.Context) {
 				CompletionRatio float64 `json:"completion_ratio"`
 			}
 			if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
-				logger.LogWarn(c.Request.Context(), "unrecognized data format from "+chItem.Name+": "+err.Error())
-				ch <- upstreamResult{Name: uniqueName, Err: "无法解析上游返回数据"}
+				logger.LogWarn(reqCtx, i18n.Translate("ctrl.unrecognized_data_format_from_685e")+chItem.Name+": "+err.Error())
+				ch <- upstreamResult{Name: uniqueName, Err: common.TranslateMessage(dto.GinCtx(c), "sync.param_format_error")}
 				return
 			}
 
@@ -366,7 +365,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 	wg.Wait()
 	close(ch)
 
-	localData := ratio_setting.GetExposedData()
+	localData := ratio_setting.GetExposedData().ToMap()
 
 	var testResults []dto.TestResult
 	var successfulChannels []struct {
@@ -395,12 +394,9 @@ func FetchUpstreamRatios(c *gin.Context) {
 
 	differences := buildDifferences(localData, successfulChannels)
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"differences":  differences,
-			"test_results": testResults,
-		},
+	return dto.Ok(dto.FetchUpstreamRatiosResult{
+		Differences: differences,
+		TestResults: testResults,
 	})
 }
 
@@ -619,7 +615,7 @@ func convertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
 	}
 
 	if err := common.DecodeJson(reader, &orResp); err != nil {
-		return nil, fmt.Errorf("failed to decode OpenRouter response: %w", err)
+		return nil, fmt.Errorf(i18n.Translate("ctrl.failed_to_decode_openrouter_response"), err)
 	}
 
 	modelRatioMap := make(map[string]any)
@@ -791,10 +787,10 @@ func shouldReplaceModelsDevCandidate(current, next modelsDevCandidate) bool {
 func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 	var upstreamData map[string]modelsDevProvider
 	if err := common.DecodeJson(reader, &upstreamData); err != nil {
-		return nil, fmt.Errorf("failed to decode models.dev response: %w", err)
+		return nil, fmt.Errorf(i18n.Translate("ctrl.failed_to_decode_models_dev_response"), err)
 	}
 	if len(upstreamData) == 0 {
-		return nil, fmt.Errorf("empty models.dev response")
+		return nil, errors.New(i18n.Translate("ctrl.empty_models_dev_response"))
 	}
 
 	providers := make([]string, 0, len(upstreamData))
@@ -829,7 +825,7 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 	}
 
 	if len(selectedCandidates) == 0 {
-		return nil, fmt.Errorf("no valid models.dev pricing entries found")
+		return nil, errors.New(i18n.Translate("ctrl.no_valid_models_dev_pricing_entries_found"))
 	}
 
 	modelRatioMap := make(map[string]any)
@@ -869,14 +865,10 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 	return converted, nil
 }
 
-func GetSyncableChannels(c *gin.Context) {
+func GetSyncableChannels(c fuego.ContextNoBody) (*dto.Response[[]dto.SyncableChannel], error) {
 	channels, err := model.GetAllChannels(0, 0, true, false)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
+		return dto.Fail[[]dto.SyncableChannel](err.Error())
 	}
 
 	var syncableChannels []dto.SyncableChannel
@@ -906,9 +898,5 @@ func GetSyncableChannels(c *gin.Context) {
 		Status:  1,
 	})
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    syncableChannels,
-	})
+	return dto.Ok(syncableChannels)
 }

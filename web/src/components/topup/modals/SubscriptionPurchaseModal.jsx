@@ -36,12 +36,14 @@ import { getCurrencyConfig } from '../../../helpers/render';
 import {
   formatSubscriptionDuration,
   formatSubscriptionResetPeriod,
+  formatSubscriptionResetPeriodShort,
+  getResetPeriodsCount,
 } from '../../../helpers/subscriptionFormat';
+import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
 
 const SubscriptionPurchaseModal = ({
-  t,
   visible,
   onCancel,
   selectedPlan,
@@ -57,8 +59,11 @@ const SubscriptionPurchaseModal = ({
   onPayCreem,
   onPayEpay,
 }) => {
+  const { t } = useTranslation();
   const plan = selectedPlan?.plan;
   const totalAmount = Number(plan?.total_amount || 0);
+  const resetPeriodShort = formatSubscriptionResetPeriodShort(plan, t);
+  const resetCount = getResetPeriodsCount(plan);
   const { symbol, rate } = getCurrencyConfig();
   const price = plan ? Number(plan.price_amount || 0) : 0;
   const convertedPrice = price * rate;
@@ -113,17 +118,17 @@ const SubscriptionPurchaseModal = ({
                 <div className='flex items-center'>
                   <CalendarClock size={14} className='mr-1 text-slate-500' />
                   <Text className='text-slate-900 dark:text-slate-100'>
-                    {formatSubscriptionDuration(plan, t)}
+                    {formatSubscriptionDuration(plan)}
                   </Text>
                 </div>
               </div>
-              {formatSubscriptionResetPeriod(plan, t) !== t('不重置') && (
+              {formatSubscriptionResetPeriod(plan) !== t('不重置') && (
                 <div className='flex justify-between items-center'>
                   <Text strong className='text-slate-700 dark:text-slate-200'>
                     {t('重置周期')}：
                   </Text>
                   <Text className='text-slate-900 dark:text-slate-100'>
-                    {formatSubscriptionResetPeriod(plan, t)}
+                    {formatSubscriptionResetPeriod(plan)}
                   </Text>
                 </div>
               )}
@@ -136,7 +141,7 @@ const SubscriptionPurchaseModal = ({
                   {totalAmount > 0 ? (
                     <Tooltip content={`${t('原生额度')}：${totalAmount}`}>
                       <Text className='text-slate-900 dark:text-slate-100'>
-                        {renderQuota(totalAmount)}
+                        {renderQuota(totalAmount)}{resetPeriodShort}
                       </Text>
                     </Tooltip>
                   ) : (
@@ -146,6 +151,18 @@ const SubscriptionPurchaseModal = ({
                   )}
                 </div>
               </div>
+              {totalAmount > 0 && resetCount > 0 && (
+                <div className='flex justify-between items-center'>
+                  <Text strong className='text-slate-700 dark:text-slate-200'>
+                    {t('预估总额度')}：
+                  </Text>
+                  <Tooltip content={`${renderQuota(totalAmount)} × ${resetCount} ${t('周期')}`}>
+                    <Text className='text-slate-900 dark:text-slate-100'>
+                      ~{renderQuota(totalAmount * resetCount)}
+                    </Text>
+                  </Tooltip>
+                </div>
+              )}
               {plan?.upgrade_group ? (
                 <div className='flex justify-between items-center'>
                   <Text strong className='text-slate-700 dark:text-slate-200'>

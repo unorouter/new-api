@@ -113,6 +113,7 @@ export const getPricingTableColumns = ({
   tokenUnit,
   displayPrice,
   showRatio,
+  showOriginalPrice,
 }) => {
   const isMobile = useIsMobile();
   const priceDataCache = new WeakMap();
@@ -235,6 +236,7 @@ export const getPricingTableColumns = ({
     render: (text, record, index) => {
       const priceData = getPriceData(record);
       const priceItems = getModelPriceItems(priceData, t, siteDisplayType);
+      const hasOriginal = showOriginalPrice && (priceData.originalInputPrice || priceData.originalCompletionPrice || priceData.originalPrice);
 
       return (
         <div className='space-y-1'>
@@ -244,6 +246,13 @@ export const getPricingTableColumns = ({
               {item.suffix}
             </div>
           ))}
+          {hasOriginal && (
+            <div style={{ textDecoration: 'line-through', color: 'var(--semi-color-text-2)', fontSize: '0.85em' }}>
+              {t('原价')}: {priceData.originalInputPrice
+                ? `${priceData.originalInputPrice} / ${priceData.originalCompletionPrice}`
+                : `${priceData.originalPrice} / ${t('次')}`}
+            </div>
+          )}
         </div>
       );
     },

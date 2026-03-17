@@ -27,6 +27,7 @@ import PricingTags from '../filter/PricingTags';
 
 import { resetPricingFilters } from '../../../../helpers/utils';
 import { usePricingFilterCounts } from '../../../../hooks/model-pricing/usePricingFilterCounts';
+import { useTranslation } from 'react-i18next';
 
 const PricingSidebar = ({
   showWithRecharge,
@@ -55,9 +56,9 @@ const PricingSidebar = ({
   tokenUnit,
   setTokenUnit,
   loading,
-  t,
   ...categoryProps
 }) => {
+  const { t } = useTranslation();
   const {
     quotaTypeModels,
     endpointTypeModels,
@@ -110,7 +111,6 @@ const PricingSidebar = ({
         models={vendorModels}
         allModels={categoryProps.models}
         loading={loading}
-        t={t}
       />
 
       <PricingGroups
@@ -120,7 +120,6 @@ const PricingSidebar = ({
         groupRatio={categoryProps.groupRatio}
         models={groupCountModels}
         loading={loading}
-        t={t}
       />
 
       <PricingQuotaTypes
@@ -128,7 +127,6 @@ const PricingSidebar = ({
         setFilterQuotaType={setFilterQuotaType}
         models={quotaTypeModels}
         loading={loading}
-        t={t}
       />
 
       <PricingTags
@@ -137,7 +135,6 @@ const PricingSidebar = ({
         models={tagModels}
         allModels={categoryProps.models}
         loading={loading}
-        t={t}
       />
 
       <PricingEndpointTypes
@@ -146,7 +143,6 @@ const PricingSidebar = ({
         models={endpointTypeModels}
         allModels={categoryProps.models}
         loading={loading}
-        t={t}
       />
     </div>
   );

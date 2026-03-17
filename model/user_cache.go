@@ -1,12 +1,14 @@
 package model
 
 import (
+	"errors"
+	"github.com/QuantumNous/new-api/i18n"
 	"fmt"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 
@@ -33,12 +35,12 @@ func (user *UserBase) WriteContext(c *gin.Context) {
 	common.SetContextKey(c, constant.ContextKeyUserSetting, user.GetSetting())
 }
 
-func (user *UserBase) GetSetting() dto.UserSetting {
-	setting := dto.UserSetting{}
+func (user *UserBase) GetSetting() types.UserSetting {
+	setting := types.UserSetting{}
 	if user.Setting != "" {
 		err := common.Unmarshal([]byte(user.Setting), &setting)
 		if err != nil {
-			common.SysLog("failed to unmarshal setting: " + err.Error())
+			common.SysLog(i18n.Translate("model.failed_to_unmarshal_setting") + err.Error())
 		}
 	}
 	return setting
@@ -79,7 +81,7 @@ func GetUserCache(userId int) (userCache *UserBase, err error) {
 		if shouldUpdateRedis(fromDB, err) && user != nil {
 			gopool.Go(func() {
 				if err := updateUserCache(*user); err != nil {
-					common.SysLog("failed to update user status cache: " + err.Error())
+					common.SysLog(i18n.Translate("model.failed_to_update_user_status_cache") + err.Error())
 				}
 			})
 		}
@@ -114,7 +116,7 @@ func GetUserCache(userId int) (userCache *UserBase, err error) {
 
 func cacheGetUserBase(userId int) (*UserBase, error) {
 	if !common.RedisEnabled {
-		return nil, fmt.Errorf("redis is not enabled")
+		return nil, errors.New(i18n.Translate("model.redis_is_not_enabled_e54d"))
 	}
 	var userCache UserBase
 	// Try getting from Redis first
@@ -170,10 +172,10 @@ func getUserNameCache(userId int) (string, error) {
 	return cache.Username, nil
 }
 
-func getUserSettingCache(userId int) (dto.UserSetting, error) {
+func getUserSettingCache(userId int) (types.UserSetting, error) {
 	cache, err := GetUserCache(userId)
 	if err != nil {
-		return dto.UserSetting{}, err
+		return types.UserSetting{}, err
 	}
 	return cache.GetSetting(), nil
 }

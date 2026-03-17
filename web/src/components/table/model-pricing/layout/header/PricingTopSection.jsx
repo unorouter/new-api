@@ -72,6 +72,7 @@ const PricingTopSection = memo(
                 siteDisplayType={siteDisplayType}
                 showRatio={showRatio}
                 setShowRatio={setShowRatio}
+
                 viewMode={viewMode}
                 setViewMode={setViewMode}
                 tokenUnit={tokenUnit}

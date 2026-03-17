@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"fmt"
+	"errors"
 	"net"
 	"net/http"
 	"strconv"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -43,7 +44,7 @@ func authHelper(c *gin.Context, minRole int) {
 		if accessToken == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
-				"message": "无权进行此操作，未登录且未提供 access token",
+				"message": i18n.T(c, "auth.no_login_no_token"),
 			})
 			c.Abort()
 			return
@@ -53,7 +54,7 @@ func authHelper(c *gin.Context, minRole int) {
 			if !validUserInfo(user.Username, user.Role) {
 				c.JSON(http.StatusOK, gin.H{
 					"success": false,
-					"message": "无权进行此操作，用户信息无效",
+					"message": i18n.T(c, "common.user_info_invalid"),
 				})
 				c.Abort()
 				return
@@ -67,7 +68,7 @@ func authHelper(c *gin.Context, minRole int) {
 		} else {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "无权进行此操作，access token 无效",
+				"message": i18n.T(c, "auth.access_token_invalid"),
 			})
 			c.Abort()
 			return
@@ -78,7 +79,7 @@ func authHelper(c *gin.Context, minRole int) {
 	if apiUserIdStr == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
-			"message": "无权进行此操作，未提供 New-Api-User",
+			"message": i18n.T(c, "auth.user_header_missing"),
 		})
 		c.Abort()
 		return
@@ -87,7 +88,7 @@ func authHelper(c *gin.Context, minRole int) {
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
-			"message": "无权进行此操作，New-Api-User 格式错误",
+			"message": i18n.T(c, "auth.user_header_invalid"),
 		})
 		c.Abort()
 		return
@@ -96,7 +97,7 @@ func authHelper(c *gin.Context, minRole int) {
 	if id != apiUserId {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
-			"message": "无权进行此操作，New-Api-User 与登录用户不匹配",
+			"message": i18n.T(c, "auth.user_header_mismatch"),
 		})
 		c.Abort()
 		return
@@ -104,7 +105,7 @@ func authHelper(c *gin.Context, minRole int) {
 	if status.(int) == common.UserStatusDisabled {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "用户已被封禁",
+			"message": i18n.T(c, "common.user_banned"),
 		})
 		c.Abort()
 		return
@@ -112,7 +113,7 @@ func authHelper(c *gin.Context, minRole int) {
 	if role.(int) < minRole {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无权进行此操作，权限不足",
+			"message": i18n.T(c, "auth.permission_denied"),
 		})
 		c.Abort()
 		return
@@ -120,7 +121,7 @@ func authHelper(c *gin.Context, minRole int) {
 	if !validUserInfo(username.(string), role.(int)) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无权进行此操作，用户信息无效",
+			"message": i18n.T(c, "common.user_info_invalid"),
 		})
 		c.Abort()
 		return
@@ -198,7 +199,7 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 		if key == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
-				"message": "未提供 Authorization 请求头",
+				"message": i18n.T(c, "auth.token_not_provided"),
 			})
 			c.Abort()
 			return
@@ -214,7 +215,7 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
-				"message": "无效的令牌",
+				"message": i18n.T(c, "auth.token_invalid"),
 			})
 			c.Abort()
 			return
@@ -232,7 +233,7 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 		if userCache.Status != common.UserStatusEnabled {
 			c.JSON(http.StatusForbidden, gin.H{
 				"success": false,
-				"message": "用户已被封禁",
+				"message": i18n.T(c, "common.user_banned"),
 			})
 			c.Abort()
 			return
@@ -316,17 +317,17 @@ func TokenAuth() func(c *gin.Context) {
 		allowIps := token.GetIpLimits()
 		if len(allowIps) > 0 {
 			clientIp := c.ClientIP()
-			logger.LogDebug(c, "Token has IP restrictions, checking client IP %s", clientIp)
+			logger.LogDebug(c, i18n.Translate("mw.token_has_ip_restrictions_checking_client_ip"), clientIp)
 			ip := net.ParseIP(clientIp)
 			if ip == nil {
-				abortWithOpenAiMessage(c, http.StatusForbidden, "无法解析客户端 IP 地址")
+				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, "auth.cannot_parse_ip"))
 				return
 			}
 			if common.IsIpInCIDRList(ip, allowIps) == false {
-				abortWithOpenAiMessage(c, http.StatusForbidden, "您的 IP 不在令牌允许访问的列表中", types.ErrorCodeAccessDenied)
+				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, "auth.ip_not_allowed"), types.ErrorCodeAccessDenied)
 				return
 			}
-			logger.LogDebug(c, "Client IP %s passed the token IP restrictions check", clientIp)
+			logger.LogDebug(c, i18n.Translate("mw.client_ip_passed_the_token_ip_restrictions_check"), clientIp)
 		}
 
 		userCache, err := model.GetUserCache(token.UserId)
@@ -336,7 +337,7 @@ func TokenAuth() func(c *gin.Context) {
 		}
 		userEnabled := userCache.Status == common.UserStatusEnabled
 		if !userEnabled {
-			abortWithOpenAiMessage(c, http.StatusForbidden, "用户已被封禁")
+			abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, "common.user_banned"))
 			return
 		}
 
@@ -347,13 +348,13 @@ func TokenAuth() func(c *gin.Context) {
 		if tokenGroup != "" {
 			// check common.UserUsableGroups[userGroup]
 			if _, ok := service.GetUserUsableGroups(userGroup)[tokenGroup]; !ok {
-				abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("无权访问 %s 分组", tokenGroup))
+				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, "auth.group_access_denied", map[string]any{"Group": tokenGroup}))
 				return
 			}
 			// check group in common.GroupRatio
 			if !ratio_setting.ContainsGroupRatio(tokenGroup) {
 				if tokenGroup != "auto" {
-					abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("分组 %s 已被弃用", tokenGroup))
+					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, "auth.group_deprecated", map[string]any{"Group": tokenGroup}))
 					return
 				}
 			}
@@ -371,7 +372,7 @@ func TokenAuth() func(c *gin.Context) {
 
 func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) error {
 	if token == nil {
-		return fmt.Errorf("token is nil")
+		return errors.New(i18n.Translate("mw.token_is_nil"))
 	}
 	c.Set("id", token.UserId)
 	c.Set("token_id", token.Id)
@@ -394,8 +395,8 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 			c.Set("specific_channel_id", parts[1])
 		} else {
 			c.Header("specific_channel_version", "701e3ae1dc3f7975556d354e0675168d004891c8")
-			abortWithOpenAiMessage(c, http.StatusForbidden, "普通用户不支持指定渠道")
-			return fmt.Errorf("普通用户不支持指定渠道")
+			abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, "auth.non_admin_channel_denied"))
+			return errors.New(i18n.Translate("mw.non_admin_users_cannot_specify_channels"))
 		}
 	}
 	return nil

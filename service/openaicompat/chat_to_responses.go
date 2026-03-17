@@ -1,6 +1,7 @@
 package openaicompat
 
 import (
+	"github.com/QuantumNous/new-api/i18n"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,13 +76,13 @@ func convertChatResponseFormatToResponsesText(reqFormat *dto.ResponseFormat) jso
 
 func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*dto.OpenAIResponsesRequest, error) {
 	if req == nil {
-		return nil, errors.New("request is nil")
+		return nil, errors.New(i18n.Translate("svc.request_is_nil_827d"))
 	}
 	if req.Model == "" {
-		return nil, errors.New("model is required")
+		return nil, errors.New(i18n.Translate("svc.model_is_required_3cf3"))
 	}
 	if lo.FromPtrOr(req.N, 1) > 1 {
-		return nil, fmt.Errorf("n>1 is not supported in responses compatibility mode")
+		return nil, errors.New(i18n.Translate("svc.n_1_is_not_supported_in_responses_compatibility"))
 	}
 
 	var instructionsParts []string
@@ -351,8 +352,8 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 	}
 
 	var parallelToolCallsRaw json.RawMessage
-	if req.ParallelTooCalls != nil {
-		parallelToolCallsRaw, _ = common.Marshal(*req.ParallelTooCalls)
+	if req.ParallelToolCalls != nil {
+		parallelToolCallsRaw, _ = common.Marshal(*req.ParallelToolCalls)
 	}
 
 	textRaw := convertChatResponseFormatToResponsesText(req.ResponseFormat)

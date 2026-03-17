@@ -22,6 +22,7 @@ import { Card, Divider, Typography, Button } from '@douyinfe/semi-ui';
 import PropTypes from 'prop-types';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
 import { IconEyeOpened, IconEyeClosed } from '@douyinfe/semi-icons';
+import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
 
@@ -57,10 +58,9 @@ const CardPro = ({
   bordered = true,
   // 自定义样式
   style,
-  // 国际化函数
-  t = (key) => key,
   ...props
 }) => {
+  const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [showMobileActions, setShowMobileActions] = useState(false);
 

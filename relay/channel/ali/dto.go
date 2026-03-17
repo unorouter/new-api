@@ -1,6 +1,7 @@
 package ali
 
 import (
+	"github.com/QuantumNous/new-api/i18n"
 	"strings"
 
 	"github.com/QuantumNous/new-api/dto"
@@ -140,7 +141,7 @@ func (o *AliOutput) ResultToOpenAIImageDate(c *gin.Context, responseFormat strin
 		if responseFormat == "b64_json" {
 			_, b64, err := service.GetImageFromUrl(data.Url)
 			if err != nil {
-				logger.LogError(c, "get_image_data_failed: "+err.Error())
+				logger.LogError(c, i18n.Translate("relay.get_image_data_failed")+err.Error())
 				continue
 			}
 			b64Json = b64

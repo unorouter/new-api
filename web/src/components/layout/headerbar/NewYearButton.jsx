@@ -20,8 +20,10 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Button, Dropdown } from '@douyinfe/semi-ui';
 import fireworks from 'react-fireworks';
+import { useTranslation } from 'react-i18next';
 
 const NewYearButton = ({ isNewYear }) => {
+  const { t } = useTranslation();
   if (!isNewYear) {
     return null;
   }

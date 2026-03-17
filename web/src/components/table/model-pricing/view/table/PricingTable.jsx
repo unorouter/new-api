@@ -24,6 +24,7 @@ import {
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
 import { getPricingTableColumns } from './PricingTableColumns';
+import { useTranslation } from 'react-i18next';
 
 const PricingTable = ({
   filteredModels,
@@ -42,10 +43,11 @@ const PricingTable = ({
   displayPrice,
   searchValue,
   showRatio,
+  showOriginalPrice,
   compactMode = false,
   openModelDetail,
-  t,
 }) => {
+  const { t } = useTranslation();
   const columns = useMemo(() => {
     return getPricingTableColumns({
       t,
@@ -59,6 +61,7 @@ const PricingTable = ({
       tokenUnit,
       displayPrice,
       showRatio,
+      showOriginalPrice,
     });
   }, [
     t,
@@ -72,6 +75,7 @@ const PricingTable = ({
     tokenUnit,
     displayPrice,
     showRatio,
+    showOriginalPrice,
   ]);
 
   // 更新列定义中的 searchValue

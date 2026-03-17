@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 )
 
-var Chats = []map[string]string{
+var Chats = []dto.ChatEntry{
 	//{
 	//	"ChatGPT Next Web 官方示例": "https://app.nextchat.dev/#/?settings={\"key\":\"{key}\",\"url\":\"{address}\"}",
 	//},
@@ -17,19 +18,19 @@ var Chats = []map[string]string{
 		"AionUI": "aionui://provider/add?v=1&data={aionuiConfig}",
 	},
 	{
-		"流畅阅读": "fluentread",
+		"FluentRead": "fluentread",
 	},
 	{
 		"CC Switch": "ccswitch",
 	},
 	{
-		"Lobe Chat 官方示例": "https://chat-preview.lobehub.com/?settings={\"keyVaults\":{\"openai\":{\"apiKey\":\"{key}\",\"baseURL\":\"{address}/v1\"}}}",
+		"Lobe Chat Official Example": "https://chat-preview.lobehub.com/?settings={\"keyVaults\":{\"openai\":{\"apiKey\":\"{key}\",\"baseURL\":\"{address}/v1\"}}}",
 	},
 	{
 		"AI as Workspace": "https://aiaw.app/set-provider?provider={\"type\":\"openai\",\"settings\":{\"apiKey\":\"{key}\",\"baseURL\":\"{address}/v1\",\"compatibility\":\"strict\"}}",
 	},
 	{
-		"AMA 问天": "ama://set-api-key?server={address}&key={key}",
+		"AMA Asksky": "ama://set-api-key?server={address}&key={key}",
 	},
 	{
 		"OpenCat": "opencat://team/join?domain={address}&token={key}",
@@ -37,7 +38,7 @@ var Chats = []map[string]string{
 }
 
 func UpdateChatsByJsonString(jsonString string) error {
-	Chats = make([]map[string]string, 0)
+	Chats = make([]dto.ChatEntry, 0)
 	return json.Unmarshal([]byte(jsonString), &Chats)
 }
 

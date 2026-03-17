@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Banner } from '@douyinfe/semi-ui';
 import { IconAlertTriangle } from '@douyinfe/semi-icons';
 import CardPro from '../../common/ui/CardPro';
@@ -37,6 +38,7 @@ import ChannelUpstreamUpdateModal from './modals/ChannelUpstreamUpdateModal';
 import { createCardProPagination } from '../../../helpers/utils';
 
 const ChannelsPage = () => {
+  const { t } = useTranslation();
   const channelsData = useChannelsData();
   const isMobile = useIsMobile();
 
@@ -85,7 +87,7 @@ const ChannelsPage = () => {
               style={{ color: 'var(--semi-color-warning)' }}
             />
           }
-          description={channelsData.t(
+          description={t(
             '已开启全局请求透传：参数覆写、模型重定向、渠道适配等 NewAPI 内置功能将失效，非最佳实践；如因此产生问题，请勿提交 issue 反馈。',
           )}
           style={{ marginBottom: 12 }}
@@ -103,9 +105,9 @@ const ChannelsPage = () => {
           onPageChange: channelsData.handlePageChange,
           onPageSizeChange: channelsData.handlePageSizeChange,
           isMobile: isMobile,
-          t: channelsData.t,
+          t: t,
         })}
-        t={channelsData.t}
+        t={t}
       >
         <ChannelsTable {...channelsData} />
       </CardPro>

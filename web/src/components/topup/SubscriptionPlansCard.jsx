@@ -37,7 +37,10 @@ import SubscriptionPurchaseModal from './modals/SubscriptionPurchaseModal';
 import {
   formatSubscriptionDuration,
   formatSubscriptionResetPeriod,
+  formatSubscriptionResetPeriodShort,
+  getResetPeriodsCount,
 } from '../../helpers/subscriptionFormat';
+import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
 
@@ -70,7 +73,6 @@ function submitEpayForm({ url, params }) {
 }
 
 const SubscriptionPlansCard = ({
-  t,
   loading = false,
   plans = [],
   payMethods = [],
@@ -84,6 +86,7 @@ const SubscriptionPlansCard = ({
   reloadSubscriptionSelf,
   withCard = true,
 }) => {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paying, setPaying] = useState(false);
@@ -123,16 +126,12 @@ const SubscriptionPlansCard = ({
       const res = await API.post('/api/subscription/stripe/pay', {
         plan_id: selectedPlan.plan.id,
       });
-      if (res.data?.message === 'success') {
+      if (res.data?.success) {
         window.open(res.data.data?.pay_link, '_blank');
         showSuccess(t('已打开支付页面'));
         closeBuy();
       } else {
-        const errorMsg =
-          typeof res.data?.data === 'string'
-            ? res.data.data
-            : res.data?.message || t('支付失败');
-        showError(errorMsg);
+        showError(res.data?.message || t('支付失败'));
       }
     } catch (e) {
       showError(t('支付请求失败'));
@@ -151,16 +150,12 @@ const SubscriptionPlansCard = ({
       const res = await API.post('/api/subscription/creem/pay', {
         plan_id: selectedPlan.plan.id,
       });
-      if (res.data?.message === 'success') {
+      if (res.data?.success) {
         window.open(res.data.data?.checkout_url, '_blank');
         showSuccess(t('已打开支付页面'));
         closeBuy();
       } else {
-        const errorMsg =
-          typeof res.data?.data === 'string'
-            ? res.data.data
-            : res.data?.message || t('支付失败');
-        showError(errorMsg);
+        showError(res.data?.message || t('支付失败'));
       }
     } catch (e) {
       showError(t('支付请求失败'));
@@ -180,16 +175,12 @@ const SubscriptionPlansCard = ({
         plan_id: selectedPlan.plan.id,
         payment_method: selectedEpayMethod,
       });
-      if (res.data?.message === 'success') {
-        submitEpayForm({ url: res.data.url, params: res.data.data });
+      if (res.data?.success) {
+        submitEpayForm({ url: res.data.data.url, params: res.data.data.params });
         showSuccess(t('已发起支付'));
         closeBuy();
       } else {
-        const errorMsg =
-          typeof res.data?.data === 'string'
-            ? res.data.data
-            : res.data?.message || t('支付失败');
-        showError(errorMsg);
+        showError(res.data?.message || t('支付失败'));
       }
     } catch (e) {
       showError(t('支付请求失败'));
@@ -491,20 +482,26 @@ const SubscriptionPlansCard = ({
                 const isPopular = index === 0 && plans.length > 1;
                 const limit = Number(plan?.max_purchase_per_user || 0);
                 const limitLabel = limit > 0 ? `${t('限购')} ${limit}` : null;
+                const resetPeriodShort = formatSubscriptionResetPeriodShort(plan, t);
+                const resetCount = getResetPeriodsCount(plan);
                 const totalLabel =
                   totalAmount > 0
-                    ? `${t('总额度')}: ${renderQuota(totalAmount)}`
+                    ? `${t('总额度')}: ${renderQuota(totalAmount)}${resetPeriodShort}`
                     : `${t('总额度')}: ${t('不限')}`;
+                const estimatedTotalLabel =
+                  totalAmount > 0 && resetCount > 0
+                    ? `${t('预估总额度')}: ~${renderQuota(totalAmount * resetCount)}`
+                    : null;
                 const upgradeLabel = plan?.upgrade_group
                   ? `${t('升级分组')}: ${plan.upgrade_group}`
                   : null;
                 const resetLabel =
-                  formatSubscriptionResetPeriod(plan, t) === t('不重置')
+                  formatSubscriptionResetPeriod(plan) === t('不重置')
                     ? null
-                    : `${t('额度重置')}: ${formatSubscriptionResetPeriod(plan, t)}`;
+                    : `${t('额度重置')}: ${formatSubscriptionResetPeriod(plan)}`;
                 const planBenefits = [
                   {
-                    label: `${t('有效期')}: ${formatSubscriptionDuration(plan, t)}`,
+                    label: `${t('有效期')}: ${formatSubscriptionDuration(plan)}`,
                   },
                   resetLabel ? { label: resetLabel } : null,
                   totalAmount > 0
@@ -513,6 +510,12 @@ const SubscriptionPlansCard = ({
                         tooltip: `${t('原生额度')}：${totalAmount}`,
                       }
                     : { label: totalLabel },
+                  estimatedTotalLabel
+                    ? {
+                        label: estimatedTotalLabel,
+                        tooltip: `${renderQuota(totalAmount)} × ${resetCount} ${t('周期')}`,
+                      }
+                    : null,
                   limitLabel ? { label: limitLabel } : null,
                   upgradeLabel ? { label: upgradeLabel } : null,
                 ].filter(Boolean);
@@ -654,7 +657,6 @@ const SubscriptionPlansCard = ({
 
       {/* 购买确认弹窗 */}
       <SubscriptionPurchaseModal
-        t={t}
         visible={open}
         onCancel={closeBuy}
         selectedPlan={selectedPlan}

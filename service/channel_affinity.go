@@ -1,6 +1,8 @@
 package service
 
 import (
+	"errors"
+	"github.com/QuantumNous/new-api/i18n"
 	"fmt"
 	"hash/fnv"
 	"regexp"
@@ -143,7 +145,7 @@ func GetChannelAffinityCacheStats() ChannelAffinityCacheStats {
 
 	keys, err := cache.Keys()
 	if err != nil {
-		common.SysError(fmt.Sprintf("channel affinity cache list keys failed: err=%v", err))
+		common.SysError(fmt.Sprintf(i18n.Translate("svc.channel_affinity_cache_list_keys_failed_err"), err))
 		keys = nil
 	}
 	total := len(keys)
@@ -189,12 +191,12 @@ func ClearChannelAffinityCacheAll() int {
 	cache := getChannelAffinityCache()
 	keys, err := cache.Keys()
 	if err != nil {
-		common.SysError(fmt.Sprintf("channel affinity cache list keys failed: err=%v", err))
+		common.SysError(fmt.Sprintf(i18n.Translate("svc.channel_affinity_cache_list_keys_failed_err"), err))
 		keys = nil
 	}
 	if len(keys) > 0 {
 		if _, err := cache.DeleteMany(keys); err != nil {
-			common.SysError(fmt.Sprintf("channel affinity cache delete many failed: err=%v", err))
+			common.SysError(fmt.Sprintf(i18n.Translate("svc.channel_affinity_cache_delete_many_failed_err"), err))
 		}
 	}
 	return len(keys)
@@ -203,12 +205,12 @@ func ClearChannelAffinityCacheAll() int {
 func ClearChannelAffinityCacheByRuleName(ruleName string) (int, error) {
 	ruleName = strings.TrimSpace(ruleName)
 	if ruleName == "" {
-		return 0, fmt.Errorf("rule_name 不能为空")
+		return 0, errors.New(i18n.Translate("svc.rule_name_cannot_be_empty"))
 	}
 
 	setting := operation_setting.GetChannelAffinitySetting()
 	if setting == nil {
-		return 0, fmt.Errorf("channel_affinity_setting 未初始化")
+		return 0, errors.New(i18n.Translate("svc.channel_affinity_setting_not_initialized"))
 	}
 
 	var matchedRule *operation_setting.ChannelAffinityRule
@@ -221,10 +223,10 @@ func ClearChannelAffinityCacheByRuleName(ruleName string) (int, error) {
 		break
 	}
 	if matchedRule == nil {
-		return 0, fmt.Errorf("未知规则名称")
+		return 0, errors.New(i18n.Translate("svc.unknown_rule_name"))
 	}
 	if !matchedRule.IncludeRuleName {
-		return 0, fmt.Errorf("该规则未启用 include_rule_name，无法按规则清空缓存")
+		return 0, errors.New(i18n.Translate("svc.this_rule_does_not_have_include_rule_name"))
 	}
 
 	cache := getChannelAffinityCache()
@@ -594,7 +596,7 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		cache := getChannelAffinityCache()
 		channelID, found, err := cache.Get(cacheKeySuffix)
 		if err != nil {
-			common.SysError(fmt.Sprintf("channel affinity cache get failed: key=%s, err=%v", cacheKeyFull, err))
+			common.SysError(fmt.Sprintf(i18n.Translate("svc.channel_affinity_cache_get_failed_key_err"), cacheKeyFull, err))
 			return 0, false
 		}
 		if found {
@@ -682,7 +684,7 @@ func RecordChannelAffinity(c *gin.Context, channelID int) {
 	}
 	cache := getChannelAffinityCache()
 	if err := cache.SetWithTTL(cacheKey, channelID, time.Duration(ttlSeconds)*time.Second); err != nil {
-		common.SysError(fmt.Sprintf("channel affinity cache set failed: key=%s, err=%v", cacheKey, err))
+		common.SysError(fmt.Sprintf(i18n.Translate("svc.channel_affinity_cache_set_failed_key_err"), cacheKey, err))
 	}
 }
 

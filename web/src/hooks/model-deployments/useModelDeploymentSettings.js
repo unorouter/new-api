@@ -19,8 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { useCallback, useEffect, useState } from 'react';
 import { API } from '../../helpers';
+import { useTranslation } from 'react-i18next';
 
 export const useModelDeploymentSettings = () => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState({
     'model_deployment.ionet.enabled': false,

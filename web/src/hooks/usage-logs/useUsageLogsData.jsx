@@ -39,7 +39,6 @@ import {
 } from '../../helpers';
 import { ITEMS_PER_PAGE } from '../../constants';
 import { useTableCompactMode } from '../common/useTableCompactMode';
-import ParamOverrideEntry from '../../components/table/usage-logs/components/ParamOverrideEntry';
 
 export const useLogsData = () => {
   const { t } = useTranslation();
@@ -182,8 +181,6 @@ export const useLogsData = () => {
   ] = useState(false);
   const [channelAffinityUsageCacheTarget, setChannelAffinityUsageCacheTarget] =
     useState(null);
-  const [showParamOverrideModal, setShowParamOverrideModal] = useState(false);
-  const [paramOverrideTarget, setParamOverrideTarget] = useState(null);
 
   // Initialize default column visibility
   const initDefaultColumns = () => {
@@ -348,20 +345,6 @@ export const useLogsData = () => {
     setShowChannelAffinityUsageCacheModal(true);
   };
 
-  const openParamOverrideModal = (log, other) => {
-    const lines = Array.isArray(other?.po) ? other.po.filter(Boolean) : [];
-    if (lines.length === 0) {
-      return;
-    }
-    setParamOverrideTarget({
-      lines,
-      modelName: log?.model_name || '',
-      requestId: log?.request_id || '',
-      requestPath: other?.request_path || '',
-    });
-    setShowParamOverrideModal(true);
-  };
-
   // Format logs data
   const setLogsFormat = (logs) => {
     const requestConversionDisplayValue = (conversionChain) => {
@@ -381,7 +364,10 @@ export const useLogsData = () => {
       let other = getLogOther(logs[i].other);
       let expandDataLocal = [];
 
-      if (isAdminUser && (logs[i].type === 0 || logs[i].type === 2 || logs[i].type === 6)) {
+      if (
+        isAdminUser &&
+        (logs[i].type === 0 || logs[i].type === 2 || logs[i].type === 6)
+      ) {
         expandDataLocal.push({
           key: t('渠道信息'),
           value: `${logs[i].channel} - ${logs[i].channel_name || '[未知]'}`,
@@ -588,7 +574,14 @@ export const useLogsData = () => {
           expandDataLocal.push({
             key: t('失败原因'),
             value: (
-              <div style={{ maxWidth: 600, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.6 }}>
+              <div
+                style={{
+                  maxWidth: 600,
+                  whiteSpace: 'normal',
+                  wordBreak: 'break-word',
+                  lineHeight: 1.6,
+                }}
+              >
                 {other.reason}
               </div>
             ),
@@ -599,21 +592,6 @@ export const useLogsData = () => {
         expandDataLocal.push({
           key: t('请求路径'),
           value: other.request_path,
-        });
-      }
-      if (Array.isArray(other?.po) && other.po.length > 0) {
-        expandDataLocal.push({
-          key: t('参数覆盖'),
-          value: (
-            <ParamOverrideEntry
-              count={other.po.length}
-              t={t}
-              onOpen={(event) => {
-                event.stopPropagation();
-                openParamOverrideModal(logs[i], other);
-              }}
-            />
-          ),
         });
       }
       if (other?.billing_source === 'subscription') {
@@ -765,7 +743,7 @@ export const useLogsData = () => {
   const copyText = async (e, text) => {
     e.stopPropagation();
     if (await copy(text)) {
-      showSuccess('已复制：' + text);
+      showSuccess(t('已复制：') + text);
     } else {
       Modal.error({ title: t('无法复制到剪贴板，请手动复制'), content: text });
     }
@@ -798,6 +776,7 @@ export const useLogsData = () => {
   };
 
   return {
+    t,
     // Basic state
     logs,
     expandData,
@@ -843,9 +822,6 @@ export const useLogsData = () => {
     setShowChannelAffinityUsageCacheModal,
     channelAffinityUsageCacheTarget,
     openChannelAffinityUsageCacheModal,
-    showParamOverrideModal,
-    setShowParamOverrideModal,
-    paramOverrideTarget,
 
     // Functions
     loadLogs,
@@ -857,9 +833,6 @@ export const useLogsData = () => {
     setLogsFormat,
     hasExpandableRows,
     setLogType,
-    openParamOverrideModal,
 
-    // Translation
-    t,
   };
 };

@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Button, Form } from '@douyinfe/semi-ui';
 import { IconSearch } from '@douyinfe/semi-icons';
+import { useTranslation } from 'react-i18next';
 
 import { DATE_RANGE_PRESETS } from '../../../constants/console.constants';
 
@@ -31,8 +32,8 @@ const TaskLogsFilters = ({
   formApi,
   loading,
   isAdminUser,
-  t,
 }) => {
+  const { t } = useTranslation();
   return (
     <Form
       initValues={formInitValues}

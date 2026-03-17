@@ -1,6 +1,7 @@
 package jimeng
 
 import (
+	"github.com/QuantumNous/new-api/i18n"
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -124,11 +125,11 @@ func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info
 func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
 	v, exists := c.Get("task_request")
 	if !exists {
-		return nil, fmt.Errorf("request not found in context")
+		return nil, errors.New(i18n.Translate("relay.request_not_found_in_context_5253"))
 	}
 	req, ok := v.(relaycommon.TaskSubmitReq)
 	if !ok {
-		return nil, fmt.Errorf("invalid request type in context")
+		return nil, errors.New(i18n.Translate("relay.invalid_request_type_in_context_85a0"))
 	}
 	// 支持openai sdk的图片上传方式
 	if mf, err := c.MultipartForm(); err == nil {
@@ -145,7 +146,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 			for _, fileHeader := range files {
 				// 检查文件大小
 				if fileHeader.Size > MaxFileSize {
-					return nil, fmt.Errorf("文件 %s 大小超过限制，最大允许 %d MB", fileHeader.Filename, MaxFileSize/(1024*1024))
+					return nil, fmt.Errorf(i18n.Translate("relay.file_exceeds_size_limit_maximum_allowed_mb"), fileHeader.Filename, MaxFileSize/(1024*1024))
 				}
 
 				file, err := fileHeader.Open()
@@ -215,7 +216,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error) {
 	taskID, ok := body["task_id"].(string)
 	if !ok {
-		return nil, fmt.Errorf("invalid task_id")
+		return nil, errors.New(i18n.Translate("relay.invalid_task_id_544e"))
 	}
 
 	uri := fmt.Sprintf("%s/?Action=CVSync2AsyncGetResult&Version=2022-08-31", baseUrl)
@@ -244,7 +245,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	} else {
 		keyParts := strings.Split(key, "|")
 		if len(keyParts) != 2 {
-			return nil, fmt.Errorf("invalid api key format for jimeng: expected 'ak|sk'")
+			return nil, errors.New(i18n.Translate("relay.invalid_api_key_format_for_jimeng_expected_ak_4f63"))
 		}
 		accessKey := strings.TrimSpace(keyParts[0])
 		secretKey := strings.TrimSpace(keyParts[1])
@@ -255,7 +256,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	}
 	client, err := service.GetHttpClientWithProxy(proxy)
 	if err != nil {
-		return nil, fmt.Errorf("new proxy http client failed: %w", err)
+		return nil, fmt.Errorf(i18n.Translate("relay.new_proxy_http_client_failed_af67"), err)
 	}
 	return client.Do(req)
 }

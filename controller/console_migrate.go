@@ -3,23 +3,20 @@
 package controller
 
 import (
-	"encoding/json"
-	"net/http"
-
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
-
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 )
 
 // MigrateConsoleSetting 迁移旧的控制台相关配置到 console_setting.*
-func MigrateConsoleSetting(c *gin.Context) {
+func MigrateConsoleSetting(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	// 读取全部 option
 	opts, err := model.AllOption()
 	if err != nil {
-		common.SysError("failed to get all options: " + err.Error())
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "获取配置失败，请稍后重试"})
-		return
+		common.SysError(i18n.Translate("ctrl.failed_to_get_all_options") + err.Error())
+		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "setting.get_failed"))
 	}
 	// 建立 map
 	valMap := map[string]string{}
@@ -30,11 +27,11 @@ func MigrateConsoleSetting(c *gin.Context) {
 	// 处理 APIInfo
 	if v := valMap["ApiInfo"]; v != "" {
 		var arr []map[string]interface{}
-		if err := json.Unmarshal([]byte(v), &arr); err == nil {
+		if err := common.Unmarshal([]byte(v), &arr); err == nil {
 			if len(arr) > 50 {
 				arr = arr[:50]
 			}
-			bytes, _ := json.Marshal(arr)
+			bytes, _ := common.Marshal(arr)
 			model.UpdateOption("console_setting.api_info", string(bytes))
 		}
 		model.UpdateOption("ApiInfo", "")
@@ -47,7 +44,7 @@ func MigrateConsoleSetting(c *gin.Context) {
 	// FAQ 转换
 	if v := valMap["FAQ"]; v != "" {
 		var arr []map[string]interface{}
-		if err := json.Unmarshal([]byte(v), &arr); err == nil {
+		if err := common.Unmarshal([]byte(v), &arr); err == nil {
 			out := []map[string]interface{}{}
 			for _, item := range arr {
 				q, _ := item["question"].(string)
@@ -65,7 +62,7 @@ func MigrateConsoleSetting(c *gin.Context) {
 			if len(out) > 50 {
 				out = out[:50]
 			}
-			bytes, _ := json.Marshal(out)
+			bytes, _ := common.Marshal(out)
 			model.UpdateOption("console_setting.faq", string(bytes))
 		}
 		model.UpdateOption("FAQ", "")
@@ -84,7 +81,7 @@ func MigrateConsoleSetting(c *gin.Context) {
 				"description":  "",
 			},
 		}
-		bytes, _ := json.Marshal(groups)
+		bytes, _ := common.Marshal(groups)
 		model.UpdateOption("console_setting.uptime_kuma_groups", string(bytes))
 	}
 	// 清空旧键内容
@@ -101,6 +98,6 @@ func MigrateConsoleSetting(c *gin.Context) {
 
 	// 重新加载 OptionMap
 	model.InitOptionMap()
-	common.SysLog("console setting migrated")
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "migrated"})
+	common.SysLog(i18n.Translate("ctrl.console_setting_migrated"))
+	return dto.Msg("migrated")
 }

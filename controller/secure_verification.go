@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
@@ -22,43 +23,28 @@ const (
 	PasskeyReadyTimeout = 60
 )
 
-type UniversalVerifyRequest struct {
-	Method string `json:"method"` // "2fa" 或 "passkey"
-	Code   string `json:"code,omitempty"`
-}
-
-type VerificationStatusResponse struct {
-	Verified  bool  `json:"verified"`
-	ExpiresAt int64 `json:"expires_at,omitempty"`
-}
-
-// UniversalVerify 通用验证接口
-// 支持 2FA 和 Passkey 验证，验证成功后在 session 中记录时间戳
 func UniversalVerify(c *gin.Context) {
 	userId := c.GetInt("id")
 	if userId == 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": "未登录",
-		})
+		c.JSON(http.StatusUnauthorized, dto.ApiResponse{Message: common.TranslateMessage(c, "common.not_logged_in")})
 		return
 	}
 
-	var req UniversalVerifyRequest
+	var req dto.UniversalVerifyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ApiError(c, fmt.Errorf("参数错误: %v", err))
+		common.ApiErrorI18n(c, "secure_verification.param_error")
 		return
 	}
 
 	// 获取用户信息
 	user := &model.User{Id: userId}
 	if err := user.FillUserById(); err != nil {
-		common.ApiError(c, fmt.Errorf("获取用户信息失败: %v", err))
+		common.ApiErrorI18n(c, "secure_verification.get_user_failed")
 		return
 	}
 
 	if user.Status != common.UserStatusEnabled {
-		common.ApiError(c, fmt.Errorf("该用户已被禁用"))
+		common.ApiErrorI18n(c, "secure_verification.user_disabled")
 		return
 	}
 
@@ -70,7 +56,7 @@ func UniversalVerify(c *gin.Context) {
 	hasPasskey := passkeyErr == nil && passkey != nil
 
 	if !has2FA && !hasPasskey {
-		common.ApiError(c, fmt.Errorf("用户未启用2FA或Passkey"))
+		common.ApiErrorI18n(c, "secure_verification.not_enabled")
 		return
 	}
 
@@ -82,11 +68,11 @@ func UniversalVerify(c *gin.Context) {
 	switch req.Method {
 	case "2fa":
 		if !has2FA {
-			common.ApiError(c, fmt.Errorf("用户未启用2FA"))
+			common.ApiErrorI18n(c, "secure_verification.twofa_not_enabled")
 			return
 		}
 		if req.Code == "" {
-			common.ApiError(c, fmt.Errorf("验证码不能为空"))
+			common.ApiErrorI18n(c, "secure_verification.code_empty")
 			return
 		}
 		verified = validateTwoFactorAuth(twoFA, req.Code)
@@ -94,47 +80,47 @@ func UniversalVerify(c *gin.Context) {
 
 	case "passkey":
 		if !hasPasskey {
-			common.ApiError(c, fmt.Errorf("用户未启用Passkey"))
+			common.ApiErrorI18n(c, "secure_verification.passkey_not_enabled")
 			return
 		}
 		// Passkey branch only trusts the short-lived marker written by PasskeyVerifyFinish.
 		verified, err = consumePasskeyReady(c)
 		if err != nil {
-			common.ApiError(c, fmt.Errorf("Passkey 验证状态异常: %v", err))
+			common.ApiError(c, fmt.Errorf("%s: %v", common.TranslateMessage(c, "secure_verification.passkey_state_error"), err))
 			return
 		}
 		if !verified {
-			common.ApiError(c, fmt.Errorf("请先完成 Passkey 验证"))
+			common.ApiErrorI18n(c, "secure_verification.passkey_verify_first")
 			return
 		}
 		verifyMethod = "Passkey"
 
 	default:
-		common.ApiError(c, fmt.Errorf("不支持的验证方式: %s", req.Method))
+		common.ApiErrorI18n(c, "secure_verification.method_not_supported")
 		return
 	}
 
 	if !verified {
-		common.ApiError(c, fmt.Errorf("验证失败，请检查验证码"))
+		common.ApiErrorI18n(c, "secure_verification.failed")
 		return
 	}
 
 	// 验证成功，在 session 中记录时间戳
 	now, err := setSecureVerificationSession(c)
 	if err != nil {
-		common.ApiError(c, fmt.Errorf("保存验证状态失败: %v", err))
+		common.ApiErrorI18n(c, "secure_verification.save_state_failed")
 		return
 	}
 
 	// 记录日志
-	model.RecordLog(userId, model.LogTypeSystem, fmt.Sprintf("通用安全验证成功 (验证方式: %s)", verifyMethod))
+	model.RecordLog(userId, model.LogTypeSystem, "Universal secure verification succeeded (method: "+verifyMethod+")")
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "验证成功",
-		"data": gin.H{
-			"verified":   true,
-			"expires_at": now + SecureVerificationTimeout,
+	c.JSON(http.StatusOK, dto.ApiResponse{
+		Success: true,
+		Message: common.TranslateMessage(c, "passkey.verify_success"),
+		Data: dto.VerificationStatusResponse{
+			Verified:  true,
+			ExpiresAt: now + SecureVerificationTimeout,
 		},
 	})
 }

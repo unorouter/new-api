@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { Toast, Pagination } from '@douyinfe/semi-ui';
 import { toastConstants } from '../constants';
+import { t } from './i18n';
 import React from 'react';
 import { toast } from 'react-toastify';
 import {
@@ -131,22 +132,22 @@ export function showError(error) {
           window.location.href = '/login?expired=true';
           break;
         case 429:
-          Toast.error('错误：请求次数过多，请稍后再试！');
+          Toast.error(t('错误：请求次数过多，请稍后再试！'));
           break;
         case 500:
-          Toast.error('错误：服务器内部错误，请联系管理员！');
+          Toast.error(t('错误：服务器内部错误，请联系管理员！'));
           break;
         case 405:
-          Toast.info('本站仅作演示之用，无服务端！');
+          Toast.info(t('本站仅作演示之用，无服务端！'));
           break;
         default:
-          Toast.error('错误：' + error.message);
+          Toast.error(t('错误：') + error.message);
       }
       return;
     }
-    Toast.error('错误：' + error.message);
+    Toast.error(t('错误：') + error.message);
   } else {
-    Toast.error('错误：' + error);
+    Toast.error(t('错误：') + error);
   }
 }
 
@@ -527,19 +528,19 @@ export const getRelativeTime = (publishDate) => {
 
   // 根据时间差返回相应的描述
   if (diffSeconds < 60) {
-    return '刚刚';
+    return t('刚刚');
   } else if (diffMinutes < 60) {
-    return `${diffMinutes} 分钟前`;
+    return `${diffMinutes} ${t('分钟前')}`;
   } else if (diffHours < 24) {
-    return `${diffHours} 小时前`;
+    return `${diffHours} ${t('小时前')}`;
   } else if (diffDays < 7) {
-    return `${diffDays} 天前`;
+    return `${diffDays} ${t('天前')}`;
   } else if (diffWeeks < 4) {
-    return `${diffWeeks} 周前`;
+    return `${diffWeeks} ${t('周前')}`;
   } else if (diffMonths < 12) {
-    return `${diffMonths} 个月前`;
+    return `${diffMonths} ${t('个月前')}`;
   } else if (diffYears < 2) {
-    return '1 年前';
+    return `1 ${t('年前')}`;
   } else {
     // 超过2年显示具体日期
     return formatDateString(pubDate);
@@ -706,7 +707,7 @@ export const calculateModelPrice = ({
       ? formatTokenPrice(inputRatioPriceUSD * Number(record.audio_ratio))
       : null;
 
-    return {
+    const result = {
       inputPrice,
       completionPrice: formatTokenPrice(
         inputRatioPriceUSD * Number(record.completion_ratio),
@@ -735,6 +736,17 @@ export const calculateModelPrice = ({
       usedGroup,
       usedGroupRatio,
     };
+
+    // Original price (groupRatio=1) for strikethrough display when discounted
+    if (usedGroupRatio < 1) {
+      const origInputUSD = record.model_ratio * 2;
+      const origCompletionUSD =
+        record.model_ratio * record.completion_ratio * 2;
+      result.originalInputPrice = formatTokenPrice(origInputUSD);
+      result.originalCompletionPrice = formatTokenPrice(origCompletionUSD);
+    }
+
+    return result;
   }
 
   if (record.quota_type === 1) {
@@ -742,13 +754,21 @@ export const calculateModelPrice = ({
     const priceUSD = parseFloat(record.model_price) * usedGroupRatio;
     const displayVal = displayPrice(priceUSD);
 
-    return {
+    const result = {
       price: displayVal,
       isPerToken: false,
       isTokensDisplay: false,
       usedGroup,
       usedGroupRatio,
     };
+
+    // Original price (groupRatio=1) for strikethrough display when discounted
+    if (usedGroupRatio < 1) {
+      const origPriceUSD = parseFloat(record.model_price);
+      result.originalPrice = displayPrice(origPriceUSD);
+    }
+
+    return result;
   }
 
   // 未知计费类型，返回占位信息
@@ -875,8 +895,9 @@ export const getModelPriceItems = (
 };
 
 // 格式化价格信息（用于卡片视图）
-export const formatPriceInfo = (priceData, t, quotaDisplayType = 'USD') => {
+export const formatPriceInfo = (priceData, t, quotaDisplayType = 'USD', showOriginalPrice = false) => {
   const items = getModelPriceItems(priceData, t, quotaDisplayType);
+  const hasOriginal = showOriginalPrice && (priceData.originalInputPrice || priceData.originalCompletionPrice || priceData.originalPrice);
   return (
     <>
       {items.map((item) => (
@@ -885,6 +906,13 @@ export const formatPriceInfo = (priceData, t, quotaDisplayType = 'USD') => {
           {item.suffix}
         </span>
       ))}
+      {hasOriginal && (
+        <div style={{ textDecoration: 'line-through', color: 'var(--semi-color-text-2)', fontSize: '0.85em', width: '100%' }}>
+          {t('原价')}: {priceData.originalInputPrice
+            ? `${priceData.originalInputPrice}/${priceData.unitLabel} ${priceData.originalCompletionPrice}/${priceData.unitLabel}`
+            : `${priceData.originalPrice} / ${t('次')}`}
+        </div>
+      )}
     </>
   );
 };

@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Modal } from '@douyinfe/semi-ui';
 import { REDEMPTION_ACTIONS } from '../../../../constants/redemption.constants';
+import { useTranslation } from 'react-i18next';
 
 const DeleteRedemptionModal = ({
   visible,
@@ -29,8 +30,8 @@ const DeleteRedemptionModal = ({
   refresh,
   redemptions,
   activePage,
-  t,
 }) => {
+  const { t } = useTranslation();
   const handleConfirm = async () => {
     await manageRedemption(record.id, REDEMPTION_ACTIONS.DELETE, record);
     await refresh();

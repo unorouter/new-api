@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Layout } from '@douyinfe/semi-ui';
 import CardPro from '../../common/ui/CardPro';
 import TaskLogsTable from './TaskLogsTable';
@@ -31,6 +32,7 @@ import { useIsMobile } from '../../../hooks/common/useIsMobile';
 import { createCardProPagination } from '../../../helpers/utils';
 
 const TaskLogsPage = () => {
+  const { t } = useTranslation();
   const taskLogsData = useTaskLogsData();
   const isMobile = useIsMobile();
 
@@ -64,9 +66,9 @@ const TaskLogsPage = () => {
             onPageChange: taskLogsData.handlePageChange,
             onPageSizeChange: taskLogsData.handlePageSizeChange,
             isMobile: isMobile,
-            t: taskLogsData.t,
+            t: t,
           })}
-          t={taskLogsData.t}
+          t={t}
         >
           <TaskLogsTable {...taskLogsData} />
         </CardPro>

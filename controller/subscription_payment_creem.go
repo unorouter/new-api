@@ -1,78 +1,56 @@
 package controller
 
 import (
-	"bytes"
-	"io"
 	"log"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 	"github.com/thanhpk/randstr"
 )
 
-type SubscriptionCreemPayRequest struct {
-	PlanId int `json:"plan_id"`
-}
-
-func SubscriptionRequestCreemPay(c *gin.Context) {
-	var req SubscriptionCreemPayRequest
-
-	// Keep body for debugging consistency (like RequestCreemPay)
-	bodyBytes, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		log.Printf("read subscription creem pay req body err: %v", err)
-		c.JSON(200, gin.H{"message": "error", "data": "read query error"})
-		return
-	}
-	c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-
-	if err := c.ShouldBindJSON(&req); err != nil || req.PlanId <= 0 {
-		c.JSON(200, gin.H{"message": "error", "data": "参数错误"})
-		return
+func SubscriptionRequestCreemPay(c fuego.ContextWithBody[dto.SubscriptionCreemPayRequest]) (*dto.Response[dto.CreemPayData], error) {
+	ginCtx := dto.GinCtx(c)
+	req, err := c.Body()
+	if err != nil || req.PlanId <= 0 {
+		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "common.invalid_params"))
 	}
 
 	plan, err := model.GetSubscriptionPlanById(req.PlanId)
 	if err != nil {
-		common.ApiError(c, err)
-		return
+		return dto.Fail[dto.CreemPayData](err.Error())
 	}
 	if !plan.Enabled {
-		common.ApiErrorMsg(c, "套餐未启用")
-		return
+		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "subscription.not_enabled"))
 	}
 	if plan.CreemProductId == "" {
-		common.ApiErrorMsg(c, "该套餐未配置 CreemProductId")
-		return
+		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.product_config_error"))
 	}
 	if setting.CreemWebhookSecret == "" && !setting.CreemTestMode {
-		common.ApiErrorMsg(c, "Creem Webhook 未配置")
-		return
+		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.webhook_not_configured"))
 	}
 
-	userId := c.GetInt("id")
+	userId := dto.UserID(c)
 	user, err := model.GetUserById(userId, false)
 	if err != nil {
-		common.ApiError(c, err)
-		return
+		return dto.Fail[dto.CreemPayData](err.Error())
 	}
 	if user == nil {
-		common.ApiErrorMsg(c, "用户不存在")
-		return
+		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "user.not_exists"))
 	}
 
 	if plan.MaxPurchasePerUser > 0 {
 		count, err := model.CountUserSubscriptionsByPlan(userId, plan.Id)
 		if err != nil {
-			common.ApiError(c, err)
-			return
+			return dto.Fail[dto.CreemPayData](err.Error())
 		}
 		if count >= int64(plan.MaxPurchasePerUser) {
-			common.ApiErrorMsg(c, "已达到该套餐购买上限")
-			return
+			return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "subscription.purchase_max"))
 		}
 	}
 
@@ -90,8 +68,7 @@ func SubscriptionRequestCreemPay(c *gin.Context) {
 		Status:        common.TopUpStatusPending,
 	}
 	if err := order.Insert(); err != nil {
-		c.JSON(200, gin.H{"message": "error", "data": "创建订单失败"})
-		return
+		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.create_failed"))
 	}
 
 	// Reuse Creem checkout generator by building a lightweight product reference.
@@ -104,7 +81,7 @@ func SubscriptionRequestCreemPay(c *gin.Context) {
 	default:
 		currency = "USD"
 	}
-	product := &CreemProduct{
+	product := &dto.CreemProduct{
 		ProductId: plan.CreemProductId,
 		Name:      plan.Title,
 		Price:     plan.PriceAmount,
@@ -114,16 +91,12 @@ func SubscriptionRequestCreemPay(c *gin.Context) {
 
 	checkoutUrl, err := genCreemLink(referenceId, product, user.Email, user.Username)
 	if err != nil {
-		log.Printf("获取Creem支付链接失败: %v", err)
-		c.JSON(200, gin.H{"message": "error", "data": "拉起支付失败"})
-		return
+		log.Println(i18n.Translate("topup.get_creem_pay_link_failed", map[string]any{"Error": err.Error()}))
+		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.start_failed"))
 	}
 
-	c.JSON(200, gin.H{
-		"message": "success",
-		"data": gin.H{
-			"checkout_url": checkoutUrl,
-			"order_id":     referenceId,
-		},
+	return dto.Ok(dto.CreemPayData{
+		CheckoutUrl: checkoutUrl,
+		OrderId:     referenceId,
 	})
 }

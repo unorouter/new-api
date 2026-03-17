@@ -25,8 +25,10 @@ import {
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
 import { getModelsColumns } from './ModelsColumnDefs';
+import { useTranslation } from 'react-i18next';
 
 const ModelsTable = (modelsData) => {
+  const { t } = useTranslation();
   const {
     models,
     loading,
@@ -43,20 +45,18 @@ const ModelsTable = (modelsData) => {
     setShowEdit,
     refresh,
     vendorMap,
-    t,
   } = modelsData;
 
   // Get all columns
   const columns = useMemo(() => {
     return getModelsColumns({
-      t,
       manageModel,
       setEditingModel,
       setShowEdit,
       refresh,
       vendorMap,
     });
-  }, [t, manageModel, setEditingModel, setShowEdit, refresh, vendorMap]);
+  }, [manageModel, setEditingModel, setShowEdit, refresh, vendorMap]);
 
   // Handle compact mode by removing fixed positioning
   const tableColumns = useMemo(() => {

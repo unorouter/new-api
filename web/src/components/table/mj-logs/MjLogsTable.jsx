@@ -25,8 +25,10 @@ import {
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
 import { getMjLogsColumns } from './MjLogsColumnDefs';
+import { useTranslation } from 'react-i18next';
 
 const MjLogsTable = (mjLogsData) => {
+  const { t } = useTranslation();
   const {
     logs,
     loading,
@@ -41,21 +43,19 @@ const MjLogsTable = (mjLogsData) => {
     openContentModal,
     openImageModal,
     isAdminUser,
-    t,
     COLUMN_KEYS,
   } = mjLogsData;
 
   // Get all columns
   const allColumns = useMemo(() => {
     return getMjLogsColumns({
-      t,
       COLUMN_KEYS,
       copyText,
       openContentModal,
       openImageModal,
       isAdminUser,
     });
-  }, [t, COLUMN_KEYS, copyText, openContentModal, openImageModal, isAdminUser]);
+  }, [COLUMN_KEYS, copyText, openContentModal, openImageModal, isAdminUser]);
 
   // Filter columns based on visibility settings
   const getVisibleColumns = () => {

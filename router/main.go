@@ -1,6 +1,7 @@
 package router
 
 import (
+	"github.com/QuantumNous/new-api/i18n"
 	"embed"
 	"fmt"
 	"net/http"
@@ -11,17 +12,25 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 )
 
 func SetRouter(router *gin.Engine, buildFS embed.FS, indexPage []byte) {
-	SetApiRouter(router)
-	SetDashboardRouter(router)
-	SetRelayRouter(router)
-	SetVideoRouter(router)
+	var engine *fuego.Engine
+	if os.Getenv("ENABLE_OPENAPI") == "true" {
+		engine = newOpenAPIEngine()
+	}
+
+	SetApiRouter(router, engine)
+	SetDashboardRouter(router, engine)
+	SetRelayRouter(router, engine)
+	SetVideoRouter(router, engine)
+	registerOpenAPIRoutes(engine, router)
+
 	frontendBaseUrl := os.Getenv("FRONTEND_BASE_URL")
 	if common.IsMasterNode && frontendBaseUrl != "" {
 		frontendBaseUrl = ""
-		common.SysLog("FRONTEND_BASE_URL is ignored on master node")
+		common.SysLog(i18n.Translate("router.frontend_base_url_is_ignored_on_master"))
 	}
 	if frontendBaseUrl == "" {
 		SetWebRouter(router, buildFS, indexPage)

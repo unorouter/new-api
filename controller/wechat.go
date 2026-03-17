@@ -9,10 +9,13 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 )
 
 type wechatLoginResponse struct {
@@ -23,7 +26,7 @@ type wechatLoginResponse struct {
 
 func getWeChatIdByCode(code string) (string, error) {
 	if code == "" {
-		return "", errors.New("无效的参数")
+		return "", errors.New(i18n.Translate("wechat.invalid_params"))
 	}
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/wechat/user?code=%s", common.WeChatServerAddress, code), nil)
 	if err != nil {
@@ -47,26 +50,20 @@ func getWeChatIdByCode(code string) (string, error) {
 		return "", errors.New(res.Message)
 	}
 	if res.Data == "" {
-		return "", errors.New("验证码错误或已过期")
+		return "", errors.New(i18n.Translate("wechat.code_expired"))
 	}
 	return res.Data, nil
 }
 
 func WeChatAuth(c *gin.Context) {
 	if !common.WeChatAuthEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "管理员未开启通过微信登录以及注册",
-			"success": false,
-		})
+		c.JSON(http.StatusOK, dto.ApiResponse{Message: common.TranslateMessage(c, "option.wechat_required")})
 		return
 	}
 	code := c.Query("code")
 	wechatId, err := getWeChatIdByCode(code)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"message": err.Error(),
-			"success": false,
-		})
+		c.JSON(http.StatusOK, dto.ApiResponse{Message: err.Error()})
 		return
 	}
 	user := model.User{
@@ -75,17 +72,11 @@ func WeChatAuth(c *gin.Context) {
 	if model.IsWeChatIdAlreadyTaken(wechatId) {
 		err := user.FillUserByWeChatId()
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
+			c.JSON(http.StatusOK, dto.ApiResponse{Message: err.Error()})
 			return
 		}
 		if user.Id == 0 {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "用户已注销",
-			})
+			c.JSON(http.StatusOK, dto.ApiResponse{Message: common.TranslateMessage(c, "oauth.user_deleted")})
 			return
 		}
 	} else {
@@ -96,74 +87,53 @@ func WeChatAuth(c *gin.Context) {
 			user.Status = common.UserStatusEnabled
 
 			if err := user.Insert(0); err != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": err.Error(),
-				})
+				c.JSON(http.StatusOK, dto.ApiResponse{Message: err.Error()})
 				return
 			}
 		} else {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "管理员关闭了新用户注册",
-			})
+			c.JSON(http.StatusOK, dto.ApiResponse{Message: common.TranslateMessage(c, "user.register_disabled")})
 			return
 		}
 	}
 
 	if user.Status != common.UserStatusEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "用户已被封禁",
-			"success": false,
-		})
+		c.JSON(http.StatusOK, dto.ApiResponse{Message: common.TranslateMessage(c, "common.user_banned")})
 		return
 	}
 	setupLogin(&user, c)
 }
 
-func WeChatBind(c *gin.Context) {
+func WeChatBind(c fuego.ContextWithParams[dto.WeChatBindParams]) (dto.MessageResponse, error) {
 	if !common.WeChatAuthEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "管理员未开启通过微信登录以及注册",
-			"success": false,
-		})
-		return
+		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "option.wechat_required"))
 	}
-	code := c.Query("code")
-	wechatId, err := getWeChatIdByCode(code)
+	p, err := dto.ParseParams[dto.WeChatBindParams](c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"message": err.Error(),
-			"success": false,
-		})
-		return
+		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+	}
+	wechatId, err := getWeChatIdByCode(p.Code)
+	if err != nil {
+		return dto.FailMsg(err.Error())
 	}
 	if model.IsWeChatIdAlreadyTaken(wechatId) {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "该微信账号已被绑定",
-		})
-		return
+		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "oauth.already_bound"))
 	}
-	session := sessions.Default(c)
-	id := session.Get("id")
+	ginCtx := dto.GinCtx(c)
+	session := sessions.Default(ginCtx)
+	idVal := session.Get("id")
+	userId, ok := idVal.(int)
+	if !ok || userId <= 0 {
+		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "common.not_logged_in"))
+	}
 	user := model.User{
-		Id: id.(int),
+		Id: userId,
 	}
-	err = user.FillUserById()
-	if err != nil {
-		common.ApiError(c, err)
-		return
+	if err = user.FillUserById(); err != nil {
+		return dto.FailMsg(err.Error())
 	}
 	user.WeChatId = wechatId
-	err = user.Update(false)
-	if err != nil {
-		common.ApiError(c, err)
-		return
+	if err = user.Update(false); err != nil {
+		return dto.FailMsg(err.Error())
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
-	return
+	return dto.Msg("")
 }

@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Banner, Form } from '@douyinfe/semi-ui';
 import { IconUser, IconLock } from '@douyinfe/semi-icons';
+import { useTranslation } from 'react-i18next';
 
 /**
  * 管理员账号设置步骤组件
@@ -31,8 +32,8 @@ const AdminStep = ({
   setFormData,
   formRef,
   renderNavigationButtons,
-  t,
 }) => {
+  const { t } = useTranslation();
   return (
     <>
       {setupStatus.root_init ? (

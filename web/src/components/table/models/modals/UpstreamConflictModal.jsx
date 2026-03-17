@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Modal,
   Table,
@@ -32,7 +33,6 @@ import { MousePointerClick } from 'lucide-react';
 import { useIsMobile } from '../../../../hooks/common/useIsMobile';
 import { MODEL_TABLE_PAGE_SIZE } from '../../../../constants';
 import { IconSearch } from '@douyinfe/semi-icons';
-
 const { Text } = Typography;
 
 const FIELD_LABELS = {
@@ -50,9 +50,9 @@ const UpstreamConflictModal = ({
   onClose,
   conflicts = [],
   onSubmit,
-  t,
   loading = false,
 }) => {
+  const { t } = useTranslation();
   const [selections, setSelections] = useState({});
   const isMobile = useIsMobile();
   const [currentPage, setCurrentPage] = useState(1);
@@ -164,8 +164,7 @@ const UpstreamConflictModal = ({
     ];
 
     const cols = FIELD_KEYS.map((fieldKey) => {
-      const rawLabel = FIELD_LABELS[fieldKey] || fieldKey;
-      const label = t(rawLabel);
+      const label = t(FIELD_LABELS[fieldKey] || fieldKey);
 
       const { headerChecked, headerIndeterminate, hasAny } =
         getHeaderState(fieldKey);

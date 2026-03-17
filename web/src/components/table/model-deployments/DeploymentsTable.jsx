@@ -25,6 +25,7 @@ import {
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
 import { getDeploymentsColumns } from './DeploymentsColumnDefs';
+import { useTranslation } from 'react-i18next';
 
 // Import all the new modals
 import ViewLogsModal from './modals/ViewLogsModal';
@@ -34,6 +35,7 @@ import UpdateConfigModal from './modals/UpdateConfigModal';
 import ConfirmationDialog from './modals/ConfirmationDialog';
 
 const DeploymentsTable = (deploymentsData) => {
+  const { t } = useTranslation();
   const {
     deployments,
     loading,
@@ -48,7 +50,6 @@ const DeploymentsTable = (deploymentsData) => {
     handlePageChange,
     handlePageSizeChange,
     handleRow,
-    t,
     COLUMN_KEYS,
     // Column functions and data
     startDeployment,
@@ -114,7 +115,6 @@ const DeploymentsTable = (deploymentsData) => {
   // Get all columns
   const allColumns = useMemo(() => {
     return getDeploymentsColumns({
-      t,
       COLUMN_KEYS,
       startDeployment,
       restartDeployment,
@@ -132,7 +132,6 @@ const DeploymentsTable = (deploymentsData) => {
       onSyncToChannel: syncDeploymentToChannel,
     });
   }, [
-    t,
     COLUMN_KEYS,
     startDeployment,
     restartDeployment,

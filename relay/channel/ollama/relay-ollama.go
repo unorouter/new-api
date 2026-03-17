@@ -1,6 +1,8 @@
 package ollama
 
 import (
+	"errors"
+	"github.com/QuantumNous/new-api/i18n"
 	"bufio"
 	"encoding/json"
 	"fmt"
@@ -272,7 +274,7 @@ func ollamaEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 	if oResp.Error != "" {
-		return nil, types.NewOpenAIError(fmt.Errorf("ollama error: %s", oResp.Error), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		return nil, types.NewOpenAIError(fmt.Errorf(i18n.Translate("relay.ollama_error"), oResp.Error), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 	data := make([]dto.OpenAIEmbeddingResponseItem, 0, len(oResp.Embeddings))
 	for i, emb := range oResp.Embeddings {
@@ -291,7 +293,7 @@ func FetchOllamaModels(baseURL, apiKey string) ([]OllamaModel, error) {
 	client := &http.Client{}
 	request, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %v", err)
+		return nil, fmt.Errorf(i18n.Translate("relay.failed_to_create_request_8540"), err)
 	}
 
 	// Ollama 通常不需要 Bearer token，但为了兼容性保留
@@ -301,24 +303,24 @@ func FetchOllamaModels(baseURL, apiKey string) ([]OllamaModel, error) {
 
 	response, err := client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %v", err)
+		return nil, fmt.Errorf(i18n.Translate("relay.request_failed_67b1"), err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("服务器返回错误 %d: %s", response.StatusCode, string(body))
+		return nil, fmt.Errorf(i18n.Translate("relay.server_returned_error_ad74"), response.StatusCode, string(body))
 	}
 
 	var tagsResponse OllamaTagsResponse
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %v", err)
+		return nil, fmt.Errorf(i18n.Translate("relay.failed_to_read_response_ba57"), err)
 	}
 
 	err = common.Unmarshal(body, &tagsResponse)
 	if err != nil {
-		return nil, fmt.Errorf("解析响应失败: %v", err)
+		return nil, fmt.Errorf(i18n.Translate("relay.failed_to_parse_response_af80"), err)
 	}
 
 	return tagsResponse.Models, nil
@@ -335,7 +337,7 @@ func PullOllamaModel(baseURL, apiKey, modelName string) error {
 
 	requestBody, err := common.Marshal(pullRequest)
 	if err != nil {
-		return fmt.Errorf("序列化请求失败: %v", err)
+		return fmt.Errorf(i18n.Translate("relay.failed_to_marshal_request_4824"), err)
 	}
 
 	client := &http.Client{
@@ -343,7 +345,7 @@ func PullOllamaModel(baseURL, apiKey, modelName string) error {
 	}
 	request, err := http.NewRequest("POST", url, strings.NewReader(string(requestBody)))
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %v", err)
+		return fmt.Errorf(i18n.Translate("relay.failed_to_create_request_e38c"), err)
 	}
 
 	request.Header.Set("Content-Type", "application/json")
@@ -353,13 +355,13 @@ func PullOllamaModel(baseURL, apiKey, modelName string) error {
 
 	response, err := client.Do(request)
 	if err != nil {
-		return fmt.Errorf("请求失败: %v", err)
+		return fmt.Errorf(i18n.Translate("relay.request_failed_d1fa"), err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(response.Body)
-		return fmt.Errorf("拉取模型失败 %d: %s", response.StatusCode, string(body))
+		return fmt.Errorf(i18n.Translate("relay.failed_to_pull_model"), response.StatusCode, string(body))
 	}
 
 	return nil
@@ -376,7 +378,7 @@ func PullOllamaModelStream(baseURL, apiKey, modelName string, progressCallback f
 
 	requestBody, err := common.Marshal(pullRequest)
 	if err != nil {
-		return fmt.Errorf("序列化请求失败: %v", err)
+		return fmt.Errorf(i18n.Translate("relay.failed_to_marshal_request_950d"), err)
 	}
 
 	client := &http.Client{
@@ -384,7 +386,7 @@ func PullOllamaModelStream(baseURL, apiKey, modelName string, progressCallback f
 	}
 	request, err := http.NewRequest("POST", url, strings.NewReader(string(requestBody)))
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %v", err)
+		return fmt.Errorf(i18n.Translate("relay.failed_to_create_request_2b0b"), err)
 	}
 
 	request.Header.Set("Content-Type", "application/json")
@@ -394,13 +396,13 @@ func PullOllamaModelStream(baseURL, apiKey, modelName string, progressCallback f
 
 	response, err := client.Do(request)
 	if err != nil {
-		return fmt.Errorf("请求失败: %v", err)
+		return fmt.Errorf(i18n.Translate("relay.request_failed_9464"), err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(response.Body)
-		return fmt.Errorf("拉取模型失败 %d: %s", response.StatusCode, string(body))
+		return fmt.Errorf(i18n.Translate("relay.failed_to_pull_model_aec7"), response.StatusCode, string(body))
 	}
 
 	// 读取流式响应
@@ -423,7 +425,7 @@ func PullOllamaModelStream(baseURL, apiKey, modelName string, progressCallback f
 
 		// 检查是否出现错误或完成
 		if strings.EqualFold(pullResponse.Status, "error") {
-			return fmt.Errorf("拉取模型失败: %s", strings.TrimSpace(line))
+			return fmt.Errorf(i18n.Translate("relay.failed_to_pull_model_eb8c"), strings.TrimSpace(line))
 		}
 		if strings.EqualFold(pullResponse.Status, "success") {
 			successful = true
@@ -432,11 +434,11 @@ func PullOllamaModelStream(baseURL, apiKey, modelName string, progressCallback f
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("读取流式响应失败: %v", err)
+		return fmt.Errorf(i18n.Translate("relay.failed_to_read_streaming_response"), err)
 	}
 
 	if !successful {
-		return fmt.Errorf("拉取模型未完成: 未收到成功状态")
+		return errors.New(i18n.Translate("relay.model_pull_incomplete_no_success_status_received"))
 	}
 
 	return nil
@@ -452,13 +454,13 @@ func DeleteOllamaModel(baseURL, apiKey, modelName string) error {
 
 	requestBody, err := common.Marshal(deleteRequest)
 	if err != nil {
-		return fmt.Errorf("序列化请求失败: %v", err)
+		return fmt.Errorf(i18n.Translate("relay.failed_to_marshal_request_4c66"), err)
 	}
 
 	client := &http.Client{}
 	request, err := http.NewRequest("DELETE", url, strings.NewReader(string(requestBody)))
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %v", err)
+		return fmt.Errorf(i18n.Translate("relay.failed_to_create_request_08b3"), err)
 	}
 
 	request.Header.Set("Content-Type", "application/json")
@@ -468,13 +470,13 @@ func DeleteOllamaModel(baseURL, apiKey, modelName string) error {
 
 	response, err := client.Do(request)
 	if err != nil {
-		return fmt.Errorf("请求失败: %v", err)
+		return fmt.Errorf(i18n.Translate("relay.request_failed_a3d9"), err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(response.Body)
-		return fmt.Errorf("删除模型失败 %d: %s", response.StatusCode, string(body))
+		return fmt.Errorf(i18n.Translate("relay.failed_to_delete_model"), response.StatusCode, string(body))
 	}
 
 	return nil
@@ -483,7 +485,7 @@ func DeleteOllamaModel(baseURL, apiKey, modelName string) error {
 func FetchOllamaVersion(baseURL, apiKey string) (string, error) {
 	trimmedBase := strings.TrimRight(baseURL, "/")
 	if trimmedBase == "" {
-		return "", fmt.Errorf("baseURL 为空")
+		return "", errors.New(i18n.Translate("relay.baseurl_is_empty"))
 	}
 
 	url := fmt.Sprintf("%s/api/version", trimmedBase)
@@ -491,7 +493,7 @@ func FetchOllamaVersion(baseURL, apiKey string) (string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	request, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return "", fmt.Errorf("创建请求失败: %v", err)
+		return "", fmt.Errorf(i18n.Translate("relay.failed_to_create_request_4985"), err)
 	}
 
 	if apiKey != "" {
@@ -500,17 +502,17 @@ func FetchOllamaVersion(baseURL, apiKey string) (string, error) {
 
 	response, err := client.Do(request)
 	if err != nil {
-		return "", fmt.Errorf("请求失败: %v", err)
+		return "", fmt.Errorf(i18n.Translate("relay.request_failed_a488"), err)
 	}
 	defer response.Body.Close()
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		return "", fmt.Errorf("读取响应失败: %v", err)
+		return "", fmt.Errorf(i18n.Translate("relay.failed_to_read_response_e33f"), err)
 	}
 
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("查询版本失败 %d: %s", response.StatusCode, string(body))
+		return "", fmt.Errorf(i18n.Translate("relay.failed_to_query_version"), response.StatusCode, string(body))
 	}
 
 	var versionResp struct {
@@ -518,11 +520,11 @@ func FetchOllamaVersion(baseURL, apiKey string) (string, error) {
 	}
 
 	if err := json.Unmarshal(body, &versionResp); err != nil {
-		return "", fmt.Errorf("解析响应失败: %v", err)
+		return "", fmt.Errorf(i18n.Translate("relay.failed_to_parse_response_d3ed"), err)
 	}
 
 	if versionResp.Version == "" {
-		return "", fmt.Errorf("未返回版本信息")
+		return "", errors.New(i18n.Translate("relay.no_version_info_returned"))
 	}
 
 	return versionResp.Version, nil

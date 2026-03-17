@@ -28,8 +28,10 @@ import SettingsMonitoring from '../../pages/Setting/Operation/SettingsMonitoring
 import SettingsCreditLimit from '../../pages/Setting/Operation/SettingsCreditLimit';
 import SettingsCheckin from '../../pages/Setting/Operation/SettingsCheckin';
 import { API, showError, toBoolean } from '../../helpers';
+import { useTranslation } from 'react-i18next';
 
 const OperationSetting = () => {
+  const { t } = useTranslation();
   let [inputs, setInputs] = useState({
     /* 额度相关 */
     QuotaForNewUser: 0,
@@ -49,6 +51,7 @@ const OperationSetting = () => {
     DefaultCollapseSidebar: false,
     DemoSiteEnabled: false,
     SelfUseModeEnabled: false,
+    ShowOriginalPriceEnabled: false,
 
     /* 顶栏模块管理 */
     HeaderNavModules: '',
@@ -81,6 +84,11 @@ const OperationSetting = () => {
 
     /* 令牌设置 */
     'token_setting.max_user_tokens': 1000,
+
+    /* 邀请返佣设置 */
+    ReferralCommissionEnabled: false,
+    ReferralCommissionPercent: 10,
+    ReferralCommissionMaxRecharges: 0,
   });
 
   let [loading, setLoading] = useState(false);
@@ -109,7 +117,7 @@ const OperationSetting = () => {
       await getOptions();
       // showSuccess('刷新成功');
     } catch (error) {
-      showError('刷新失败');
+      showError(t('刷新失败'));
     } finally {
       setLoading(false);
     }

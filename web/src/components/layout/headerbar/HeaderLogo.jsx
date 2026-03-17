@@ -21,6 +21,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Typography, Tag } from '@douyinfe/semi-ui';
 import SkeletonWrapper from '../components/SkeletonWrapper';
+import { useTranslation } from 'react-i18next';
 
 const HeaderLogo = ({
   isMobile,
@@ -31,8 +32,8 @@ const HeaderLogo = ({
   systemName,
   isSelfUseMode,
   isDemoSiteMode,
-  t,
 }) => {
+  const { t } = useTranslation();
   if (isMobile && isConsoleRoute) {
     return null;
   }

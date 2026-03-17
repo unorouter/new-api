@@ -31,6 +31,7 @@ import {
   Tooltip,
 } from '@douyinfe/semi-ui';
 import { IconChevronDown, IconChevronUp } from '@douyinfe/semi-icons';
+import { useTranslation } from 'react-i18next';
 
 /**
  * 通用可选择按钮组组件
@@ -52,7 +53,6 @@ const SelectableButtonGroup = ({
   items = [],
   activeValue,
   onChange,
-  t = (v) => v,
   style = {},
   collapsible = true,
   collapseHeight = 200,
@@ -60,6 +60,7 @@ const SelectableButtonGroup = ({
   loading = false,
   variant,
 }) => {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [skeletonCount] = useState(12);
   const [containerRef, containerWidth] = useContainerWidth();

@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import CardPro from '../../common/ui/CardPro';
 import DeploymentsTable from './DeploymentsTable';
 import DeploymentsActions from './DeploymentsActions';
@@ -30,6 +31,7 @@ import { useIsMobile } from '../../../hooks/common/useIsMobile';
 import { createCardProPagination } from '../../../helpers/utils';
 
 const DeploymentsPage = () => {
+  const { t } = useTranslation();
   const deploymentsData = useDeploymentsData();
   const isMobile = useIsMobile();
 
@@ -68,9 +70,6 @@ const DeploymentsPage = () => {
     // Description state
     compactMode,
     setCompactMode,
-
-    // Translation
-    t,
   } = deploymentsData;
 
   return (
@@ -136,9 +135,9 @@ const DeploymentsPage = () => {
           onPageChange: deploymentsData.handlePageChange,
           onPageSizeChange: deploymentsData.handlePageSizeChange,
           isMobile: isMobile,
-          t: deploymentsData.t,
+          t: t,
         })}
-        t={deploymentsData.t}
+        t={t}
       >
         <DeploymentsTable
           {...deploymentsData}

@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import CardPro from '../../common/ui/CardPro';
 import UsersTable from './UsersTable';
 import UsersActions from './UsersActions';
@@ -30,6 +31,7 @@ import { useIsMobile } from '../../../hooks/common/useIsMobile';
 import { createCardProPagination } from '../../../helpers/utils';
 
 const UsersPage = () => {
+  const { t } = useTranslation();
   const usersData = useUsersData();
   const isMobile = useIsMobile();
 
@@ -57,9 +59,6 @@ const UsersPage = () => {
     // Description state
     compactMode,
     setCompactMode,
-
-    // Translation
-    t,
   } = usersData;
 
   return (
@@ -111,9 +110,9 @@ const UsersPage = () => {
           onPageChange: usersData.handlePageChange,
           onPageSizeChange: usersData.handlePageSizeChange,
           isMobile: isMobile,
-          t: usersData.t,
+          t: t,
         })}
-        t={usersData.t}
+        t={t}
       >
         <UsersTable {...usersData} />
       </CardPro>

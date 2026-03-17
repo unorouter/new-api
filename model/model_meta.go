@@ -158,3 +158,25 @@ func SearchModels(keyword string, vendor string, offset int, limit int) ([]*Mode
 	}
 	return models, total, nil
 }
+
+// DeleteOrphanedModels deletes models that are not bound to any channel
+func DeleteOrphanedModels() (int64, error) {
+	// Get all model names that are bound to at least one channel
+	var boundModelNames []string
+	if err := DB.Table("abilities").
+		Select("DISTINCT model").
+		Where("enabled = ?", true).
+		Pluck("model", &boundModelNames).Error; err != nil {
+		return 0, err
+	}
+
+	// Delete models not in the bound list
+	var result *gorm.DB
+	if len(boundModelNames) > 0 {
+		result = DB.Where("model_name NOT IN ?", boundModelNames).Delete(&Model{})
+	} else {
+		// If no models are bound, delete all
+		result = DB.Where("1 = 1").Delete(&Model{})
+	}
+	return result.RowsAffected, result.Error
+}

@@ -29,6 +29,7 @@ import {
 } from '@douyinfe/semi-icons';
 import { stringToColor } from '../../../helpers';
 import SkeletonWrapper from '../components/SkeletonWrapper';
+import { useTranslation } from 'react-i18next';
 
 const UserArea = ({
   userState,
@@ -37,8 +38,8 @@ const UserArea = ({
   isSelfUseMode,
   logout,
   navigate,
-  t,
 }) => {
+  const { t } = useTranslation();
   const dropdownRef = useRef(null);
   if (isLoading) {
     return (

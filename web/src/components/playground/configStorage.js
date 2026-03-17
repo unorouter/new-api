@@ -21,6 +21,7 @@ import {
   STORAGE_KEYS,
   DEFAULT_CONFIG,
 } from '../../constants/playground.constants';
+import { t } from '../../helpers/i18n';
 
 const MESSAGES_STORAGE_KEY = 'playground_messages';
 
@@ -215,16 +216,16 @@ export const importConfig = (file) => {
 
             resolve(importedConfig);
           } else {
-            reject(new Error('配置文件格式无效'));
+            reject(new Error(t('配置文件格式无效')));
           }
         } catch (parseError) {
-          reject(new Error('解析配置文件失败: ' + parseError.message));
+          reject(new Error(t('解析配置文件失败: ') + parseError.message));
         }
       };
-      reader.onerror = () => reject(new Error('读取文件失败'));
+      reader.onerror = () => reject(new Error(t('读取文件失败')));
       reader.readAsText(file);
     } catch (error) {
-      reject(new Error('导入配置失败: ' + error.message));
+      reject(new Error(t('导入配置失败: ') + error.message));
     }
   });
 };

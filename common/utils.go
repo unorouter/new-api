@@ -162,26 +162,26 @@ func Bytes2Size(num int64) string {
 
 func Seconds2Time(num int) (time string) {
 	if num/31104000 > 0 {
-		time += strconv.Itoa(num/31104000) + " 年 "
+		time += strconv.Itoa(num/31104000) + "y "
 		num %= 31104000
 	}
 	if num/2592000 > 0 {
-		time += strconv.Itoa(num/2592000) + " 个月 "
+		time += strconv.Itoa(num/2592000) + "mo "
 		num %= 2592000
 	}
 	if num/86400 > 0 {
-		time += strconv.Itoa(num/86400) + " 天 "
+		time += strconv.Itoa(num/86400) + "d "
 		num %= 86400
 	}
 	if num/3600 > 0 {
-		time += strconv.Itoa(num/3600) + " 小时 "
+		time += strconv.Itoa(num/3600) + "h "
 		num %= 3600
 	}
 	if num/60 > 0 {
-		time += strconv.Itoa(num/60) + " 分钟 "
+		time += strconv.Itoa(num/60) + "m "
 		num %= 60
 	}
-	time += strconv.Itoa(num) + " 秒"
+	time += strconv.Itoa(num) + "s"
 	return
 }
 
@@ -276,7 +276,7 @@ func Max(a int, b int) int {
 }
 
 func MessageWithRequestId(message string, id string) string {
-	return fmt.Sprintf("%s (request id: %s)", message, id)
+	return fmt.Sprintf(Translate("common.request_id"), message, id)
 }
 
 func RandomSleep() {
