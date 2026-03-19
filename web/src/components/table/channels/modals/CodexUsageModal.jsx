@@ -18,7 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { t } from '../../../../helpers/i18n';
 import {
   Modal,
   Button,
@@ -44,16 +43,79 @@ const pickStrokeColor = (percent) => {
   return '#3b82f6';
 };
 
-const formatDurationSeconds = (seconds) => {
+const normalizePlanType = (value) => {
+  if (value == null) return '';
+  return String(value).trim().toLowerCase();
+};
+
+const getWindowDurationSeconds = (windowData) => {
+  const value = Number(windowData?.limit_window_seconds);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value;
+};
+
+const classifyWindowByDuration = (windowData) => {
+  const seconds = getWindowDurationSeconds(windowData);
+  if (seconds == null) return null;
+  return seconds >= 24 * 60 * 60 ? 'weekly' : 'fiveHour';
+};
+
+const resolveRateLimitWindows = (data) => {
+  const rateLimit = data?.rate_limit ?? {};
+  const primary = rateLimit?.primary_window ?? null;
+  const secondary = rateLimit?.secondary_window ?? null;
+  const windows = [primary, secondary].filter(Boolean);
+  const planType = normalizePlanType(data?.plan_type ?? rateLimit?.plan_type);
+
+  let fiveHourWindow = null;
+  let weeklyWindow = null;
+
+  for (const windowData of windows) {
+    const bucket = classifyWindowByDuration(windowData);
+    if (bucket === 'fiveHour' && !fiveHourWindow) {
+      fiveHourWindow = windowData;
+      continue;
+    }
+    if (bucket === 'weekly' && !weeklyWindow) {
+      weeklyWindow = windowData;
+    }
+  }
+
+  if (planType === 'free') {
+    if (!weeklyWindow) {
+      weeklyWindow = primary ?? secondary ?? null;
+    }
+    return { fiveHourWindow: null, weeklyWindow };
+  }
+
+  if (!fiveHourWindow && !weeklyWindow) {
+    return {
+      fiveHourWindow: primary ?? null,
+      weeklyWindow: secondary ?? null,
+    };
+  }
+
+  if (!fiveHourWindow) {
+    fiveHourWindow = windows.find((windowData) => windowData !== weeklyWindow) ?? null;
+  }
+  if (!weeklyWindow) {
+    weeklyWindow = windows.find((windowData) => windowData !== fiveHourWindow) ?? null;
+  }
+
+  return { fiveHourWindow, weeklyWindow };
+};
+
+const formatDurationSeconds = (seconds, t) => {
+  const tt = typeof t === 'function' ? t : (v) => v;
   const s = Number(seconds);
   if (!Number.isFinite(s) || s <= 0) return '-';
   const total = Math.floor(s);
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const secs = total % 60;
-  if (hours > 0) return `${hours}${t('小时')} ${minutes}${t('分钟')}`;
-  if (minutes > 0) return `${minutes}${t('分钟')} ${secs}${t('秒')}`;
-  return `${secs}${t('秒')}`;
+  if (hours > 0) return `${hours}${tt('小时')} ${minutes}${tt('分钟')}`;
+  if (minutes > 0) return `${minutes}${tt('分钟')} ${secs}${tt('秒')}`;
+  return `${secs}${tt('秒')}`;
 };
 
 const formatUnixSeconds = (unixSeconds) => {
@@ -66,7 +128,12 @@ const formatUnixSeconds = (unixSeconds) => {
   }
 };
 
-const RateLimitWindowCard = ({ title, windowData }) => {
+const RateLimitWindowCard = ({ t, title, windowData }) => {
+  const tt = typeof t === 'function' ? t : (v) => v;
+  const hasWindowData =
+    !!windowData &&
+    typeof windowData === 'object' &&
+    Object.keys(windowData).length > 0;
   const percent = clampPercent(windowData?.used_percent ?? 0);
   const resetAt = windowData?.reset_at;
   const resetAfterSeconds = windowData?.reset_after_seconds;
@@ -77,43 +144,46 @@ const RateLimitWindowCard = ({ title, windowData }) => {
       <div className='flex items-center justify-between gap-2'>
         <div className='font-medium'>{title}</div>
         <Text type='tertiary' size='small'>
-          {t('重置时间：')}
+          {tt('重置时间：')}
           {formatUnixSeconds(resetAt)}
         </Text>
       </div>
 
-      <div className='mt-2'>
-        <Progress
-          percent={percent}
-          stroke={pickStrokeColor(percent)}
-          showInfo={true}
-        />
-      </div>
+      {hasWindowData ? (
+        <div className='mt-2'>
+          <Progress
+            percent={percent}
+            stroke={pickStrokeColor(percent)}
+            showInfo={true}
+          />
+        </div>
+      ) : (
+        <div className='mt-3 text-sm text-semi-color-text-2'>-</div>
+      )}
 
       <div className='mt-1 flex flex-wrap items-center gap-2 text-xs text-semi-color-text-2'>
         <div>
-          {t('已使用：')}
-          {percent}%
+          {tt('已使用：')}
+          {hasWindowData ? `${percent}%` : '-'}
         </div>
         <div>
-          {t('距离重置：')}
-          {formatDurationSeconds(resetAfterSeconds)}
+          {tt('距离重置：')}
+          {hasWindowData ? formatDurationSeconds(resetAfterSeconds, tt) : '-'}
         </div>
         <div>
-          {t('窗口：')}
-          {formatDurationSeconds(limitWindowSeconds)}
+          {tt('窗口：')}
+          {hasWindowData ? formatDurationSeconds(limitWindowSeconds, tt) : '-'}
         </div>
       </div>
     </div>
   );
 };
 
-const CodexUsageView = ({ record, payload, onCopy, onRefresh }) => {
+const CodexUsageView = ({ t, record, payload, onCopy, onRefresh }) => {
+  const tt = typeof t === 'function' ? t : (v) => v;
   const data = payload?.data ?? null;
   const rateLimit = data?.rate_limit ?? {};
-
-  const primary = rateLimit?.primary_window ?? null;
-  const secondary = rateLimit?.secondary_window ?? null;
+  const { fiveHourWindow, weeklyWindow } = resolveRateLimitWindows(data);
 
   const allowed = !!rateLimit?.allowed;
   const limitReached = !!rateLimit?.limit_reached;
@@ -121,9 +191,9 @@ const CodexUsageView = ({ record, payload, onCopy, onRefresh }) => {
 
   const statusTag =
     allowed && !limitReached ? (
-      <Tag color='green'>{t('可用')}</Tag>
+      <Tag color='green'>{tt('可用')}</Tag>
     ) : (
-      <Tag color='red'>{t('受限')}</Tag>
+      <Tag color='red'>{tt('受限')}</Tag>
     );
 
   const rawText =
@@ -133,8 +203,8 @@ const CodexUsageView = ({ record, payload, onCopy, onRefresh }) => {
     <div className='flex flex-col gap-3'>
       <div className='flex flex-wrap items-center justify-between gap-2'>
         <Text type='tertiary' size='small'>
-          {t('渠道：')}
-          {record?.name || '-'} ({t('编号：')}
+          {tt('渠道：')}
+          {record?.name || '-'} ({tt('编号：')}
           {record?.id || '-'})
         </Text>
         <div className='flex items-center gap-2'>
@@ -145,26 +215,34 @@ const CodexUsageView = ({ record, payload, onCopy, onRefresh }) => {
             theme='borderless'
             onClick={onRefresh}
           >
-            {t('刷新')}
+            {tt('刷新')}
           </Button>
         </div>
       </div>
 
       <div className='flex flex-wrap items-center justify-between gap-2'>
         <Text type='tertiary' size='small'>
-          {t('上游状态码：')}
+          {tt('上游状态码：')}
           {upstreamStatus ?? '-'}
         </Text>
       </div>
 
       <div className='grid grid-cols-1 gap-3 md:grid-cols-2'>
-        <RateLimitWindowCard title={t('5小时窗口')} windowData={primary} />
-        <RateLimitWindowCard title={t('每周窗口')} windowData={secondary} />
+        <RateLimitWindowCard
+          t={tt}
+          title={tt('5小时窗口')}
+          windowData={fiveHourWindow}
+        />
+        <RateLimitWindowCard
+          t={tt}
+          title={tt('每周窗口')}
+          windowData={weeklyWindow}
+        />
       </div>
 
       <div>
         <div className='mb-1 flex items-center justify-between gap-2'>
-          <div className='text-sm font-medium'>{t('原始 JSON')}</div>
+          <div className='text-sm font-medium'>{tt('原始 JSON')}</div>
           <Button
             size='small'
             type='primary'
@@ -172,7 +250,7 @@ const CodexUsageView = ({ record, payload, onCopy, onRefresh }) => {
             onClick={() => onCopy?.(rawText)}
             disabled={!rawText}
           >
-            {t('复制')}
+            {tt('复制')}
           </Button>
         </div>
         <pre className='max-h-[50vh] overflow-auto rounded-lg bg-semi-color-fill-0 p-3 text-xs text-semi-color-text-0'>
@@ -183,7 +261,8 @@ const CodexUsageView = ({ record, payload, onCopy, onRefresh }) => {
   );
 };
 
-const CodexUsageLoader = ({ record, initialPayload, onCopy }) => {
+const CodexUsageLoader = ({ t, record, initialPayload, onCopy }) => {
+  const tt = typeof t === 'function' ? t : (v) => v;
   const [loading, setLoading] = useState(!initialPayload);
   const [payload, setPayload] = useState(initialPayload ?? null);
   const hasShownErrorRef = useRef(false);
@@ -205,19 +284,19 @@ const CodexUsageLoader = ({ record, initialPayload, onCopy }) => {
       setPayload(res?.data ?? null);
       if (!res?.data?.success && !hasShownErrorRef.current) {
         hasShownErrorRef.current = true;
-        showError(t('获取用量失败'));
+        showError(tt('获取用量失败'));
       }
     } catch (error) {
       if (!mountedRef.current) return;
       if (!hasShownErrorRef.current) {
         hasShownErrorRef.current = true;
-        showError(t('获取用量失败'));
+        showError(tt('获取用量失败'));
       }
       setPayload({ success: false, message: String(error) });
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [recordId]);
+  }, [recordId, tt]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -234,7 +313,7 @@ const CodexUsageLoader = ({ record, initialPayload, onCopy }) => {
   if (loading) {
     return (
       <div className='flex items-center justify-center py-10'>
-        <Spin spinning={true} size='large' tip={t('加载中...')} />
+        <Spin spinning={true} size='large' tip={tt('加载中...')} />
       </div>
     );
   }
@@ -242,7 +321,7 @@ const CodexUsageLoader = ({ record, initialPayload, onCopy }) => {
   if (!payload) {
     return (
       <div className='flex flex-col gap-3'>
-        <Text type='danger'>{t('获取用量失败')}</Text>
+        <Text type='danger'>{tt('获取用量失败')}</Text>
         <div className='flex justify-end'>
           <Button
             size='small'
@@ -250,7 +329,7 @@ const CodexUsageLoader = ({ record, initialPayload, onCopy }) => {
             theme='outline'
             onClick={fetchUsage}
           >
-            {t('刷新')}
+            {tt('刷新')}
           </Button>
         </div>
       </div>
@@ -259,6 +338,7 @@ const CodexUsageLoader = ({ record, initialPayload, onCopy }) => {
 
   return (
     <CodexUsageView
+      t={tt}
       record={record}
       payload={payload}
       onCopy={onCopy}
@@ -267,14 +347,17 @@ const CodexUsageLoader = ({ record, initialPayload, onCopy }) => {
   );
 };
 
-export const openCodexUsageModal = ({ record, payload, onCopy }) => {
+export const openCodexUsageModal = ({ t, record, payload, onCopy }) => {
+  const tt = typeof t === 'function' ? t : (v) => v;
+
   Modal.info({
-    title: t('Codex 用量'),
+    title: tt('Codex 用量'),
     centered: true,
     width: 900,
     style: { maxWidth: '95vw' },
     content: (
       <CodexUsageLoader
+        t={tt}
         record={record}
         initialPayload={payload}
         onCopy={onCopy}
@@ -283,7 +366,7 @@ export const openCodexUsageModal = ({ record, payload, onCopy }) => {
     footer: (
       <div className='flex justify-end gap-2'>
         <Button type='primary' theme='solid' onClick={() => Modal.destroyAll()}>
-          {t('关闭')}
+          {tt('关闭')}
         </Button>
       </div>
     ),

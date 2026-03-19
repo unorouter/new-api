@@ -57,18 +57,55 @@ func GetTopUpInfo(c fuego.ContextNoBody) (*dto.Response[dto.TopUpInfoData], erro
 		payMethods = append(payMethods, stripeMethod)
 	}
 
-	// Creem 启用检查：API key 非空且产品配置是非空有效 JSON 数组
+	// Creem 启用检查
 	creemProducts := strings.TrimSpace(setting.CreemProducts)
 	creemConfigured := setting.CreemApiKey != "" && creemProducts != "" && creemProducts != "[]"
+
+	// Waffo 启用检查
+	enableWaffo := setting.WaffoEnabled &&
+		((!setting.WaffoSandbox &&
+			setting.WaffoApiKey != "" &&
+			setting.WaffoPrivateKey != "" &&
+			setting.WaffoPublicCert != "") ||
+			(setting.WaffoSandbox &&
+				setting.WaffoSandboxApiKey != "" &&
+				setting.WaffoSandboxPrivateKey != "" &&
+				setting.WaffoSandboxPublicCert != ""))
+	if enableWaffo {
+		hasWaffo := false
+		for _, method := range payMethods {
+			if method["type"] == "waffo" {
+				hasWaffo = true
+				break
+			}
+		}
+		if !hasWaffo {
+			waffoMethod := map[string]string{
+				"name":      "Waffo (Global Payment)",
+				"type":      "waffo",
+				"color":     "rgba(var(--semi-blue-5), 1)",
+				"min_topup": strconv.Itoa(setting.WaffoMinTopUp),
+			}
+			payMethods = append(payMethods, waffoMethod)
+		}
+	}
+
+	var waffoPayMethods interface{}
+	if enableWaffo {
+		waffoPayMethods = setting.GetWaffoPayMethods()
+	}
 
 	data := dto.TopUpInfoData{
 		EnableOnlineTopup: operation_setting.PayAddress != "" && operation_setting.EpayId != "" && operation_setting.EpayKey != "",
 		EnableStripeTopup: stripeEnabled,
 		EnableCreemTopup:  setting.CreemEnabled && creemConfigured,
+		EnableWaffoTopup:  enableWaffo,
+		WaffoPayMethods:   waffoPayMethods,
 		CreemProducts:     setting.CreemProducts,
 		PayMethods:        payMethods,
 		MinTopup:          operation_setting.MinTopUp,
 		StripeMinTopup:    setting.StripeMinTopUp,
+		WaffoMinTopup:     setting.WaffoMinTopUp,
 		AmountOptions:     operation_setting.GetPaymentSetting().AmountOptions,
 		Discount:          operation_setting.GetPaymentSetting().AmountDiscount,
 	}
@@ -200,27 +237,42 @@ func RequestEpay(c fuego.ContextWithBody[dto.EpayRequest]) (*dto.Response[dto.Ep
 var orderLocks sync.Map
 var createLock sync.Mutex
 
+// refCountedMutex 带引用计数的互斥锁，确保最后一个使用者才从 map 中删除
+type refCountedMutex struct {
+	mu       sync.Mutex
+	refCount int
+}
+
 // LockOrder 尝试对给定订单号加锁
 func LockOrder(tradeNo string) {
-	lock, ok := orderLocks.Load(tradeNo)
-	if !ok {
-		createLock.Lock()
-		defer createLock.Unlock()
-		lock, ok = orderLocks.Load(tradeNo)
-		if !ok {
-			lock = new(sync.Mutex)
-			orderLocks.Store(tradeNo, lock)
-		}
+	createLock.Lock()
+	var rcm *refCountedMutex
+	if v, ok := orderLocks.Load(tradeNo); ok {
+		rcm = v.(*refCountedMutex)
+	} else {
+		rcm = &refCountedMutex{}
+		orderLocks.Store(tradeNo, rcm)
 	}
-	lock.(*sync.Mutex).Lock()
+	rcm.refCount++
+	createLock.Unlock()
+	rcm.mu.Lock()
 }
 
 // UnlockOrder 释放给定订单号的锁
 func UnlockOrder(tradeNo string) {
-	lock, ok := orderLocks.Load(tradeNo)
-	if ok {
-		lock.(*sync.Mutex).Unlock()
+	v, ok := orderLocks.Load(tradeNo)
+	if !ok {
+		return
 	}
+	rcm := v.(*refCountedMutex)
+	rcm.mu.Unlock()
+
+	createLock.Lock()
+	rcm.refCount--
+	if rcm.refCount == 0 {
+		orderLocks.Delete(tradeNo)
+	}
+	createLock.Unlock()
 }
 
 func EpayNotify(c *gin.Context) {
@@ -393,3 +445,4 @@ func AdminCompleteTopUp(c fuego.ContextWithBody[dto.AdminCompleteTopupRequest]) 
 	}
 	return dto.Msg("")
 }
+

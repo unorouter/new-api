@@ -20,10 +20,13 @@ type TopUpInfoData struct {
 	EnableOnlineTopup bool                `json:"enable_online_topup"`
 	EnableStripeTopup bool                `json:"enable_stripe_topup"`
 	EnableCreemTopup  bool                `json:"enable_creem_topup"`
+	EnableWaffoTopup  bool                `json:"enable_waffo_topup"`
+	WaffoPayMethods   interface{}         `json:"waffo_pay_methods"`
 	CreemProducts     string              `json:"creem_products"`
 	PayMethods        []map[string]string `json:"pay_methods"`
 	MinTopup          int                 `json:"min_topup"`
 	StripeMinTopup    int                 `json:"stripe_min_topup"`
+	WaffoMinTopup     int                 `json:"waffo_min_topup"`
 	AmountOptions     []int               `json:"amount_options"`
 	Discount          map[int]float64     `json:"discount"`
 }

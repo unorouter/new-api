@@ -37,14 +37,13 @@ import { IconSearch } from '@douyinfe/semi-icons';
 import { API, timestamp2string } from '../../../helpers';
 import { isAdmin } from '../../../helpers/utils';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
-import { useTranslation } from 'react-i18next';
-
 const { Text } = Typography;
 
 // 状态映射配置
 const STATUS_CONFIG = {
   success: { type: 'success', key: '成功' },
   pending: { type: 'warning', key: '待支付' },
+  failed: { type: 'danger', key: '失败' },
   expired: { type: 'danger', key: '已过期' },
 };
 
@@ -52,19 +51,18 @@ const STATUS_CONFIG = {
 const PAYMENT_METHOD_MAP = {
   stripe: 'Stripe',
   creem: 'Creem',
+  waffo: 'Waffo',
   alipay: '支付宝',
   wxpay: '微信',
 };
 
-const TopupHistoryModal = ({ visible, onCancel }) => {
-  const { t } = useTranslation();
+const TopupHistoryModal = ({ visible, onCancel, t }) => {
   const [loading, setLoading] = useState(false);
   const [topups, setTopups] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [keyword, setKeyword] = useState('');
-
   const isMobile = useIsMobile();
 
   const loadTopups = async (currentPage, currentPageSize) => {
@@ -84,7 +82,6 @@ const TopupHistoryModal = ({ visible, onCancel }) => {
         Toast.error({ content: message || t('加载失败') });
       }
     } catch (error) {
-      console.error('Load topups error:', error);
       Toast.error({ content: t('加载账单失败') });
     } finally {
       setLoading(false);
@@ -216,17 +213,21 @@ const TopupHistoryModal = ({ visible, onCancel }) => {
         title: t('操作'),
         key: 'action',
         render: (_, record) => {
-          if (record.status !== 'pending') return null;
-          return (
-            <Button
-              size='small'
-              type='primary'
-              theme='outline'
-              onClick={() => confirmAdminComplete(record.trade_no)}
-            >
-              {t('补单')}
-            </Button>
-          );
+          const actions = [];
+          if (record.status === 'pending') {
+            actions.push(
+              <Button
+                key="complete"
+                size='small'
+                type='primary'
+                theme='outline'
+                onClick={() => confirmAdminComplete(record.trade_no)}
+              >
+                {t('补单')}
+              </Button>
+            );
+          }
+          return actions.length > 0 ? <>{actions}</> : null;
         },
       });
     }
