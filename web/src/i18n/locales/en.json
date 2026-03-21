@@ -3724,6 +3724,10 @@
     "（当前仅支持易支付接口，默认使用上方服务器地址作为回调地址！）": "(Currently only supports Epay interface, the default callback address is the server address above!)",
     "，当前无生效订阅，将自动使用钱包": ", no active subscription. Wallet will be used automatically.",
     "，时间：": ",time:",
-    "，点击更新": ", click Update"
+    "，点击更新": ", click Update",
+    "受邀用户": "Invited Users",
+    "返佣次数": "Commission Count",
+    "贡献收益": "Earned Revenue",
+    "暂无受邀用户": "No invited users yet"
   }
 }

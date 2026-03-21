@@ -3707,6 +3707,10 @@
     "（当前仅支持易支付接口，默认使用上方服务器地址作为回调地址！）": "(Actuellement, seule l'interface Epay est prise en charge, l'adresse du serveur ci-dessus est utilisée par défaut comme adresse de rappel !)",
     "，当前无生效订阅，将自动使用钱包": ", aucun abonnement actif, le portefeuille sera utilisé automatiquement.",
     "，时间：": ", time:",
-    "，点击更新": ", cliquez sur Mettre à jour"
+    "，点击更新": ", cliquez sur Mettre à jour",
+    "受邀用户": "Utilisateurs invités",
+    "返佣次数": "Nombre de commissions",
+    "贡献收益": "Revenus générés",
+    "暂无受邀用户": "Aucun utilisateur invité pour le moment"
   }
 }
