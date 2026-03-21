@@ -227,6 +227,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Delete(perf, "/disk_cache", controller.ClearDiskCache)
 		dto.Post(perf, "/reset_stats", controller.ResetPerformanceStats)
 		dto.Post(perf, "/gc", controller.ForceGC)
+		dto.Get(perf, "/logs", controller.GetLogFiles)
+		dto.Delete(perf, "/logs", controller.CleanupLogFiles)
 
 		// ---- Ratio sync routes (root only) ----
 		ratioSyncGroup := apiRouter.Group("/ratio_sync", middleware.RootAuth())

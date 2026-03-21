@@ -4244,6 +4244,24 @@
     "受邀用户": "Người dùng được mời",
     "返佣次数": "Số lần hoa hồng",
     "贡献收益": "Doanh thu đóng góp",
-    "暂无受邀用户": "Chưa có người dùng được mời"
+    "暂无受邀用户": "Chưa có người dùng được mời",
+    "保留天数": "Số ngày giữ lại",
+    "保留文件数": "Số tệp giữ lại",
+    "保留最近N个文件": "Giữ lại N tệp gần nhất",
+    "保留最近N天": "Giữ lại N ngày gần nhất",
+    "将删除 {{value}} 天前的日志文件。": "Tệp nhật ký cũ hơn {{value}} ngày sẽ bị xóa.",
+    "将只保留最近 {{value}} 个日志文件，其余将被删除。": "Chỉ giữ lại {{value}} tệp nhật ký gần nhất; phần còn lại sẽ bị xóa.",
+    "已清理 {{count}} 个日志文件，释放 {{size}}": "Đã dọn dẹp {{count}} tệp nhật ký, giải phóng {{size}}",
+    "日志目录": "Thư mục nhật ký",
+    "日志文件数": "Số lượng tệp nhật ký",
+    "日志时间范围": "Phạm vi thời gian nhật ký",
+    "日志总大小": "Tổng kích thước nhật ký",
+    "服务器日志功能未启用（未配置日志目录）": "Ghi nhật ký máy chủ chưa được bật (chưa cấu hình thư mục nhật ký)",
+    "服务器日志管理": "Quản lý nhật ký máy chủ",
+    "清理方式": "Chế độ dọn dẹp",
+    "清理日志文件": "Dọn dẹp tệp nhật ký",
+    "确认清理日志文件？": "Xác nhận dọn dẹp tệp nhật ký?",
+    "管理服务器运行日志文件。日志文件会随运行时间不断累积，建议定期清理以释放磁盘空间。": "Quản lý tệp nhật ký máy chủ. Tệp nhật ký tích lũy theo thời gian; nên dọn dẹp định kỳ để giải phóng dung lượng đĩa.",
+    "请输入有效的数值": "Vui lòng nhập giá trị hợp lệ"
   }
 }

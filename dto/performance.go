@@ -1,6 +1,10 @@
 package dto
 
-import "github.com/QuantumNous/new-api/common"
+import (
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+)
 
 // PerformanceStats 性能统计信息
 type PerformanceStats struct {
@@ -63,4 +67,29 @@ type PerformanceConfig struct {
 	MonitorMemoryThreshold int `json:"monitor_memory_threshold"`
 	// MonitorDiskThreshold 磁盘使用率阈值（%）
 	MonitorDiskThreshold int `json:"monitor_disk_threshold"`
+}
+
+// LogFileInfo 日志文件信息
+type LogFileInfo struct {
+	Name    string    `json:"name"`
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"mod_time"`
+}
+
+// LogFilesResponse 日志文件列表响应
+type LogFilesResponse struct {
+	LogDir     string        `json:"log_dir"`
+	Enabled    bool          `json:"enabled"`
+	FileCount  int           `json:"file_count"`
+	TotalSize  int64         `json:"total_size"`
+	OldestTime *time.Time    `json:"oldest_time,omitempty"`
+	NewestTime *time.Time    `json:"newest_time,omitempty"`
+	Files      []LogFileInfo `json:"files"`
+}
+
+// LogCleanupResult 日志清理结果
+type LogCleanupResult struct {
+	DeletedCount int      `json:"deleted_count"`
+	FreedBytes   int64    `json:"freed_bytes"`
+	FailedFiles  []string `json:"failed_files"`
 }

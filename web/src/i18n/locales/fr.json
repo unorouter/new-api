@@ -3711,6 +3711,24 @@
     "受邀用户": "Utilisateurs invités",
     "返佣次数": "Nombre de commissions",
     "贡献收益": "Revenus générés",
-    "暂无受邀用户": "Aucun utilisateur invité pour le moment"
+    "暂无受邀用户": "Aucun utilisateur invité pour le moment",
+    "保留天数": "Jours à conserver",
+    "保留文件数": "Fichiers à conserver",
+    "保留最近N个文件": "Conserver les N derniers fichiers",
+    "保留最近N天": "Conserver les N derniers jours",
+    "将删除 {{value}} 天前的日志文件。": "Les fichiers journaux de plus de {{value}} jours seront supprimés.",
+    "将只保留最近 {{value}} 个日志文件，其余将被删除。": "Seuls les {{value}} derniers fichiers journaux seront conservés ; le reste sera supprimé.",
+    "已清理 {{count}} 个日志文件，释放 {{size}}": "{{count}} fichiers journaux nettoyés, {{size}} libérés",
+    "日志目录": "Répertoire des journaux",
+    "日志文件数": "Nombre de fichiers journaux",
+    "日志时间范围": "Plage de dates des journaux",
+    "日志总大小": "Taille totale des journaux",
+    "服务器日志功能未启用（未配置日志目录）": "La journalisation du serveur n'est pas activée (répertoire de journaux non configuré)",
+    "服务器日志管理": "Gestion des journaux du serveur",
+    "清理方式": "Mode de nettoyage",
+    "清理日志文件": "Nettoyer les fichiers journaux",
+    "确认清理日志文件？": "Confirmer le nettoyage des fichiers journaux ?",
+    "管理服务器运行日志文件。日志文件会随运行时间不断累积，建议定期清理以释放磁盘空间。": "Gérer les fichiers journaux du serveur. Les fichiers journaux s'accumulent au fil du temps ; un nettoyage régulier est recommandé pour libérer de l'espace disque.",
+    "请输入有效的数值": "Veuillez saisir une valeur valide"
   }
 }

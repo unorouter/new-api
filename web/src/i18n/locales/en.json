@@ -3728,6 +3728,24 @@
     "受邀用户": "Invited Users",
     "返佣次数": "Commission Count",
     "贡献收益": "Earned Revenue",
-    "暂无受邀用户": "No invited users yet"
+    "暂无受邀用户": "No invited users yet",
+    "保留天数": "Days to Retain",
+    "保留文件数": "Files to Retain",
+    "保留最近N个文件": "Retain last N files",
+    "保留最近N天": "Retain last N days",
+    "将删除 {{value}} 天前的日志文件。": "Log files older than {{value}} days will be deleted.",
+    "将只保留最近 {{value}} 个日志文件，其余将被删除。": "Only the last {{value}} log files will be retained; the rest will be deleted.",
+    "已清理 {{count}} 个日志文件，释放 {{size}}": "Cleaned up {{count}} log files, freed {{size}}",
+    "日志时间范围": "Log Date Range",
+    "日志总大小": "Total Log Size",
+    "日志文件数": "Log File Count",
+    "日志目录": "Log Directory",
+    "服务器日志功能未启用（未配置日志目录）": "Server logging is not enabled (log directory not configured)",
+    "服务器日志管理": "Server Log Management",
+    "清理方式": "Cleanup Mode",
+    "清理日志文件": "Clean Up Log Files",
+    "确认清理日志文件？": "Confirm log file cleanup?",
+    "管理服务器运行日志文件。日志文件会随运行时间不断累积，建议定期清理以释放磁盘空间。": "Manage server log files. Log files accumulate over time; regular cleanup is recommended to free disk space.",
+    "请输入有效的数值": "Please enter a valid number"
   }
 }
