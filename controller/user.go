@@ -282,16 +282,24 @@ func GetAffCode(c fuego.ContextNoBody) (*dto.Response[string], error) {
 	return dto.Ok(user.AffCode)
 }
 
-func GetReferralCommissions(c fuego.ContextNoBody) (*dto.Response[*common.PageInfo], error) {
+func GetInvitedUsers(c fuego.ContextNoBody) (*dto.Response[dto.PageData[*model.InvitedUser]], error) {
+	id := dto.UserID(c)
+	pageInfo := common.GetPageQuery(dto.GinCtx(c))
+	users, total, err := model.GetInvitedUsers(id, pageInfo)
+	if err != nil {
+		return dto.FailPage[*model.InvitedUser](err.Error())
+	}
+	return dto.OkPage(pageInfo, users, int(total))
+}
+
+func GetReferralCommissions(c fuego.ContextNoBody) (*dto.Response[dto.PageData[*model.ReferralCommissionWithUser]], error) {
 	id := dto.UserID(c)
 	pageInfo := common.GetPageQuery(dto.GinCtx(c))
 	commissions, total, err := model.GetUserReferralCommissions(id, pageInfo)
 	if err != nil {
-		return dto.Fail[*common.PageInfo](err.Error())
+		return dto.FailPage[*model.ReferralCommissionWithUser](err.Error())
 	}
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(commissions)
-	return dto.Ok(pageInfo)
+	return dto.OkPage(pageInfo, commissions, int(total))
 }
 
 func GetSelf(c fuego.ContextNoBody) (*dto.Response[dto.UserSelfData], error) {
@@ -325,8 +333,10 @@ func GetSelf(c fuego.ContextNoBody) (*dto.Response[dto.UserSelfData], error) {
 		AffCode:         user.AffCode,
 		AffCount:        user.AffCount,
 		AffQuota:        user.AffQuota,
-		AffHistoryQuota: user.AffHistoryQuota,
-		InviterId:       user.InviterId,
+		AffHistoryQuota:           user.AffHistoryQuota,
+		AffCommissionRate:         effectiveCommissionRate(user.ReferralCommissionPercent),
+		AffCommissionMaxRecharges: common.ReferralCommissionMaxRecharges,
+		InviterId:                 user.InviterId,
 		LinuxDOId:       user.LinuxDOId,
 		Setting:         user.Setting,
 		StripeCustomer:  user.StripeCustomer,
@@ -335,6 +345,13 @@ func GetSelf(c fuego.ContextNoBody) (*dto.Response[dto.UserSelfData], error) {
 	}
 
 	return dto.Ok(data)
+}
+
+func effectiveCommissionRate(perUser *float64) float64 {
+	if perUser != nil {
+		return *perUser
+	}
+	return common.ReferralCommissionPercent
 }
 
 func calculateUserPermissions(userRole int) map[string]interface{} {

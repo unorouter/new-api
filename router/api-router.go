@@ -109,7 +109,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		self.GinPost("/passkey/verify/finish", controller.PasskeyVerifyFinish, dto.GinResp[dto.MessageResponse]())
 		self.GinDelete("/passkey", controller.PasskeyDelete, dto.GinResp[dto.MessageResponse]())
 		dto.Get(self, "/aff", controller.GetAffCode)
-		dto.Get(self, "/aff/commissions", controller.GetReferralCommissions)
+		dto.GetP(self, "/aff/invitees", controller.GetInvitedUsers, dto.PageParams())
+		dto.GetP(self, "/aff/commissions", controller.GetReferralCommissions, dto.PageParams())
 
 		selfTopUp := self.WithTag("TopUp")
 		dto.Get(selfTopUp, "/topup/info", controller.GetTopUpInfo)

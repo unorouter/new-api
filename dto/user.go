@@ -73,9 +73,11 @@ type UserSelfData struct {
 	AffCode         string `json:"aff_code"`
 	AffCount        int    `json:"aff_count"`
 	AffQuota        int    `json:"aff_quota"`
-	AffHistoryQuota int    `json:"aff_history_quota"`
-	InviterId       int    `json:"inviter_id"`
-	LinuxDOId       string `json:"linux_do_id"`
+	AffHistoryQuota              int     `json:"aff_history_quota"`
+	AffCommissionRate            float64 `json:"aff_commission_rate"`
+	AffCommissionMaxRecharges    int     `json:"aff_commission_max_recharges"`
+	InviterId                    int     `json:"inviter_id"`
+	LinuxDOId                    string  `json:"linux_do_id"`
 	Setting         string `json:"setting"`
 	StripeCustomer  string `json:"stripe_customer"`
 	SidebarModules  string `json:"sidebar_modules"`

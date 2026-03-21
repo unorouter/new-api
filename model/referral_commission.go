@@ -19,6 +19,38 @@ type ReferralCommissionWithUser struct {
 	InviteeUsername string `json:"invitee_username"`
 }
 
+type InvitedUser struct {
+	Id              int     `json:"id"`
+	Username        string  `json:"username"`
+	DisplayName     string  `json:"display_name"`
+	Status          int     `json:"status"`
+	CommissionCount int     `json:"commission_count"`
+	TotalEarned     float64 `json:"total_earned"`
+}
+
+func GetInvitedUsers(inviterId int, pageInfo *common.PageInfo) ([]*InvitedUser, int64, error) {
+	var total int64
+	var users []*InvitedUser
+
+	countQuery := DB.Table("users").Where("inviter_id = ?", inviterId)
+	if err := countQuery.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	err := DB.Table("users").
+		Select("users.id, users.username, users.display_name, users.status, "+
+			"COALESCE(rc.commission_count, 0) as commission_count, "+
+			"COALESCE(rc.total_earned, 0) as total_earned").
+		Joins("LEFT JOIN (SELECT invitee_id, COUNT(*) as commission_count, SUM(commission_quota) as total_earned "+
+			"FROM referral_commissions WHERE inviter_id = ? GROUP BY invitee_id) rc ON rc.invitee_id = users.id", inviterId).
+		Where("users.inviter_id = ?", inviterId).
+		Order("users.id desc").
+		Limit(pageInfo.GetPageSize()).
+		Offset(pageInfo.GetStartIdx()).
+		Find(&users).Error
+	return users, total, err
+}
+
 func GetUserReferralCommissions(inviterId int, pageInfo *common.PageInfo) ([]*ReferralCommissionWithUser, int64, error) {
 	var total int64
 	var commissions []*ReferralCommissionWithUser
