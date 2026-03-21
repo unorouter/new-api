@@ -134,7 +134,7 @@ func GetTokenUsage(c fuego.ContextNoBody) (*dto.Response[dto.TokenUsageData], er
 	})
 }
 
-func AddToken(c fuego.ContextWithBody[model.Token]) (dto.MessageResponse, error) {
+func AddToken(c fuego.ContextWithBody[dto.CreateTokenRequest]) (dto.MessageResponse, error) {
 	token, err := c.Body()
 	if err != nil {
 		return dto.FailMsg(err.Error())
@@ -195,7 +195,7 @@ func DeleteToken(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	return dto.Msg("")
 }
 
-func UpdateToken(c fuego.Context[model.Token, dto.StatusOnlyParams]) (*dto.Response[model.Token], error) {
+func UpdateToken(c fuego.Context[dto.UpdateTokenRequest, dto.StatusOnlyParams]) (*dto.Response[model.Token], error) {
 	p, _ := dto.ParseParams[dto.StatusOnlyParams](c)
 	token, err := c.Body()
 	if err != nil {
