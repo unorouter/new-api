@@ -100,6 +100,8 @@ var TurnstileSecretKey = ""
 var TelegramBotToken = ""
 var TelegramBotName = ""
 
+var OAuthAllowedRedirectOrigins = []string{} // e.g. ["https://www.newapi.ai", "http://localhost:3000"]
+
 var QuotaForNewUser = 0
 var QuotaForInviter = 0
 var QuotaForInvitee = 0

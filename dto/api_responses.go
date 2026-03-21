@@ -29,6 +29,7 @@ type LoginData struct {
 	Role        int    `json:"role"`
 	Status      int    `json:"status"`
 	Group       string `json:"group"`
+	RedirectURL string `json:"redirect_url,omitempty"`
 }
 
 // Login2FAData is the data field for POST /api/user/login when 2FA is required.

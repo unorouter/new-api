@@ -100,6 +100,65 @@ func setupLogin(user *model.User, c *gin.Context) {
 	})
 }
 
+// setupLoginAndRedirect sets session and redirects to an external URL with user data.
+// Used when OAuth login is initiated from an external frontend (e.g. unorouter.ai).
+func setupLoginAndRedirect(user *model.User, c *gin.Context, redirectURI string) {
+	session := sessions.Default(c)
+	session.Set("id", user.Id)
+	session.Set("username", user.Username)
+	session.Set("role", user.Role)
+	session.Set("status", user.Status)
+	session.Set("group", user.Group)
+	if err := session.Save(); err != nil {
+		common.ApiErrorI18n(c, "user.session_save_failed")
+		return
+	}
+
+	// Generate an access token if user doesn't have one
+	accessToken := user.GetAccessToken()
+	if accessToken == "" {
+		key, err := common.GenerateRandomKey(32)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		user.SetAccessToken(key)
+		if err := user.Update(false); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		accessToken = user.GetAccessToken()
+	}
+
+	// Build redirect URL with user data
+	parsed, err := url.Parse(redirectURI)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	q := parsed.Query()
+	q.Set("access_token", accessToken)
+	q.Set("user_id", fmt.Sprintf("%d", user.Id))
+	q.Set("username", user.Username)
+	q.Set("display_name", user.DisplayName)
+	q.Set("role", fmt.Sprintf("%d", user.Role))
+	parsed.RawQuery = q.Encode()
+
+	c.JSON(http.StatusOK, dto.ApiResponse{
+		Success: true,
+		Message: "redirect",
+		Data: dto.LoginData{
+			ID:          user.Id,
+			Username:    user.Username,
+			DisplayName: user.DisplayName,
+			Role:        user.Role,
+			Status:      user.Status,
+			Group:       user.Group,
+			RedirectURL: parsed.String(),
+		},
+	})
+}
+
 func Logout(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	session := sessions.Default(dto.GinCtx(c))
 	session.Clear()

@@ -354,6 +354,7 @@ oauth.state_invalid: "Параметр state пуст или не совпада
 oauth.not_enabled: "Вход и регистрация через {{.Provider}} не включены администратором"
 oauth.user_deleted: "Пользователь удалён"
 oauth.user_banned: "Пользователь заблокирован"
+oauth.redirect_uri_not_allowed: "URI перенаправления отсутствует в списке разрешённых источников"
 oauth.bind_success: "Привязка выполнена успешно"
 oauth.already_bound: "Этот аккаунт {{.Provider}} уже привязан"
 oauth.connect_failed: "Не удалось подключиться к серверу {{.Provider}}, пожалуйста, повторите попытку позже"

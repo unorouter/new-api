@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -22,12 +23,32 @@ func providerParams(name string) map[string]any {
 	return map[string]any{"Provider": name}
 }
 
-// GenerateOAuthCode generates a state code for OAuth CSRF protection
+// GenerateOAuthCode generates a state code for OAuth CSRF protection.
+// When redirect_uri is provided (external frontend flow), the state is a self-contained
+// signed token so it doesn't depend on the session (which won't survive cross-domain redirects).
 func GenerateOAuthCode(c fuego.ContextWithParams[dto.GenerateOAuthCodeParams]) (*dto.Response[string], error) {
 	ginCtx := dto.GinCtx(c)
+	p, _ := dto.ParseParams[dto.GenerateOAuthCodeParams](c)
+
+	if p.RedirectURI != "" {
+		// External redirect flow: use signed state token (no session needed)
+		if !common.IsAllowedRedirectURI(p.RedirectURI) {
+			return dto.Fail[string](i18n.T(ginCtx, "oauth.redirect_uri_not_allowed"))
+		}
+		nonce := common.GetRandomString(12)
+		payload := nonce + "|" + p.RedirectURI
+		if p.Aff != "" {
+			payload += "|" + p.Aff
+		}
+		sig := common.GenerateHMAC(payload)
+		// State format: nonce|redirect_uri[|aff]|signature
+		state := payload + "|" + sig
+		return dto.Ok(state)
+	}
+
+	// Same-origin flow: use session-based state
 	session := sessions.Default(ginCtx)
 	state := common.GetRandomString(12)
-	p, _ := dto.ParseParams[dto.GenerateOAuthCodeParams](c)
 	if p.Aff != "" {
 		session.Set("aff", p.Aff)
 	}
@@ -48,19 +69,38 @@ func HandleOAuth(c *gin.Context) {
 	}
 
 	session := sessions.Default(c)
-
-	// 1. Validate state (CSRF protection)
 	state := c.Query("state")
-	if state == "" || session.Get("oauth_state") == nil || state != session.Get("oauth_state").(string) {
-		c.JSON(http.StatusForbidden, dto.ApiResponse{Message: i18n.T(c, "oauth.state_invalid")})
-		return
+
+	// 1. Validate state: try signed token first, then session-based
+	var redirectURI, affCode string
+	if parts := strings.Split(state, "|"); len(parts) >= 3 {
+		// Signed state format: nonce|redirect_uri[|aff]|signature
+		sig := parts[len(parts)-1]
+		payload := strings.Join(parts[:len(parts)-1], "|")
+		if sig == common.GenerateHMAC(payload) && common.IsAllowedRedirectURI(parts[1]) {
+			redirectURI = parts[1]
+			if len(parts) == 4 {
+				affCode = parts[2]
+			}
+		} else {
+			c.JSON(http.StatusForbidden, dto.ApiResponse{Message: i18n.T(c, "oauth.state_invalid")})
+			return
+		}
+	} else {
+		// Session-based state
+		if state == "" || session.Get("oauth_state") == nil || state != session.Get("oauth_state").(string) {
+			c.JSON(http.StatusForbidden, dto.ApiResponse{Message: i18n.T(c, "oauth.state_invalid")})
+			return
+		}
 	}
 
-	// 2. Check if user is already logged in (bind flow)
-	username := session.Get("username")
-	if username != nil {
-		handleOAuthBind(c, provider)
-		return
+	// 2. Check if user is already logged in (bind flow, same-origin only)
+	if redirectURI == "" {
+		username := session.Get("username")
+		if username != nil {
+			handleOAuthBind(c, provider)
+			return
+		}
 	}
 
 	// 3. Check if provider is enabled
@@ -92,7 +132,13 @@ func HandleOAuth(c *gin.Context) {
 		return
 	}
 
-	// 7. Find or create user
+	// 7. Handle affiliate code from signed state
+	if affCode != "" {
+		session.Set("aff", affCode)
+		_ = session.Save()
+	}
+
+	// 8. Find or create user
 	user, err := findOrCreateOAuthUser(c, provider, oauthUser, session)
 	if err != nil {
 		switch err.(type) {
@@ -106,13 +152,17 @@ func HandleOAuth(c *gin.Context) {
 		return
 	}
 
-	// 8. Check user status
+	// 9. Check user status
 	if user.Status != common.UserStatusEnabled {
 		common.ApiErrorI18n(c, "oauth.user_banned")
 		return
 	}
 
-	// 9. Setup login
+	// 10. External redirect or same-origin login
+	if redirectURI != "" {
+		setupLoginAndRedirect(user, c, redirectURI)
+		return
+	}
 	setupLogin(user, c)
 }
 

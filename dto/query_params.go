@@ -17,7 +17,8 @@ type TopUpSearchParams struct {
 // ─── OAuth ──────────────────────────────────────────────────────────
 
 type GenerateOAuthCodeParams struct {
-	Aff string `query:"aff" description:"Affiliate code"`
+	Aff         string `query:"aff" description:"Affiliate code"`
+	RedirectURI string `query:"redirect_uri" description:"URL to redirect to after OAuth login (must match allowed origins)"`
 }
 
 type WeChatBindParams struct {

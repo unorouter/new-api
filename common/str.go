@@ -78,6 +78,28 @@ func String2Int(str string) int {
 	return num
 }
 
+// IsAllowedRedirectURI checks if a redirect URI's origin is in the allowed list.
+func IsAllowedRedirectURI(redirectURI string) bool {
+	if len(OAuthAllowedRedirectOrigins) == 0 {
+		return false
+	}
+	parsed, err := url.Parse(redirectURI)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	// Only allow https in production, allow http for localhost
+	if parsed.Scheme != "https" && parsed.Hostname() != "localhost" && parsed.Hostname() != "127.0.0.1" {
+		return false
+	}
+	origin := parsed.Scheme + "://" + parsed.Host
+	for _, allowed := range OAuthAllowedRedirectOrigins {
+		if strings.EqualFold(origin, allowed) {
+			return true
+		}
+	}
+	return false
+}
+
 func StringsContains(strs []string, str string) bool {
 	for _, s := range strs {
 		if s == str {
