@@ -286,6 +286,12 @@ func GinBody[T any]() func(*fuego.BaseRoute) {
 	return fuego.OptionRequestBody(fuego.RequestBody{Type: *new(T), ContentTypes: []string{"application/json"}})
 }
 
+// TurnstileQuery adds an optional "turnstile" query parameter to the OpenAPI spec.
+// Used on routes protected by middleware.TurnstileCheck().
+func TurnstileQuery() func(*fuego.BaseRoute) {
+	return fuego.OptionQuery("turnstile", "Cloudflare Turnstile verification token")
+}
+
 // GinGet registers a raw gin handler GET route.
 func (r *Router) GinGet(path string, handler gin.HandlerFunc, opts ...func(*fuego.BaseRoute)) {
 	if r.engine == nil {

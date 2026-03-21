@@ -47,10 +47,10 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Get(publicPricing, "/pricing", controller.GetPricing)
 
 		publicEmailVerify := dto.NewRouter(engine, apiRouter.Group("", middleware.EmailVerificationRateLimit(), middleware.TurnstileCheck()), "Auth", secPublic())
-		dto.GetP(publicEmailVerify, "/verification", controller.SendEmailVerification)
+		dto.GetP(publicEmailVerify, "/verification", controller.SendEmailVerification, dto.TurnstileQuery())
 
 		publicResetPwd := dto.NewRouter(engine, apiRouter.Group("", middleware.CriticalRateLimit(), middleware.TurnstileCheck()), "Auth", secPublic())
-		dto.GetP(publicResetPwd, "/reset_password", controller.SendPasswordResetEmail)
+		dto.GetP(publicResetPwd, "/reset_password", controller.SendPasswordResetEmail, dto.TurnstileQuery())
 
 		publicCritical := dto.NewRouter(engine, apiRouter.Group("", middleware.CriticalRateLimit()), "Auth", secPublic())
 		dto.PostB(publicCritical, "/user/reset", controller.ResetPassword)
@@ -79,8 +79,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 
 		// Public user routes (stay as *gin.Context -- sessions)
 		userPublicTurnstile := dto.NewRouter(engine, userGroup.Group("", middleware.CriticalRateLimit(), middleware.TurnstileCheck()), "User", secPublic())
-		dto.PostB(userPublicTurnstile, "/register", controller.Register)
-		userPublicTurnstile.GinPost("/login", controller.Login, dto.GinResp[dto.Response[dto.LoginData]](), dto.GinBody[dto.LoginRequest]())
+		dto.PostB(userPublicTurnstile, "/register", controller.Register, dto.TurnstileQuery())
+		userPublicTurnstile.GinPost("/login", controller.Login, dto.GinResp[dto.Response[dto.LoginData]](), dto.GinBody[dto.LoginRequest](), dto.TurnstileQuery())
 		userPublicCritical := dto.NewRouter(engine, userGroup.Group("", middleware.CriticalRateLimit()), "User", secPublic())
 		userPublicCritical.GinPost("/login/2fa", controller.Verify2FALogin, dto.GinResp[dto.Response[dto.LoginData]](), dto.GinBody[dto.Verify2FARequest]())
 		userPublicCritical.GinPost("/passkey/login/begin", controller.PasskeyLoginBegin, dto.GinResp[dto.Response[dto.PasskeyOptionsData]]())
@@ -140,7 +140,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		selfCheckin := dto.NewRouter(engine, selfGroup, "Checkin", secDashboard())
 		dto.GetP(selfCheckin, "/checkin", controller.GetCheckinStatus)
 		selfCheckinTurnstile := dto.NewRouter(engine, selfGroup.Group("", middleware.TurnstileCheck()), "Checkin", secDashboard())
-		dto.Post(selfCheckinTurnstile, "/checkin", controller.DoCheckin)
+		dto.Post(selfCheckinTurnstile, "/checkin", controller.DoCheckin, dto.TurnstileQuery())
 
 		// Custom OAuth bindings
 		selfOAuth := dto.NewRouter(engine, selfGroup, "OAuth", secDashboard())
