@@ -40,7 +40,7 @@ export default function SettingsPaymentGateway(props) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [inputs, setInputs] = useState({
-    StripeEnabled: false,
+    StripeEnabled: true,
     StripeApiSecret: '',
     StripeWebhookSecret: '',
     StripePriceId: '',
@@ -57,7 +57,7 @@ export default function SettingsPaymentGateway(props) {
         StripeEnabled:
           props.options.StripeEnabled !== undefined
             ? props.options.StripeEnabled === 'true' || props.options.StripeEnabled === true
-            : false,
+            : true,
         StripeApiSecret: props.options.StripeApiSecret || '',
         StripeWebhookSecret: props.options.StripeWebhookSecret || '',
         StripePriceId: props.options.StripePriceId || '',

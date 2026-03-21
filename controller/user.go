@@ -282,13 +282,16 @@ func GetAffCode(c fuego.ContextNoBody) (*dto.Response[string], error) {
 	return dto.Ok(user.AffCode)
 }
 
-func GetReferralCommissions(c fuego.ContextNoBody) (*dto.Response[[]*model.ReferralCommissionWithUser], error) {
+func GetReferralCommissions(c fuego.ContextNoBody) (*dto.Response[*common.PageInfo], error) {
 	id := dto.UserID(c)
-	commissions, err := model.GetUserReferralCommissions(id)
+	pageInfo := common.GetPageQuery(dto.GinCtx(c))
+	commissions, total, err := model.GetUserReferralCommissions(id, pageInfo)
 	if err != nil {
-		return dto.Fail[[]*model.ReferralCommissionWithUser](err.Error())
+		return dto.Fail[*common.PageInfo](err.Error())
 	}
-	return dto.Ok(commissions)
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(commissions)
+	return dto.Ok(pageInfo)
 }
 
 func GetSelf(c fuego.ContextNoBody) (*dto.Response[dto.UserSelfData], error) {

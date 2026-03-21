@@ -526,9 +526,9 @@ const RechargeCard = ({
               {enableCreemTopUp && creemProducts.length > 0 && (
                 <Form.Slot label={t('Creem 充值')}>
                   <div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3'>
-                    {creemProducts.map((product, index) => (
+                    {creemProducts.filter((product) => product.productId).map((product) => (
                       <Card
-                        key={index}
+                        key={product.productId}
                         onClick={() => creemPreTopUp(product)}
                         className='cursor-pointer !rounded-2xl transition-all hover:shadow-md border-gray-200 hover:border-gray-300'
                         bodyStyle={{ textAlign: 'center', padding: '16px' }}

@@ -58,14 +58,15 @@ export function getResetPeriodsCount(plan) {
 
   // duration in seconds
   const durationUnit = plan?.duration_unit || 'month';
-  const durationValue = plan?.duration_value || 1;
+  const durationValue = Number(plan?.duration_value ?? 1);
+  if (!Number.isFinite(durationValue) || durationValue <= 0) return 0;
   let durationSeconds;
   switch (durationUnit) {
     case 'year':
-      durationSeconds = durationValue * 365.25 * 86400;
+      durationSeconds = durationValue * 365 * 86400;
       break;
     case 'month':
-      durationSeconds = durationValue * 30.44 * 86400;
+      durationSeconds = durationValue * 30 * 86400;
       break;
     case 'day':
       durationSeconds = durationValue * 86400;
@@ -90,7 +91,7 @@ export function getResetPeriodsCount(plan) {
       resetSeconds = 7 * 86400;
       break;
     case 'monthly':
-      resetSeconds = 30.44 * 86400;
+      resetSeconds = 30 * 86400;
       break;
     case 'custom':
       resetSeconds = Number(plan?.quota_reset_custom_seconds || 0);

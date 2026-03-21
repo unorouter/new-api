@@ -458,9 +458,13 @@ func updateOptionMap(key string, value string) (err error) {
 	case "ReferralCommissionEnabled":
 		common.ReferralCommissionEnabled, _ = strconv.ParseBool(value)
 	case "ReferralCommissionPercent":
-		common.ReferralCommissionPercent, _ = strconv.ParseFloat(value, 64)
+		if v, parseErr := strconv.ParseFloat(value, 64); parseErr == nil && v >= 0 && v <= 100 {
+			common.ReferralCommissionPercent = v
+		}
 	case "ReferralCommissionMaxRecharges":
-		common.ReferralCommissionMaxRecharges, _ = strconv.Atoi(value)
+		if v, parseErr := strconv.Atoi(value); parseErr == nil && v >= 0 {
+			common.ReferralCommissionMaxRecharges = v
+		}
 	case "QuotaRemindThreshold":
 		common.QuotaRemindThreshold, _ = strconv.Atoi(value)
 	case "PreConsumedQuota":

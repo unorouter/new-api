@@ -353,15 +353,6 @@ func CreditReferralCommission(userId int, rechargeAmount float64, paymentMethod 
 		return err
 	}
 
-	// Accurate count: count commission records not all top-ups, so max cap only applies to actual commission events
-	if common.ReferralCommissionMaxRecharges > 0 {
-		var count int64
-		DB.Model(&ReferralCommission{}).Where("invitee_id = ?", userId).Count(&count)
-		if int(count) >= common.ReferralCommissionMaxRecharges {
-			return nil
-		}
-	}
-
 	// Per-inviter rate override: use inviter's custom rate if set, otherwise fall back to global
 	inviter, err := GetUserById(user.InviterId, true)
 	if err != nil {
@@ -381,28 +372,62 @@ func CreditReferralCommission(userId int, rechargeAmount float64, paymentMethod 
 		return nil
 	}
 
-	// Record commission event for full audit trail
-	if err := DB.Create(&ReferralCommission{
-		InviterId:       user.InviterId,
-		InviteeId:       userId,
-		TopUpId:         topUpId,
-		RechargeAmount:  rechargeAmount,
-		CommissionQuota: commission,
-		CommissionRate:  rate,
-		PaymentMethod:   paymentMethod,
-	}).Error; err != nil {
+	// Wrap count check, commission insert, and quota update in a single transaction
+	// to prevent race conditions from concurrent recharges
+	credited := false
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		// Check max commission count within the transaction
+		if common.ReferralCommissionMaxRecharges > 0 {
+			var count int64
+			if err := tx.Model(&ReferralCommission{}).Where("invitee_id = ?", userId).Count(&count).Error; err != nil {
+				return err
+			}
+			if int(count) >= common.ReferralCommissionMaxRecharges {
+				return nil
+			}
+		}
+
+		// Idempotency: skip if this topup already credited a commission for this invitee
+		var existing int64
+		if err := tx.Model(&ReferralCommission{}).Where("invitee_id = ? AND top_up_id = ? AND payment_method = ?", userId, topUpId, paymentMethod).Count(&existing).Error; err != nil {
+			return err
+		}
+		if existing > 0 {
+			return nil
+		}
+
+		// Record commission event for full audit trail
+		if err := tx.Create(&ReferralCommission{
+			InviterId:       user.InviterId,
+			InviteeId:       userId,
+			TopUpId:         topUpId,
+			RechargeAmount:  rechargeAmount,
+			CommissionQuota: commission,
+			CommissionRate:  rate,
+			PaymentMethod:   paymentMethod,
+		}).Error; err != nil {
+			return err
+		}
+
+		// Atomically update inviter's aff_quota
+		if err := tx.Model(&User{}).Where("id = ?", user.InviterId).Updates(map[string]interface{}{
+			"aff_quota":   gorm.Expr("aff_quota + ?", commission),
+			"aff_history": gorm.Expr("aff_history + ?", commission),
+		}).Error; err != nil {
+			return err
+		}
+
+		credited = true
+		return nil
+	})
+
+	if err != nil {
 		return err
 	}
 
-	// Atomically update inviter's aff_quota to prevent race conditions under concurrent recharges
-	if err := DB.Model(&User{}).Where("id = ?", user.InviterId).Updates(map[string]interface{}{
-		"aff_quota":   gorm.Expr("aff_quota + ?", commission),
-		"aff_history": gorm.Expr("aff_history + ?", commission),
-	}).Error; err != nil {
-		return err
+	if credited {
+		RecordLog(user.InviterId, LogTypeSystem, fmt.Sprintf(i18n.Translate("model.referral_commission_of"), logger.LogQuota(commission), rate, rechargeAmount))
 	}
-
-	RecordLog(user.InviterId, LogTypeSystem, fmt.Sprintf(i18n.Translate("model.referral_commission_of"), logger.LogQuota(commission), rate, rechargeAmount))
 	return nil
 }
 
@@ -486,7 +511,7 @@ func (user *User) Insert(inviterId int) error {
 	if common.QuotaForNewUser > 0 {
 		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf(i18n.Translate("model.new_user_registration_bonus"), logger.LogQuota(common.QuotaForNewUser)))
 	}
-	if inviterId != 0 {
+	if inviterId != 0 && !common.ReferralCommissionEnabled {
 		if common.QuotaForInvitee > 0 {
 			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
 			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf(i18n.Translate("model.invite_code_bonus"), logger.LogQuota(common.QuotaForInvitee)))
@@ -547,7 +572,7 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 	if common.QuotaForNewUser > 0 {
 		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf(i18n.Translate("model.new_user_registration_bonus"), logger.LogQuota(common.QuotaForNewUser)))
 	}
-	if inviterId != 0 {
+	if inviterId != 0 && !common.ReferralCommissionEnabled {
 		if common.QuotaForInvitee > 0 {
 			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
 			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf(i18n.Translate("model.invite_code_bonus"), logger.LogQuota(common.QuotaForInvitee)))
@@ -587,6 +612,11 @@ func (user *User) Edit(updatePassword bool) error {
 	}
 
 	newUser := *user
+	if newUser.ReferralCommissionPercent != nil {
+		if *newUser.ReferralCommissionPercent < 0 || *newUser.ReferralCommissionPercent > 100 {
+			return fmt.Errorf("referral_commission_percent must be between 0 and 100")
+		}
+	}
 	updates := map[string]interface{}{
 		"username":                    newUser.Username,
 		"display_name":                newUser.DisplayName,

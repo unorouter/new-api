@@ -852,7 +852,7 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	case types.RelayFormatOpenAI:
 		openaiResponse := ResponseClaude2OpenAI(&claudeResponse)
 		openaiResponse.Usage = *claudeInfo.Usage
-		responseData, err = json.Marshal(openaiResponse)
+		responseData, err = common.Marshal(openaiResponse)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
@@ -863,7 +863,7 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		if convErr != nil {
 			return types.NewError(convErr, types.ErrorCodeBadResponseBody)
 		}
-		responseData, err = json.Marshal(responsesResp)
+		responseData, err = common.Marshal(responsesResp)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeBadResponseBody)
 		}

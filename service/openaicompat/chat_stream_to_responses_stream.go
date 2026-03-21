@@ -2,7 +2,6 @@ package openaicompat
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -98,7 +97,7 @@ func (s *ChatToResponsesStreamState) HandleChatChunk(chunk *dto.ChatCompletionsS
 
 	// Tool calls
 	if len(delta.ToolCalls) > 0 {
-		for idx, call := range delta.ToolCalls {
+		for _, call := range delta.ToolCalls {
 			callID := strings.TrimSpace(call.ID)
 			if callID == "" {
 				// For subsequent argument deltas, use the last known call ID
@@ -107,7 +106,7 @@ func (s *ChatToResponsesStreamState) HandleChatChunk(chunk *dto.ChatCompletionsS
 				} else if len(s.ToolCallOrder) > 0 {
 					callID = s.ToolCallOrder[len(s.ToolCallOrder)-1]
 				} else {
-					callID = fmt.Sprintf("call_%d", idx)
+					callID = "call_" + common.GetUUID()
 				}
 			}
 			if call.Function.Name != "" {

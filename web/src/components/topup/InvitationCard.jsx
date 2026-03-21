@@ -50,7 +50,7 @@ const InvitationCard = ({
     setCommissionsLoading(true);
     API.get('/api/user/aff/commissions')
       .then((res) => {
-        if (res.data.success) setCommissions(res.data.data || []);
+        if (res.data.success) setCommissions(res.data.data?.items || []);
       })
       .finally(() => setCommissionsLoading(false));
   }, []);

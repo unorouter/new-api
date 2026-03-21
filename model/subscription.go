@@ -518,6 +518,7 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string) error {
 	var logPlanTitle string
 	var logMoney float64
 	var logPaymentMethod string
+	var logOrderId int
 	var upgradeGroup string
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var order SubscriptionOrder
@@ -557,6 +558,7 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string) error {
 		logPlanTitle = plan.Title
 		logMoney = order.Money
 		logPaymentMethod = order.PaymentMethod
+		logOrderId = order.Id
 		return nil
 	})
 	if err != nil {
@@ -570,7 +572,7 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string) error {
 		RecordLog(logUserId, LogTypeTopup, msg)
 
 		// Credit referral commission to inviter (if enabled)
-		if err := CreditReferralCommission(logUserId, logMoney, logPaymentMethod, 0); err != nil {
+		if err := CreditReferralCommission(logUserId, logMoney, logPaymentMethod, logOrderId); err != nil {
 			common.SysLog(i18n.Translate("log.subscription_commission_failed", map[string]any{"UserId": logUserId, "Error": err}))
 		}
 	}
