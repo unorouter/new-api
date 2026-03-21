@@ -1,6 +1,6 @@
 package setting
 
-var CreemEnabled = false
+var CreemEnabled = true
 var CreemApiKey = ""
 var CreemProducts = "[]"
 var CreemTestMode = false

@@ -206,6 +206,10 @@ func oaiChatStreamToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+	}
+
 	if model == "" {
 		model = info.UpstreamModelName
 	}

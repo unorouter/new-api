@@ -59,7 +59,9 @@ func GetTopUpInfo(c fuego.ContextNoBody) (*dto.Response[dto.TopUpInfoData], erro
 
 	// Creem 启用检查
 	creemProducts := strings.TrimSpace(setting.CreemProducts)
-	creemConfigured := setting.CreemApiKey != "" && creemProducts != "" && creemProducts != "[]"
+	creemConfigured := setting.CreemApiKey != "" &&
+		setting.CreemWebhookSecret != "" &&
+		creemProducts != "" && creemProducts != "[]"
 
 	// Waffo 启用检查
 	enableWaffo := setting.WaffoEnabled &&

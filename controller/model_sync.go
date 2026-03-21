@@ -261,7 +261,11 @@ func SyncUpstreamModels(c fuego.ContextWithBody[dto.SyncRequest]) (*dto.Response
 	// 允许空体
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[dto.SyncUpstreamResult](common.TranslateMessage(dto.GinCtx(c), "sync.param_format_error"))
+		if errors.Is(err, io.EOF) {
+			req = dto.SyncRequest{}
+		} else {
+			return dto.Fail[dto.SyncUpstreamResult](common.TranslateMessage(dto.GinCtx(c), "sync.param_format_error"))
+		}
 	}
 	// 1) 获取未配置模型列表
 	missing, err := model.GetMissingModels()
