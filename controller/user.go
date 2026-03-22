@@ -105,10 +105,17 @@ func setupLogin(user *model.User, c *gin.Context) {
 func setupLoginAndRedirect(user *model.User, c *gin.Context, redirectURI string) {
 	accessToken := user.GetAccessToken()
 	if accessToken == "" {
-		key, _ := common.GenerateRandomKey(32)
+		key, err := common.GenerateRandomKey(32)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
 		user.SetAccessToken(key)
-		_ = user.Update(false)
-		accessToken = user.GetAccessToken()
+		if err := user.Update(false); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		accessToken = key
 	}
 
 	code, err := common.StoreOAuthExchangeCode(&common.OAuthExchangeData{

@@ -56,7 +56,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.PostB(publicCritical, "/user/reset", controller.ResetPassword)
 
 		// OAuth routes (stay as *gin.Context -- sessions/redirects)
-		oauthCritical := dto.NewRouter(engine, apiRouter.Group("", middleware.CriticalRateLimit()), "OAuth", secPublic())
+		oauthCritical := dto.NewRouter(engine, apiRouter.Group("", middleware.CORS(), middleware.CriticalRateLimit()), "OAuth", secPublic())
 		dto.GetP(oauthCritical, "/oauth/state", controller.GenerateOAuthCode)
 		dto.PostB(oauthCritical, "/oauth/exchange", controller.ExchangeOAuthCode)
 		dto.GetP(oauthCritical, "/oauth/email/bind", controller.EmailBind)

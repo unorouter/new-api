@@ -3,6 +3,7 @@ package common
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -105,6 +106,9 @@ func IsAllowedRedirectURI(redirectURI string) bool {
 
 // redisStoreOnce stores v as JSON in Redis under prefix:randomKey with the given TTL.
 func redisStoreOnce(prefix string, v any, ttl time.Duration) (string, error) {
+	if !RedisEnabled {
+		return "", errors.New("redis is required for cross-origin OAuth")
+	}
 	key := GetRandomString(32)
 	data, err := Marshal(v)
 	if err != nil {
@@ -118,6 +122,9 @@ func redisStoreOnce(prefix string, v any, ttl time.Duration) (string, error) {
 
 // redisRedeemOnce retrieves, deletes, and unmarshals a one-time Redis value.
 func redisRedeemOnce[T any](prefix, key string) *T {
+	if !RedisEnabled {
+		return nil
+	}
 	raw, err := RedisGet(prefix + key)
 	if err != nil {
 		return nil
