@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -23,8 +24,10 @@ import (
 )
 
 type ModelRequest struct {
-	Model string `json:"model"`
-	Group string `json:"group,omitempty"`
+	Model  string          `json:"model"`
+	Group  string          `json:"group,omitempty"`
+	Tools  json.RawMessage `json:"tools,omitempty"`
+	Stream *bool           `json:"stream,omitempty"`
 }
 
 func Distribute() func(c *gin.Context) {
@@ -36,6 +39,9 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, "distributor.invalid_request", map[string]any{"Error": err.Error()}))
 			return
 		}
+		// detect request capabilities for capability-aware routing
+		detectRequestCapabilities(c, modelRequest)
+
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -123,23 +129,34 @@ func Distribute() func(c *gin.Context) {
 				}
 
 				if channel == nil {
-					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
+					// build capability skip set to avoid channels that strip required features
+					capSkip := model.GetCapabilitySkipSet(
+						usingGroup, modelRequest.Model,
+						common.GetContextKeyBool(c, constant.ContextKeyRequestNeedsTools),
+						common.GetContextKeyBool(c, constant.ContextKeyRequestNeedsStreaming),
+						common.GetContextKeyBool(c, constant.ContextKeyRequestNeedsHTTP),
+					)
+
+					retryParam := &service.RetryParam{
 						Ctx:        c,
 						ModelName:  modelRequest.Model,
 						TokenGroup: usingGroup,
 						Retry:      common.GetPointer(0),
-					})
+					}
+					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam, capSkip)
+
+					// fallback: if no capable channel found, retry without the filter
+					if channel == nil && len(capSkip) > 0 {
+						retryParam.SetRetry(0)
+						channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
+					}
+
 					if err != nil {
 						showGroup := usingGroup
 						if usingGroup == "auto" {
 							showGroup = fmt.Sprintf("auto(%s)", selectGroup)
 						}
 						message := i18n.T(c, "distributor.get_channel_failed", map[string]any{"Group": showGroup, "Model": modelRequest.Model, "Error": err.Error()})
-						// 如果错误，但是渠道不为空，说明是数据库一致性问题
-						//if channel != nil {
-						//	common.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
-						//	message = "数据库一致性已被破坏，请联系管理员"
-						//}
 						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, types.ErrorCodeModelNotFound)
 						return
 					}
@@ -270,7 +287,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		if err != nil {
 			return nil, false, err
 		}
-		modelRequest.Model = req.Model
+		modelRequest = *req
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/realtime") {
 		//wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01
@@ -399,6 +416,23 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 		c.Set("bot_id", channel.Other)
 	}
 	return nil
+}
+
+// detectRequestCapabilities inspects the parsed request to determine what
+// capabilities are needed (tools, streaming) and stores them in the gin context
+// for capability-aware channel routing.
+func detectRequestCapabilities(c *gin.Context, req *ModelRequest) {
+	if req == nil {
+		return
+	}
+	if len(req.Tools) > 2 { // longer than "[]" or "null"
+		common.SetContextKey(c, constant.ContextKeyRequestNeedsTools, true)
+	}
+	if req.Stream != nil && *req.Stream {
+		common.SetContextKey(c, constant.ContextKeyRequestNeedsStreaming, true)
+	} else {
+		common.SetContextKey(c, constant.ContextKeyRequestNeedsHTTP, true)
+	}
 }
 
 // extractModelNameFromGeminiPath 从 Gemini API URL 路径中提取模型名

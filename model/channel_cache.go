@@ -94,7 +94,7 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {
+func GetRandomSatisfiedChannel(group string, model string, retry int, skipIDs ...map[int]bool) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
 		return GetChannel(group, model, retry)
@@ -116,7 +116,15 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 		return nil, nil
 	}
 
+	// helper to check if a channel ID should be skipped
+	shouldSkip := func(id int) bool {
+		return len(skipIDs) > 0 && skipIDs[0] != nil && skipIDs[0][id]
+	}
+
 	if len(channels) == 1 {
+		if shouldSkip(channels[0]) {
+			return nil, nil
+		}
 		if channel, ok := channelsIDM[channels[0]]; ok {
 			return channel, nil
 		}
@@ -146,6 +154,9 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	var sumWeight = 0
 	var targetChannels []*Channel
 	for _, channelId := range channels {
+		if shouldSkip(channelId) {
+			continue
+		}
 		if channel, ok := channelsIDM[channelId]; ok {
 			if channel.GetPriority() == targetPriority {
 				sumWeight += channel.GetWeight()
@@ -189,6 +200,70 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	}
 	// return null if no channel is not found
 	return nil, errors.New(i18n.Translate("model.channel_not_found_280d"))
+}
+
+// GetCapabilitySkipSet returns channel IDs that are explicitly marked as not
+// supporting the requested capabilities. Channels with unknown/nil capabilities
+// are NOT skipped (assumed capable for backward compatibility).
+// When group is "auto", all groups are scanned so that the skip set covers
+// every channel the auto-group loop might encounter.
+func GetCapabilitySkipSet(group, model string, needsTools, needsStreaming, needsHTTP bool) map[int]bool {
+	if !needsTools && !needsStreaming && !needsHTTP {
+		return nil
+	}
+	if !common.MemoryCacheEnabled {
+		return nil
+	}
+
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+
+	// Collect channel IDs to inspect. For "auto", scan all groups.
+	var channelIDs []int
+	if group == "auto" {
+		seen := make(map[int]bool)
+		for _, modelChannels := range group2model2channels {
+			ids := modelChannels[model]
+			if len(ids) == 0 {
+				normalizedModel := ratio_setting.FormatMatchingModelName(model)
+				ids = modelChannels[normalizedModel]
+			}
+			for _, id := range ids {
+				if !seen[id] {
+					seen[id] = true
+					channelIDs = append(channelIDs, id)
+				}
+			}
+		}
+	} else {
+		channelIDs = group2model2channels[group][model]
+		if len(channelIDs) == 0 {
+			normalizedModel := ratio_setting.FormatMatchingModelName(model)
+			channelIDs = group2model2channels[group][normalizedModel]
+		}
+	}
+
+	skip := make(map[int]bool)
+	for _, id := range channelIDs {
+		ch, ok := channelsIDM[id]
+		if !ok {
+			continue
+		}
+		setting := ch.GetSetting()
+		if setting.Capabilities == nil {
+			continue // unknown = don't skip
+		}
+		if needsTools && setting.Capabilities.ToolCalling != nil && !*setting.Capabilities.ToolCalling {
+			skip[id] = true
+		}
+		if needsStreaming && setting.Capabilities.Streaming != nil && !*setting.Capabilities.Streaming {
+			skip[id] = true
+		}
+		if needsHTTP && setting.Capabilities.HTTP != nil && !*setting.Capabilities.HTTP {
+			skip[id] = true
+		}
+	}
+	return skip
 }
 
 func CacheGetChannel(id int) (*Channel, error) {

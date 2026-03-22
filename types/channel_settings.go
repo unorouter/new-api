@@ -1,12 +1,21 @@
 package types
 
+// ChannelCapabilities describes tested capabilities of an upstream channel.
+// nil fields mean "unknown/not tested" and the channel is assumed capable.
+type ChannelCapabilities struct {
+	ToolCalling *bool `json:"tool_calling,omitempty"`
+	Streaming   *bool `json:"streaming,omitempty"`
+	HTTP        *bool `json:"http,omitempty"` // non-streaming request support
+}
+
 type ChannelSettings struct {
-	ForceFormat            bool   `json:"force_format,omitempty"`
-	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
-	Proxy                  string `json:"proxy"`
-	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt           string `json:"system_prompt,omitempty"`
-	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	ForceFormat            bool                 `json:"force_format,omitempty"`
+	ThinkingToContent      bool                 `json:"thinking_to_content,omitempty"`
+	Proxy                  string               `json:"proxy"`
+	PassThroughBodyEnabled bool                 `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt           string               `json:"system_prompt,omitempty"`
+	SystemPromptOverride   bool                 `json:"system_prompt_override,omitempty"`
+	Capabilities           *ChannelCapabilities `json:"capabilities,omitempty"`
 }
 
 type VertexKeyType string

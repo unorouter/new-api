@@ -65,4 +65,9 @@ const (
 
 	// ContextKeyLanguage stores the user's language preference for i18n
 	ContextKeyLanguage ContextKey = "language"
+
+	/* request capability keys (set by distributor for capability-aware routing) */
+	ContextKeyRequestNeedsTools     ContextKey = "request_needs_tools"
+	ContextKeyRequestNeedsStreaming ContextKey = "request_needs_streaming"
+	ContextKeyRequestNeedsHTTP     ContextKey = "request_needs_http"
 )
