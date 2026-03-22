@@ -32,6 +32,20 @@ type LoginData struct {
 	RedirectURL string `json:"redirect_url,omitempty"`
 }
 
+// OAuthExchangeRequest is the body for POST /api/oauth/exchange.
+type OAuthExchangeRequest struct {
+	Code string `json:"code" description:"One-time authorization code from OAuth redirect"`
+}
+
+// OAuthExchangeData is the data field for a successful OAuth code exchange.
+type OAuthExchangeData struct {
+	AccessToken string `json:"access_token"`
+	UserID      int    `json:"user_id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Role        int    `json:"role"`
+}
+
 // Login2FAData is the data field for POST /api/user/login when 2FA is required.
 type Login2FAData struct {
 	Require2FA bool `json:"require_2fa"`

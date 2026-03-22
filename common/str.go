@@ -88,8 +88,10 @@ func IsAllowedRedirectURI(redirectURI string) bool {
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return false
 	}
-	// Only allow https in production, allow http for localhost
-	if parsed.Scheme != "https" && parsed.Hostname() != "localhost" && parsed.Hostname() != "127.0.0.1" {
+	// Only allow https, with a narrow http exception for loopback development.
+	host := parsed.Hostname()
+	isLoopback := host == "localhost" || host == "127.0.0.1"
+	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && isLoopback) {
 		return false
 	}
 	origin := parsed.Scheme + "://" + parsed.Host
@@ -101,61 +103,68 @@ func IsAllowedRedirectURI(redirectURI string) bool {
 	return false
 }
 
-// oauthStatePayload is the JSON structure for signed OAuth state tokens.
-type oauthStatePayload struct {
-	Nonce       string `json:"n"`
-	RedirectURI string `json:"r"`
-	Aff         string `json:"a,omitempty"`
-	Exp         int64  `json:"e"`
-}
-
-// oauthStateTokenTTL is how long a signed OAuth state token is valid.
-const oauthStateTokenTTL = 10 * time.Minute
-
-// CreateSignedOAuthState creates a base64url-encoded, HMAC-signed state token
-// containing the redirect URI and optional affiliate code with a 10-minute expiry.
-func CreateSignedOAuthState(redirectURI, aff string) (string, error) {
-	p := oauthStatePayload{
-		Nonce:       GetRandomString(12),
-		RedirectURI: redirectURI,
-		Aff:         aff,
-		Exp:         time.Now().Add(oauthStateTokenTTL).Unix(),
-	}
-	data, err := Marshal(p)
+// redisStoreOnce stores v as JSON in Redis under prefix:randomKey with the given TTL.
+func redisStoreOnce(prefix string, v any, ttl time.Duration) (string, error) {
+	key := GetRandomString(32)
+	data, err := Marshal(v)
 	if err != nil {
 		return "", err
 	}
-	encoded := base64.RawURLEncoding.EncodeToString(data)
-	sig := GenerateHMAC(encoded)
-	return encoded + "." + sig, nil
+	if err := RedisSet(prefix+key, string(data), ttl); err != nil {
+		return "", err
+	}
+	return key, nil
 }
 
-// ValidateSignedOAuthState validates a signed state token and returns the redirect URI
-// and affiliate code. Returns empty strings if the token is invalid or expired.
-func ValidateSignedOAuthState(state string) (redirectURI, aff string, valid bool) {
-	idx := strings.LastIndex(state, ".")
-	if idx < 0 {
-		return "", "", false
-	}
-	encoded, sig := state[:idx], state[idx+1:]
-	if GenerateHMAC(encoded) != sig {
-		return "", "", false
-	}
-	data, err := base64.RawURLEncoding.DecodeString(encoded)
+// redisRedeemOnce retrieves, deletes, and unmarshals a one-time Redis value.
+func redisRedeemOnce[T any](prefix, key string) *T {
+	raw, err := RedisGet(prefix + key)
 	if err != nil {
-		return "", "", false
+		return nil
 	}
-	var p oauthStatePayload
-	if err := Unmarshal(data, &p); err != nil {
-		return "", "", false
+	_ = RedisDel(prefix + key)
+	var v T
+	if Unmarshal([]byte(raw), &v) != nil {
+		return nil
 	}
-	if time.Now().Unix() > p.Exp {
-		return "", "", false
+	return &v
+}
+
+// --- Cross-origin OAuth state (redirect_uri + aff, 10min TTL) ---
+
+type OAuthStateData struct {
+	RedirectURI string `json:"r"`
+	Aff         string `json:"a,omitempty"`
+}
+
+func CreateOAuthState(redirectURI, aff string) (string, error) {
+	return redisStoreOnce("oauth_state:", OAuthStateData{RedirectURI: redirectURI, Aff: aff}, 10*time.Minute)
+}
+
+func RedeemOAuthState(state string) *OAuthStateData {
+	data := redisRedeemOnce[OAuthStateData]("oauth_state:", state)
+	if data == nil || !IsAllowedRedirectURI(data.RedirectURI) {
+		return nil
 	}
-	if !IsAllowedRedirectURI(p.RedirectURI) {
-		return "", "", false
-	}
-	return p.RedirectURI, p.Aff, true
+	return data
+}
+
+// --- One-time OAuth exchange code (user credentials, 30s TTL) ---
+
+type OAuthExchangeData struct {
+	AccessToken string `json:"access_token"`
+	UserID      int    `json:"user_id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Role        int    `json:"role"`
+}
+
+func StoreOAuthExchangeCode(data *OAuthExchangeData) (string, error) {
+	return redisStoreOnce("oauth_exchange:", data, 30*time.Second)
+}
+
+func RedeemOAuthExchangeCode(code string) *OAuthExchangeData {
+	return redisRedeemOnce[OAuthExchangeData]("oauth_exchange:", code)
 }
 
 func StringsContains(strs []string, str string) bool {

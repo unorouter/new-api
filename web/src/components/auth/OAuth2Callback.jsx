@@ -57,7 +57,7 @@ const OAuth2Callback = (props) => {
       }
 
       if (data?.redirect_url) {
-        window.location.href = data.redirect_url;
+        window.location.replace(data.redirect_url);
         return;
       } else if (message === 'bind') {
         showSuccess(t('绑定成功！'));

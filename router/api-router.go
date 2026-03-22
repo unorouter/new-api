@@ -58,6 +58,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// OAuth routes (stay as *gin.Context -- sessions/redirects)
 		oauthCritical := dto.NewRouter(engine, apiRouter.Group("", middleware.CriticalRateLimit()), "OAuth", secPublic())
 		dto.GetP(oauthCritical, "/oauth/state", controller.GenerateOAuthCode)
+		dto.PostB(oauthCritical, "/oauth/exchange", controller.ExchangeOAuthCode)
 		dto.GetP(oauthCritical, "/oauth/email/bind", controller.EmailBind)
 		oauthCritical.GinGet("/oauth/wechat", controller.WeChatAuth, option.Query("code", "WeChat auth code"), dto.GinResp[dto.ApiResponse]())
 		dto.GetP(oauthCritical, "/oauth/wechat/bind", controller.WeChatBind)

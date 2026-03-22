@@ -100,62 +100,61 @@ func setupLogin(user *model.User, c *gin.Context) {
 	})
 }
 
-// setupLoginAndRedirect sets session and redirects to an external URL with user data.
-// Used when OAuth login is initiated from an external frontend (e.g. unorouter.ai).
+// setupLoginAndRedirect generates a one-time exchange code and returns a redirect URL.
+// The external frontend exchanges the code for user data via POST /api/oauth/exchange.
 func setupLoginAndRedirect(user *model.User, c *gin.Context, redirectURI string) {
-	session := sessions.Default(c)
-	session.Set("id", user.Id)
-	session.Set("username", user.Username)
-	session.Set("role", user.Role)
-	session.Set("status", user.Status)
-	session.Set("group", user.Group)
-	if err := session.Save(); err != nil {
-		common.ApiErrorI18n(c, "user.session_save_failed")
-		return
-	}
-
-	// Generate an access token if user doesn't have one
 	accessToken := user.GetAccessToken()
 	if accessToken == "" {
-		key, err := common.GenerateRandomKey(32)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
+		key, _ := common.GenerateRandomKey(32)
 		user.SetAccessToken(key)
-		if err := user.Update(false); err != nil {
-			common.ApiError(c, err)
-			return
-		}
+		_ = user.Update(false)
 		accessToken = user.GetAccessToken()
 	}
 
-	// Build redirect URL with user data
-	parsed, err := url.Parse(redirectURI)
+	code, err := common.StoreOAuthExchangeCode(&common.OAuthExchangeData{
+		AccessToken: accessToken,
+		UserID:      user.Id,
+		Username:    user.Username,
+		DisplayName: user.DisplayName,
+		Role:        user.Role,
+	})
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
+
+	parsed, _ := url.Parse(redirectURI)
 	q := parsed.Query()
-	q.Set("access_token", accessToken)
-	q.Set("user_id", fmt.Sprintf("%d", user.Id))
-	q.Set("username", user.Username)
-	q.Set("display_name", user.DisplayName)
-	q.Set("role", fmt.Sprintf("%d", user.Role))
+	q.Set("code", code)
 	parsed.RawQuery = q.Encode()
 
 	c.JSON(http.StatusOK, dto.ApiResponse{
 		Success: true,
 		Message: "redirect",
 		Data: dto.LoginData{
-			ID:          user.Id,
-			Username:    user.Username,
-			DisplayName: user.DisplayName,
-			Role:        user.Role,
-			Status:      user.Status,
-			Group:       user.Group,
 			RedirectURL: parsed.String(),
 		},
+	})
+}
+
+// ExchangeOAuthCode exchanges a one-time OAuth code for user data and access token.
+func ExchangeOAuthCode(c fuego.ContextWithBody[dto.OAuthExchangeRequest]) (*dto.Response[dto.OAuthExchangeData], error) {
+	body, err := c.Body()
+	if err != nil || body.Code == "" {
+		return dto.Fail[dto.OAuthExchangeData]("invalid code")
+	}
+
+	data := common.RedeemOAuthExchangeCode(body.Code)
+	if data == nil {
+		return dto.Fail[dto.OAuthExchangeData]("invalid or expired code")
+	}
+
+	return dto.Ok(dto.OAuthExchangeData{
+		AccessToken: data.AccessToken,
+		UserID:      data.UserID,
+		Username:    data.Username,
+		DisplayName: data.DisplayName,
+		Role:        data.Role,
 	})
 }
 

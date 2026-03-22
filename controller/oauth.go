@@ -30,11 +30,11 @@ func GenerateOAuthCode(c fuego.ContextWithParams[dto.GenerateOAuthCodeParams]) (
 	p, _ := dto.ParseParams[dto.GenerateOAuthCodeParams](c)
 
 	if p.RedirectURI != "" {
-		// External redirect flow: use signed state token (no session needed)
+		// External redirect flow: store state in Redis
 		if !common.IsAllowedRedirectURI(p.RedirectURI) {
 			return dto.Fail[string](i18n.T(ginCtx, "oauth.redirect_uri_not_allowed"))
 		}
-		state, err := common.CreateSignedOAuthState(p.RedirectURI, p.Aff)
+		state, err := common.CreateOAuthState(p.RedirectURI, p.Aff)
 		if err != nil {
 			return nil, err
 		}
@@ -66,12 +66,12 @@ func HandleOAuth(c *gin.Context) {
 	session := sessions.Default(c)
 	state := c.Query("state")
 
-	// 1. Validate state: try signed token first, then session-based
+	// 1. Validate state: try Redis-backed state first, then session-based
 	var redirectURI, affCode string
-	if r, a, ok := common.ValidateSignedOAuthState(state); ok {
-		redirectURI = r
-		affCode = a
-	} else if state == "" || session.Get("oauth_state") == nil || state != session.Get("oauth_state").(string) {
+	if result := common.RedeemOAuthState(state); result != nil {
+		redirectURI = result.RedirectURI
+		affCode = result.Aff
+	} else if savedState, ok := session.Get("oauth_state").(string); !ok || state == "" || state != savedState {
 		c.JSON(http.StatusForbidden, dto.ApiResponse{Message: i18n.T(c, "oauth.state_invalid")})
 		return
 	}
