@@ -688,7 +688,7 @@ func DeleteUser(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	if err != nil {
 		return dto.FailMsg(err.Error())
 	}
-	originUser, err := model.GetUserById(id, false)
+	originUser, err := model.GetUserByIdUnscoped(id)
 	if err != nil {
 		return dto.FailMsg(err.Error())
 	}

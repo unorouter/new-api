@@ -210,10 +210,21 @@ const renderOperations = (
     showResetPasskeyModal,
     showResetTwoFAModal,
     showUserSubscriptionsModal,
+    showHardDeleteModal,
   },
 ) => {
   if (record.DeletedAt !== null) {
-    return <></>;
+    return (
+      <Space>
+        <Button
+          type='danger'
+          size='small'
+          onClick={() => showHardDeleteModal(record)}
+        >
+          {t('永久删除')}
+        </Button>
+      </Space>
+    );
   }
 
   const moreMenu = [
@@ -305,6 +316,7 @@ export const getUsersColumns = ({
   showDemoteModal,
   showEnableDisableModal,
   showDeleteModal,
+  showHardDeleteModal,
   showResetPasskeyModal,
   showResetTwoFAModal,
   showUserSubscriptionsModal,
@@ -362,6 +374,7 @@ export const getUsersColumns = ({
           showDemoteModal,
           showEnableDisableModal,
           showDeleteModal,
+          showHardDeleteModal,
           showResetPasskeyModal,
           showResetTwoFAModal,
           showUserSubscriptionsModal,

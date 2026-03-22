@@ -305,6 +305,15 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	return &user, err
 }
 
+func GetUserByIdUnscoped(id int) (*User, error) {
+	if id == 0 {
+		return nil, errors.New(i18n.Translate("user.id_empty"))
+	}
+	var user User
+	err := DB.Unscoped().Omit("password").First(&user, "id = ?", id).Error
+	return &user, err
+}
+
 func GetUserIdByAffCode(affCode string) (int, error) {
 	if affCode == "" {
 		return 0, errors.New(i18n.Translate("common.id_empty"))
@@ -326,8 +335,66 @@ func HardDeleteUserById(id int) error {
 	if id == 0 {
 		return errors.New(i18n.Translate("user.id_empty"))
 	}
-	err := DB.Unscoped().Delete(&User{}, "id = ?", id).Error
-	return err
+
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		// Tables with soft delete (DeletedAt) need Unscoped() to actually remove rows
+		if err := tx.Unscoped().Where("user_id = ?", id).Delete(&Token{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("user_id = ?", id).Delete(&TwoFA{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("user_id = ?", id).Delete(&TwoFABackupCode{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("user_id = ?", id).Delete(&PasskeyCredential{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("user_id = ?", id).Delete(&Redemption{}).Error; err != nil {
+			return err
+		}
+
+		// Tables without soft delete
+		if err := tx.Where("user_id = ?", id).Delete(&UserOAuthBinding{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&Log{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&TopUp{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&Checkin{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&Midjourney{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&Task{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&UserSubscription{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&QuotaData{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("inviter_id = ? OR invitee_id = ?", id, id).Delete(&ReferralCommission{}).Error; err != nil {
+			return err
+		}
+
+		// Finally delete the user itself
+		if err := tx.Unscoped().Delete(&User{}, "id = ?", id).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return invalidateUserCache(id)
 }
 
 func inviteUser(inviterId int) (err error) {
