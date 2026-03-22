@@ -7,7 +7,8 @@ networks:
 
 services:
   debug-new-api:
-    build: .
+    build:
+      context: ${DEBUG_BUILD_CONTEXT:-.}
     container_name: debug-new-api
     restart: always
     command: --log-dir /app/logs
