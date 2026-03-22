@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -35,14 +34,10 @@ func GenerateOAuthCode(c fuego.ContextWithParams[dto.GenerateOAuthCodeParams]) (
 		if !common.IsAllowedRedirectURI(p.RedirectURI) {
 			return dto.Fail[string](i18n.T(ginCtx, "oauth.redirect_uri_not_allowed"))
 		}
-		nonce := common.GetRandomString(12)
-		payload := nonce + "|" + p.RedirectURI
-		if p.Aff != "" {
-			payload += "|" + p.Aff
+		state, err := common.CreateSignedOAuthState(p.RedirectURI, p.Aff)
+		if err != nil {
+			return nil, err
 		}
-		sig := common.GenerateHMAC(payload)
-		// State format: nonce|redirect_uri[|aff]|signature
-		state := payload + "|" + sig
 		return dto.Ok(state)
 	}
 
@@ -73,25 +68,12 @@ func HandleOAuth(c *gin.Context) {
 
 	// 1. Validate state: try signed token first, then session-based
 	var redirectURI, affCode string
-	if parts := strings.Split(state, "|"); len(parts) >= 3 {
-		// Signed state format: nonce|redirect_uri[|aff]|signature
-		sig := parts[len(parts)-1]
-		payload := strings.Join(parts[:len(parts)-1], "|")
-		if sig == common.GenerateHMAC(payload) && common.IsAllowedRedirectURI(parts[1]) {
-			redirectURI = parts[1]
-			if len(parts) == 4 {
-				affCode = parts[2]
-			}
-		} else {
-			c.JSON(http.StatusForbidden, dto.ApiResponse{Message: i18n.T(c, "oauth.state_invalid")})
-			return
-		}
-	} else {
-		// Session-based state
-		if state == "" || session.Get("oauth_state") == nil || state != session.Get("oauth_state").(string) {
-			c.JSON(http.StatusForbidden, dto.ApiResponse{Message: i18n.T(c, "oauth.state_invalid")})
-			return
-		}
+	if r, a, ok := common.ValidateSignedOAuthState(state); ok {
+		redirectURI = r
+		affCode = a
+	} else if state == "" || session.Get("oauth_state") == nil || state != session.Get("oauth_state").(string) {
+		c.JSON(http.StatusForbidden, dto.ApiResponse{Message: i18n.T(c, "oauth.state_invalid")})
+		return
 	}
 
 	// 2. Check if user is already logged in (bind flow, same-origin only)

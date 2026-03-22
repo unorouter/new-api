@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unsafe"
 
 	"github.com/samber/lo"
@@ -98,6 +99,63 @@ func IsAllowedRedirectURI(redirectURI string) bool {
 		}
 	}
 	return false
+}
+
+// oauthStatePayload is the JSON structure for signed OAuth state tokens.
+type oauthStatePayload struct {
+	Nonce       string `json:"n"`
+	RedirectURI string `json:"r"`
+	Aff         string `json:"a,omitempty"`
+	Exp         int64  `json:"e"`
+}
+
+// oauthStateTokenTTL is how long a signed OAuth state token is valid.
+const oauthStateTokenTTL = 10 * time.Minute
+
+// CreateSignedOAuthState creates a base64url-encoded, HMAC-signed state token
+// containing the redirect URI and optional affiliate code with a 10-minute expiry.
+func CreateSignedOAuthState(redirectURI, aff string) (string, error) {
+	p := oauthStatePayload{
+		Nonce:       GetRandomString(12),
+		RedirectURI: redirectURI,
+		Aff:         aff,
+		Exp:         time.Now().Add(oauthStateTokenTTL).Unix(),
+	}
+	data, err := Marshal(p)
+	if err != nil {
+		return "", err
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(data)
+	sig := GenerateHMAC(encoded)
+	return encoded + "." + sig, nil
+}
+
+// ValidateSignedOAuthState validates a signed state token and returns the redirect URI
+// and affiliate code. Returns empty strings if the token is invalid or expired.
+func ValidateSignedOAuthState(state string) (redirectURI, aff string, valid bool) {
+	idx := strings.LastIndex(state, ".")
+	if idx < 0 {
+		return "", "", false
+	}
+	encoded, sig := state[:idx], state[idx+1:]
+	if GenerateHMAC(encoded) != sig {
+		return "", "", false
+	}
+	data, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", "", false
+	}
+	var p oauthStatePayload
+	if err := Unmarshal(data, &p); err != nil {
+		return "", "", false
+	}
+	if time.Now().Unix() > p.Exp {
+		return "", "", false
+	}
+	if !IsAllowedRedirectURI(p.RedirectURI) {
+		return "", "", false
+	}
+	return p.RedirectURI, p.Aff, true
 }
 
 func StringsContains(strs []string, str string) bool {
