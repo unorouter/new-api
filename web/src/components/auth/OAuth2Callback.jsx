@@ -59,7 +59,7 @@ const OAuth2Callback = (props) => {
       if (data?.redirect_url) {
         window.location.replace(data.redirect_url);
         return;
-      } else if (message === 'bind') {
+      } else if (data?.action === 'bind') {
         showSuccess(t('绑定成功！'));
         navigate('/console/personal');
       } else {
