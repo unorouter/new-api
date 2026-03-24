@@ -162,6 +162,10 @@ type RelayInfo struct {
 	// 若为空，调用 GetFinalRequestRelayFormat 会回退到 RequestConversionChain 的最后一项或 RelayFormat。
 	FinalRequestRelayFormat types.RelayFormat
 
+	// ImageResolution is the requested image output resolution (e.g. "512", "1K", "2K", "4K").
+	// Set by adapters to enable grid-pricing-based billing lookup.
+	ImageResolution string
+
 	ThinkingContentInfo
 	TokenCountMeta
 	*ClaudeConvertInfo

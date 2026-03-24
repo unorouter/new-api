@@ -146,6 +146,13 @@ func (i *ImageRequest) GetTokenCountMeta() *types.TokenCountMeta {
 				qualityRatio = 1.5
 			}
 		}
+	} else if strings.HasPrefix(i.Model, "imagen") {
+		// Imagen: quality maps to imageSize (1K default, 2K for hd/high)
+		// Based on Google's official pricing: 2K is ~1.5x the 1K price
+		switch i.Quality {
+		case "hd", "high", "2K":
+			qualityRatio = 1.5
+		}
 	}
 
 	// not support token count for dalle

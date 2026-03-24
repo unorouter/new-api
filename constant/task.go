@@ -16,6 +16,7 @@ const (
 	TaskActionFirstTailGenerate = "firstTailGenerate"
 	TaskActionReferenceGenerate = "referenceGenerate"
 	TaskActionRemix             = "remixGenerate"
+	TaskActionMotionControl     = "motionControl"
 )
 
 var SunoModel2Action = map[string]string{

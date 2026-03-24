@@ -128,6 +128,9 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if isNewAPIRelay(info.ApiKey) {
+		return fmt.Sprintf("%s/alibailian/api/v1/services/aigc/video-generation/video-synthesis", a.baseURL), nil
+	}
 	return fmt.Sprintf("%s/api/v1/services/aigc/video-generation/video-synthesis", a.baseURL), nil
 }
 
@@ -427,6 +430,9 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	}
 
 	uri := fmt.Sprintf("%s/api/v1/tasks/%s", baseUrl, taskID)
+	if isNewAPIRelay(key) {
+		uri = fmt.Sprintf("%s/alibailian/api/v1/tasks/%s", baseUrl, taskID)
+	}
 
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
@@ -518,6 +524,10 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	}
 
 	return common.Marshal(openAIResp)
+}
+
+func isNewAPIRelay(apiKey string) bool {
+	return strings.HasPrefix(apiKey, "sk-")
 }
 
 func convertAliStatus(aliStatus string) string {

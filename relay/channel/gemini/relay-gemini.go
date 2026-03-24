@@ -338,6 +338,9 @@ func CovertOpenAI2Gemini(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 				}
 				if imageSize, ok := imageConfig["image_size"]; ok {
 					geminiImageConfig["imageSize"] = imageSize
+					if sizeStr, ok := imageSize.(string); ok {
+						info.ImageResolution = sizeStr
+					}
 				}
 
 				if len(geminiImageConfig) > 0 {
@@ -1490,6 +1493,19 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	fullTextResponse := responseGeminiChat2OpenAI(c, &geminiResponse)
 	fullTextResponse.Model = info.UpstreamModelName
 	usage := buildUsageFromGeminiMetadata(geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
+
+	// Count generated images and apply size ratio to completion tokens
+	var imageCount int
+	for _, candidate := range geminiResponse.Candidates {
+		for _, part := range candidate.Content.Parts {
+			if part.InlineData != nil && part.InlineData.MimeType != "" {
+				imageCount++
+			}
+		}
+	}
+	if imageCount > 0 && usage.CompletionTokens == 0 {
+		usage.CompletionTokens = imageCount * 1400
+	}
 
 	fullTextResponse.Usage = usage
 

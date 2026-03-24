@@ -14,8 +14,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 
-	"github.com/samber/lo"
-
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pkg/errors"
@@ -57,21 +55,24 @@ type CameraControl struct {
 }
 
 type requestPayload struct {
-	Prompt         string         `json:"prompt,omitempty"`
-	Image          string         `json:"image,omitempty"`
-	ImageTail      string         `json:"image_tail,omitempty"`
-	NegativePrompt string         `json:"negative_prompt,omitempty"`
-	Mode           string         `json:"mode,omitempty"`
-	Duration       string         `json:"duration,omitempty"`
-	AspectRatio    string         `json:"aspect_ratio,omitempty"`
-	ModelName      string         `json:"model_name,omitempty"`
-	Model          string         `json:"model,omitempty"` // Compatible with upstreams that only recognize "model"
-	CfgScale       float64        `json:"cfg_scale,omitempty"`
-	StaticMask     string         `json:"static_mask,omitempty"`
-	DynamicMasks   []DynamicMask  `json:"dynamic_masks,omitempty"`
-	CameraControl  *CameraControl `json:"camera_control,omitempty"`
-	CallbackUrl    string         `json:"callback_url,omitempty"`
-	ExternalTaskId string         `json:"external_task_id,omitempty"`
+	Prompt               string         `json:"prompt,omitempty"`
+	Image                string         `json:"image,omitempty"`
+	ImageURL             string         `json:"image_url,omitempty"`  // motion-control: static character image
+	ImageTail            string         `json:"image_tail,omitempty"`
+	VideoURL             string         `json:"video_url,omitempty"`             // motion-control: reference video
+	CharacterOrientation string         `json:"character_orientation,omitempty"` // motion-control: "image" or "video"
+	NegativePrompt       string         `json:"negative_prompt,omitempty"`
+	Mode                 string         `json:"mode,omitempty"`
+	Duration             string         `json:"duration,omitempty"`
+	AspectRatio          string         `json:"aspect_ratio,omitempty"`
+	ModelName            string         `json:"model_name,omitempty"`
+	Model                string         `json:"model,omitempty"` // Compatible with upstreams that only recognize "model"
+	CfgScale             float64        `json:"cfg_scale,omitempty"`
+	StaticMask           string         `json:"static_mask,omitempty"`
+	DynamicMasks         []DynamicMask  `json:"dynamic_masks,omitempty"`
+	CameraControl        *CameraControl `json:"camera_control,omitempty"`
+	CallbackUrl          string         `json:"callback_url,omitempty"`
+	ExternalTaskId       string         `json:"external_task_id,omitempty"`
 }
 
 type responsePayload struct {
@@ -129,19 +130,33 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 
 // ValidateRequestAndSetAction parses body, validates fields and sets default action.
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
-	// Use the standard validation method for TaskSubmitReq
-	return relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate)
+	defaultAction := constant.TaskActionGenerate
+	if strings.Contains(info.OriginModelName, "motion-control") {
+		defaultAction = constant.TaskActionMotionControl
+	}
+	return relaycommon.ValidateBasicTaskRequest(c, info, defaultAction)
 }
 
 // BuildRequestURL constructs the upstream URL.
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	path := lo.Ternary(info.Action == constant.TaskActionGenerate, "/v1/videos/image2video", "/v1/videos/text2video")
+	path := klingActionPath(info.Action)
 
 	if isNewAPIRelay(info.ApiKey) {
 		return fmt.Sprintf("%s/kling%s", a.baseURL, path), nil
 	}
 
 	return fmt.Sprintf("%s%s", a.baseURL, path), nil
+}
+
+func klingActionPath(action string) string {
+	switch action {
+	case constant.TaskActionMotionControl:
+		return "/v1/videos/motion-control"
+	case constant.TaskActionGenerate:
+		return "/v1/videos/image2video"
+	default:
+		return "/v1/videos/text2video"
+	}
 }
 
 // BuildRequestHeader sets required headers.
@@ -225,7 +240,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	if !ok {
 		return nil, errors.New(i18n.Translate("relay.invalid_action"))
 	}
-	path := lo.Ternary(action == constant.TaskActionGenerate, "/v1/videos/image2video", "/v1/videos/text2video")
+	path := klingActionPath(action)
 	url := fmt.Sprintf("%s%s/%s", baseUrl, path, taskID)
 	if isNewAPIRelay(key) {
 		url = fmt.Sprintf("%s/kling%s/%s", baseUrl, path, taskID)
@@ -260,6 +275,45 @@ func (a *TaskAdaptor) GetChannelName() string {
 	return "kling"
 }
 
+// EstimateBilling returns OtherRatios based on duration, mode (std/pro) and version.
+func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
+	req, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return nil
+	}
+
+	duration := taskcommon.DefaultInt(req.Duration, 5)
+	if duration <= 0 {
+		duration = 5
+	}
+
+	mode := taskcommon.DefaultString(req.Mode, "std")
+	modeRatio := 1.0
+	if mode == "pro" {
+		modeRatio = 1.6 // pro (1080P) is ~1.6x the std (720P) price
+	}
+
+	// motion-control: version ratio from metadata model_name
+	versionRatio := 1.0
+	if strings.Contains(info.OriginModelName, "motion-control") {
+		modelName := "kling-v2-6"
+		if req.Metadata != nil {
+			if mn, ok := req.Metadata["model_name"].(string); ok && mn != "" {
+				modelName = mn
+			}
+		}
+		if strings.Contains(modelName, "v3") {
+			versionRatio = 1.8 // V3.0 std=1.530 vs V2.6 std=0.850 ≈ 1.8x
+		}
+	}
+
+	return map[string]float64{
+		"seconds": float64(duration),
+		"mode":    modeRatio,
+		"version": versionRatio,
+	}
+}
+
 // ============================
 // helpers
 // ============================
@@ -283,6 +337,16 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 	if r.ModelName == "" {
 		r.ModelName = "kling-v1"
 		r.Model = "kling-v1"
+	}
+	// motion-control is an action, not a model version; default to kling-v2-6
+	// motion-control uses image_url instead of image
+	if strings.Contains(r.ModelName, "motion-control") {
+		r.ModelName = "kling-v2-6"
+		r.Model = "kling-v2-6"
+		if r.Image != "" && r.ImageURL == "" {
+			r.ImageURL = r.Image
+			r.Image = ""
+		}
 	}
 	if err := taskcommon.UnmarshalMetadata(req.Metadata, &r); err != nil {
 		return nil, errors.Wrap(err, "unmarshal metadata failed")

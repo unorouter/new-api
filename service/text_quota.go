@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -255,7 +256,13 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		}
 		summary.Quota = int(quotaCalculateDecimal.Round(0).IntPart())
 	} else {
-		quotaCalculateDecimal := dModelPrice.Mul(dQuotaPerUnit).Mul(dGroupRatio)
+		effectivePrice := dModelPrice
+		if relayInfo.ImageResolution != "" {
+			if gridPrice, ok := ratio_setting.GetGridPrice(summary.ModelName, relayInfo.ImageResolution); ok {
+				effectivePrice = decimal.NewFromFloat(gridPrice)
+			}
+		}
+		quotaCalculateDecimal := effectivePrice.Mul(dQuotaPerUnit).Mul(dGroupRatio)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(dWebSearchQuota)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(dClaudeWebSearchQuota)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(dFileSearchQuota)
