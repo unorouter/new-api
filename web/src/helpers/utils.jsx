@@ -749,8 +749,42 @@ export const calculateModelPrice = ({
     return result;
   }
 
-  if (record.quota_type === 1) {
-    // 按次计费
+  if (record.quota_type === 1 || record.quota_type === 3) {
+    // 按次计费 / 按自定义计费
+    // Check for grid pricing data (e.g. resolution-based image pricing)
+    const gridPricing = record.grid_pricing;
+    if (Array.isArray(gridPricing) && gridPricing.length > 0) {
+      const columns = [];
+      const seenCols = new Set();
+      for (const row of gridPricing) {
+        for (const key of Object.keys(row)) {
+          if (key !== 'Pricing' && key !== 'PricingSuffix' && !seenCols.has(key)) {
+            seenCols.add(key);
+            columns.push(key);
+          }
+        }
+      }
+      const rows = gridPricing.map((row, idx) => {
+        const adjusted = { ...row };
+        const rawPrice = parseFloat(row.Pricing) * usedGroupRatio;
+        adjusted._rawPricing = rawPrice;
+        adjusted._formattedPricing = displayPrice(rawPrice);
+        adjusted._key = columns.map((c) => row[c] || '').join('-') + '-' + idx;
+        return adjusted;
+      });
+      return {
+        isPerToken: false,
+        isTokensDisplay: false,
+        isGridPricing: true,
+        quotaType: record.quota_type,
+        basePrice: displayPrice(parseFloat(record.model_price) * usedGroupRatio),
+        columns,
+        rows,
+        usedGroup,
+        usedGroupRatio,
+      };
+    }
+
     const priceUSD = parseFloat(record.model_price) * usedGroupRatio;
     const displayVal = displayPrice(priceUSD);
 
@@ -758,6 +792,7 @@ export const calculateModelPrice = ({
       price: displayVal,
       isPerToken: false,
       isTokensDisplay: false,
+      quotaType: record.quota_type,
       usedGroup,
       usedGroupRatio,
     };
@@ -771,7 +806,62 @@ export const calculateModelPrice = ({
     return result;
   }
 
-  // 未知计费类型，返回占位信息
+  if (record.quota_type === 4) {
+    // 按表格计费 — arbitrary row format from grid_pricing
+    const gridPricing = record.grid_pricing;
+
+    if (Array.isArray(gridPricing) && gridPricing.length > 0) {
+      // Discover columns: all keys except Pricing and PricingSuffix
+      const columns = [];
+      const seenCols = new Set();
+      for (const row of gridPricing) {
+        for (const key of Object.keys(row)) {
+          if (key !== 'Pricing' && key !== 'PricingSuffix' && !seenCols.has(key)) {
+            seenCols.add(key);
+            columns.push(key);
+          }
+        }
+      }
+
+      // Build rows with formatted pricing (displayPrice includes currency symbol)
+      const rows = gridPricing.map((row, idx) => {
+        const adjusted = { ...row };
+        const rawPrice = parseFloat(row.Pricing) * usedGroupRatio;
+        adjusted._rawPricing = rawPrice;
+        adjusted._formattedPricing = displayPrice(rawPrice);
+        adjusted._key = columns.map((c) => row[c] || '').join('-') + '-' + idx;
+        return adjusted;
+      });
+
+      // model_price is the per-second base price from upstream
+      const basePricePerSec = parseFloat(record.model_price) * usedGroupRatio;
+
+      return {
+        isPerToken: false,
+        isTokensDisplay: false,
+        isGridPricing: true,
+        quotaType: 4,
+        basePrice: displayPrice(basePricePerSec),
+        columns,
+        rows,
+        usedGroup,
+        usedGroupRatio,
+      };
+    }
+
+    // Fallback: no grid_pricing metadata, show flat price
+    const priceUSD = parseFloat(record.model_price) * usedGroupRatio;
+    return {
+      price: displayPrice(priceUSD),
+      isPerToken: false,
+      isTokensDisplay: false,
+      quotaType: 4,
+      usedGroup,
+      usedGroupRatio,
+    };
+  }
+
+  // 未知计费类型，按次计费显示
   return {
     price: '-',
     isPerToken: false,
@@ -884,12 +974,25 @@ export const getModelPriceItems = (
     ].filter((item) => item.value !== null && item.value !== undefined && item.value !== '');
   }
 
+  if (priceData.isGridPricing) {
+    // Type 4: show per-second base price on card/table views
+    return [
+      {
+        key: 'video-base',
+        label: t('模型价格'),
+        value: priceData.basePrice,
+        suffix: '/s',
+      },
+    ];
+  }
+
+  const unitLabel = priceData.quotaType === 3 ? t('视频') : t('次');
   return [
     {
       key: 'fixed',
       label: t('模型价格'),
       value: priceData.price,
-      suffix: ` / ${t('次')}`,
+      suffix: ` / ${unitLabel}`,
     },
   ].filter((item) => item.value !== null && item.value !== undefined && item.value !== '');
 };

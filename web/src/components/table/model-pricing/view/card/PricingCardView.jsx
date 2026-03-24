@@ -160,16 +160,28 @@ const PricingCardView = ({
         -
       </Tag>
     );
-    if (record.quota_type === 1) {
-      billingTag = (
-        <Tag key='billing' shape='circle' color='teal' size='small'>
-          {t('按次计费')}
-        </Tag>
-      );
-    } else if (record.quota_type === 0) {
+    if (record.quota_type === 0) {
       billingTag = (
         <Tag key='billing' shape='circle' color='violet' size='small'>
           {t('按量计费')}
+        </Tag>
+      );
+    } else if (record.quota_type === 3) {
+      billingTag = (
+        <Tag key='billing' shape='circle' color='orange' size='small'>
+          {t('按自定义计费')}
+        </Tag>
+      );
+    } else if (record.quota_type === 4) {
+      billingTag = (
+        <Tag key='billing' shape='circle' color='cyan' size='small'>
+          {t('按表格计费')}
+        </Tag>
+      );
+    } else {
+      billingTag = (
+        <Tag key='billing' shape='circle' color='teal' size='small'>
+          {t('按次计费')}
         </Tag>
       );
     }

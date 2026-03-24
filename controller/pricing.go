@@ -70,6 +70,7 @@ func toPricingModels(src []model.Pricing) []dto.PricingModel {
 			EnableGroup:            m.EnableGroup,
 			SupportedEndpointTypes: m.SupportedEndpointTypes,
 			PricingVersion:         m.PricingVersion,
+			GridPricing:            m.GridPricing,
 		}
 	}
 	return out

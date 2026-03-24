@@ -136,6 +136,8 @@ func InitOptionMap() {
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
+	common.OptionMap["ModelQuotaType"] = ratio_setting.ModelQuotaType2JSONString()
+	common.OptionMap["ModelGridPricing"] = ratio_setting.ModelGridPricing2JSONString()
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
 	common.OptionMap["CreateCacheRatio"] = ratio_setting.CreateCacheRatio2JSONString()
 	common.OptionMap["GroupRatio"] = ratio_setting.GroupRatio2JSONString()
@@ -498,6 +500,12 @@ func updateOptionMap(key string, value string) (err error) {
 		InvalidatePricingCache()
 	case "ModelPrice":
 		err = ratio_setting.UpdateModelPriceByJSONString(value)
+		InvalidatePricingCache()
+	case "ModelQuotaType":
+		err = ratio_setting.UpdateModelQuotaTypeByJSONString(value)
+		InvalidatePricingCache()
+	case "ModelGridPricing":
+		err = ratio_setting.UpdateModelGridPricingByJSONString(value)
 		InvalidatePricingCache()
 	case "CacheRatio":
 		err = ratio_setting.UpdateCacheRatioByJSONString(value)

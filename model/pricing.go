@@ -31,9 +31,10 @@ type Pricing struct {
 	ImageRatio             *float64                `json:"image_ratio,omitempty"`
 	AudioRatio             *float64                `json:"audio_ratio,omitempty"`
 	AudioCompletionRatio   *float64                `json:"audio_completion_ratio,omitempty"`
-	EnableGroup            []string                `json:"enable_groups"`
-	SupportedEndpointTypes []constant.EndpointType `json:"supported_endpoint_types"`
-	PricingVersion         string                  `json:"pricing_version,omitempty"`
+	EnableGroup            []string                        `json:"enable_groups"`
+	SupportedEndpointTypes []constant.EndpointType         `json:"supported_endpoint_types"`
+	GridPricing            ratio_setting.GridPricingInfo `json:"grid_pricing,omitempty"`
+	PricingVersion         string                          `json:"pricing_version,omitempty"`
 }
 
 type PricingVendor struct {
@@ -104,7 +105,6 @@ func GetModelSupportEndpointTypes(model string) []constant.EndpointType {
 }
 
 func updatePricing() {
-	//modelRatios := common.GetModelRatios()
 	enableAbilities, err := GetAllEnableAbilityWithChannels()
 	if err != nil {
 		common.SysLog(fmt.Sprintf(i18n.Translate("model.getallenableabilitywithchannels_error"), err))
@@ -309,6 +309,14 @@ func updatePricing() {
 			pricing.ModelRatio = modelRatio
 			pricing.CompletionRatio = ratio_setting.GetCompletionRatio(model)
 			pricing.QuotaType = 0
+		}
+		// Override with custom quota type if set (e.g. 3=flat custom, 4=grid pricing)
+		if override, ok := ratio_setting.GetModelQuotaTypeOverride(model); ok {
+			pricing.QuotaType = override
+		}
+		// Attach grid pricing if available (works with any quota type)
+		if gridInfo := ratio_setting.GetGridPricingInfo(model); gridInfo != nil {
+			pricing.GridPricing = gridInfo
 		}
 		if cacheRatio, ok := ratio_setting.GetCacheRatio(model); ok {
 			pricing.CacheRatio = &cacheRatio

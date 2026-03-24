@@ -325,6 +325,7 @@ var defaultAudioCompletionRatio = map[string]float64{
 var modelPriceMap = types.NewRWMap[string, float64]()
 var modelRatioMap = types.NewRWMap[string, float64]()
 var completionRatioMap = types.NewRWMap[string, float64]()
+var modelQuotaTypeMap = types.NewRWMap[string, int]()
 
 var defaultCompletionRatio = map[string]float64{
 	"gpt-4-gizmo-*":  2,
@@ -384,6 +385,19 @@ func GetModelPrice(name string, printErr bool) (float64, bool) {
 
 func UpdateModelRatioByJSONString(jsonStr string) error {
 	return types.LoadFromJsonStringWithCallback(modelRatioMap, jsonStr, InvalidateExposedDataCache)
+}
+
+// ModelQuotaType: per-model billing type override (only for types >= 2, e.g. 3=flat video, 4=duration video)
+func GetModelQuotaTypeOverride(name string) (int, bool) {
+	return modelQuotaTypeMap.Get(name)
+}
+
+func ModelQuotaType2JSONString() string {
+	return modelQuotaTypeMap.MarshalJSONString()
+}
+
+func UpdateModelQuotaTypeByJSONString(jsonStr string) error {
+	return types.LoadFromJsonStringWithCallback(modelQuotaTypeMap, jsonStr, InvalidateExposedDataCache)
 }
 
 // 处理带有思考预算的模型名称，方便统一定价

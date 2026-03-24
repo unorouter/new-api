@@ -19,6 +19,7 @@ type PricingModel struct {
 	CompletionRatio        float64                 `json:"completion_ratio"`
 	EnableGroup            []string                `json:"enable_groups"`
 	SupportedEndpointTypes []constant.EndpointType `json:"supported_endpoint_types"`
+	GridPricing            interface{}             `json:"grid_pricing,omitempty"`
 	PricingVersion         string                  `json:"pricing_version,omitempty"`
 }
 

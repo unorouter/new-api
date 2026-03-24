@@ -44,7 +44,9 @@ const PricingQuotaTypes = ({
     { value: 'all', label: t('全部类型'), tagCount: qtyCount('all') },
     { value: 0, label: t('按量计费'), tagCount: qtyCount(0) },
     { value: 1, label: t('按次计费'), tagCount: qtyCount(1) },
-  ];
+    { value: 3, label: t('按自定义计费'), tagCount: qtyCount(3) },
+    { value: 4, label: t('按表格计费'), tagCount: qtyCount(4) },
+  ].filter((item) => item.value === 'all' || item.tagCount > 0);
 
   return (
     <SelectableButtonGroup

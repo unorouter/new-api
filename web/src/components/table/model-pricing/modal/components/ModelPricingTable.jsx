@@ -75,12 +75,66 @@ const ModelPricingTable = ({
         billingType:
           modelData?.quota_type === 0
             ? t('按量计费')
-            : modelData?.quota_type === 1
-              ? t('按次计费')
-              : '-',
+            : modelData?.quota_type === 3
+              ? t('按自定义计费')
+              : modelData?.quota_type === 4
+                ? t('按表格计费')
+                : t('按次计费'),
+        priceData,
         priceItems: getModelPriceItems(priceData, t, siteDisplayType),
       };
     });
+
+    // For models with grid pricing, render per-group sub-tables with dynamic columns
+    if (tableData.some((d) => d.priceData?.isGridPricing)) {
+      return (
+        <div className='space-y-4'>
+          {tableData.map((row) => (
+            <div key={row.key}>
+              <div className='flex items-center gap-2 mb-2'>
+                <Tag color='white' size='small' shape='circle'>
+                  {row.group}{t('分组')}
+                </Tag>
+                <Tag color='cyan' size='small' shape='circle'>
+                  {row.billingType}
+                </Tag>
+              </div>
+              {row.priceData?.isGridPricing && row.priceData.rows?.length > 0 ? (
+                <Table
+                  dataSource={row.priceData.rows.map((r) => ({ ...r, key: r._key }))}
+                  columns={[
+                    ...row.priceData.columns.map((col) => ({
+                      title: t(col),
+                      dataIndex: col,
+                    })),
+                    {
+                      title: t('价格'),
+                      dataIndex: '_formattedPricing',
+                      render: (val, record) => {
+                        const suffix = record.PricingSuffix || '';
+                        return (
+                          <span className='font-semibold text-orange-600'>
+                            {val}{suffix}
+                          </span>
+                        );
+                      },
+                    },
+                  ]}
+                  pagination={false}
+                  size='small'
+                  bordered={false}
+                  className='!rounded-lg'
+                />
+              ) : (
+                <div className='text-sm text-gray-500'>
+                  {row.priceData?.price || '-'}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
 
     // 定义表格列
     const columns = [
@@ -117,6 +171,8 @@ const ModelPricingTable = ({
         let color = 'white';
         if (text === t('按量计费')) color = 'violet';
         else if (text === t('按次计费')) color = 'teal';
+        else if (text === t('按自定义计费')) color = 'orange';
+        else if (text === t('按表格计费')) color = 'cyan';
         return (
           <Tag color={color} size='small' shape='circle'>
             {text || '-'}

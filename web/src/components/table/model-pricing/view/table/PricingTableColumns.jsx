@@ -35,20 +35,30 @@ import { useIsMobile } from '../../../../../hooks/common/useIsMobile';
 
 function renderQuotaType(type, t) {
   switch (type) {
-    case 1:
-      return (
-        <Tag color='teal' shape='circle'>
-          {t('按次计费')}
-        </Tag>
-      );
     case 0:
       return (
         <Tag color='violet' shape='circle'>
           {t('按量计费')}
         </Tag>
       );
+    case 3:
+      return (
+        <Tag color='orange' shape='circle'>
+          {t('按自定义计费')}
+        </Tag>
+      );
+    case 4:
+      return (
+        <Tag color='cyan' shape='circle'>
+          {t('按表格计费')}
+        </Tag>
+      );
     default:
-      return t('未知');
+      return (
+        <Tag color='teal' shape='circle'>
+          {t('按次计费')}
+        </Tag>
+      );
   }
 }
 
