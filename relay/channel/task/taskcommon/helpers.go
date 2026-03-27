@@ -18,6 +18,8 @@ func UnmarshalMetadata(metadata map[string]any, target any) error {
 	if metadata == nil {
 		return nil
 	}
+	// Prevent metadata from overriding model fields to avoid billing bypass.
+	delete(metadata, "model")
 	metaBytes, err := common.Marshal(metadata)
 	if err != nil {
 		return fmt.Errorf(i18n.Translate("relay.marshal_metadata_failed"), err)
