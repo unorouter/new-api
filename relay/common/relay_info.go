@@ -1,9 +1,9 @@
 package common
 
 import (
-	"github.com/QuantumNous/new-api/i18n"
 	"encoding/json"
 	"errors"
+	"github.com/QuantumNous/new-api/i18n"
 	"fmt"
 	"strings"
 	"time"
@@ -150,6 +150,7 @@ type RelayInfo struct {
 	LastError                             *types.NewAPIError
 	RuntimeHeadersOverride                map[string]interface{}
 	UseRuntimeHeadersOverride             bool
+	ParamOverrideAudit                    []string
 
 	PriceData types.PriceData
 
@@ -162,6 +163,7 @@ type RelayInfo struct {
 	// 若为空，调用 GetFinalRequestRelayFormat 会回退到 RequestConversionChain 的最后一项或 RelayFormat。
 	FinalRequestRelayFormat types.RelayFormat
 
+	StreamStatus *StreamStatus
 	// ImageResolution is the requested image output resolution (e.g. "512", "1K", "2K", "4K").
 	// Set by adapters to enable grid-pricing-based billing lookup.
 	ImageResolution string

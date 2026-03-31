@@ -1,7 +1,6 @@
 package baidu
 
 import (
-	"github.com/QuantumNous/new-api/i18n"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -117,12 +117,12 @@ func embeddingResponseBaidu2OpenAI(response *BaiduEmbeddingResponse) *dto.OpenAI
 
 func baiduStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*types.NewAPIError, *dto.Usage) {
 	usage := &dto.Usage{}
-	helper.StreamScannerHandler(c, resp, info, func(data string) bool {
+	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		var baiduResponse BaiduChatStreamResponse
-		err := common.Unmarshal([]byte(data), &baiduResponse)
-		if err != nil {
+		if err := common.Unmarshal([]byte(data), &baiduResponse); err != nil {
 			common.SysLog(i18n.Translate("relay.error_unmarshalling_stream_response") + err.Error())
-			return true
+			sr.Error(err)
+			return
 		}
 		if baiduResponse.Usage.TotalTokens != 0 {
 			usage.TotalTokens = baiduResponse.Usage.TotalTokens
@@ -130,11 +130,10 @@ func baiduStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 			usage.CompletionTokens = baiduResponse.Usage.TotalTokens - baiduResponse.Usage.PromptTokens
 		}
 		response := streamResponseBaidu2OpenAI(&baiduResponse)
-		err = helper.ObjectData(c, response)
-		if err != nil {
+		if err := helper.ObjectData(c, response); err != nil {
 			common.SysLog(i18n.Translate("relay.error_sending_stream_response") + err.Error())
+			sr.Error(err)
 		}
-		return true
 	})
 	service.CloseResponseBodyGracefully(resp)
 	return nil, usage
@@ -240,7 +239,7 @@ func getBaiduAccessTokenHelper(apiKey string) (*BaiduAccessToken, error) {
 		return nil, errors.New(accessToken.Error + ": " + accessToken.ErrorDescription)
 	}
 	if accessToken.AccessToken == "" {
-		return nil, errors.New(i18n.Translate("relay.getbaiduaccesstokenhelper_get_empty_access_token"))
+		return nil, errors.New("getBaiduAccessTokenHelper get empty access token")
 	}
 	accessToken.ExpiresAt = time.Now().Add(time.Duration(accessToken.ExpiresIn) * time.Second)
 	baiduTokenStore.Store(apiKey, accessToken)
