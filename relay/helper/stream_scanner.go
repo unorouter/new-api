@@ -305,7 +305,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		return types.NewErrorWithStatusCode(
 			fmt.Errorf("stream failed without response: %s", info.StreamStatus.Summary()),
 			"channel:stream_timeout_no_response",
-			http.StatusGatewayTimeout,
+			http.StatusBadGateway,
 		)
 	}
 
