@@ -38,14 +38,30 @@ func GenerateOAuthCode(c fuego.ContextWithParams[dto.GenerateOAuthCodeParams]) (
 			RedirectURI: p.RedirectURI,
 			Aff:         p.Aff,
 		}
-		// Bind flow: authenticate the user and store their ID in the state
+		// Bind flow: identify the logged-in user to bind to
 		if p.Action == "bind" {
-			authHeader := ginCtx.GetHeader("Authorization")
-			user := model.ValidateAccessToken(authHeader)
-			if user == nil {
+			var userID int
+			// Try Authorization header (access token)
+			if authHeader := ginCtx.GetHeader("Authorization"); authHeader != "" {
+				if user := model.ValidateAccessToken(authHeader); user != nil {
+					userID = user.Id
+				}
+			}
+			// Fall back to New-Api-User header (set by frontend proxy from session cookie)
+			if userID == 0 {
+				if idStr := ginCtx.GetHeader("New-Api-User"); idStr != "" {
+					if id, err := strconv.Atoi(idStr); err == nil && id > 0 {
+						user := &model.User{Id: id}
+						if user.FillUserById() == nil && user.Status == common.UserStatusEnabled {
+							userID = id
+						}
+					}
+				}
+			}
+			if userID == 0 {
 				return dto.Fail[string]("authentication required for bind")
 			}
-			stateData.UserID = user.Id
+			stateData.UserID = userID
 			stateData.Action = "bind"
 		}
 		state, err := common.CreateOAuthState(stateData)
