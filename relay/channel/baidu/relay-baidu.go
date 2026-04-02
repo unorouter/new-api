@@ -117,7 +117,7 @@ func embeddingResponseBaidu2OpenAI(response *BaiduEmbeddingResponse) *dto.OpenAI
 
 func baiduStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*types.NewAPIError, *dto.Usage) {
 	usage := &dto.Usage{}
-	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+	if streamErr := helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		var baiduResponse BaiduChatStreamResponse
 		if err := common.Unmarshal([]byte(data), &baiduResponse); err != nil {
 			common.SysLog(i18n.Translate("relay.error_unmarshalling_stream_response") + err.Error())
@@ -134,7 +134,10 @@ func baiduStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 			common.SysLog(i18n.Translate("relay.error_sending_stream_response") + err.Error())
 			sr.Error(err)
 		}
-	})
+	}); streamErr != nil {
+		service.CloseResponseBodyGracefully(resp)
+		return streamErr, nil
+	}
 	service.CloseResponseBodyGracefully(resp)
 	return nil, usage
 }
