@@ -144,6 +144,34 @@ func setupLoginAndRedirect(user *model.User, c *gin.Context, redirectURI string)
 	})
 }
 
+// setupBindAndRedirect generates a one-time exchange code with action=bind and returns a redirect URL.
+func setupBindAndRedirect(user *model.User, c *gin.Context, redirectURI string) {
+	code, err := common.StoreOAuthExchangeCode(&common.OAuthExchangeData{
+		UserID:      user.Id,
+		Username:    user.Username,
+		DisplayName: user.DisplayName,
+		Role:        user.Role,
+		Action:      "bind",
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	parsed, _ := url.Parse(redirectURI)
+	q := parsed.Query()
+	q.Set("code", code)
+	parsed.RawQuery = q.Encode()
+
+	c.JSON(http.StatusOK, dto.ApiResponse{
+		Success: true,
+		Message: "redirect",
+		Data: dto.LoginData{
+			RedirectURL: parsed.String(),
+		},
+	})
+}
+
 // ExchangeOAuthCode exchanges a one-time OAuth code for user data and access token.
 func ExchangeOAuthCode(c fuego.ContextWithBody[dto.OAuthExchangeRequest]) (*dto.Response[dto.OAuthExchangeData], error) {
 	body, err := c.Body()
@@ -162,6 +190,7 @@ func ExchangeOAuthCode(c fuego.ContextWithBody[dto.OAuthExchangeRequest]) (*dto.
 		Username:    data.Username,
 		DisplayName: data.DisplayName,
 		Role:        data.Role,
+		Action:      data.Action,
 	})
 }
 

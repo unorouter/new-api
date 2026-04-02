@@ -44,6 +44,7 @@ type OAuthExchangeData struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
 	Role        int    `json:"role"`
+	Action      string `json:"action,omitempty"`
 }
 
 // Login2FAData is the data field for POST /api/user/login when 2FA is required.

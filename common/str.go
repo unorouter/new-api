@@ -142,10 +142,12 @@ func redisRedeemOnce[T any](prefix, key string) *T {
 type OAuthStateData struct {
 	RedirectURI string `json:"r"`
 	Aff         string `json:"a,omitempty"`
+	UserID      int    `json:"u,omitempty"`
+	Action      string `json:"act,omitempty"`
 }
 
-func CreateOAuthState(redirectURI, aff string) (string, error) {
-	return redisStoreOnce("oauth_state:", OAuthStateData{RedirectURI: redirectURI, Aff: aff}, 10*time.Minute)
+func CreateOAuthState(data *OAuthStateData) (string, error) {
+	return redisStoreOnce("oauth_state:", data, 10*time.Minute)
 }
 
 func RedeemOAuthState(state string) *OAuthStateData {
@@ -164,6 +166,7 @@ type OAuthExchangeData struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
 	Role        int    `json:"role"`
+	Action      string `json:"action,omitempty"`
 }
 
 func StoreOAuthExchangeCode(data *OAuthExchangeData) (string, error) {
