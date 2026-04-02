@@ -1,10 +1,9 @@
 package service
 
 import (
-	"errors"
-	"github.com/QuantumNous/new-api/i18n"
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -28,18 +27,18 @@ import (
 
 // getContextCacheKey 生成 context 缓存的 key
 func getContextCacheKey(url string) string {
-	return fmt.Sprintf(i18n.Translate("svc.file_cache"), common.GenerateHMAC(url))
+	return fmt.Sprintf("file_cache_%s", common.GenerateHMAC(url))
 }
 
 // LoadFileSource 加载文件源数据
 // 这是统一的入口，会自动处理缓存和不同的来源类型
 func LoadFileSource(c *gin.Context, source *types.FileSource, reason ...string) (*types.CachedFileData, error) {
 	if source == nil {
-		return nil, errors.New(i18n.Translate("svc.file_source_is_nil"))
+		return nil, fmt.Errorf("file source is nil")
 	}
 
 	if common.DebugEnabled {
-		logger.LogDebug(c, fmt.Sprintf(i18n.Translate("svc.loadfilesource_starting_for"), source.GetIdentifier()))
+		logger.LogDebug(c, fmt.Sprintf("LoadFileSource starting for: %s", source.GetIdentifier()))
 	}
 
 	// 1. 快速检查内部缓存
@@ -139,28 +138,28 @@ func loadFromURL(c *gin.Context, url string, reason ...string) (*types.CachedFil
 	var maxFileSize = constant.MaxFileDownloadMB * 1024 * 1024
 
 	if common.DebugEnabled {
-		logger.LogDebug(c, i18n.Translate("svc.loadfromurl_initiating_download"))
+		logger.LogDebug(c, "loadFromURL: initiating download")
 	}
 	resp, err := DoDownloadRequest(url, reason...)
 	if err != nil {
-		return nil, fmt.Errorf(i18n.Translate("svc.failed_to_download_file_from"), url, err)
+		return nil, fmt.Errorf("failed to download file from %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf(i18n.Translate("svc.failed_to_download_file_status_code"), resp.StatusCode)
+		return nil, fmt.Errorf("failed to download file, status code: %d", resp.StatusCode)
 	}
 
 	// 读取文件内容（限制大小）
 	if common.DebugEnabled {
-		logger.LogDebug(c, i18n.Translate("svc.loadfromurl_reading_response_body"))
+		logger.LogDebug(c, "loadFromURL: reading response body")
 	}
 	fileBytes, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxFileSize+1)))
 	if err != nil {
-		return nil, fmt.Errorf(i18n.Translate("svc.failed_to_read_file_content"), err)
+		return nil, fmt.Errorf("failed to read file content: %w", err)
 	}
 	if len(fileBytes) > maxFileSize {
-		return nil, fmt.Errorf(i18n.Translate("svc.file_size_exceeds_maximum_allowed_size_mb"), constant.MaxFileDownloadMB)
+		return nil, fmt.Errorf("file size exceeds maximum allowed size: %dMB", constant.MaxFileDownloadMB)
 	}
 
 	// 转换为 base64
@@ -178,7 +177,7 @@ func loadFromURL(c *gin.Context, url string, reason ...string) (*types.CachedFil
 		diskPath, err := writeToDiskCache(base64Data)
 		if err != nil {
 			// 磁盘缓存失败，回退到内存
-			logger.LogWarn(c, fmt.Sprintf(i18n.Translate("svc.failed_to_write_to_disk_cache_falling"), err))
+			logger.LogWarn(c, fmt.Sprintf("Failed to write to disk cache, falling back to memory: %v", err))
 			cachedData = types.NewMemoryCachedData(base64Data, mimeType, int64(len(fileBytes)))
 		} else {
 			cachedData = types.NewDiskCachedData(diskPath, mimeType, int64(len(fileBytes)))
@@ -188,7 +187,7 @@ func loadFromURL(c *gin.Context, url string, reason ...string) (*types.CachedFil
 			}
 			common.IncrementDiskFiles(base64Size)
 			if common.DebugEnabled {
-				logger.LogDebug(c, fmt.Sprintf(i18n.Translate("svc.file_cached_to_disk_size_bytes"), diskPath, base64Size))
+				logger.LogDebug(c, fmt.Sprintf("File cached to disk: %s, size: %d bytes", diskPath, base64Size))
 			}
 		}
 	} else {
@@ -199,7 +198,7 @@ func loadFromURL(c *gin.Context, url string, reason ...string) (*types.CachedFil
 	// 如果是图片，尝试获取图片配置
 	if strings.HasPrefix(mimeType, "image/") {
 		if common.DebugEnabled {
-			logger.LogDebug(c, i18n.Translate("svc.loadfromurl_decoding_image_config"))
+			logger.LogDebug(c, "loadFromURL: decoding image config")
 		}
 		config, format, err := decodeImageConfig(fileBytes)
 		if err == nil {
@@ -277,6 +276,11 @@ func smartDetectMimeType(resp *http.Response, url string, fileBytes []byte) stri
 			}
 			return sniffed
 		}
+
+		// 4.5 尝试 HEIF/HEIC 检测（Go 标准库不识别）
+		if heifMime := detectHEIF(fileBytes); heifMime != "" {
+			return heifMime
+		}
 	}
 
 	// 5. 尝试作为图片解码获取格式
@@ -322,7 +326,7 @@ func loadFromBase64(base64String string, providedMimeType string) (*types.Cached
 
 	decodedData, err := base64.StdEncoding.DecodeString(cleanBase64)
 	if err != nil {
-		return nil, fmt.Errorf(i18n.Translate("svc.failed_to_decode_base64_data"), err)
+		return nil, fmt.Errorf("failed to decode base64 data: %w", err)
 	}
 
 	base64Size := int64(len(cleanBase64))
@@ -371,11 +375,11 @@ func GetImageConfig(c *gin.Context, source *types.FileSource) (image.Config, str
 
 	base64Str, err := cachedData.GetBase64Data()
 	if err != nil {
-		return image.Config{}, "", fmt.Errorf(i18n.Translate("svc.failed_to_get_base64_data"), err)
+		return image.Config{}, "", fmt.Errorf("failed to get base64 data: %w", err)
 	}
 	decodedData, err := base64.StdEncoding.DecodeString(base64Str)
 	if err != nil {
-		return image.Config{}, "", fmt.Errorf(i18n.Translate("svc.failed_to_decode_base64_for_image_config"), err)
+		return image.Config{}, "", fmt.Errorf("failed to decode base64 for image config: %w", err)
 	}
 
 	config, format, err := decodeImageConfig(decodedData)
@@ -397,7 +401,7 @@ func GetBase64Data(c *gin.Context, source *types.FileSource, reason ...string) (
 	}
 	base64Str, err := cachedData.GetBase64Data()
 	if err != nil {
-		return "", "", fmt.Errorf(i18n.Translate("svc.failed_to_get_base64_data_b3ad"), err)
+		return "", "", fmt.Errorf("failed to get base64 data: %w", err)
 	}
 	return base64Str, cachedData.MimeType, nil
 }
@@ -451,7 +455,116 @@ func decodeImageConfig(data []byte) (image.Config, string, error) {
 		return config, "webp", nil
 	}
 
-	return image.Config{}, "", errors.New(i18n.Translate("svc.failed_to_decode_image_config_unsupported_format"))
+	// Try HEIF/HEIC: parse ISOBMFF ispe box for dimensions
+	if heifMime := detectHEIF(data); heifMime != "" {
+		formatName := "heif"
+		if heifMime == "image/heic" {
+			formatName = "heic"
+		}
+		if w, h, ok := parseHEIFDimensions(data); ok {
+			return image.Config{Width: w, Height: h}, formatName, nil
+		}
+		return image.Config{}, "", fmt.Errorf("failed to decode HEIF/HEIC image dimensions")
+	}
+
+	return image.Config{}, "", fmt.Errorf("failed to decode image config: unsupported format")
+}
+
+// detectHEIF checks ISOBMFF magic bytes to detect HEIC/HEIF files.
+// Returns "image/heic", "image/heif", or "" if not recognized.
+func detectHEIF(data []byte) string {
+	if len(data) < 12 {
+		return ""
+	}
+	// ISOBMFF: bytes[4:8] must be "ftyp"
+	if string(data[4:8]) != "ftyp" {
+		return ""
+	}
+	brand := string(data[8:12])
+	switch brand {
+	case "heic", "heix", "hevc", "hevx", "heim", "heis":
+		return "image/heic"
+	case "mif1", "msf1":
+		return "image/heif"
+	default:
+		return ""
+	}
+}
+
+// parseHEIFDimensions parses ISOBMFF box tree to find the ispe box
+// and extract image width/height. Returns (width, height, ok).
+func parseHEIFDimensions(data []byte) (int, int, bool) {
+	size := len(data)
+	if size < 12 {
+		return 0, 0, false
+	}
+
+	// Walk top-level boxes to find "meta"
+	offset := 0
+	for offset+8 <= size {
+		boxSize := int(binary.BigEndian.Uint32(data[offset : offset+4]))
+		boxType := string(data[offset+4 : offset+8])
+		headerLen := 8
+
+		if boxSize == 1 {
+			// 64-bit extended size
+			if offset+16 > size {
+				break
+			}
+			boxSize = int(binary.BigEndian.Uint64(data[offset+8 : offset+16]))
+			headerLen = 16
+		} else if boxSize == 0 {
+			// box extends to end of data
+			boxSize = size - offset
+		}
+
+		if boxSize < headerLen || offset+boxSize > size {
+			break
+		}
+
+		if boxType == "meta" {
+			// meta is a full box: 4 bytes version/flags after header
+			metaData := data[offset+headerLen : offset+boxSize]
+			if len(metaData) < 4 {
+				return 0, 0, false
+			}
+			return findISPE(metaData[4:])
+		}
+		offset += boxSize
+	}
+	return 0, 0, false
+}
+
+// findISPE recursively searches for the ispe box within container boxes.
+// Path: meta -> iprp -> ipco -> ispe
+func findISPE(data []byte) (int, int, bool) {
+	offset := 0
+	size := len(data)
+	for offset+8 <= size {
+		boxSize := int(binary.BigEndian.Uint32(data[offset : offset+4]))
+		boxType := string(data[offset+4 : offset+8])
+		if boxSize < 8 || offset+boxSize > size {
+			break
+		}
+		content := data[offset+8 : offset+boxSize]
+		switch boxType {
+		case "iprp", "ipco":
+			if w, h, ok := findISPE(content); ok {
+				return w, h, true
+			}
+		case "ispe":
+			// ispe is a full box: 4 bytes version/flags, then 4 bytes width, 4 bytes height
+			if len(content) >= 12 {
+				w := int(binary.BigEndian.Uint32(content[4:8]))
+				h := int(binary.BigEndian.Uint32(content[8:12]))
+				if w > 0 && h > 0 {
+					return w, h, true
+				}
+			}
+		}
+		offset += boxSize
+	}
+	return 0, 0, false
 }
 
 // guessMimeTypeFromURL 从 URL 猜测 MIME 类型

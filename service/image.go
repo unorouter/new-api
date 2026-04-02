@@ -1,7 +1,6 @@
 package service
 
 import (
-	"github.com/QuantumNous/new-api/i18n"
 	"bytes"
 	"encoding/base64"
 	"errors"
@@ -25,14 +24,14 @@ func DecodeBase64ImageData(base64String string) (image.Config, string, string, e
 	}
 
 	if len(base64String) == 0 {
-		return image.Config{}, "", "", errors.New(i18n.Translate("svc.base64_string_is_empty"))
+		return image.Config{}, "", "", errors.New("base64 string is empty")
 	}
 
 	// 将base64字符串解码为字节切片
 	decodedData, err := base64.StdEncoding.DecodeString(base64String)
 	if err != nil {
-		fmt.Println(i18n.Translate("svc.error_failed_to_decode_base64_string"))
-		return image.Config{}, "", "", fmt.Errorf(i18n.Translate("svc.failed_to_decode_base64_string"), err.Error())
+		fmt.Println("Error: Failed to decode base64 string")
+		return image.Config{}, "", "", fmt.Errorf("failed to decode base64 string: %s", err.Error())
 	}
 
 	// 创建一个bytes.Buffer用于存储解码后的数据
@@ -70,24 +69,24 @@ func DecodeBase64FileData(base64String string) (string, string, error) {
 func GetImageFromUrl(url string) (mimeType string, data string, err error) {
 	resp, err := DoDownloadRequest(url)
 	if err != nil {
-		return "", "", fmt.Errorf(i18n.Translate("svc.failed_to_download_image"), err)
+		return "", "", fmt.Errorf("failed to download image: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check HTTP status code
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf(i18n.Translate("svc.failed_to_download_image_http"), resp.StatusCode)
+		return "", "", fmt.Errorf("failed to download image: HTTP %d", resp.StatusCode)
 	}
 
 	contentType := resp.Header.Get("Content-Type")
 	if contentType != "application/octet-stream" && !strings.HasPrefix(contentType, "image/") {
-		return "", "", fmt.Errorf(i18n.Translate("svc.invalid_content_type_required_image"), contentType)
+		return "", "", fmt.Errorf("invalid content type: %s, required image/*", contentType)
 	}
 	maxImageSize := int64(constant.MaxFileDownloadMB * 1024 * 1024)
 
 	// Check Content-Length if available
 	if resp.ContentLength > maxImageSize {
-		return "", "", fmt.Errorf(i18n.Translate("svc.image_size_exceeds_maximum_allowed_size_of_bytes"), resp.ContentLength, maxImageSize)
+		return "", "", fmt.Errorf("image size %d exceeds maximum allowed size of %d bytes", resp.ContentLength, maxImageSize)
 	}
 
 	// Use LimitReader to prevent reading oversized images
@@ -96,10 +95,10 @@ func GetImageFromUrl(url string) (mimeType string, data string, err error) {
 
 	written, err := io.Copy(buffer, limitReader)
 	if err != nil {
-		return "", "", fmt.Errorf(i18n.Translate("svc.failed_to_read_image_data"), err)
+		return "", "", fmt.Errorf("failed to read image data: %w", err)
 	}
 	if written >= maxImageSize {
-		return "", "", fmt.Errorf(i18n.Translate("svc.image_size_exceeds_maximum_allowed_size_of_bytes_a215"), maxImageSize)
+		return "", "", fmt.Errorf("image size exceeds maximum allowed size of %d bytes", maxImageSize)
 	}
 
 	data = base64.StdEncoding.EncodeToString(buffer.Bytes())
@@ -120,25 +119,25 @@ func GetImageFromUrl(url string) (mimeType string, data string, err error) {
 func DecodeUrlImageData(imageUrl string) (image.Config, string, error) {
 	response, err := DoDownloadRequest(imageUrl)
 	if err != nil {
-		common.SysLog(fmt.Sprintf(i18n.Translate("svc.fail_to_get_image_from_url"), err.Error()))
+		common.SysLog(fmt.Sprintf("fail to get image from url: %s", err.Error()))
 		return image.Config{}, "", err
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != 200 {
-		err = errors.New(fmt.Sprintf(i18n.Translate("svc.fail_to_get_image_from_url_20cb"), response.Status))
+		err = errors.New(fmt.Sprintf("fail to get image from url: %s", response.Status))
 		return image.Config{}, "", err
 	}
 
 	mimeType := response.Header.Get("Content-Type")
 
 	if mimeType != "application/octet-stream" && !strings.HasPrefix(mimeType, "image/") {
-		return image.Config{}, "", fmt.Errorf(i18n.Translate("svc.invalid_content_type_required_image_0cc6"), mimeType)
+		return image.Config{}, "", fmt.Errorf("invalid content type: %s, required image/*", mimeType)
 	}
 
 	var readData []byte
 	for _, limit := range []int64{1024 * 8, 1024 * 24, 1024 * 64} {
-		common.SysLog(fmt.Sprintf(i18n.Translate("svc.try_to_decode_image_config_with_limit"), limit))
+		common.SysLog(fmt.Sprintf("try to decode image config with limit: %d", limit))
 
 		// 从response.Body读取更多的数据直到达到当前的限制
 		additionalData := make([]byte, limit-int64(len(readData)))
@@ -160,20 +159,36 @@ func DecodeUrlImageData(imageUrl string) (image.Config, string, error) {
 }
 
 func getImageConfig(reader io.Reader) (image.Config, string, error) {
+	// Read all data so we can retry with different decoders
+	data, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		return image.Config{}, "", fmt.Errorf("failed to read image data: %w", readErr)
+	}
+
 	// 读取图片的头部信息来获取图片尺寸
-	config, format, err := image.DecodeConfig(reader)
-	if err != nil {
-		err = errors.New(fmt.Sprintf(i18n.Translate("svc.fail_to_decode_image_config_gif_jpg_png"), err.Error()))
-		common.SysLog(err.Error())
-		config, err = webp.DecodeConfig(reader)
-		if err != nil {
-			err = errors.New(fmt.Sprintf(i18n.Translate("svc.fail_to_decode_image_config_webp"), err.Error()))
-			common.SysLog(err.Error())
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err == nil {
+		return config, format, nil
+	}
+	common.SysLog(fmt.Sprintf("fail to decode image config(gif, jpg, png): %s", err.Error()))
+
+	config, err = webp.DecodeConfig(bytes.NewReader(data))
+	if err == nil {
+		return config, "webp", nil
+	}
+	common.SysLog(fmt.Sprintf("fail to decode image config(webp): %s", err.Error()))
+
+	// Try HEIF/HEIC: parse ISOBMFF ispe box for dimensions
+	if heifMime := detectHEIF(data); heifMime != "" {
+		formatName := "heif"
+		if heifMime == "image/heic" {
+			formatName = "heic"
 		}
-		format = "webp"
+		if w, h, ok := parseHEIFDimensions(data); ok {
+			return image.Config{Width: w, Height: h}, formatName, nil
+		}
+		return image.Config{}, "", fmt.Errorf("failed to decode HEIF/HEIC image dimensions")
 	}
-	if err != nil {
-		return image.Config{}, "", err
-	}
-	return config, format, nil
+
+	return image.Config{}, "", err
 }
