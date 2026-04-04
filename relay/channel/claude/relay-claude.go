@@ -505,7 +505,7 @@ func StreamResponseClaude2OpenAI(claudeResponse *dto.ClaudeResponse) *dto.ChatCo
 			if claudeResponse.ContentBlock.Type == "text" && claudeResponse.ContentBlock.Text != nil {
 				choice.Delta.SetContentString(*claudeResponse.ContentBlock.Text)
 			}
-			if claudeResponse.ContentBlock.Type == "tool_use" {
+			if claudeResponse.ContentBlock.Type == "tool_use" || claudeResponse.ContentBlock.Type == "server_tool_use" {
 				tools = append(tools, dto.ToolCallResponse{
 					Index: common.GetPointer(fcIdx),
 					ID:    claudeResponse.ContentBlock.Id,
@@ -582,7 +582,7 @@ func ResponseClaude2OpenAI(claudeResponse *dto.ClaudeResponse) *dto.OpenAITextRe
 	fullTextResponse.Id = claudeResponse.Id
 	for _, message := range claudeResponse.Content {
 		switch message.Type {
-		case "tool_use":
+		case "tool_use", "server_tool_use":
 			args, _ := json.Marshal(message.Input)
 			tools = append(tools, dto.ToolCallResponse{
 				ID:   message.Id,
