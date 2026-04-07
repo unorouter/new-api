@@ -1,0 +1,54 @@
+package nvidia_nim
+
+const ChannelName = "nvidia_nim"
+
+// ModelList contains all NVIDIA NIM free endpoint models.
+var ModelList = []string{
+	// Image generation
+	"stabilityai/stable-diffusion-3-medium",
+
+	// LLMs (free endpoints)
+	"moonshotai/kimi-k2.5",
+	"moonshotai/kimi-k2-instruct",
+	"moonshotai/kimi-k2-instruct-0905",
+	"moonshotai/kimi-k2-thinking",
+	"deepseek-ai/deepseek-v3.2",
+	"deepseek-ai/deepseek-v3.1",
+	"deepseek-ai/deepseek-v3.1-terminus",
+	"qwen/qwen3-coder-480b-a35b-instruct",
+	"qwen/qwen3.5-397b-a17b",
+	"qwen/qwen3.5-122b-a10b",
+	"qwen/qwq-32b",
+	"qwen/qwen2.5-coder-7b-instruct",
+	"z-ai/glm4.7",
+	"z-ai/glm5",
+	"mistralai/mistral-large-3-675b-instruct-2512",
+	"mistralai/devstral-2-123b-instruct-2512",
+	"mistralai/mistral-nemotron",
+	"mistralai/mistral-medium-3-instruct",
+	"mistralai/mistral-small-3.1-24b-instruct-2503",
+	"mistralai/magistral-small-2506",
+	"nvidia/nemotron-3-super-120b-a12b",
+	"nvidia/nemotron-3-nano-30b-a3b",
+	"nvidia/nv-embed-v1",
+	"nvidia/nv-embedcode-7b-v1",
+	"meta/llama-4-maverick-17b-128e-instruct",
+	"meta/llama-3.3-70b-instruct",
+	"meta/llama-3.1-8b-instruct",
+	"meta/esmfold",
+	"google/gemma-3-27b-it",
+	"google/gemma-3n-e4b-it",
+	"google/gemma-3n-e2b-it",
+	"google/gemma-4-31b-it",
+	"google/gemma-2-27b-it",
+	"google/gemma-7b",
+	"openai/gpt-oss-120b",
+	"openai/gpt-oss-20b",
+	"stepfun-ai/step-3.5-flash",
+	"bytedance/seed-oss-36b-instruct",
+	"microsoft/phi-3.5-mini-instruct",
+	"microsoft/phi-4-mini-instruct",
+	"microsoft/phi-4-mini-flash-reasoning",
+	"microsoft/phi-4-multimodal-instruct",
+	"tiiuae/falcon3-7b-instruct",
+}
