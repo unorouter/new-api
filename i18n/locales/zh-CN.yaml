@@ -28,6 +28,7 @@ common.system_error: "系统错误: {{.Error}}"
 common.not_implemented: "尚未实现"
 common.api_deprecated: "该接口已废弃"
 common.db_test_failed: "数据库连接失败"
+common.batch_too_many: "批量请求数量过多，最多 {{.Max}} 条"
 
 # Token related messages
 token.name_too_long: "令牌名称过长"

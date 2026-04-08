@@ -25,10 +25,8 @@ import {
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
 import { getTokensColumns } from './TokensColumnDefs';
-import { useTranslation } from 'react-i18next';
 
 const TokensTable = (tokensData) => {
-  const { t } = useTranslation();
   const {
     tokens,
     loading,
@@ -51,6 +49,8 @@ const TokensTable = (tokensData) => {
     setEditingToken,
     setShowEdit,
     refresh,
+    groupRatios,
+    t,
   } = tokensData;
 
   // Get all columns
@@ -67,6 +67,7 @@ const TokensTable = (tokensData) => {
       setEditingToken,
       setShowEdit,
       refresh,
+      groupRatios,
     });
   }, [
     showKeys,
@@ -80,6 +81,7 @@ const TokensTable = (tokensData) => {
     setEditingToken,
     setShowEdit,
     refresh,
+    groupRatios,
   ]);
 
   // Handle compact mode by removing fixed positioning

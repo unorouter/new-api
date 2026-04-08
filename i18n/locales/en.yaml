@@ -28,6 +28,7 @@ common.system_error: "System error: {{.Error}}"
 common.not_implemented: "Not implemented"
 common.api_deprecated: "This API has been deprecated"
 common.db_test_failed: "Database connection failed"
+common.batch_too_many: "Too many items in batch request, maximum is {{.Max}}"
 
 # Token related messages
 token.name_too_long: "Token name is too long"

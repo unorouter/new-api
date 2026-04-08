@@ -10,6 +10,30 @@ import (
 	"github.com/go-fuego/fuego"
 )
 
+func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string]string) []model.Pricing {
+	if len(pricing) == 0 {
+		return pricing
+	}
+	if len(usableGroup) == 0 {
+		return []model.Pricing{}
+	}
+
+	filtered := make([]model.Pricing, 0, len(pricing))
+	for _, item := range pricing {
+		if common.StringsContains(item.EnableGroup, "all") {
+			filtered = append(filtered, item)
+			continue
+		}
+		for _, group := range item.EnableGroup {
+			if _, ok := usableGroup[group]; ok {
+				filtered = append(filtered, item)
+				break
+			}
+		}
+	}
+	return filtered
+}
+
 func GetPricing(c fuego.ContextNoBody) (dto.PricingData, error) {
 	pricing := model.GetPricing()
 	userId, exists := dto.GinCtx(c).Get("id")
@@ -33,6 +57,7 @@ func GetPricing(c fuego.ContextNoBody) (dto.PricingData, error) {
 	}
 
 	usableGroup = service.GetUserUsableGroups(group)
+	pricing = filterPricingByUsableGroups(pricing, usableGroup)
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		if _, ok := usableGroup[group]; !ok {
 			delete(groupRatio, group)

@@ -122,6 +122,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.PostB(self, "/aff_transfer", controller.TransferAffQuota)
 		dto.PostB(self, "/setting", controller.UpdateUserSetting)
 
+		apiRouter.GET("/data/users", middleware.AdminAuth(), controller.GetQuotaDatesByUser)
+
 		// Self routes with rate limiting
 		selfCritical := dto.NewRouter(engine, selfGroup.Group("", middleware.CriticalRateLimit()), "TopUp", secDashboard())
 		dto.PostB(selfCritical, "/topup", controller.TopUp)

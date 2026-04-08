@@ -589,31 +589,6 @@ func CovertOpenAI2Gemini(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 						Text: part.Text,
 					})
 				}
-			} else if part.Type == dto.ContentTypeImageURL {
-				// 使用统一的文件服务获取图片数据
-				var source *types.FileSource
-				imageUrl := part.GetImageMedia().Url
-				if strings.HasPrefix(imageUrl, "http") {
-					source = types.NewURLFileSource(imageUrl)
-				} else {
-					source = types.NewBase64FileSource(imageUrl, "")
-				}
-				base64Data, mimeType, err := service.GetBase64Data(c, source, "formatting image for Gemini")
-				if err != nil {
-					return nil, fmt.Errorf(i18n.Translate("relay.get_file_data_from_failed"), source.GetIdentifier(), err)
-				}
-
-				// 校验 MimeType 是否在 Gemini 支持的白名单中
-				if _, ok := geminiSupportedMimeTypes[strings.ToLower(mimeType)]; !ok {
-					return nil, fmt.Errorf(i18n.Translate("relay.mime_type_is_not_supported_by_gemini_url"), mimeType, source.GetIdentifier(), getSupportedMimeTypesList())
-				}
-
-				parts = append(parts, dto.GeminiPart{
-					InlineData: &dto.GeminiInlineData{
-						MimeType: mimeType,
-						Data:     base64Data,
-					},
-				})
 			} else if part.Type == dto.ContentTypeFile {
 				if part.GetFile().FileId != "" {
 					return nil, errors.New(i18n.Translate("relay.only_base64_file_is_supported_in_gemini"))
@@ -638,6 +613,27 @@ func CovertOpenAI2Gemini(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 				if err != nil {
 					return nil, fmt.Errorf(i18n.Translate("relay.decode_base64_audio_data_failed"), err.Error())
 				}
+				parts = append(parts, dto.GeminiPart{
+					InlineData: &dto.GeminiInlineData{
+						MimeType: mimeType,
+						Data:     base64Data,
+					},
+				})
+			} else {
+				source := part.ToFileSource()
+				if source == nil {
+					continue
+				}
+				base64Data, mimeType, err := service.GetBase64Data(c, source, "formatting image for Gemini")
+				if err != nil {
+					return nil, fmt.Errorf(i18n.Translate("relay.get_file_data_from_failed"), source.GetIdentifier(), err)
+				}
+
+				// 校验 MimeType 是否在 Gemini 支持的白名单中
+				if _, ok := geminiSupportedMimeTypes[strings.ToLower(mimeType)]; !ok {
+					return nil, fmt.Errorf(i18n.Translate("relay.mime_type_is_not_supported_by_gemini_url"), mimeType, source.GetIdentifier(), getSupportedMimeTypesList())
+				}
+
 				parts = append(parts, dto.GeminiPart{
 					InlineData: &dto.GeminiInlineData{
 						MimeType: mimeType,

@@ -89,7 +89,7 @@ const renderStatus = (text, record) => {
 };
 
 // Render group column
-const renderGroupColumn = (text, record) => {
+const renderGroupColumn = (text, record, t, groupRatios = {}) => {
   if (text === 'auto') {
     return (
       <Tooltip
@@ -105,7 +105,17 @@ const renderGroupColumn = (text, record) => {
       </Tooltip>
     );
   }
-  return renderGroup(text);
+  const ratio = groupRatios[text];
+  return (
+    <span className='flex items-center gap-1'>
+      {renderGroup(text)}
+      {ratio !== undefined && (
+        <Tag size='small' color='green' shape='circle'>
+          {ratio}x
+        </Tag>
+      )}
+    </span>
+  );
 };
 
 // Render token key column with show/hide and copy functionality
@@ -468,6 +478,7 @@ export const getTokensColumns = ({
   setEditingToken,
   setShowEdit,
   refresh,
+  groupRatios = {},
 }) => {
   return [
     {
@@ -489,7 +500,7 @@ export const getTokensColumns = ({
       title: t('分组'),
       dataIndex: 'group',
       key: 'group',
-      render: (text, record) => renderGroupColumn(text, record),
+      render: (text, record) => renderGroupColumn(text, record, t, groupRatios),
     },
     {
       title: t('密钥'),
