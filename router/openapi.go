@@ -28,14 +28,20 @@ func scalarUIHandler(specURL string) http.Handler {
 	})
 }
 
-// stripFuegoDescriptions removes the auto-generated "#### Controller:" and
-// "#### Middlewares:" blocks that fuego prepends to every operation description.
-func stripFuegoDescriptions(spec *openapi3.T) {
+// cleanupSpec removes auto-generated noise from the OpenAPI spec:
+// - fuego's "#### Controller:" / "#### Middlewares:" description blocks
+// - kin-openapi's contentless "default" response (causes void unions in codegen)
+func cleanupSpec(spec *openapi3.T) {
 	const marker = "---\n\n"
 	for _, pathItem := range spec.Paths.Map() {
 		for _, op := range pathItem.Operations() {
 			if idx := strings.Index(op.Description, marker); idx != -1 {
 				op.Description = strings.TrimSpace(op.Description[idx+len(marker):])
+			}
+			// Remove contentless default responses that kin-openapi adds automatically.
+			// These produce void unions in TypeScript codegen (Orval).
+			if resp := op.Responses.Value("default"); resp != nil && resp.Value != nil && resp.Value.Content == nil {
+				op.Responses.Delete("default")
 			}
 		}
 	}
@@ -105,7 +111,7 @@ func registerOpenAPIRoutes(engine *fuego.Engine, router *gin.Engine) {
 		return
 	}
 	spec := engine.OpenAPI.Description()
-	stripFuegoDescriptions(spec)
+	cleanupSpec(spec)
 	engine.RegisterOpenAPIRoutes(&fuegogin.OpenAPIHandler{GinEngine: router})
 }
 
