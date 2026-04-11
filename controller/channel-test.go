@@ -150,6 +150,7 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 		}
 	}
 	cache.WriteContext(c)
+	c.Set("id", 1)
 
 	//c.Request.Header.Set("Authorization", "Bearer "+channel.Key)
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -274,7 +275,7 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 		return testResult{
 			context:     c,
 			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeModelPriceError),
+			newAPIError: types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest)),
 		}
 	}
 
@@ -750,14 +751,18 @@ func TestChannel(c fuego.ContextWithParams[dto.TestChannelParams]) (dto.TestChan
 	tik := time.Now()
 	result := testChannel(channel, testModel, endpointType, isStream)
 	if result.localErr != nil {
-		return dto.TestChannelResponse{Success: false, Message: result.localErr.Error(), Time: 0.0}, nil
+		resp := dto.TestChannelResponse{Success: false, Message: result.localErr.Error(), Time: 0.0}
+		if result.newAPIError != nil {
+			resp.ErrorCode = result.newAPIError.GetErrorCode()
+		}
+		return resp, nil
 	}
 	tok := time.Now()
 	milliseconds := tok.Sub(tik).Milliseconds()
 	go channel.UpdateResponseTime(milliseconds)
 	consumedTime := float64(milliseconds) / 1000.0
 	if result.newAPIError != nil {
-		return dto.TestChannelResponse{Success: false, Message: result.newAPIError.Error(), Time: consumedTime}, nil
+		return dto.TestChannelResponse{Success: false, Message: result.newAPIError.Error(), Time: consumedTime, ErrorCode: result.newAPIError.GetErrorCode()}, nil
 	}
 	return dto.TestChannelResponse{Success: true, Message: "", Time: consumedTime}, nil
 }

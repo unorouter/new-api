@@ -107,6 +107,7 @@ user.telegram_not_bound: "This Telegram account is not bound"
 user.linux_do_id_empty: "Linux DO ID is empty!"
 user.group_upgrade: "User group will be upgraded to {{.Group}}"
 user.group_downgrade: "User group will be downgraded to {{.Group}}"
+user.quota_change_zero: "Quota change amount cannot be zero"
 
 # Quota messages
 quota.negative: "Quota cannot be negative!"

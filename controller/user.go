@@ -575,9 +575,6 @@ func UpdateUser(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error
 	if err := updatedUser.Edit(updatePassword); err != nil {
 		return dto.FailMsg(err.Error())
 	}
-	if originUser.Quota != updatedUser.Quota {
-		model.RecordLog(originUser.Id, model.LogTypeManage, i18n.Translate("log.admin_changed_quota", map[string]any{"From": logger.LogQuota(originUser.Quota), "To": logger.LogQuota(updatedUser.Quota)}))
-	}
 	return dto.Msg("")
 }
 
@@ -833,6 +830,37 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 			return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.already_common"))
 		}
 		user.Role = common.RoleCommonUser
+	case "add_quota":
+		switch req.Mode {
+		case "add":
+			if req.Value <= 0 {
+				return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, i18n.MsgUserQuotaChangeZero))
+			}
+			if err := model.IncreaseUserQuota(user.Id, req.Value, true); err != nil {
+				return dto.Fail[dto.ManageUserData](err.Error())
+			}
+			model.RecordLog(user.Id, model.LogTypeManage,
+				fmt.Sprintf("管理员增加用户额度 %s", logger.LogQuota(req.Value)))
+		case "subtract":
+			if req.Value <= 0 {
+				return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, i18n.MsgUserQuotaChangeZero))
+			}
+			if err := model.DecreaseUserQuota(user.Id, req.Value, true); err != nil {
+				return dto.Fail[dto.ManageUserData](err.Error())
+			}
+			model.RecordLog(user.Id, model.LogTypeManage,
+				fmt.Sprintf("管理员减少用户额度 %s", logger.LogQuota(req.Value)))
+		case "override":
+			oldQuota := user.Quota
+			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
+				return dto.Fail[dto.ManageUserData](err.Error())
+			}
+			model.RecordLog(user.Id, model.LogTypeManage,
+				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)))
+		default:
+			return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, i18n.MsgInvalidParams))
+		}
+		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 	}
 
 	if err := user.Update(false); err != nil {

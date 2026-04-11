@@ -40,6 +40,8 @@ type UpdateUserSettingRequest struct {
 type ManageRequest struct {
 	Id     int    `json:"id"`
 	Action string `json:"action"`
+	Value  int    `json:"value"`
+	Mode   string `json:"mode"`
 }
 
 // ManageUserData is the response data for POST /api/user/manage.

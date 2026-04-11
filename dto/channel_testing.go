@@ -2,9 +2,10 @@ package dto
 
 // TestChannelResponse is the response for channel test endpoints.
 type TestChannelResponse struct {
-	Success bool    `json:"success"`
-	Message string  `json:"message"`
-	Time    float64 `json:"time"`
+	Success   bool    `json:"success"`
+	Message   string  `json:"message"`
+	Time      float64 `json:"time"`
+	ErrorCode any     `json:"error_code,omitempty"`
 }
 
 // ChannelBalanceResponse is the response for channel balance endpoints.
