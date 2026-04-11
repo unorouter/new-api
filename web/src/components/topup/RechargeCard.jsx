@@ -556,7 +556,6 @@ const RechargeCard = ({
                                 margin: '4px 0',
                               }}
                             >
-                              {t('充值额度')}: {product.quota}，
                               {currencySymbol}{price.toFixed(2)}
                             </div>
                           </div>
