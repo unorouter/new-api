@@ -459,6 +459,7 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     pageSize,
     searching,
     groupRatios,
+    t,
 
     // Selection state
     selectedKeys,
