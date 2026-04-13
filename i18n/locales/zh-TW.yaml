@@ -2,7 +2,7 @@
 
 # Common error messages
 common.invalid_params: "無效的參數"
-common.database_error: "資料庫錯誤，請稍後重試"
+common.database_error: "資料庫出錯，請聯繫管理員"
 common.retry_later: "請稍後重試"
 common.generate_failed: "生成失敗"
 common.not_found: "未找到"
@@ -31,6 +31,17 @@ common.db_test_failed: "資料庫連接失敗"
 common.batch_too_many: "批次請求數量過多，最多 {{.Max}} 條"
 
 # Token related messages
+# Auth middleware messages
+auth.not_logged_in: "無權進行此操作，未登入且未提供 access token"
+auth.access_token_invalid: "無權進行此操作，access token 無效"
+auth.user_info_invalid: "無權進行此操作，使用者資訊無效"
+auth.user_id_not_provided: "無權進行此操作，未提供 New-Api-User"
+auth.user_id_format_error: "無權進行此操作，New-Api-User 格式錯誤"
+auth.user_id_mismatch: "無權進行此操作，New-Api-User 與登入使用者不匹配"
+auth.user_banned: "使用者已被封禁"
+auth.insufficient_privilege: "無權進行此操作，權限不足"
+
+# Token messages
 token.name_too_long: "令牌名稱過長"
 token.quota_negative: "額度值不能為負數"
 token.quota_exceed_max: "額度值超出有效範圍，最大值為 {{.Max}}"

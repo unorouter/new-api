@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -187,19 +188,14 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 
 func ValidateUserToken(key string) (token *Token, err error) {
 	if key == "" {
-		return nil, errors.New(i18n.Translate("token.not_provided_model"))
+		return nil, ErrTokenNotProvided
 	}
 	token, err = GetTokenByKey(key, false)
 	if err == nil {
-		if token.Status == common.TokenStatusExhausted {
-			keyPrefix := key[:3]
-			keySuffix := key[len(key)-3:]
-			return token, errors.New(i18n.Translate("token.quota_exhausted_fmt", map[string]any{"Prefix": keyPrefix, "Suffix": keySuffix}))
-		} else if token.Status == common.TokenStatusExpired {
-			return token, errors.New(i18n.Translate("token.has_expired"))
-		}
-		if token.Status != common.TokenStatusEnabled {
-			return token, errors.New(i18n.Translate("token.status_unavailable_model"))
+		if token.Status == common.TokenStatusExhausted ||
+			token.Status == common.TokenStatusExpired ||
+			token.Status != common.TokenStatusEnabled {
+			return token, ErrTokenInvalid
 		}
 		if token.ExpiredTime != -1 && token.ExpiredTime < common.GetTimestamp() {
 			if !common.RedisEnabled {
@@ -209,29 +205,25 @@ func ValidateUserToken(key string) (token *Token, err error) {
 					common.SysLog(i18n.Translate("model.failed_to_update_token_status") + err.Error())
 				}
 			}
-			return token, errors.New(i18n.Translate("token.has_expired"))
+			return token, ErrTokenInvalid
 		}
 		if !token.UnlimitedQuota && token.RemainQuota <= 0 {
 			if !common.RedisEnabled {
-				// in this case, we can make sure the token is exhausted
 				token.Status = common.TokenStatusExhausted
 				err := token.SelectUpdate()
 				if err != nil {
 					common.SysLog(i18n.Translate("model.failed_to_update_token_status") + err.Error())
 				}
 			}
-			keyPrefix := key[:3]
-			keySuffix := key[len(key)-3:]
-			return token, errors.New(i18n.Translate("token.quota_exhausted_remain", map[string]any{"Prefix": keyPrefix, "Suffix": keySuffix, "Remain": token.RemainQuota}))
+			return token, ErrTokenInvalid
 		}
 		return token, nil
 	}
 	common.SysLog(i18n.Translate("model.validateusertoken_failed_to_get_token") + err.Error())
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, errors.New(i18n.Translate("token.invalid_model"))
-	} else {
-		return nil, errors.New(i18n.Translate("token.db_query_error"))
+		return nil, ErrTokenInvalid
 	}
+	return nil, fmt.Errorf("%w: %v", ErrDatabase, err)
 }
 
 func GetTokenByIds(id int, userId int) (*Token, error) {

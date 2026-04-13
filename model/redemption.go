@@ -11,9 +11,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// ErrRedeemFailed is returned when redemption fails due to database error
-var ErrRedeemFailed = errors.New("model.redeem_failed")
-
 type Redemption struct {
 	Id           int            `json:"id"`
 	UserId       int            `json:"user_id"`

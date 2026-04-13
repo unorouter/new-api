@@ -3,11 +3,9 @@ package service
 import (
 	"github.com/QuantumNous/new-api/i18n"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -64,12 +62,12 @@ func ShouldDisableChannel(channelType int, err *types.NewAPIError) bool {
 	//if err.StatusCode == http.StatusUnauthorized {
 	//	return true
 	//}
-	if err.StatusCode == http.StatusForbidden {
-		switch channelType {
-		case constant.ChannelTypeGemini:
-			return true
-		}
-	}
+	//if err.StatusCode == http.StatusForbidden {
+	//	switch channelType {
+	//	case constant.ChannelTypeGemini:
+	//		return true
+	//	}
+	//}
 	oaiErr := err.ToOpenAIError()
 	switch oaiErr.Code {
 	case "invalid_api_key":

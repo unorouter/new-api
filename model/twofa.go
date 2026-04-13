@@ -11,8 +11,6 @@ import (
 	"gorm.io/gorm"
 )
 
-var ErrTwoFANotEnabled = errors.New("twofa.not_enabled_model")
-
 // TwoFA 用户2FA设置表
 type TwoFA struct {
 	Id             int            `json:"id" gorm:"primaryKey"`

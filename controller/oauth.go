@@ -43,7 +43,7 @@ func GenerateOAuthCode(c fuego.ContextWithParams[dto.GenerateOAuthCodeParams]) (
 			var userID int
 			// Try Authorization header (access token)
 			if authHeader := ginCtx.GetHeader("Authorization"); authHeader != "" {
-				if user := model.ValidateAccessToken(authHeader); user != nil {
+				if user, err := model.ValidateAccessToken(authHeader); err == nil && user != nil {
 					userID = user.Id
 				}
 			}
