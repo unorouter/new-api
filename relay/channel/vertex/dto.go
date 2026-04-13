@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relay/channel/claude"
 )
 
 type VertexAIClaudeRequest struct {
@@ -24,10 +25,15 @@ type VertexAIClaudeRequest struct {
 }
 
 func copyRequest(req *dto.ClaudeRequest, version string) *VertexAIClaudeRequest {
+	// Vertex Claude variants (e.g. claude-opus-4-6) reject assistant prefill:
+	// "This model does not support assistant message prefill." Fold the prefill
+	// into the system prompt so the hint is preserved while the conversation
+	// ends with a user message.
+	messages, system := claude.HandleUnsupportedAssistantPrefill(req.Messages, req.System)
 	return &VertexAIClaudeRequest{
 		AnthropicVersion: version,
-		System:           req.System,
-		Messages:         req.Messages,
+		System:           system,
+		Messages:         messages,
 		MaxTokens:        req.MaxTokens,
 		Stream:           req.Stream,
 		Temperature:      req.Temperature,

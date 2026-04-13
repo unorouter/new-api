@@ -406,6 +406,13 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 
 	claudeRequest.Prompt = ""
 	claudeRequest.Messages = claudeMessages
+
+	// Anthropic removed assistant-message prefill from Claude 4.5/4.6, and the
+	// cloud deployments (Bedrock, Vertex) and their resellers reject it for
+	// every Claude model. Fold any trailing assistant turn into a user
+	// continuation here so every caller of this converter (aws, vertex, claude
+	// adaptors) picks up the fix automatically.
+	claudeRequest.Messages, claudeRequest.System = HandleUnsupportedAssistantPrefill(claudeRequest.Messages, claudeRequest.System)
 	return &claudeRequest, nil
 }
 

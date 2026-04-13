@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/ai360"
+	"github.com/QuantumNous/new-api/relay/channel/claude"
 	"github.com/QuantumNous/new-api/relay/channel/lingyiwanwu"
 
 	//"github.com/QuantumNous/new-api/relay/channel/minimax"
@@ -246,6 +247,14 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if info.ChannelType == constant.ChannelTypeOpenRouter {
 		if len(request.Usage) == 0 {
 			request.Usage = json.RawMessage(`{"include":true}`)
+		}
+		// OpenRouter may route Anthropic models through Vertex/Bedrock backends
+		// that reject assistant prefill ("This model does not support assistant
+		// message prefill."). Fold any trailing assistant message into the
+		// system prompt so the hint is preserved.
+		if strings.HasPrefix(info.UpstreamModelName, "anthropic") ||
+			strings.Contains(strings.ToLower(info.UpstreamModelName), "claude") {
+			request.Messages = claude.HandleUnsupportedAssistantPrefillOpenAI(request.Messages)
 		}
 		// 适配 OpenRouter 的 thinking 后缀
 		if !model_setting.ShouldPreserveThinkingSuffix(info.OriginModelName) &&

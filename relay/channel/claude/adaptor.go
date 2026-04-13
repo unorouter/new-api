@@ -27,6 +27,14 @@ func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dt
 }
 
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) (any, error) {
+	// Anthropic removed assistant-message prefill from Claude 4.5/4.6, and
+	// the cloud deployments (Bedrock, Vertex) and their resellers reject it
+	// for every Claude model. Fold any trailing assistant turn into a user
+	// continuation so the request is accepted everywhere. Older Claude 3.x
+	// models on a hypothetical direct-Anthropic channel would lose prefill
+	// support, which is an acceptable tradeoff given prefill is a deprecated
+	// pattern that Anthropic now officially recommends against.
+	request.Messages, request.System = HandleUnsupportedAssistantPrefill(request.Messages, request.System)
 	return request, nil
 }
 
@@ -97,6 +105,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New(i18n.Translate("relay.request_is_nil_ab44"))
 	}
+	// Trailing-assistant-prefill rewrite is handled inside RequestOpenAI2ClaudeMessage.
 	return RequestOpenAI2ClaudeMessage(c, *request)
 }
 

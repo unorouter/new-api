@@ -31,6 +31,7 @@ services:
       - SESSION_SECRET=${SESSION_SECRET}
       - CRYPTO_SECRET=${CRYPTO_SECRET}
       - ERROR_LOG_ENABLED=true
+      - DEBUG=true
       - BATCH_UPDATE_ENABLED=false
       - MEMORY_CACHE_ENABLED=false
       - GIN_MODE=release
