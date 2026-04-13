@@ -118,6 +118,15 @@ func Translate(key string, args ...map[string]any) string {
 	return translate(DefaultLang, key, args...)
 }
 
+// TranslateLang translates a message key using the specified language.
+// Falls back to the default language when lang is empty or unsupported.
+func TranslateLang(lang, key string, args ...map[string]any) string {
+	if lang == "" {
+		lang = DefaultLang
+	}
+	return translate(lang, key, args...)
+}
+
 func translate(lang, key string, args ...map[string]any) string {
 	loc := GetLocalizer(lang)
 

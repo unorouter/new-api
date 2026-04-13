@@ -423,6 +423,7 @@ func shouldSendUpstreamModelUpdateNotification(now int64, changedChannels int, f
 }
 
 func buildUpstreamModelUpdateTaskNotificationContent(
+	lang string,
 	checkedChannels int,
 	changedChannels int,
 	detectedAddModels int,
@@ -435,43 +436,43 @@ func buildUpstreamModelUpdateTaskNotificationContent(
 ) string {
 	var builder strings.Builder
 	failedChannels := len(failedChannelIDs)
-	builder.WriteString(i18n.Translate("channel.upstream_summary", map[string]any{
+	builder.WriteString(i18n.TranslateLang(lang, "channel.upstream_summary", map[string]any{
 		"Checked": checkedChannels, "Changes": changedChannels, "Added": detectedAddModels,
 		"Removed": detectedRemoveModels, "Synced": autoAddedModels, "Failed": failedChannels,
 	}))
 
 	if len(channelSummaries) > 0 {
 		displayCount := min(len(channelSummaries), channelUpstreamModelUpdateNotifyMaxChannelDetails)
-		builder.WriteString(i18n.Translate("channel.upstream_changed_details", map[string]any{"Display": displayCount, "Total": len(channelSummaries)}))
+		builder.WriteString(i18n.TranslateLang(lang, "channel.upstream_changed_details", map[string]any{"Display": displayCount, "Total": len(channelSummaries)}))
 		for _, summary := range channelSummaries[:displayCount] {
 			builder.WriteString(fmt.Sprintf("\n- %s (+%d / -%d)", summary.ChannelName, summary.AddCount, summary.RemoveCount))
 		}
 		if len(channelSummaries) > displayCount {
-			builder.WriteString(i18n.Translate("channel.upstream_more_omitted", map[string]any{"Count": len(channelSummaries) - displayCount}))
+			builder.WriteString(i18n.TranslateLang(lang, "channel.upstream_more_omitted", map[string]any{"Count": len(channelSummaries) - displayCount}))
 		}
 	}
 
 	normalizedAddModelSamples := normalizeModelNames(addModelSamples)
 	if len(normalizedAddModelSamples) > 0 {
 		displayCount := min(len(normalizedAddModelSamples), channelUpstreamModelUpdateNotifyMaxModelDetails)
-		builder.WriteString(i18n.Translate("channel.upstream_added_samples", map[string]any{
+		builder.WriteString(i18n.TranslateLang(lang, "channel.upstream_added_samples", map[string]any{
 			"Display": displayCount, "Total": len(normalizedAddModelSamples),
 			"Models": strings.Join(normalizedAddModelSamples[:displayCount], ", "),
 		}))
 		if len(normalizedAddModelSamples) > displayCount {
-			builder.WriteString(i18n.Translate("channel.upstream_added_omitted", map[string]any{"Count": len(normalizedAddModelSamples) - displayCount}))
+			builder.WriteString(i18n.TranslateLang(lang, "channel.upstream_added_omitted", map[string]any{"Count": len(normalizedAddModelSamples) - displayCount}))
 		}
 	}
 
 	normalizedRemoveModelSamples := normalizeModelNames(removeModelSamples)
 	if len(normalizedRemoveModelSamples) > 0 {
 		displayCount := min(len(normalizedRemoveModelSamples), channelUpstreamModelUpdateNotifyMaxModelDetails)
-		builder.WriteString(i18n.Translate("channel.upstream_removed_samples", map[string]any{
+		builder.WriteString(i18n.TranslateLang(lang, "channel.upstream_removed_samples", map[string]any{
 			"Display": displayCount, "Total": len(normalizedRemoveModelSamples),
 			"Models": strings.Join(normalizedRemoveModelSamples[:displayCount], ", "),
 		}))
 		if len(normalizedRemoveModelSamples) > displayCount {
-			builder.WriteString(i18n.Translate("channel.upstream_removed_omitted", map[string]any{"Count": len(normalizedRemoveModelSamples) - displayCount}))
+			builder.WriteString(i18n.TranslateLang(lang, "channel.upstream_removed_omitted", map[string]any{"Count": len(normalizedRemoveModelSamples) - displayCount}))
 		}
 	}
 
@@ -480,11 +481,11 @@ func buildUpstreamModelUpdateTaskNotificationContent(
 		displayIDs := lo.Map(failedChannelIDs[:displayCount], func(channelID int, _ int) string {
 			return fmt.Sprintf("%d", channelID)
 		})
-		builder.WriteString(i18n.Translate("channel.upstream_failed_ids", map[string]any{
+		builder.WriteString(i18n.TranslateLang(lang, "channel.upstream_failed_ids", map[string]any{
 			"Display": displayCount, "Total": failedChannels, "Ids": strings.Join(displayIDs, ", "),
 		}))
 		if failedChannels > displayCount {
-			builder.WriteString(i18n.Translate("channel.upstream_failed_omitted", map[string]any{"Count": failedChannels - displayCount}))
+			builder.WriteString(i18n.TranslateLang(lang, "channel.upstream_failed_omitted", map[string]any{"Count": failedChannels - displayCount}))
 		}
 	}
 	return builder.String()
@@ -603,20 +604,21 @@ func runChannelUpstreamModelUpdateTaskOnce() {
 			))
 			return
 		}
-		service.NotifyUpstreamModelUpdateWatchers(
-			i18n.Translate("channel.upstream_notify_subject"),
-			buildUpstreamModelUpdateTaskNotificationContent(
-				checkedChannels,
-				changedChannels,
-				detectedAddModels,
-				detectedRemoveModels,
-				autoAddedModels,
-				failedChannelIDs,
-				channelSummaries,
-				addModelSamples,
-				removeModelSamples,
-			),
-		)
+		service.NotifyUpstreamModelUpdateWatchers(func(lang string) (string, string) {
+			return i18n.TranslateLang(lang, "channel.upstream_notify_subject"),
+				buildUpstreamModelUpdateTaskNotificationContent(
+					lang,
+					checkedChannels,
+					changedChannels,
+					detectedAddModels,
+					detectedRemoveModels,
+					autoAddedModels,
+					failedChannelIDs,
+					channelSummaries,
+					addModelSamples,
+					removeModelSamples,
+				)
+		})
 	}
 }
 
