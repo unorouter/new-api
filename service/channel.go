@@ -16,20 +16,28 @@ func formatNotifyType(channelId int, status int) string {
 	return fmt.Sprintf("%s_%d_%d", dto.NotifyTypeChannelUpdate, channelId, status)
 }
 
+func translatef(key string, fallback string, args ...any) string {
+	template := i18n.Translate(key)
+	if template == "" || template == key {
+		template = fallback
+	}
+	return fmt.Sprintf(template, args...)
+}
+
 // disable & notify
 func DisableChannel(channelError types.ChannelError, reason string) {
-	common.SysLog(fmt.Sprintf(i18n.Translate("svc.channel_error_occurred_preparing_to_disable_reason"), channelError.ChannelName, channelError.ChannelId, reason))
+	common.SysLog(translatef("svc.channel_error_occurred_preparing_to_disable_reason", "Channel '%s' (#%d) error occurred, preparing to disable. Reason: %s", channelError.ChannelName, channelError.ChannelId, reason))
 
 	// 检查是否启用自动禁用功能
 	if !channelError.AutoBan {
-		common.SysLog(fmt.Sprintf(i18n.Translate("svc.channel_auto_disable_not_enabled_skipping_disable"), channelError.ChannelName, channelError.ChannelId))
+		common.SysLog(translatef("svc.channel_auto_disable_not_enabled_skipping_disable", "Channel '%s' (#%d) auto-disable not enabled, skipping disable", channelError.ChannelName, channelError.ChannelId))
 		return
 	}
 
 	success := model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, reason)
 	if success {
-		subject := fmt.Sprintf(i18n.Translate("svc.channel_has_been_disabled"), channelError.ChannelName, channelError.ChannelId)
-		content := fmt.Sprintf(i18n.Translate("svc.channel_has_been_disabled_reason"), channelError.ChannelName, channelError.ChannelId, reason)
+		subject := translatef("svc.channel_has_been_disabled", "Channel '%s' (#%d) has been disabled", channelError.ChannelName, channelError.ChannelId)
+		content := translatef("svc.channel_has_been_disabled_reason", "Channel '%s' (#%d) has been disabled, reason: %s", channelError.ChannelName, channelError.ChannelId, reason)
 		NotifyRootUser(formatNotifyType(channelError.ChannelId, common.ChannelStatusAutoDisabled), subject, content)
 	}
 }
@@ -37,8 +45,8 @@ func DisableChannel(channelError types.ChannelError, reason string) {
 func EnableChannel(channelId int, usingKey string, channelName string) {
 	success := model.UpdateChannelStatus(channelId, usingKey, common.ChannelStatusEnabled, "")
 	if success {
-		subject := fmt.Sprintf(i18n.Translate("svc.channel_has_been_enabled"), channelName, channelId)
-		content := fmt.Sprintf(i18n.Translate("svc.channel_has_been_enabled_dc21"), channelName, channelId)
+		subject := translatef("svc.channel_has_been_enabled", "Channel '%s' (#%d) has been enabled", channelName, channelId)
+		content := translatef("svc.channel_has_been_enabled_dc21", "Channel '%s' (#%d) has been enabled", channelName, channelId)
 		NotifyRootUser(formatNotifyType(channelId, common.ChannelStatusEnabled), subject, content)
 	}
 }

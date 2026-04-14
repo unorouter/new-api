@@ -367,7 +367,8 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		userGroup := c.GetString("group")
 		// Resolve actual group for auto tokens, preserving "auto>" prefix for debugging
 		if autoGroup, exists := common.GetContextKey(c, constant.ContextKeyAutoGroup); exists {
-			userGroup = fmt.Sprintf(i18n.Translate("ctrl.auto"), autoGroup.(string))
+			autoGroupStr, _ := autoGroup.(string)
+			userGroup = "auto>" + autoGroupStr
 		}
 		channelId := channelError.ChannelId
 		other := make(map[string]interface{})
