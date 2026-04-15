@@ -439,7 +439,6 @@ secure_verification.expired: "验证已过期，请重新验证"
 
 # Auth messages
 auth.no_login_no_token: "无权进行此操作，未登录且未提供 access token"
-auth.access_token_invalid: "无权进行此操作，access token 无效"
 auth.user_header_missing: "无权进行此操作，未提供 New-Api-User"
 auth.user_header_invalid: "无权进行此操作，New-Api-User 格式错误"
 auth.user_header_mismatch: "无权进行此操作，New-Api-User 与登录用户不匹配"

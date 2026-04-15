@@ -20,8 +20,7 @@ import (
 const KeyRequestBody = "key_request_body"
 const KeyBodyStorage = "key_body_storage"
 
-// Initialized in init() because Translate is not yet available at var-init time.
-var ErrRequestBodyTooLarge error
+var ErrRequestBodyTooLarge = errors.New("request body too large")
 
 func IsRequestBodyTooLargeError(err error) bool {
 	if err == nil {
@@ -208,7 +207,7 @@ func ApiSuccessI18n(c *gin.Context, key string, data any, args ...map[string]any
 type apiResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
-	Data    any    `json:"data,omitempty"`
+	Data    any    `json:"data"`
 }
 
 // TranslateMessage is a helper function that calls i18n.T
@@ -231,10 +230,6 @@ func init() {
 	Translate = func(key string, args ...map[string]any) string {
 		return key
 	}
-	// Initialize error variables that depend on Translate
-	ErrRequestBodyTooLarge = errors.New(Translate("common.request_body_too_large"))
-	ErrStorageClosed = errors.New(Translate("common.body_storage_is_closed"))
-	errBoundaryNotFound = errors.New(Translate("common.multipart_boundary_not_found"))
 }
 
 func ParseMultipartFormReusable(c *gin.Context) (*multipart.Form, error) {
@@ -340,8 +335,7 @@ func parseMultipartFormData(c *gin.Context, data []byte, v any) error {
 	return processFormMap(formMap, v)
 }
 
-// Initialized in init() because Translate is not yet available at var-init time.
-var errBoundaryNotFound error
+var errBoundaryNotFound = errors.New("multipart boundary not found")
 
 // parseBoundary extracts the multipart boundary from the Content-Type header using mime.ParseMediaType
 func parseBoundary(contentType string) (string, error) {

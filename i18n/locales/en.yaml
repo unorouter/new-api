@@ -439,7 +439,6 @@ secure_verification.expired: "Verification has expired, please verify again"
 
 # Auth messages
 auth.no_login_no_token: "Unauthorized: not logged in and no access token provided"
-auth.access_token_invalid: "Unauthorized: access token is invalid"
 auth.user_header_missing: "Unauthorized: New-Api-User header not provided"
 auth.user_header_invalid: "Unauthorized: New-Api-User format error"
 auth.user_header_mismatch: "Unauthorized: New-Api-User does not match logged-in user"

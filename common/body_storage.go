@@ -23,8 +23,7 @@ type BodyStorage interface {
 }
 
 // ErrStorageClosed 存储已关闭错误
-// Initialized in init() because Translate is not yet available at var-init time.
-var ErrStorageClosed error
+var ErrStorageClosed = fmt.Errorf("body storage is closed")
 
 // memoryStorage 内存存储实现
 type memoryStorage struct {

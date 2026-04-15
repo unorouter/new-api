@@ -41,7 +41,7 @@ const LanguageSelector = ({ currentLang, onLanguageChange }) => {
             className={`!px-3 !py-1.5 !text-sm !text-semi-color-text-0 dark:!text-gray-200 ${currentLang === 'zh-TW' ? '!bg-semi-color-primary-light-default dark:!bg-blue-600 !font-semibold' : 'hover:!bg-semi-color-fill-1 dark:hover:!bg-gray-600'}`}
           >
             繁體中文
-          </Dropdown.Item>{' '}
+          </Dropdown.Item>
           <Dropdown.Item
             onClick={() => onLanguageChange('en')}
             className={`!px-3 !py-1.5 !text-sm !text-semi-color-text-0 dark:!text-gray-200 ${currentLang === 'en' ? '!bg-semi-color-primary-light-default dark:!bg-blue-600 !font-semibold' : 'hover:!bg-semi-color-fill-1 dark:hover:!bg-gray-600'}`}
