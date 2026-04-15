@@ -839,7 +839,7 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		}
 		user.Role = common.RoleCommonUser
 	case "add_quota":
-		adminName := c.GetString("username")
+		adminName := ginCtx.GetString("username")
 		switch req.Mode {
 		case "add":
 			if req.Value <= 0 {
