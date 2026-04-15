@@ -337,6 +337,10 @@ func EpayNotify(c *gin.Context) {
 			log.Printf(i18n.Translate("topup.epay_order_not_found", map[string]any{"Info": fmt.Sprintf("%v", verifyInfo)}))
 			return
 		}
+		if topUp.PaymentMethod == "stripe" || topUp.PaymentMethod == "creem" || topUp.PaymentMethod == "waffo" {
+			log.Printf("易支付回调订单支付方式不匹配: %s, 订单号: %s", topUp.PaymentMethod, verifyInfo.ServiceTradeNo)
+			return
+		}
 		if topUp.Status == "pending" {
 			topUp.Status = "success"
 			err := topUp.Update()
