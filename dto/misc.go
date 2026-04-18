@@ -66,7 +66,10 @@ type StatusData struct {
 	PasskeyAttachment            string  `json:"passkey_attachment"`
 	Setup                        bool    `json:"setup"`
 	UserAgreementEnabled         bool    `json:"user_agreement_enabled"`
+	UserAgreementUrl             string  `json:"user_agreement_url,omitempty"`
 	PrivacyPolicyEnabled         bool    `json:"privacy_policy_enabled"`
+	PrivacyPolicyUrl             string  `json:"privacy_policy_url,omitempty"`
+	AboutUrl                     string  `json:"about_url,omitempty"`
 	CheckinEnabled               bool    `json:"checkin_enabled"`
 	PasswordLoginEnabled         bool    `json:"password_login_enabled"`
 	PasswordRegisterEnabled      bool    `json:"password_register_enabled"`

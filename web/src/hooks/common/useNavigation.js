@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-export const useNavigation = (docsLink, headerNavModules) => {
+export const useNavigation = (docsLink, headerNavModules, aboutUrl) => {
   const { t } = useTranslation();
   const mainNavLinks = useMemo(() => {
     // 默认配置，如果没有传入配置则显示所有模块
@@ -64,7 +64,9 @@ export const useNavigation = (docsLink, headerNavModules) => {
       {
         text: t('关于'),
         itemKey: 'about',
-        to: '/about',
+        ...(aboutUrl
+          ? { isExternal: true, externalLink: aboutUrl }
+          : { to: '/about' }),
       },
     ];
 
@@ -81,7 +83,7 @@ export const useNavigation = (docsLink, headerNavModules) => {
       }
       return modules[link.itemKey] === true;
     });
-  }, [t, docsLink, headerNavModules]);
+  }, [t, docsLink, headerNavModules, aboutUrl]);
 
   return {
     mainNavLinks,

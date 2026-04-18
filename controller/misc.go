@@ -100,7 +100,10 @@ func GetStatus(c fuego.ContextNoBody) (*dto.Response[dto.StatusData], error) {
 		PasskeyAttachment:          passkeySetting.AttachmentPreference,
 		Setup:                      constant.Setup,
 		UserAgreementEnabled:       legalSetting.UserAgreement != "",
+		UserAgreementUrl:           externalDocUrl(legalSetting.UserAgreement),
 		PrivacyPolicyEnabled:       legalSetting.PrivacyPolicy != "",
+		PrivacyPolicyUrl:           externalDocUrl(legalSetting.PrivacyPolicy),
+		AboutUrl:                   externalDocUrl(common.Interface2String(common.OptionMap["About"])),
 		CheckinEnabled:             operation_setting.GetCheckinSetting().Enabled,
 		PasswordLoginEnabled:       common.PasswordLoginEnabled,
 		PasswordRegisterEnabled:    common.PasswordRegisterEnabled,
@@ -150,6 +153,27 @@ func GetAbout(c fuego.ContextNoBody) (*dto.Response[string], error) {
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
 	return dto.Ok(common.Interface2String(common.OptionMap["About"]))
+}
+
+// externalDocUrl returns the trimmed content when it is a plain http(s) URL,
+// otherwise an empty string. Used to let the login/register pages and nav bar
+// link directly to an external document instead of the internal viewer route.
+func externalDocUrl(content string) string {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return ""
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return ""
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return ""
+	}
+	if parsed.Host == "" {
+		return ""
+	}
+	return trimmed
 }
 
 func GetUserAgreement(c fuego.ContextNoBody) (*dto.Response[string], error) {

@@ -106,7 +106,9 @@ const LoginForm = () => {
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [hasUserAgreement, setHasUserAgreement] = useState(false);
+  const [userAgreementUrl, setUserAgreementUrl] = useState('');
   const [hasPrivacyPolicy, setHasPrivacyPolicy] = useState(false);
+  const [privacyPolicyUrl, setPrivacyPolicyUrl] = useState('');
   const [githubButtonState, setGithubButtonState] = useState('idle');
   const [githubButtonDisabled, setGithubButtonDisabled] = useState(false);
   const githubTimeoutRef = useRef(null);
@@ -151,7 +153,9 @@ const LoginForm = () => {
 
     // 从 status 获取用户协议和隐私政策的启用状态
     setHasUserAgreement(status?.user_agreement_enabled || false);
+    setUserAgreementUrl(status?.user_agreement_url || '');
     setHasPrivacyPolicy(status?.privacy_policy_enabled || false);
+    setPrivacyPolicyUrl(status?.privacy_policy_url || '');
   }, [status]);
 
   useEffect(() => {
@@ -669,7 +673,7 @@ const LoginForm = () => {
                       {hasUserAgreement && (
                         <>
                           <a
-                            href='/user-agreement'
+                            href={userAgreementUrl || '/user-agreement'}
                             target='_blank'
                             rel='noopener noreferrer'
                             className='text-blue-600 hover:text-blue-800 mx-1'
@@ -682,7 +686,7 @@ const LoginForm = () => {
                       {hasPrivacyPolicy && (
                         <>
                           <a
-                            href='/privacy-policy'
+                            href={privacyPolicyUrl || '/privacy-policy'}
                             target='_blank'
                             rel='noopener noreferrer'
                             className='text-blue-600 hover:text-blue-800 mx-1'
@@ -775,7 +779,7 @@ const LoginForm = () => {
                         {hasUserAgreement && (
                           <>
                             <a
-                              href='/user-agreement'
+                              href={userAgreementUrl || '/user-agreement'}
                               target='_blank'
                               rel='noopener noreferrer'
                               className='text-blue-600 hover:text-blue-800 mx-1'
@@ -788,7 +792,7 @@ const LoginForm = () => {
                         {hasPrivacyPolicy && (
                           <>
                             <a
-                              href='/privacy-policy'
+                              href={privacyPolicyUrl || '/privacy-policy'}
                               target='_blank'
                               rel='noopener noreferrer'
                               className='text-blue-600 hover:text-blue-800 mx-1'
