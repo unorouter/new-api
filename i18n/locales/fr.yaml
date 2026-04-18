@@ -2669,3 +2669,7 @@ auth.user_id_not_provided: 'Non autorisé, en-tête New-Api-User non fourni'
 auth.user_info_invalid: 'Non autorisé, informations utilisateur invalides'
 common.batch_too_many: 'Trop d''éléments dans la requête batch, maximum {{.Max}}'
 user.quota_change_zero: 'Le montant de modification du quota ne peut pas être zéro'
+
+# Topup confirmation email
+email.topup_success.subject: "Confirmation de paiement {{.SystemName}}"
+email.topup_success.body: "<p>Bonjour {{.Username}},</p><p>Merci pour votre paiement de {{.Amount}} {{.Currency}}. Nous avons ajouté {{.Quota}} de crédit à votre compte.</p><p>Référence de la commande : {{.TradeNo}}</p><p>L''équipe {{.SystemName}}</p>"

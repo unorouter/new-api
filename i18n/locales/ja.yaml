@@ -2669,3 +2669,7 @@ auth.user_id_not_provided: '権限がありません、New-Api-User ヘッダー
 auth.user_info_invalid: '権限がありません、ユーザー情報が無効です'
 common.batch_too_many: 'バッチリクエストの件数が多すぎます、最大 {{.Max}} 件'
 user.quota_change_zero: 'クォータの変更量を 0 にすることはできません'
+
+# Topup confirmation email
+email.topup_success.subject: "{{.SystemName}} お支払い確認"
+email.topup_success.body: "<p>{{.Username}} 様</p><p>{{.Amount}} {{.Currency}} のお支払いありがとうございます。アカウントに {{.Quota}} のクレジットを追加しました。</p><p>注文番号：{{.TradeNo}}</p><p>{{.SystemName}} チーム</p>"

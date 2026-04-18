@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 
 	"github.com/gin-gonic/gin"
@@ -253,6 +254,9 @@ func handleCheckoutCompleted(c *gin.Context, event *dto.CreemWebhookEvent) {
 	}
 
 	log.Printf(i18n.Translate("topup.creem_success", map[string]any{"OrderNo": referenceId, "Quota": topUp.Amount, "PayAmount": topUp.Money}))
+
+	go service.SendTopupConfirmationEmail(topUp.UserId, topUp.Money, topUp.Amount, event.Object.Order.Currency, topUp.TradeNo)
+
 	c.Status(http.StatusOK)
 }
 

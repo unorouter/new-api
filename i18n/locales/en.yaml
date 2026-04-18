@@ -2672,3 +2672,7 @@ ctrl.tuc: "TUC%d"
 # Setting related messages
 
 # Middleware messages
+
+# Topup confirmation email
+email.topup_success.subject: "{{.SystemName}} payment confirmation"
+email.topup_success.body: "<p>Hi {{.Username}},</p><p>Thanks for your payment of {{.Amount}} {{.Currency}}. We have added {{.Quota}} of credit to your account.</p><p>Order reference: {{.TradeNo}}</p><p>The {{.SystemName}} team</p>"

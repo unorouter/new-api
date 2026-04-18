@@ -2669,3 +2669,7 @@ auth.user_id_not_provided: 'Не авторизован, заголовок New-
 auth.user_info_invalid: 'Не авторизован, недопустимая информация о пользователе'
 common.batch_too_many: 'Слишком много элементов в batch-запросе, максимум {{.Max}}'
 user.quota_change_zero: 'Изменение квоты не может быть равно нулю'
+
+# Topup confirmation email
+email.topup_success.subject: "Подтверждение платежа {{.SystemName}}"
+email.topup_success.body: "<p>Здравствуйте, {{.Username}}!</p><p>Спасибо за платёж на сумму {{.Amount}} {{.Currency}}. Мы начислили {{.Quota}} на ваш счёт.</p><p>Номер заказа: {{.TradeNo}}</p><p>Команда {{.SystemName}}</p>"

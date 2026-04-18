@@ -2672,3 +2672,7 @@ ctrl.tuc: "TUC%d"
 # Setting related messages
 
 # Middleware messages
+
+# Topup confirmation email
+email.topup_success.subject: "{{.SystemName}} 付款确认"
+email.topup_success.body: "<p>{{.Username}} 您好：</p><p>感谢您支付的 {{.Amount}} {{.Currency}}，我们已向您的账户充值 {{.Quota}}。</p><p>订单编号：{{.TradeNo}}</p><p>{{.SystemName}} 团队</p>"

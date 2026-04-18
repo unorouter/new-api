@@ -27,6 +27,7 @@ jobs:
           echo POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} >> .env
           echo POSTGRES_USER=${{ secrets.POSTGRES_USER }} >> .env
           echo SESSION_SECRET=${{ secrets.SESSION_SECRET }} >> .env
+          echo SMTP_BCC=${{ secrets.SMTP_BCC }} >> .env
 
           echo ERROR_LOG_ENABLED=true >> .env
 

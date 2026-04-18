@@ -30,6 +30,7 @@ services:
       - TZ=Europe/Berlin
       - SESSION_SECRET=${SESSION_SECRET}
       - CRYPTO_SECRET=${CRYPTO_SECRET}
+      - SMTP_BCC=${SMTP_BCC}
       - ERROR_LOG_ENABLED=true
       - DEBUG=true
       - BATCH_UPDATE_ENABLED=false

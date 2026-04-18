@@ -2669,3 +2669,7 @@ auth.user_id_not_provided: 'Không được phép, thiếu header New-Api-User'
 auth.user_info_invalid: 'Không được phép, thông tin người dùng không hợp lệ'
 common.batch_too_many: 'Quá nhiều mục trong yêu cầu batch, tối đa {{.Max}}'
 user.quota_change_zero: 'Số lượng thay đổi hạn mức không được bằng 0'
+
+# Topup confirmation email
+email.topup_success.subject: "{{.SystemName}} xác nhận thanh toán"
+email.topup_success.body: "<p>Xin chào {{.Username}},</p><p>Cảm ơn bạn đã thanh toán {{.Amount}} {{.Currency}}. Chúng tôi đã cộng {{.Quota}} vào tài khoản của bạn.</p><p>Mã đơn hàng: {{.TradeNo}}</p><p>Đội ngũ {{.SystemName}}</p>"

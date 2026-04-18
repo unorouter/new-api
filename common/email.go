@@ -35,6 +35,13 @@ func getSMTPAuth() smtp.Auth {
 }
 
 func SendEmail(subject string, receiver string, content string) error {
+	return SendEmailWithBcc(subject, receiver, "", content)
+}
+
+// SendEmailWithBcc sends an email and includes the given semicolon-separated
+// bcc addresses in the SMTP envelope without exposing them in the message
+// headers (per RFC 5322, BCC recipients are envelope-only).
+func SendEmailWithBcc(subject string, receiver string, bcc string, content string) error {
 	if SMTPFrom == "" { // for compatibility
 		SMTPFrom = SMTPAccount
 	}
@@ -55,7 +62,9 @@ func SendEmail(subject string, receiver string, content string) error {
 		receiver, SystemName, SMTPFrom, encodedSubject, time.Now().Format(time.RFC1123Z), id, content))
 	auth := getSMTPAuth()
 	addr := fmt.Sprintf("%s:%d", SMTPServer, SMTPPort)
-	to := strings.Split(receiver, ";")
+	to := splitAndTrim(receiver)
+	bccList := splitAndTrim(bcc)
+	allRcpt := append(append([]string{}, to...), bccList...)
 	var err error
 	if SMTPPort == 465 || SMTPSSLEnabled {
 		tlsConfig := &tls.Config{
@@ -77,9 +86,8 @@ func SendEmail(subject string, receiver string, content string) error {
 		if err = client.Mail(SMTPFrom); err != nil {
 			return err
 		}
-		receiverEmails := strings.Split(receiver, ";")
-		for _, receiver := range receiverEmails {
-			if err = client.Rcpt(receiver); err != nil {
+		for _, rcpt := range allRcpt {
+			if err = client.Rcpt(rcpt); err != nil {
 				return err
 			}
 		}
@@ -96,10 +104,25 @@ func SendEmail(subject string, receiver string, content string) error {
 			return err
 		}
 	} else {
-		err = smtp.SendMail(addr, auth, SMTPFrom, to, mail)
+		err = smtp.SendMail(addr, auth, SMTPFrom, allRcpt, mail)
 	}
 	if err != nil {
 		SysError(fmt.Sprintf(Translate("common.failed_to_send_email_to"), receiver, err))
 	}
 	return err
+}
+
+func splitAndTrim(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ";")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

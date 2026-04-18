@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -245,6 +246,10 @@ func fulfillOrder(event stripe.Event, referenceId string, customerId string) {
 	total, _ := strconv.ParseFloat(event.GetObjectValue("amount_total"), 64)
 	currency := strings.ToUpper(event.GetObjectValue("currency"))
 	log.Printf(i18n.Translate("topup.stripe_payment_received", map[string]any{"OrderNo": referenceId, "Amount": fmt.Sprintf("%.2f", total/100), "Currency": currency}))
+
+	if topUp := model.GetTopUpByTradeNo(referenceId); topUp != nil {
+		go service.SendTopupConfirmationEmail(topUp.UserId, topUp.Money, topUp.Amount, currency, topUp.TradeNo)
+	}
 }
 
 func sessionExpired(event stripe.Event) {
