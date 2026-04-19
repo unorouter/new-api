@@ -230,7 +230,7 @@ func fulfillOrder(event stripe.Event, referenceId string, customerId string) {
 		"currency":     strings.ToUpper(event.GetObjectValue("currency")),
 		"event_type":   string(event.Type),
 	}
-	if err := model.CompleteSubscriptionOrder(referenceId, common.GetJsonString(payload)); err == nil {
+	if err := model.CompleteSubscriptionOrder(referenceId, common.GetJsonString(payload), model.PaymentMethodStripe); err == nil {
 		return
 	} else if err != nil && !errors.Is(err, model.ErrSubscriptionOrderNotFound) {
 		log.Println(i18n.Translate("ctrl.complete_subscription_order_failed"), err.Error(), referenceId)
@@ -268,7 +268,7 @@ func sessionExpired(event stripe.Event) {
 	// Subscription order expiration
 	LockOrder(referenceId)
 	defer UnlockOrder(referenceId)
-	if err := model.ExpireSubscriptionOrder(referenceId); err == nil {
+	if err := model.ExpireSubscriptionOrder(referenceId, model.PaymentMethodStripe); err == nil {
 		return
 	} else if err != nil && !errors.Is(err, model.ErrSubscriptionOrderNotFound) {
 		log.Println(i18n.Translate("topup.stripe_expire_sub_failed", map[string]any{"OrderNo": referenceId, "Error": err.Error()}))
