@@ -44,6 +44,8 @@ export default function SettingsMonitoring(props) {
       '100-199,300-399,401-407,409-499,500-503,505-523,525-599',
     'monitor_setting.auto_test_channel_enabled': false,
     'monitor_setting.auto_test_channel_minutes': 10,
+    'monitor_setting.auto_test_disabled_channels_only': false,
+    'monitor_setting.channel_status_notify_enabled': true,
   });
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
@@ -164,6 +166,24 @@ export default function SettingsMonitoring(props) {
                   }
                 />
               </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  field={'monitor_setting.auto_test_disabled_channels_only'}
+                  label={t('只测试已禁用的通道')}
+                  extraText={t(
+                    '开启后定时测试只会探测自动禁用的通道，用于在上游恢复后自动启用',
+                  )}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      'monitor_setting.auto_test_disabled_channels_only': value,
+                    })
+                  }
+                />
+              </Col>
             </Row>
             <Row gutter={16}>
               <Col xs={24} sm={12} md={8} lg={8} xl={8}>
@@ -230,6 +250,24 @@ export default function SettingsMonitoring(props) {
                     setInputs({
                       ...inputs,
                       AutomaticEnableChannelEnabled: value,
+                    })
+                  }
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  field={'monitor_setting.channel_status_notify_enabled'}
+                  label={t('通道启用/禁用时发送通知')}
+                  extraText={t(
+                    '关闭后自动禁用或启用通道时不再发送邮件、Webhook 等通知',
+                  )}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      'monitor_setting.channel_status_notify_enabled': value,
                     })
                   }
                 />

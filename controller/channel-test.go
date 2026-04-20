@@ -797,8 +797,12 @@ func testAllChannels(notify bool) error {
 			testAllChannelsLock.Unlock()
 		}()
 
+		autoTestDisabledOnly := operation_setting.GetMonitorSetting().AutoTestDisabledChannelsOnly
 		for _, channel := range channels {
 			if channel.Status == common.ChannelStatusManuallyDisabled {
+				continue
+			}
+			if autoTestDisabledOnly && channel.Status != common.ChannelStatusAutoDisabled {
 				continue
 			}
 			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
