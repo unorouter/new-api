@@ -519,7 +519,10 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
-		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
+		// Preserve the underlying cause (timeout, EOF, connection refused, etc.) so admins
+		// can see it in the error log panel. MaskSensitiveInfo (applied downstream) still
+		// anonymizes any host/path that appears inside the error string.
+		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed)
 	}
 	if resp == nil {
 		return nil, errors.New(i18n.Translate("relay.resp_is_nil"))
