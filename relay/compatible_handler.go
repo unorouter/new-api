@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/samber/lo"
@@ -43,6 +44,16 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	err = helper.ModelMappedHelper(c, info, request)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
+	}
+
+	// 强制上游流式：客户端发送 stream=false 且请求合格时，将 stream 改写为 true 让上游走 SSE，
+	// 响应层会把 SSE 聚合成一次性 JSON 返回给客户端。用来规避上游 reseller 网关对长响应的 30s header timeout。
+	if !info.ClientWantsStream &&
+		operation_setting.IsForceUpstreamStreamingEnabled() &&
+		isForceStreamEligibleOpenAI(request, info) {
+		request.Stream = lo.ToPtr(true)
+		info.IsStream = true
+		info.ForceUpstreamStream = true
 	}
 
 	includeUsage := true
@@ -214,4 +225,23 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	}
 	return nil
+}
+
+// isForceStreamEligibleOpenAI decides whether a non-streaming OpenAI-format request
+// is safe to transparently upgrade to upstream SSE + aggregation. Phase 1 excludes
+// tool calls and models on the thinking blacklist — their aggregation is non-trivial
+// and will land in a later phase.
+func isForceStreamEligibleOpenAI(request *dto.GeneralOpenAIRequest, info *relaycommon.RelayInfo) bool {
+	if request == nil {
+		return false
+	}
+	if len(request.Tools) > 0 {
+		return false
+	}
+	for _, m := range model_setting.GetGlobalSettings().ThinkingModelBlacklist {
+		if m == info.OriginModelName {
+			return false
+		}
+	}
+	return true
 }

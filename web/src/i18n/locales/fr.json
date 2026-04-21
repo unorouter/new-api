@@ -1384,6 +1384,8 @@
     "弱变换": "Faible variation",
     "强制将响应格式化为 OpenAI 标准格式（只适用于OpenAI渠道类型）": "Forcer le formatage des réponses au format standard OpenAI (uniquement pour les types de canaux OpenAI)",
     "强制格式化": "Forcer le format",
+    "强制上游流式": "Forcer le streaming en amont",
+    "客户端发送非流式请求时，内部改写为流式调用上游再聚合返回，规避上游网关长响应超时": "Lorsque le client envoie une requête non streaming, la passerelle la réécrit en streaming vers l'amont et agrège le résultat en retour. Évite les expirations de la passerelle amont sur les réponses longues.",
     "强制要求": "Exigence obligatoire",
     "强变换": "Forte variation",
     "当上游通道返回错误中包含这些关键词时（不区分大小写），自动禁用通道": "Lorsque le canal en amont renvoie une erreur contenant ces mots-clés (insensible à la casse), désactivez automatiquement le canal",

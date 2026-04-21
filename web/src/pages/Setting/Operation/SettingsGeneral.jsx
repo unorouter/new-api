@@ -59,6 +59,7 @@ export default function GeneralSettings(props) {
     SelfUseModeEnabled: false,
     'token_setting.max_user_tokens': 1000,
     ShowOriginalPriceEnabled: false,
+    'general_setting.force_upstream_streaming_enabled': false,
   });
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
@@ -400,6 +401,19 @@ export default function GeneralSettings(props) {
                   checkedText='｜'
                   uncheckedText='〇'
                   onChange={handleFieldChange('ShowOriginalPriceEnabled')}
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  field={'general_setting.force_upstream_streaming_enabled'}
+                  label={t('强制上游流式')}
+                  extraText={t('客户端发送非流式请求时，内部改写为流式调用上游再聚合返回，规避上游网关长响应超时')}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  onChange={handleFieldChange(
+                    'general_setting.force_upstream_streaming_enabled',
+                  )}
                 />
               </Col>
             </Row>

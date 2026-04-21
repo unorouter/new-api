@@ -97,6 +97,12 @@ type RelayInfo struct {
 	isFirstResponse   bool
 	//SendLastReasoningResponse bool
 	IsStream               bool
+	// ClientWantsStream 记录客户端原始意图：客户端发送的请求里 stream 是否为 true。
+	// IsStream 会被强制上游流式等机制改写（例如客户端 stream=false 但内部改为上游 stream=true），
+	// 这个字段保留未改写前的值，用于响应层决定是以 SSE 还是一次性 JSON 返回给客户端。
+	ClientWantsStream      bool
+	// ForceUpstreamStream 为 true 表示本次请求走了"客户端非流式 -> 上游流式 -> 聚合为一次性 JSON"路径。
+	ForceUpstreamStream    bool
 	IsGeminiBatchEmbedding bool
 	IsPlayground           bool
 	UsePrice               bool
@@ -470,8 +476,9 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		isFirstResponse: true,
 		RelayMode:       relayconstant.Path2RelayMode(c.Request.URL.Path),
 		RequestURLPath:  c.Request.URL.String(),
-		RequestHeaders:  cloneRequestHeaders(c),
-		IsStream:        isStream,
+		RequestHeaders:    cloneRequestHeaders(c),
+		IsStream:          isStream,
+		ClientWantsStream: isStream,
 
 		StartTime:         startTime,
 		FirstResponseTime: startTime.Add(-time.Second),

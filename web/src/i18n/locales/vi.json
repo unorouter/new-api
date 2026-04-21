@@ -1368,6 +1368,8 @@
     "弱变换": "Biến thể cao",
     "强制将响应格式化为 OpenAI 标准格式（只适用于OpenAI渠道类型）": "Buộc định dạng phản hồi theo định dạng chuẩn OpenAI (Chỉ dành cho các loại kênh OpenAI)",
     "强制格式化": "Buộc định dạng",
+    "强制上游流式": "Buộc streaming thượng nguồn",
+    "客户端发送非流式请求时，内部改写为流式调用上游再聚合返回，规避上游网关长响应超时": "Khi client gửi yêu cầu không streaming, gateway nội bộ sẽ chuyển thành streaming gọi thượng nguồn rồi gộp kết quả trả về, tránh timeout của gateway thượng nguồn với phản hồi dài.",
     "强制要求": "Yêu cầu bắt buộc",
     "强变换": "Biến thể thấp",
     "当上游通道返回错误中包含这些关键词时（不区分大小写），自动禁用通道": "Khi kênh thượng nguồn trả về lỗi chứa các từ khóa này (không phân biệt chữ hoa chữ thường), tự động vô hiệu hóa kênh",

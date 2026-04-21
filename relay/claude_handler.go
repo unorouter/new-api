@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 
@@ -40,6 +41,15 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	err = helper.ModelMappedHelper(c, info, request)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
+	}
+
+	// 强制上游流式：见 compatible_handler.go 同逻辑
+	if !info.ClientWantsStream &&
+		operation_setting.IsForceUpstreamStreamingEnabled() &&
+		isForceStreamEligibleClaude(request, info) {
+		request.Stream = common.GetPointer[bool](true)
+		info.IsStream = true
+		info.ForceUpstreamStream = true
 	}
 
 	adaptor := GetAdaptor(info.ApiType)
@@ -212,4 +222,33 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	return nil
+}
+
+// isForceStreamEligibleClaude gates the force-stream upgrade for /v1/messages.
+// Phase 1 skips tool calls and thinking-blacklist models — both need dedicated
+// aggregation paths that land later.
+func isForceStreamEligibleClaude(request *dto.ClaudeRequest, info *relaycommon.RelayInfo) bool {
+	if request == nil {
+		return false
+	}
+	if request.Tools != nil {
+		switch v := request.Tools.(type) {
+		case []any:
+			if len(v) > 0 {
+				return false
+			}
+		default:
+			// non-slice tools value — be conservative and skip
+			return false
+		}
+	}
+	if request.Thinking != nil {
+		return false
+	}
+	for _, m := range model_setting.GetGlobalSettings().ThinkingModelBlacklist {
+		if m == info.OriginModelName {
+			return false
+		}
+	}
+	return true
 }

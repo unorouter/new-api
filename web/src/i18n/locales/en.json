@@ -1386,6 +1386,8 @@
         "弱变换": "High Variation",
         "强制将响应格式化为 OpenAI 标准格式（只适用于OpenAI渠道类型）": "Force format responses to OpenAI standard format (Only for OpenAI channel types)",
         "强制格式化": "Force format",
+        "强制上游流式": "Force upstream streaming",
+        "客户端发送非流式请求时，内部改写为流式调用上游再聚合返回，规避上游网关长响应超时": "When the client sends a non-streaming request, the gateway rewrites it as streaming upstream and aggregates the result back. Avoids upstream gateway timeouts on long responses.",
         "强制要求": "Mandatory requirement",
         "强变换": "Low Variation",
         "当上游通道返回错误中包含这些关键词时（不区分大小写），自动禁用通道": "When the upstream channel returns an error containing these keywords (not case-sensitive), automatically disable the channel",

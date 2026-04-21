@@ -52,6 +52,7 @@ const OperationSetting = () => {
     DemoSiteEnabled: false,
     SelfUseModeEnabled: false,
     ShowOriginalPriceEnabled: false,
+    'general_setting.force_upstream_streaming_enabled': false,
 
     /* 顶栏模块管理 */
     HeaderNavModules: '',

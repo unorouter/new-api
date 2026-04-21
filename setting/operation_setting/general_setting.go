@@ -20,16 +20,19 @@ type GeneralSetting struct {
 	CustomCurrencySymbol string `json:"custom_currency_symbol"`
 	// 自定义货币与美元汇率（1 USD = X Custom）
 	CustomCurrencyExchangeRate float64 `json:"custom_currency_exchange_rate"`
+	// 强制上游流式：客户端发送 stream=false 时，内部改写为 stream=true 调用上游，再聚合成一次性 JSON 返回给客户端
+	ForceUpstreamStreamingEnabled bool `json:"force_upstream_streaming_enabled"`
 }
 
 // 默认配置
 var generalSetting = GeneralSetting{
-	DocsLink:                   "https://docs.newapi.pro",
-	PingIntervalEnabled:        false,
-	PingIntervalSeconds:        60,
-	QuotaDisplayType:           QuotaDisplayTypeUSD,
-	CustomCurrencySymbol:       "¤",
-	CustomCurrencyExchangeRate: 1.0,
+	DocsLink:                      "https://docs.newapi.pro",
+	PingIntervalEnabled:           false,
+	PingIntervalSeconds:           60,
+	QuotaDisplayType:              QuotaDisplayTypeUSD,
+	CustomCurrencySymbol:          "¤",
+	CustomCurrencyExchangeRate:    1.0,
+	ForceUpstreamStreamingEnabled: false,
 }
 
 func init() {
@@ -71,6 +74,11 @@ func GetCurrencySymbol() string {
 	default:
 		return ""
 	}
+}
+
+// IsForceUpstreamStreamingEnabled 返回是否开启强制上游流式
+func IsForceUpstreamStreamingEnabled() bool {
+	return generalSetting.ForceUpstreamStreamingEnabled
 }
 
 // GetUsdToCurrencyRate 返回 1 USD = X <currency> 的 X（TOKENS 不适用）
