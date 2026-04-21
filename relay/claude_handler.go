@@ -225,24 +225,11 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 }
 
 // isForceStreamEligibleClaude gates the force-stream upgrade for /v1/messages.
-// Phase 1 skips tool calls and thinking-blacklist models — both need dedicated
-// aggregation paths that land later.
+// Text, thinking, and tool_use blocks are all handled by the aggregator, so the
+// only gate is the thinking-model blacklist (response shape for those models is
+// still evolving upstream and best left untouched).
 func isForceStreamEligibleClaude(request *dto.ClaudeRequest, info *relaycommon.RelayInfo) bool {
 	if request == nil {
-		return false
-	}
-	if request.Tools != nil {
-		switch v := request.Tools.(type) {
-		case []any:
-			if len(v) > 0 {
-				return false
-			}
-		default:
-			// non-slice tools value — be conservative and skip
-			return false
-		}
-	}
-	if request.Thinking != nil {
 		return false
 	}
 	for _, m := range model_setting.GetGlobalSettings().ThinkingModelBlacklist {

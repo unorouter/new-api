@@ -2,7 +2,6 @@ package openai
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -20,14 +19,28 @@ import (
 )
 
 // choiceAggregator tracks streamed deltas for a single choice index so the final
-// non-stream response can be reconstructed. Tool calls are intentionally not
-// supported in Phase 1 — if a stream delta carries tool_calls we abort.
+// non-stream response can be reconstructed. Supports text, reasoning, and tool
+// call deltas.
 type choiceAggregator struct {
 	index            int
 	role             string
 	content          strings.Builder
 	reasoningContent strings.Builder
 	finishReason     string
+	// toolCalls maps tool-call index -> accumulated call. Order preserved in
+	// toolCallOrder so output matches the sequence upstream streamed.
+	toolCalls      map[int]*toolCallAggregator
+	toolCallOrder  []int
+}
+
+// toolCallAggregator accumulates streamed fragments of a single tool call.
+// Upstream typically sends id+name+type in the first delta and argument
+// fragments across subsequent deltas, all keyed by the same Index.
+type toolCallAggregator struct {
+	id        string
+	callType  string
+	name      string
+	arguments strings.Builder
 }
 
 // OaiStreamToJsonHandler consumes an SSE response from upstream but DOES NOT
@@ -53,7 +66,6 @@ func OaiStreamToJsonHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 		usage             *dto.Usage
 		choicesByIndex    = map[int]*choiceAggregator{}
 		orderedIndexes    []int
-		toolCallSeen      bool
 	)
 
 	streamErr := helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
@@ -84,11 +96,6 @@ func OaiStreamToJsonHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 			usage = chunk.Usage
 		}
 		for _, choice := range chunk.Choices {
-			if len(choice.Delta.ToolCalls) > 0 {
-				toolCallSeen = true
-				sr.Error(fmt.Errorf("force_upstream_stream: tool_calls not supported in Phase 1"))
-				return
-			}
 			agg, ok := choicesByIndex[choice.Index]
 			if !ok {
 				agg = &choiceAggregator{index: choice.Index}
@@ -107,14 +114,40 @@ func OaiStreamToJsonHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 			if choice.FinishReason != nil && *choice.FinishReason != "" {
 				agg.finishReason = *choice.FinishReason
 			}
+			// Tool call delta: keyed by tool_call.Index. First chunk usually carries
+			// id+type+name, later chunks append arguments fragments.
+			for _, tc := range choice.Delta.ToolCalls {
+				tcIdx := 0
+				if tc.Index != nil {
+					tcIdx = *tc.Index
+				}
+				if agg.toolCalls == nil {
+					agg.toolCalls = map[int]*toolCallAggregator{}
+				}
+				ta, ok := agg.toolCalls[tcIdx]
+				if !ok {
+					ta = &toolCallAggregator{}
+					agg.toolCalls[tcIdx] = ta
+					agg.toolCallOrder = append(agg.toolCallOrder, tcIdx)
+				}
+				if tc.ID != "" {
+					ta.id = tc.ID
+				}
+				if tStr, ok := tc.Type.(string); ok && tStr != "" {
+					ta.callType = tStr
+				}
+				if tc.Function.Name != "" {
+					ta.name = tc.Function.Name
+				}
+				if tc.Function.Arguments != "" {
+					ta.arguments.WriteString(tc.Function.Arguments)
+				}
+			}
 		}
 	})
 
 	if streamErr != nil {
 		return nil, streamErr
-	}
-	if toolCallSeen {
-		return nil, types.NewOpenAIError(errors.New("force_upstream_stream: tool_calls not supported"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 
 	if responseId == "" {
@@ -157,9 +190,32 @@ func OaiStreamToJsonHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 		if agg.reasoningContent.Len() > 0 {
 			msg.ReasoningContent = agg.reasoningContent.String()
 		}
+		if len(agg.toolCallOrder) > 0 {
+			toolCalls := make([]dto.ToolCallRequest, 0, len(agg.toolCallOrder))
+			for _, tcIdx := range agg.toolCallOrder {
+				ta := agg.toolCalls[tcIdx]
+				callType := ta.callType
+				if callType == "" {
+					callType = "function"
+				}
+				toolCalls = append(toolCalls, dto.ToolCallRequest{
+					ID:   ta.id,
+					Type: callType,
+					Function: dto.FunctionRequest{
+						Name:      ta.name,
+						Arguments: ta.arguments.String(),
+					},
+				})
+			}
+			msg.SetToolCalls(toolCalls)
+		}
 		finish := agg.finishReason
 		if finish == "" {
-			finish = constant.FinishReasonStop
+			if len(agg.toolCallOrder) > 0 {
+				finish = "tool_calls"
+			} else {
+				finish = constant.FinishReasonStop
+			}
 		}
 		response.Choices = append(response.Choices, dto.OpenAITextResponseChoice{
 			Index:        agg.index,

@@ -227,15 +227,13 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	return nil
 }
 
-// isForceStreamEligibleOpenAI decides whether a non-streaming OpenAI-format request
-// is safe to transparently upgrade to upstream SSE + aggregation. Phase 1 excludes
-// tool calls and models on the thinking blacklist — their aggregation is non-trivial
-// and will land in a later phase.
+// isForceStreamEligibleOpenAI decides whether a non-streaming OpenAI-format
+// request is safe to transparently upgrade to upstream SSE + aggregation.
+// Text, reasoning, and tool calls are all handled by the aggregator, so the
+// only gate is the thinking-model blacklist (response shape for those models
+// is still evolving upstream and best left untouched).
 func isForceStreamEligibleOpenAI(request *dto.GeneralOpenAIRequest, info *relaycommon.RelayInfo) bool {
 	if request == nil {
-		return false
-	}
-	if len(request.Tools) > 0 {
 		return false
 	}
 	for _, m := range model_setting.GetGlobalSettings().ThinkingModelBlacklist {

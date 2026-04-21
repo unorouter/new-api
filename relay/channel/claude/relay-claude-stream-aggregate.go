@@ -16,15 +16,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// blockAggregator tracks one content block as it streams in. Supports text
-// and thinking blocks. tool_use / server_tool_use still abort — those need
-// argument-fragment accumulation that isn't implemented yet.
+// blockAggregator tracks one content block as it streams in. Supports text,
+// thinking, and tool_use / server_tool_use blocks.
 type blockAggregator struct {
 	index     int
-	blockType string // "text" or "thinking"
+	blockType string // "text" | "thinking" | "tool_use" | "server_tool_use"
 	text      strings.Builder
 	thinking  strings.Builder
 	signature string
+	// tool_use fields: id+name arrive on content_block_start, JSON args stream
+	// in as partial_json fragments on subsequent input_json_delta events.
+	toolID       string
+	toolName     string
+	toolInputRaw strings.Builder
 }
 
 // ClaudeStreamToJsonHandler consumes an Anthropic Messages SSE stream from
@@ -112,6 +116,16 @@ func ClaudeStreamToJsonHandler(c *gin.Context, resp *http.Response, info *relayc
 					if event.ContentBlock.Thinking != nil {
 						agg.thinking.WriteString(*event.ContentBlock.Thinking)
 					}
+				case "tool_use", "server_tool_use":
+					agg.toolID = event.ContentBlock.Id
+					agg.toolName = event.ContentBlock.Name
+					// If the start event already carries a complete input object
+					// (some upstreams send the full JSON inline), capture it verbatim.
+					if event.ContentBlock.Input != nil {
+						if raw, mErr := common.Marshal(event.ContentBlock.Input); mErr == nil {
+							agg.toolInputRaw.Write(raw)
+						}
+					}
 				default:
 					unsupported = fmt.Errorf("force_upstream_stream: content block type %q not supported", event.ContentBlock.Type)
 					sr.Error(unsupported)
@@ -148,9 +162,14 @@ func ClaudeStreamToJsonHandler(c *gin.Context, resp *http.Response, info *relayc
 						agg.signature = event.Delta.Signature
 					}
 				case "input_json_delta":
-					unsupported = fmt.Errorf("force_upstream_stream: delta type %q not supported (tool calls not implemented)", event.Delta.Type)
-					sr.Error(unsupported)
-					return
+					// tool_use input JSON streams as partial_json fragments. Concat
+					// them; we parse the assembled string once the block closes.
+					if event.Delta.PartialJson != nil {
+						agg.toolInputRaw.WriteString(*event.Delta.PartialJson)
+					}
+					if agg.blockType == "" {
+						agg.blockType = "tool_use"
+					}
 				default:
 					// Some upstreams omit Type on text deltas; if Text is set, treat as text.
 					if event.Delta.Text != nil {
@@ -210,6 +229,27 @@ func ClaudeStreamToJsonHandler(c *gin.Context, resp *http.Response, info *relayc
 			block.Thinking = &thinkingText
 			if agg.signature != "" {
 				block.Signature = agg.signature
+			}
+			response.Content = append(response.Content, block)
+		case "tool_use", "server_tool_use":
+			block := dto.ClaudeMediaMessage{
+				Type: agg.blockType,
+				Id:   agg.toolID,
+				Name: agg.toolName,
+			}
+			// Parse the accumulated partial_json back into a structured object.
+			// If parsing fails (truncated stream, malformed JSON), fall back to
+			// the raw string so the client at least sees what upstream sent.
+			raw := agg.toolInputRaw.String()
+			if raw == "" {
+				block.Input = map[string]any{}
+			} else {
+				var parsed any
+				if err := common.UnmarshalJsonStr(raw, &parsed); err == nil {
+					block.Input = parsed
+				} else {
+					block.Input = raw
+				}
 			}
 			response.Content = append(response.Content, block)
 		default:
