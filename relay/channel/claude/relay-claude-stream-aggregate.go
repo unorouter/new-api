@@ -16,14 +16,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// blockAggregator tracks one content block as it streams in. Phase 1 supports
-// text blocks only — tool_use / server_tool_use / thinking blocks cause the
-// force-stream path to abort (eligibility check in relay/claude_handler.go
-// already excludes requests carrying tools or thinking, but we guard here too).
+// blockAggregator tracks one content block as it streams in. Supports text
+// and thinking blocks. tool_use / server_tool_use still abort — those need
+// argument-fragment accumulation that isn't implemented yet.
 type blockAggregator struct {
-	index    int
-	blockType string
-	text     strings.Builder
+	index     int
+	blockType string // "text" or "thinking"
+	text      strings.Builder
+	thinking  strings.Builder
+	signature string
 }
 
 // ClaudeStreamToJsonHandler consumes an Anthropic Messages SSE stream from
@@ -49,7 +50,6 @@ func ClaudeStreamToJsonHandler(c *gin.Context, resp *http.Response, info *relayc
 		modelName     = info.UpstreamModelName
 		role          = "assistant"
 		stopReason    string
-		stopSequence  string
 		finalUsage    *dto.ClaudeUsage
 		startUsage    *dto.ClaudeUsage
 		blocksByIndex = map[int]*blockAggregator{}
@@ -103,13 +103,19 @@ func ClaudeStreamToJsonHandler(c *gin.Context, resp *http.Response, info *relayc
 			}
 			if event.ContentBlock != nil {
 				agg.blockType = event.ContentBlock.Type
-				if event.ContentBlock.Type != "text" {
-					unsupported = fmt.Errorf("force_upstream_stream: content block type %q not supported in Phase 1", event.ContentBlock.Type)
+				switch event.ContentBlock.Type {
+				case "text":
+					if event.ContentBlock.Text != nil {
+						agg.text.WriteString(*event.ContentBlock.Text)
+					}
+				case "thinking":
+					if event.ContentBlock.Thinking != nil {
+						agg.thinking.WriteString(*event.ContentBlock.Thinking)
+					}
+				default:
+					unsupported = fmt.Errorf("force_upstream_stream: content block type %q not supported", event.ContentBlock.Type)
 					sr.Error(unsupported)
 					return
-				}
-				if event.ContentBlock.Text != nil {
-					agg.text.WriteString(*event.ContentBlock.Text)
 				}
 			} else {
 				agg.blockType = "text"
@@ -128,8 +134,21 @@ func ClaudeStreamToJsonHandler(c *gin.Context, resp *http.Response, info *relayc
 					if event.Delta.Text != nil {
 						agg.text.WriteString(*event.Delta.Text)
 					}
-				case "input_json_delta", "thinking_delta", "signature_delta":
-					unsupported = fmt.Errorf("force_upstream_stream: delta type %q not supported in Phase 1", event.Delta.Type)
+				case "thinking_delta":
+					if event.Delta.Thinking != nil {
+						agg.thinking.WriteString(*event.Delta.Thinking)
+					}
+					if agg.blockType == "" {
+						agg.blockType = "thinking"
+					}
+				case "signature_delta":
+					// Cryptographic signature bound to the thinking block.
+					// Upstream sends it as a single final delta on the thinking block.
+					if event.Delta.Signature != "" {
+						agg.signature = event.Delta.Signature
+					}
+				case "input_json_delta":
+					unsupported = fmt.Errorf("force_upstream_stream: delta type %q not supported (tool calls not implemented)", event.Delta.Type)
 					sr.Error(unsupported)
 					return
 				default:
@@ -182,18 +201,23 @@ func ClaudeStreamToJsonHandler(c *gin.Context, resp *http.Response, info *relayc
 		StopReason:   stopReason,
 		Usage:        merged,
 	}
-	if stopSequence != "" {
-		// no dedicated field on ClaudeResponse — skip (Anthropic's real API returns
-		// stop_sequence on the top-level; the current DTO does not expose it).
-	}
 	for _, idx := range orderedIdx {
 		agg := blocksByIndex[idx]
-		text := agg.text.String()
-		block := dto.ClaudeMediaMessage{
-			Type: "text",
+		switch agg.blockType {
+		case "thinking":
+			block := dto.ClaudeMediaMessage{Type: "thinking"}
+			thinkingText := agg.thinking.String()
+			block.Thinking = &thinkingText
+			if agg.signature != "" {
+				block.Signature = agg.signature
+			}
+			response.Content = append(response.Content, block)
+		default:
+			// text or unset — treat as text
+			block := dto.ClaudeMediaMessage{Type: "text"}
+			block.SetText(agg.text.String())
+			response.Content = append(response.Content, block)
 		}
-		block.SetText(text)
-		response.Content = append(response.Content, block)
 	}
 
 	// Ensure usage is populated for billing even if upstream was stingy.
