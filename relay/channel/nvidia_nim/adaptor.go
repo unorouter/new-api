@@ -55,17 +55,29 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 }
 
 // nimImageRequest is the upstream request format for NVIDIA NIM image generation.
+// All tuning fields are pointers with omitempty so we only send what the caller
+// provided; NVIDIA applies per-model defaults server-side. This avoids hardcoding
+// per-model step caps (e.g. flux.1-schnell requires steps<=4) in this adaptor.
 type nimImageRequest struct {
-	Prompt   string  `json:"prompt"`
-	CfgScale float64 `json:"cfg_scale,omitempty"`
-	Steps    int     `json:"steps,omitempty"`
-	Seed     *int    `json:"seed,omitempty"`
+	Prompt   string   `json:"prompt"`
+	CfgScale *float64 `json:"cfg_scale,omitempty"`
+	Steps    *int     `json:"steps,omitempty"`
+	Seed     *int     `json:"seed,omitempty"`
 }
 
-// nimImageResponse is the upstream response format from NVIDIA NIM image generation.
+// nimImageResponse covers both response shapes NVIDIA NIM returns:
+//   - Stability AI: {"image": "<b64>", "finish_reason": "...", "seed": N}
+//   - Black Forest Labs flux: {"artifacts": [{"base64": "<b64>"}]}
 type nimImageResponse struct {
-	Image        string `json:"image"`
-	FinishReason string `json:"finish_reason"`
+	Image        string           `json:"image"`
+	FinishReason string           `json:"finish_reason"`
+	Seed         int              `json:"seed"`
+	Artifacts    []nimImageArtifact `json:"artifacts"`
+}
+
+type nimImageArtifact struct {
+	Base64       string `json:"base64"`
+	FinishReason string `json:"finishReason"`
 	Seed         int    `json:"seed"`
 }
 
@@ -74,11 +86,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		return nil, errors.New("nvidia_nim: prompt is required")
 	}
 
-	nimReq := nimImageRequest{
-		Prompt:   request.Prompt,
-		CfgScale: 5,
-		Steps:    20,
-	}
+	nimReq := nimImageRequest{Prompt: request.Prompt}
 
 	// Pass through extra fields if provided (cfg_scale, steps, seed, etc.)
 	if len(request.ExtraFields) > 0 {
@@ -87,13 +95,13 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 			if v, ok := extra["cfg_scale"]; ok {
 				var f float64
 				if json.Unmarshal(v, &f) == nil {
-					nimReq.CfgScale = f
+					nimReq.CfgScale = &f
 				}
 			}
 			if v, ok := extra["steps"]; ok {
 				var s int
 				if json.Unmarshal(v, &s) == nil {
-					nimReq.Steps = s
+					nimReq.Steps = &s
 				}
 			}
 			if v, ok := extra["seed"]; ok {
@@ -110,12 +118,12 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		case "cfg_scale":
 			var f float64
 			if common.Unmarshal(raw, &f) == nil {
-				nimReq.CfgScale = f
+				nimReq.CfgScale = &f
 			}
 		case "steps":
 			var s int
 			if common.Unmarshal(raw, &s) == nil {
-				nimReq.Steps = s
+				nimReq.Steps = &s
 			}
 		case "seed":
 			var s int
@@ -158,7 +166,16 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		)
 	}
 
-	if nimResp.Image == "" {
+	images := make([]dto.ImageData, 0, 1+len(nimResp.Artifacts))
+	if nimResp.Image != "" {
+		images = append(images, dto.ImageData{B64Json: nimResp.Image})
+	}
+	for _, art := range nimResp.Artifacts {
+		if art.Base64 != "" {
+			images = append(images, dto.ImageData{B64Json: art.Base64})
+		}
+	}
+	if len(images) == 0 {
 		return nil, types.NewError(
 			errors.New("nvidia_nim: no image data in response"),
 			types.ErrorCodeBadResponseBody,
@@ -167,9 +184,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 
 	imageResponse := dto.ImageResponse{
 		Created: common.GetTimestamp(),
-		Data: []dto.ImageData{
-			{B64Json: nimResp.Image},
-		},
+		Data:    images,
 	}
 
 	responseBytes, err := common.Marshal(imageResponse)

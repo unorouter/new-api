@@ -5,7 +5,7 @@ const ChannelName = "nvidia_nim"
 // ModelList contains all NVIDIA NIM free endpoint models.
 var ModelList = []string{
 	// Image generation
-	"stabilityai/stable-diffusion-3-medium",
+	"black-forest-labs/flux.1-schnell",
 
 	// LLMs (free endpoints)
 	"moonshotai/kimi-k2.5",

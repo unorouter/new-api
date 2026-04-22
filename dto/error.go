@@ -27,7 +27,7 @@ type GeneralErrorResponse struct {
 	Err      string          `json:"err"`
 	ErrorMsg string          `json:"error_msg"`
 	Metadata json.RawMessage `json:"metadata,omitempty"`
-	Detail   string          `json:"detail,omitempty"`
+	Detail   json.RawMessage `json:"detail,omitempty"`
 	Header   struct {
 		Message string `json:"message"`
 	} `json:"header"`
@@ -80,8 +80,19 @@ func (e GeneralErrorResponse) ToMessage() string {
 	if e.ErrorMsg != "" {
 		return e.ErrorMsg
 	}
-	if e.Detail != "" {
-		return e.Detail
+	if len(e.Detail) > 0 {
+		switch common.GetJsonType(e.Detail) {
+		case "string":
+			var msg string
+			if err := common.Unmarshal(e.Detail, &msg); err == nil && msg != "" {
+				return msg
+			}
+		default:
+			// FastAPI-style validation errors come back as an array or object.
+			// Return the raw JSON so the client sees what failed rather than a
+			// blank "bad response" message.
+			return string(e.Detail)
+		}
 	}
 	if e.Header.Message != "" {
 		return e.Header.Message
