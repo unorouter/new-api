@@ -6,9 +6,16 @@ const ChannelName = "nvidia_nim"
 var ModelList = []string{
 	// Image generation
 	"black-forest-labs/flux.1-schnell",
+	"black-forest-labs/flux.1-dev",
 
 	// LLMs (free endpoints)
 	"moonshotai/kimi-k2.5",
+	"qwen/qwen3-coder-480b-a35b-instruct",
+	"qwen/qwen3-next-80b-a3b-instruct",
+	"qwen/qwen3-next-80b-a3b-thinking",
+	"openai/gpt-oss-120b",
+	"openai/gpt-oss-20b",
+	"deepseek-ai/deepseek-v3.2",
 	"moonshotai/kimi-k2-instruct",
 	"moonshotai/kimi-k2-instruct-0905",
 	"moonshotai/kimi-k2-thinking",
