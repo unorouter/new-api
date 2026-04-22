@@ -22,8 +22,9 @@ type Pricing struct {
 	Tags                   string                  `json:"tags,omitempty"`
 	// Metadata is the per-model JSON blob from the Model table — opaque to
 	// new-api, consumed by client UIs for model-specific hints like
-	// maxOutputTokens for thinking models.
-	Metadata               string                  `json:"metadata,omitempty"`
+	// maxOutputTokens for thinking models. Always serialized (no
+	// `omitempty`) so sync tools can feature-detect this field.
+	Metadata               string                  `json:"metadata"`
 	VendorID               int                     `json:"vendor_id,omitempty"`
 	QuotaType              int                     `json:"quota_type"`
 	ModelRatio             float64                 `json:"model_ratio"`

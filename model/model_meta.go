@@ -31,8 +31,10 @@ type Model struct {
 	// Metadata holds per-model client hints as a JSON object (e.g.
 	// {"maxOutputTokens":8192,"isReasoning":true}). Opaque to new-api —
 	// populated by the sync, read by client UIs that need model-specific
-	// behavior (like bumping max_tokens for thinking models).
-	Metadata     string         `json:"metadata,omitempty" gorm:"type:text"`
+	// behavior (like bumping max_tokens for thinking models). Always
+	// serialized (no `omitempty`) so sync tools can feature-detect this
+	// column by checking for the field in the response.
+	Metadata     string         `json:"metadata" gorm:"type:text"`
 	Status       int            `json:"status" gorm:"default:1"`
 	SyncOfficial int            `json:"sync_official" gorm:"default:1"`
 	CreatedTime  int64          `json:"created_time" gorm:"bigint"`
