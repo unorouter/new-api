@@ -86,6 +86,7 @@ func toPricingModels(src []model.Pricing) []dto.PricingModel {
 			Description:            m.Description,
 			Icon:                   m.Icon,
 			Tags:                   m.Tags,
+			Metadata:               m.Metadata,
 			VendorID:               m.VendorID,
 			QuotaType:              m.QuotaType,
 			ModelRatio:             m.ModelRatio,
