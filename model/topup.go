@@ -420,7 +420,7 @@ func RechargeCreem(referenceId string, customerEmail string, customerName string
 func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 	_ = callerIp
 	if tradeNo == "" {
-		return errors.New("未提供支付单号")
+		return errors.New(i18n.Translate("topup.trade_no_missing"))
 	}
 
 	var quotaToAdd int
@@ -434,7 +434,7 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(refCol+" = ?", tradeNo).First(topUp).Error
 		if err != nil {
-			return errors.New("充值订单不存在")
+			return errors.New(i18n.Translate("topup.order_not_found_model"))
 		}
 
 		if topUp.PaymentMethod != "waffo" {
@@ -446,14 +446,14 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 		}
 
 		if topUp.Status != common.TopUpStatusPending {
-			return errors.New("充值订单状态错误")
+			return errors.New(i18n.Translate("topup.order_status_error_model"))
 		}
 
 		dAmount := decimal.NewFromInt(topUp.Amount)
 		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
 		quotaToAdd = int(dAmount.Mul(dQuotaPerUnit).IntPart())
 		if quotaToAdd <= 0 {
-			return errors.New("无效的充值额度")
+			return errors.New(i18n.Translate("topup.invalid_amount"))
 		}
 
 		topUp.CompleteTime = common.GetTimestamp()
@@ -471,7 +471,7 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 
 	if err != nil {
 		common.SysError("waffo topup failed: " + err.Error())
-		return errors.New("充值失败，请稍后重试")
+		return errors.New(i18n.Translate("topup.failed_model"))
 	}
 
 	if quotaToAdd > 0 {
@@ -483,7 +483,7 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 
 func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentMethod string, targetStatus string) error {
 	if tradeNo == "" {
-		return errors.New("未提供支付单号")
+		return errors.New(i18n.Translate("topup.trade_no_missing"))
 	}
 
 	refCol := "`trade_no`"
@@ -510,7 +510,7 @@ func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentMethod string, targ
 
 func RechargeWaffoPancake(tradeNo string) (err error) {
 	if tradeNo == "" {
-		return errors.New("未提供支付单号")
+		return errors.New(i18n.Translate("topup.trade_no_missing"))
 	}
 
 	var quotaToAdd int
@@ -524,7 +524,7 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(refCol+" = ?", tradeNo).First(topUp).Error
 		if err != nil {
-			return errors.New("充值订单不存在")
+			return errors.New(i18n.Translate("topup.order_not_found_model"))
 		}
 
 		if topUp.PaymentMethod != PaymentMethodWaffoPancake {
@@ -536,12 +536,12 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 		}
 
 		if topUp.Status != common.TopUpStatusPending {
-			return errors.New("充值订单状态错误")
+			return errors.New(i18n.Translate("topup.order_status_error_model"))
 		}
 
 		quotaToAdd = int(decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
 		if quotaToAdd <= 0 {
-			return errors.New("无效的充值额度")
+			return errors.New(i18n.Translate("topup.invalid_amount"))
 		}
 
 		topUp.CompleteTime = common.GetTimestamp()
@@ -559,7 +559,7 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 
 	if err != nil {
 		common.SysError("waffo pancake topup failed: " + err.Error())
-		return errors.New("充值失败，请稍后重试")
+		return errors.New(i18n.Translate("topup.failed_model"))
 	}
 
 	if quotaToAdd > 0 {

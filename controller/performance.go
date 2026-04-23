@@ -170,17 +170,18 @@ func GetLogFiles(c fuego.ContextNoBody) (*dto.Response[dto.LogFilesResponse], er
 
 // CleanupLogFiles 清理过期日志文件
 func CleanupLogFiles(c fuego.ContextNoBody) (*dto.Response[dto.LogCleanupResult], error) {
+	ginCtx := dto.GinCtx(c)
 	mode := c.QueryParam("mode")
 	valueStr := c.QueryParam("value")
 	if mode != "by_count" && mode != "by_days" {
-		return dto.Fail[dto.LogCleanupResult]("invalid mode, must be by_count or by_days")
+		return dto.Fail[dto.LogCleanupResult](common.TranslateMessage(ginCtx, "performance.invalid_mode_must_be_by_count_or_by_days"))
 	}
 	value, err := strconv.Atoi(valueStr)
 	if err != nil || value < 1 {
-		return dto.Fail[dto.LogCleanupResult]("invalid value, must be a positive integer")
+		return dto.Fail[dto.LogCleanupResult](common.TranslateMessage(ginCtx, "performance.invalid_value_must_be_positive_integer"))
 	}
 	if *common.LogDir == "" {
-		return dto.Fail[dto.LogCleanupResult]("log directory not configured")
+		return dto.Fail[dto.LogCleanupResult](common.TranslateMessage(ginCtx, "performance.log_directory_not_configured"))
 	}
 
 	files, err := getLogFiles()

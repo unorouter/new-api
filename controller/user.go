@@ -182,14 +182,15 @@ func setupBindAndRedirect(user *model.User, c *gin.Context, redirectURI string) 
 
 // ExchangeOAuthCode exchanges a one-time OAuth code for user data and access token.
 func ExchangeOAuthCode(c fuego.ContextWithBody[dto.OAuthExchangeRequest]) (*dto.Response[dto.OAuthExchangeData], error) {
+	ginCtx := dto.GinCtx(c)
 	body, err := c.Body()
 	if err != nil || body.Code == "" {
-		return dto.Fail[dto.OAuthExchangeData]("invalid code")
+		return dto.Fail[dto.OAuthExchangeData](common.TranslateMessage(ginCtx, "oauth.invalid_code"))
 	}
 
 	data := common.RedeemOAuthExchangeCode(body.Code)
 	if data == nil {
-		return dto.Fail[dto.OAuthExchangeData]("invalid or expired code")
+		return dto.Fail[dto.OAuthExchangeData](common.TranslateMessage(ginCtx, "oauth.invalid_or_expired_code"))
 	}
 
 	return dto.Ok(dto.OAuthExchangeData{

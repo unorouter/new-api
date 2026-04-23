@@ -473,7 +473,7 @@ func requirePasskeyDeleteVerification(c *gin.Context, userID int) bool {
 		if errors.Is(err, model.ErrPasskeyNotFound) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "该用户尚未绑定 Passkey",
+				"message": i18n.Translate("passkey.user_no_passkey_bound"),
 			})
 			return false
 		}
@@ -491,12 +491,12 @@ func requireSecureVerificationMethod(c *gin.Context, method string) bool {
 		session.Delete(SecureVerificationSessionKey)
 		session.Delete(secureVerificationMethodSessionKey)
 		_ = session.Save()
-		common.ApiErrorMsg(c, "请先完成安全验证")
+		common.ApiErrorMsg(c, i18n.Translate("passkey.complete_security_verification_first"))
 		return false
 	}
 
 	if verifiedMethod, ok := session.Get(secureVerificationMethodSessionKey).(string); !ok || verifiedMethod != method {
-		common.ApiErrorMsg(c, "请先完成对应的安全验证")
+		common.ApiErrorMsg(c, i18n.Translate("passkey.complete_matching_security_verification_first"))
 		return false
 	}
 

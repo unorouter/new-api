@@ -59,7 +59,7 @@ func GenerateOAuthCode(c fuego.ContextWithParams[dto.GenerateOAuthCodeParams]) (
 				}
 			}
 			if userID == 0 {
-				return dto.Fail[string]("authentication required for bind")
+				return dto.Fail[string](common.TranslateMessage(ginCtx, "oauth.authentication_required_for_bind"))
 			}
 			stateData.UserID = userID
 			stateData.Action = "bind"
