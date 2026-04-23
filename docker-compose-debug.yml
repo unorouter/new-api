@@ -36,7 +36,8 @@ services:
       - GIN_MODE=debug
       - ENABLE_OPENAPI=true
       - DEFAULT_LANGUAGE=en # Backend language: en, zh-CN, zh-TW, fr, ja, ru, vi
-      - RELAY_TIMEOUT=90
+      - RELAY_TIMEOUT=300
+      - STREAMING_TIMEOUT=600
       - GLOBAL_API_RATE_LIMIT_ENABLE=false
       - OAUTH_ALLOWED_REDIRECT_ORIGINS=https://unorouter.ai,http://localhost:3000
     labels:
