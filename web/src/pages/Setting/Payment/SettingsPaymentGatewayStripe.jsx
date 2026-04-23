@@ -189,32 +189,32 @@ export default function SettingsPaymentGateway(props) {
             label={t('启用 Stripe 支付')}
           />
           <Text>
-            Stripe 密钥、Webhook 等设置请
+            {t('Stripe 密钥、Webhook 等设置请')}
             <a
               href='https://dashboard.stripe.com/developers'
               target='_blank'
               rel='noreferrer'
             >
-              点击此处
+              {t('点击此处')}
             </a>
-            进行设置，最好先在
+            {t('进行设置，最好先在')}
             <a
               href='https://dashboard.stripe.com/test/developers'
               target='_blank'
               rel='noreferrer'
             >
-              测试环境
+              {t('测试环境')}
             </a>
-            进行测试。
+            {t('进行测试。')}
             <br />
           </Text>
           <Banner
             type='info'
-            description={`Webhook 填：${props.options.ServerAddress ? removeTrailingSlash(props.options.ServerAddress) : t('网站地址')}/api/stripe/webhook`}
+            description={`${t('Webhook 填：')}${props.options.ServerAddress ? removeTrailingSlash(props.options.ServerAddress) : t('网站地址')}/api/stripe/webhook`}
           />
           <Banner
             type='warning'
-            description={`需要包含事件：checkout.session.completed 和 checkout.session.expired`}
+            description={t('需要包含事件：checkout.session.completed 和 checkout.session.expired')}
           />
           <Row gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}>
             <Col xs={24} sm={24} md={8} lg={8} xl={8}>
