@@ -33,6 +33,10 @@ func PasskeyRegisterBegin(c *gin.Context) {
 		return
 	}
 
+	if !requirePasskeyRegistrationVerification(c, user.Id) {
+		return
+	}
+
 	credential, err := model.GetPasskeyByUserID(user.Id)
 	if err != nil && !errors.Is(err, model.ErrPasskeyNotFound) {
 		common.ApiError(c, err)
@@ -85,6 +89,10 @@ func PasskeyRegisterFinish(c *gin.Context) {
 		return
 	}
 
+	if !requirePasskeyRegistrationVerification(c, user.Id) {
+		return
+	}
+
 	wa, err := passkeysvc.BuildWebAuthn(c.Request)
 	if err != nil {
 		common.ApiError(c, err)
@@ -131,6 +139,10 @@ func PasskeyDelete(c *gin.Context) {
 	user, err := getSessionUser(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, dto.ApiResponse{Message: err.Error()})
+		return
+	}
+
+	if !requirePasskeyDeleteVerification(c, user.Id) {
 		return
 	}
 
@@ -405,6 +417,7 @@ func PasskeyVerifyFinish(c *gin.Context) {
 	// Mark passkey as ready; /api/verify will convert this into the final secure verification session.
 	session.Set(PasskeyReadySessionKey, time.Now().Unix())
 	session.Delete(SecureVerificationSessionKey)
+	session.Delete(secureVerificationMethodSessionKey)
 	if err := session.Save(); err != nil {
 		common.ApiError(c, fmt.Errorf("%s: %v", i18n.Translate("secure_verification.save_state_failed"), err))
 		return
@@ -431,4 +444,61 @@ func getSessionUser(c *gin.Context) (*model.User, error) {
 		return nil, errors.New(i18n.T(c, "user.disabled"))
 	}
 	return user, nil
+}
+
+func requirePasskeyRegistrationVerification(c *gin.Context, userID int) bool {
+	twoFA, err := model.GetTwoFAByUserId(userID)
+	if err != nil {
+		common.ApiError(c, err)
+		return false
+	}
+	if twoFA == nil || !twoFA.IsEnabled {
+		return true
+	}
+	return requireSecureVerificationMethod(c, secureVerificationMethod2FA)
+}
+
+func requirePasskeyDeleteVerification(c *gin.Context, userID int) bool {
+	twoFA, err := model.GetTwoFAByUserId(userID)
+	if err != nil {
+		common.ApiError(c, err)
+		return false
+	}
+	if twoFA != nil && twoFA.IsEnabled {
+		return requireSecureVerificationMethod(c, secureVerificationMethod2FA)
+	}
+
+	_, err = model.GetPasskeyByUserID(userID)
+	if err != nil {
+		if errors.Is(err, model.ErrPasskeyNotFound) {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "该用户尚未绑定 Passkey",
+			})
+			return false
+		}
+		common.ApiError(c, err)
+		return false
+	}
+
+	return requireSecureVerificationMethod(c, secureVerificationMethodPasskey)
+}
+
+func requireSecureVerificationMethod(c *gin.Context, method string) bool {
+	session := sessions.Default(c)
+	verifiedAt, ok := session.Get(SecureVerificationSessionKey).(int64)
+	if !ok || time.Now().Unix()-verifiedAt >= SecureVerificationTimeout {
+		session.Delete(SecureVerificationSessionKey)
+		session.Delete(secureVerificationMethodSessionKey)
+		_ = session.Save()
+		common.ApiErrorMsg(c, "请先完成安全验证")
+		return false
+	}
+
+	if verifiedMethod, ok := session.Get(secureVerificationMethodSessionKey).(string); !ok || verifiedMethod != method {
+		common.ApiErrorMsg(c, "请先完成对应的安全验证")
+		return false
+	}
+
+	return true
 }

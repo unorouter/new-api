@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import { Card, Avatar, Typography, Badge } from '@douyinfe/semi-ui';
+import { Avatar, Typography, Badge } from '@douyinfe/semi-ui';
 import { IconLink } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 
@@ -64,7 +64,7 @@ const ModelEndpoints = ({ modelData, endpointMap = {} }) => {
   };
 
   return (
-    <Card className='!rounded-2xl shadow-sm border-0 mb-6'>
+    <div>
       <div className='flex items-center mb-4'>
         <Avatar size='small' color='purple' className='mr-2 shadow-md'>
           <IconLink size={16} />
@@ -77,7 +77,7 @@ const ModelEndpoints = ({ modelData, endpointMap = {} }) => {
         </div>
       </div>
       {renderAPIEndpoints()}
-    </Card>
+    </div>
   );
 };
 
