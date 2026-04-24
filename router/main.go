@@ -25,6 +25,7 @@ func SetRouter(router *gin.Engine, buildFS embed.FS, indexPage []byte) {
 	SetDashboardRouter(router, engine)
 	SetRelayRouter(router, engine)
 	SetVideoRouter(router, engine)
+	SetOAuthServerRouter(router, engine)
 	registerOpenAPIRoutes(engine, router)
 
 	frontendBaseUrl := os.Getenv("FRONTEND_BASE_URL")

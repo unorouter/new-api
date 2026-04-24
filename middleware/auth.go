@@ -33,7 +33,63 @@ func validUserInfo(username string, role int) bool {
 	return true
 }
 
+// enforceRoleAndStatus validates that the user set on the gin context meets
+// the minimum role and is not disabled. Used by authHelper after the OAuth
+// bearer path populates the context; the legacy access-token/session path
+// keeps its inline checks for historical reasons.
+//
+// On failure the response is written, the request is aborted, and a non-nil
+// error is returned so the caller can bail immediately.
+func enforceRoleAndStatus(c *gin.Context, minRole int) error {
+	username, _ := c.Get("username")
+	role, _ := c.Get("role")
+
+	roleInt, ok := role.(int)
+	if !ok || !common.IsValidateRole(roleInt) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid),
+		})
+		c.Abort()
+		return errAuthInvalid
+	}
+	if roleInt < minRole {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
+		})
+		c.Abort()
+		return errAuthInvalid
+	}
+	if name, ok := username.(string); !ok || strings.TrimSpace(name) == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid),
+		})
+		c.Abort()
+		return errAuthInvalid
+	}
+	return nil
+}
+
+var errAuthInvalid = errors.New("auth: invalid user")
+
 func authHelper(c *gin.Context, minRole int) {
+	// First try an OAuth 2.1 bearer JWT. If the request carries a JWT and it
+	// validates, the gin context is populated (id, username, role, group,
+	// oauth_scopes) and we skip straight to the role / status gate below.
+	// Invalid JWT → response already written, abort.
+	if matched, ok := tryOAuthBearerAuth(c); matched {
+		if !ok {
+			return
+		}
+		if err := enforceRoleAndStatus(c, minRole); err != nil {
+			return
+		}
+		c.Next()
+		return
+	}
+
 	session := sessions.Default(c)
 	username := session.Get("username")
 	role := session.Get("role")
@@ -44,6 +100,7 @@ func authHelper(c *gin.Context, minRole int) {
 		// Check access token
 		accessToken := c.Request.Header.Get("Authorization")
 		if accessToken == "" {
+			c.Header("WWW-Authenticate", wwwAuthenticateBearer)
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
 				"message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn),
@@ -95,6 +152,7 @@ func authHelper(c *gin.Context, minRole int) {
 	// get header New-Api-User
 	apiUserIdStr := c.Request.Header.Get("New-Api-User")
 	if apiUserIdStr == "" {
+		c.Header("WWW-Authenticate", wwwAuthenticateBearer)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
 			"message": common.TranslateMessage(c, i18n.MsgAuthUserIdNotProvided),
@@ -104,6 +162,7 @@ func authHelper(c *gin.Context, minRole int) {
 	}
 	apiUserId, err := strconv.Atoi(apiUserIdStr)
 	if err != nil {
+		c.Header("WWW-Authenticate", wwwAuthenticateBearer)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
 			"message": common.TranslateMessage(c, i18n.MsgAuthUserIdFormatError),
@@ -113,6 +172,7 @@ func authHelper(c *gin.Context, minRole int) {
 
 	}
 	if id != apiUserId {
+		c.Header("WWW-Authenticate", wwwAuthenticateBearer)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
 			"message": common.TranslateMessage(c, i18n.MsgAuthUserIdMismatch),
@@ -275,6 +335,16 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 
 func TokenAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		// OAuth 2.1 bearer JWT first. If the request carries a valid OAuth
+		// access token, the gin context is populated and we let it through;
+		// other branches still fall through to the legacy `sk-` path.
+		if matched, ok := tryOAuthBearerAuth(c); matched {
+			if !ok {
+				return
+			}
+			c.Next()
+			return
+		}
 		// 先检测是否为ws
 		if c.Request.Header.Get("Sec-WebSocket-Protocol") != "" {
 			// Sec-WebSocket-Protocol: realtime, openai-insecure-api-key.sk-xxx, openai-beta.realtime-v1

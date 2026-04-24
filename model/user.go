@@ -52,6 +52,7 @@ type User struct {
 	Setting          string         `json:"setting" gorm:"type:text;column:setting"`
 	Remark           string         `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"omitempty,max=255"`
 	StripeCustomer   string         `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
+	CreemCustomer    string         `json:"creem_customer" gorm:"type:varchar(64);column:creem_customer;index"`
 }
 
 func (user *User) ToBaseUser() *UserBase {

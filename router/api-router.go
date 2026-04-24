@@ -98,8 +98,12 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		selfGroup := userGroup.Group("", middleware.UserAuth())
 		self := dto.NewRouter(engine, selfGroup, "User", secDashboard())
 		dto.Get(self, "/self/groups", controller.GetUserGroups)
-		dto.Get(self, "/self", controller.GetSelf)
-		dto.Get(self, "/models", controller.GetUserModels)
+		// /self exposes balance + quota — gated by `balance:read` for OAuth agents.
+		selfRead := dto.NewRouter(engine, selfGroup.Group("", middleware.RequireScope("balance:read")), "User", secDashboard())
+		dto.Get(selfRead, "/self", controller.GetSelf)
+		// /models — user-scoped model list, gated by `models:read` for OAuth agents.
+		selfModels := dto.NewRouter(engine, selfGroup.Group("", middleware.RequireScope("models:read")), "User", secDashboard())
+		dto.Get(selfModels, "/models", controller.GetUserModels)
 		dto.Put(self, "/self", controller.UpdateSelf)
 		dto.Delete(self, "/self", controller.DeleteSelf)
 		dto.Get(self, "/token", controller.GenerateAccessToken)
@@ -122,10 +126,17 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.PostB(self, "/aff_transfer", controller.TransferAffQuota)
 		dto.PostB(self, "/setting", controller.UpdateUserSetting)
 
+		// Billing portal URL (Stripe one-time session, or Creem per-customer/fallback).
+		// Gated by subscription:cancel for OAuth agents; humans pass through.
+		selfBilling := dto.NewRouter(engine, selfGroup.Group("", middleware.RequireScope("subscription:cancel")), "Billing", secDashboard())
+		dto.Get(selfBilling, "/billing-portal", controller.GetBillingPortal)
+
 		apiRouter.GET("/data/users", middleware.AdminAuth(), controller.GetQuotaDatesByUser)
 
-		// Self routes with rate limiting
-		selfCritical := dto.NewRouter(engine, selfGroup.Group("", middleware.CriticalRateLimit()), "TopUp", secDashboard())
+		// Self routes with rate limiting.
+		// Checkout-creating endpoints are gated by `checkout:create` when the
+		// caller is an OAuth agent; the scope check is a no-op for humans.
+		selfCritical := dto.NewRouter(engine, selfGroup.Group("", middleware.CriticalRateLimit(), middleware.RequireScope("checkout:create")), "TopUp", secDashboard())
 		dto.PostB(selfCritical, "/topup", controller.TopUp)
 		dto.PostB(selfCritical, "/pay", controller.RequestEpay)
 		dto.PostB(selfCritical, "/stripe/pay", controller.RequestStripePay)
@@ -175,11 +186,13 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// ---- Subscription routes ----
 		subGroup := apiRouter.Group("/subscription", middleware.UserAuth())
 		sub := dto.NewRouter(engine, subGroup, "Subscription", secDashboard())
-		dto.Get(sub, "/plans", controller.GetSubscriptionPlans)
-		dto.Get(sub, "/self", controller.GetSubscriptionSelf)
+		// Reads gated by `subscription:read` for OAuth agents; humans pass.
+		subRead := dto.NewRouter(engine, subGroup.Group("", middleware.RequireScope("subscription:read")), "Subscription", secDashboard())
+		dto.Get(subRead, "/plans", controller.GetSubscriptionPlans)
+		dto.Get(subRead, "/self", controller.GetSubscriptionSelf)
 		dto.PutB(sub, "/self/preference", controller.UpdateSubscriptionPreference)
 
-		subCritical := dto.NewRouter(engine, subGroup.Group("", middleware.CriticalRateLimit()), "SubscriptionPayment", secDashboard())
+		subCritical := dto.NewRouter(engine, subGroup.Group("", middleware.CriticalRateLimit(), middleware.RequireScope("checkout:create")), "SubscriptionPayment", secDashboard())
 		dto.PostB(subCritical, "/epay/pay", controller.SubscriptionRequestEpay)
 		dto.PostB(subCritical, "/stripe/pay", controller.SubscriptionRequestStripePay)
 		dto.PostB(subCritical, "/creem/pay", controller.SubscriptionRequestCreemPay)
@@ -287,18 +300,23 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 
 		// ---- Token routes (user auth) ----
 		tokenGroup := apiRouter.Group("/token", middleware.UserAuth())
-		tok := dto.NewRouter(engine, tokenGroup, "Token", secDashboard())
-		dto.Get(tok, "/", controller.GetAllTokens, dto.PageParams())
-		dto.Get(tok, "/:id", controller.GetToken, option.Path("id", "Token ID"))
-		dto.PostB(tok, "/", controller.AddToken)
-		dto.PutBP(tok, "/", controller.UpdateToken)
-		dto.Delete(tok, "/:id", controller.DeleteToken, option.Path("id", "Token ID"))
-		dto.PostB(tok, "/batch", controller.DeleteTokenBatch)
+		// Reads are gated by `tokens:read` when the caller is an OAuth agent;
+		// RequireScope is a no-op for session / access-token humans.
+		tokRead := dto.NewRouter(engine, tokenGroup.Group("", middleware.RequireScope("tokens:read")), "Token", secDashboard())
+		dto.Get(tokRead, "/", controller.GetAllTokens, dto.PageParams())
+		dto.Get(tokRead, "/:id", controller.GetToken, option.Path("id", "Token ID"))
+		// Writes are gated by `tokens:write`.
+		tokWrite := dto.NewRouter(engine, tokenGroup.Group("", middleware.RequireScope("tokens:write")), "Token", secDashboard())
+		dto.PostB(tokWrite, "/", controller.AddToken)
+		dto.PutBP(tokWrite, "/", controller.UpdateToken)
+		dto.Delete(tokWrite, "/:id", controller.DeleteToken, option.Path("id", "Token ID"))
+		dto.PostB(tokWrite, "/batch", controller.DeleteTokenBatch)
 
-		tokKey := dto.NewRouter(engine, tokenGroup.Group("", middleware.CriticalRateLimit(), middleware.DisableCache()), "Token", secDashboard())
+		// /:id/key reveals the secret of an API key — gated by tokens:read.
+		tokKey := dto.NewRouter(engine, tokenGroup.Group("", middleware.RequireScope("tokens:read"), middleware.CriticalRateLimit(), middleware.DisableCache()), "Token", secDashboard())
 		dto.Post(tokKey, "/:id/key", controller.GetTokenKey, option.Path("id", "Token ID"))
 
-		tokSearch := dto.NewRouter(engine, tokenGroup.Group("", middleware.SearchRateLimit()), "Token", secDashboard())
+		tokSearch := dto.NewRouter(engine, tokenGroup.Group("", middleware.RequireScope("tokens:read"), middleware.SearchRateLimit()), "Token", secDashboard())
 		dto.GetP(tokSearch, "/search", controller.SearchTokens, dto.PageParams())
 
 		// ---- Usage routes ----

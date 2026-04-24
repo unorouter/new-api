@@ -29,6 +29,45 @@ const (
 	CreemSignatureHeader = "creem-signature"
 )
 
+// persistCreemCustomerID writes event.Object.Order.Customer onto the user's
+// creem_customer column so we can later call Creem's POST /v1/customers/billing
+// to mint per-user portal links. Idempotent, best-effort - a failure here
+// does NOT interrupt the webhook flow.
+//
+// Resolution: look up the user via the reference_id (our trade_no). Both
+// subscription_orders and top_ups carry that trade_no + user_id, so whichever
+// exists, we can back-fill the user row from it.
+func persistCreemCustomerID(event *dto.CreemWebhookEvent) {
+	customerID := event.Object.Order.Customer
+	if customerID == "" {
+		return
+	}
+	referenceId := event.Object.RequestId
+	if referenceId == "" {
+		return
+	}
+
+	var userId int
+	var subOrder model.SubscriptionOrder
+	if err := model.DB.Where("trade_no = ?", referenceId).First(&subOrder).Error; err == nil {
+		userId = subOrder.UserId
+	} else {
+		topUp := model.GetTopUpByTradeNo(referenceId)
+		if topUp != nil {
+			userId = topUp.UserId
+		}
+	}
+	if userId == 0 {
+		return
+	}
+
+	if err := model.DB.Model(&model.User{}).
+		Where("id = ? AND (creem_customer IS NULL OR creem_customer = '' OR creem_customer <> ?)", userId, customerID).
+		Update("creem_customer", customerID).Error; err != nil {
+		common.SysLog("creem webhook: failed to persist customer id: " + err.Error())
+	}
+}
+
 // 生成HMAC-SHA256签名
 func generateCreemSignature(payload string, secret string) string {
 	h := hmac.New(sha256.New, []byte(secret))
@@ -197,6 +236,10 @@ func handleCheckoutCompleted(c *gin.Context, event *dto.CreemWebhookEvent) {
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
+
+	// Persist the Creem customer ID to the user row so we can call
+	// /v1/customers/billing later for per-user portal links. Best-effort - 	// we don't block the webhook on this.
+	persistCreemCustomerID(event)
 
 	// Try complete subscription order first
 	LockOrder(referenceId)

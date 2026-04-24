@@ -44,6 +44,12 @@ services:
       - SEARCH_RATE_LIMIT_ENABLE=false
       - CRITICAL_RATE_LIMIT=10000
       - OAUTH_ALLOWED_REDIRECT_ORIGINS=https://unorouter.ai,http://localhost:3000
+      # Agent-OAuth 2.1 server. Signing key auto-generates into /data on
+      # first boot. Consent URL derives from the first entry in
+      # OAUTH_ALLOWED_REDIRECT_ORIGINS. All other OAUTH_* vars have sensible
+      # defaults — see .env.example for overrides.
+      - OAUTH_SERVER_ENABLED=true
+      - OAUTH_ISSUER_URL=https://api.unorouter.ai
     labels:
       - "autoheal=true"
       - "traefik.enable=true"

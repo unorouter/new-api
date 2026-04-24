@@ -121,9 +121,11 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 	router.Use(middleware.StatsMiddleware())
 
 	// ---- Models routes ----
+	// `models:read` is required for OAuth agents; humans (sk-/session) pass.
 	modelsRouter := router.Group("/v1/models")
 	modelsRouter.Use(middleware.RouteTag("relay"))
 	modelsRouter.Use(middleware.TokenAuth())
+	modelsRouter.Use(middleware.RequireScope("models:read"))
 	models := dto.NewRouter(engine, modelsRouter, "Relay", secToken())
 	{
 		models.GinGet("", RelayListModels, dto.GinResp[dto.ApiResponse]())
@@ -133,6 +135,7 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 	geminiRouter := router.Group("/v1beta/models")
 	geminiRouter.Use(middleware.RouteTag("relay"))
 	geminiRouter.Use(middleware.TokenAuth())
+	geminiRouter.Use(middleware.RequireScope("models:read"))
 	geminiModels := dto.NewRouter(engine, geminiRouter, "Relay", secToken())
 	{
 		geminiModels.GinGet("", RelayListGeminiModels, dto.GinResp[dto.GeminiModelList]())
@@ -141,6 +144,7 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 	geminiCompatibleRouter := router.Group("/v1beta/openai/models")
 	geminiCompatibleRouter.Use(middleware.RouteTag("relay"))
 	geminiCompatibleRouter.Use(middleware.TokenAuth())
+	geminiCompatibleRouter.Use(middleware.RequireScope("models:read"))
 	geminiCompatModels := dto.NewRouter(engine, geminiCompatibleRouter, "Relay", secToken())
 	{
 		geminiCompatModels.GinGet("", RelayListGeminiCompatModels, dto.GinResp[dto.ApiResponse]())
