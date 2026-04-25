@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -93,13 +95,14 @@ func RequestStripePay(c fuego.ContextWithBody[dto.StripePayRequest]) (*dto.Respo
 	}
 
 	topUp := &model.TopUp{
-		UserId:        id,
-		Amount:        req.Amount,
-		Money:         chargedMoney,
-		TradeNo:       referenceId,
-		PaymentMethod: PaymentMethodStripe,
-		CreateTime:    time.Now().Unix(),
-		Status:        common.TopUpStatusPending,
+		UserId:          id,
+		Amount:          req.Amount,
+		Money:           chargedMoney,
+		TradeNo:         referenceId,
+		PaymentMethod:   PaymentMethodStripe,
+		PaymentProvider: model.PaymentProviderStripe,
+		CreateTime:      time.Now().Unix(),
+		Status:          common.TopUpStatusPending,
 	}
 	err = topUp.Insert()
 	if err != nil {
@@ -109,15 +112,18 @@ func RequestStripePay(c fuego.ContextWithBody[dto.StripePayRequest]) (*dto.Respo
 }
 
 func StripeWebhook(c *gin.Context) {
+	ctx := c.Request.Context()
+	callerIp := c.ClientIP()
+
 	if setting.StripeWebhookSecret == "" {
-		log.Println("Stripe Webhook Secret 未配置，拒绝处理")
+		logger.LogWarn(ctx, fmt.Sprintf("Stripe webhook 未配置 secret，拒绝处理 client_ip=%s", callerIp))
 		c.AbortWithStatus(http.StatusForbidden)
 		return
 	}
 
 	payload, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		log.Printf(i18n.Translate("topup.stripe_parse_payload_failed", map[string]any{"Error": err.Error()}))
+		logger.LogError(ctx, fmt.Sprintf("Stripe webhook 解析 payload 失败 client_ip=%s error=%q", callerIp, err.Error()))
 		c.AbortWithStatus(http.StatusServiceUnavailable)
 		return
 	}
@@ -128,63 +134,63 @@ func StripeWebhook(c *gin.Context) {
 	})
 
 	if err != nil {
-		log.Printf(i18n.Translate("topup.stripe_sign_failed", map[string]any{"Error": err.Error()}))
+		logger.LogWarn(ctx, fmt.Sprintf("Stripe webhook 签名校验失败 client_ip=%s error=%q", callerIp, err.Error()))
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
 
 	switch event.Type {
 	case stripe.EventTypeCheckoutSessionCompleted:
-		sessionCompleted(event)
+		sessionCompleted(ctx, event, callerIp)
 	case stripe.EventTypeCheckoutSessionExpired:
-		sessionExpired(event)
+		sessionExpired(ctx, event)
 	case stripe.EventTypeCheckoutSessionAsyncPaymentSucceeded:
-		sessionAsyncPaymentSucceeded(event)
+		sessionAsyncPaymentSucceeded(ctx, event, callerIp)
 	case stripe.EventTypeCheckoutSessionAsyncPaymentFailed:
-		sessionAsyncPaymentFailed(event)
+		sessionAsyncPaymentFailed(ctx, event, callerIp)
 	default:
-		log.Printf(i18n.Translate("topup.stripe_unsupported_event", map[string]any{"Type": string(event.Type)}))
+		logger.LogInfo(ctx, fmt.Sprintf("Stripe webhook 忽略事件 event_type=%s client_ip=%s", string(event.Type), callerIp))
 	}
 
 	c.Status(http.StatusOK)
 }
 
-func sessionCompleted(event stripe.Event) {
+func sessionCompleted(ctx context.Context, event stripe.Event, callerIp string) {
 	customerId := event.GetObjectValue("customer")
 	referenceId := event.GetObjectValue("client_reference_id")
 	status := event.GetObjectValue("status")
 	if "complete" != status {
-		log.Println(i18n.Translate("topup.stripe_invalid_complete_status", map[string]any{"Status": status, "OrderNo": referenceId}))
+		logger.LogWarn(ctx, fmt.Sprintf("Stripe checkout.completed 状态异常，忽略处理 trade_no=%s status=%s client_ip=%s", referenceId, status, callerIp))
 		return
 	}
 
 	paymentStatus := event.GetObjectValue("payment_status")
 	if paymentStatus != "paid" {
-		log.Printf("Stripe Checkout 支付尚未完成，payment_status: %s, ref: %s（等待异步支付结果）", paymentStatus, referenceId)
+		logger.LogInfo(ctx, fmt.Sprintf("Stripe Checkout 支付未完成，等待异步结果 trade_no=%s payment_status=%s client_ip=%s", referenceId, paymentStatus, callerIp))
 		return
 	}
 
-	fulfillOrder(event, referenceId, customerId)
+	fulfillOrder(ctx, event, referenceId, customerId, callerIp)
 }
 
 // sessionAsyncPaymentSucceeded handles delayed payment methods (bank transfer, SEPA, etc.)
 // that confirm payment after the checkout session completes.
-func sessionAsyncPaymentSucceeded(event stripe.Event) {
+func sessionAsyncPaymentSucceeded(ctx context.Context, event stripe.Event, callerIp string) {
 	customerId := event.GetObjectValue("customer")
 	referenceId := event.GetObjectValue("client_reference_id")
-	log.Printf("Stripe 异步支付成功: %s", referenceId)
+	logger.LogInfo(ctx, fmt.Sprintf("Stripe 异步支付成功 trade_no=%s client_ip=%s", referenceId, callerIp))
 
-	fulfillOrder(event, referenceId, customerId)
+	fulfillOrder(ctx, event, referenceId, customerId, callerIp)
 }
 
 // sessionAsyncPaymentFailed marks orders as failed when delayed payment methods
 // ultimately fail (e.g. bank transfer not received, SEPA rejected).
-func sessionAsyncPaymentFailed(event stripe.Event) {
+func sessionAsyncPaymentFailed(ctx context.Context, event stripe.Event, callerIp string) {
 	referenceId := event.GetObjectValue("client_reference_id")
-	log.Printf("Stripe 异步支付失败: %s", referenceId)
+	logger.LogWarn(ctx, fmt.Sprintf("Stripe 异步支付失败 trade_no=%s client_ip=%s", referenceId, callerIp))
 
 	if len(referenceId) == 0 {
-		log.Println("异步支付失败事件未提供支付单号")
+		logger.LogWarn(ctx, fmt.Sprintf("Stripe 异步支付失败事件缺少订单号 client_ip=%s", callerIp))
 		return
 	}
 
@@ -193,32 +199,32 @@ func sessionAsyncPaymentFailed(event stripe.Event) {
 
 	topUp := model.GetTopUpByTradeNo(referenceId)
 	if topUp == nil {
-		log.Println("异步支付失败，充值订单不存在:", referenceId)
+		logger.LogWarn(ctx, fmt.Sprintf("Stripe 异步支付失败但本地订单不存在 trade_no=%s client_ip=%s", referenceId, callerIp))
 		return
 	}
 
-	if topUp.PaymentMethod != PaymentMethodStripe {
-		log.Printf("异步支付失败，订单支付方式不匹配: %s, ref: %s", topUp.PaymentMethod, referenceId)
+	if topUp.PaymentProvider != model.PaymentProviderStripe {
+		logger.LogWarn(ctx, fmt.Sprintf("Stripe 异步支付失败但订单支付网关不匹配 trade_no=%s payment_provider=%s client_ip=%s", referenceId, topUp.PaymentProvider, callerIp))
 		return
 	}
 
 	if topUp.Status != common.TopUpStatusPending {
-		log.Printf("异步支付失败，订单状态非pending: %s, ref: %s", topUp.Status, referenceId)
+		logger.LogInfo(ctx, fmt.Sprintf("Stripe 异步支付失败但订单状态非 pending，忽略处理 trade_no=%s status=%s client_ip=%s", referenceId, topUp.Status, callerIp))
 		return
 	}
 
 	topUp.Status = common.TopUpStatusFailed
 	if err := topUp.Update(); err != nil {
-		log.Printf("标记充值订单失败出错: %v, ref: %s", err, referenceId)
+		logger.LogError(ctx, fmt.Sprintf("Stripe 标记充值订单失败状态失败 trade_no=%s client_ip=%s error=%q", referenceId, callerIp, err.Error()))
 		return
 	}
-	log.Printf("充值订单已标记为失败: %s", referenceId)
+	logger.LogInfo(ctx, fmt.Sprintf("Stripe 充值订单已标记为失败 trade_no=%s client_ip=%s", referenceId, callerIp))
 }
 
 // fulfillOrder is the shared logic for crediting quota after payment is confirmed.
-func fulfillOrder(event stripe.Event, referenceId string, customerId string) {
+func fulfillOrder(ctx context.Context, event stripe.Event, referenceId string, customerId string, callerIp string) {
 	if len(referenceId) == 0 {
-		log.Println("未提供支付单号")
+		logger.LogWarn(ctx, fmt.Sprintf("Stripe 完成订单时缺少订单号 client_ip=%s", callerIp))
 		return
 	}
 
@@ -230,69 +236,64 @@ func fulfillOrder(event stripe.Event, referenceId string, customerId string) {
 		"currency":     strings.ToUpper(event.GetObjectValue("currency")),
 		"event_type":   string(event.Type),
 	}
-	if err := model.CompleteSubscriptionOrder(referenceId, common.GetJsonString(payload), model.PaymentMethodStripe); err == nil {
+	if err := model.CompleteSubscriptionOrder(referenceId, common.GetJsonString(payload), model.PaymentProviderStripe, ""); err == nil {
+		logger.LogInfo(ctx, fmt.Sprintf("Stripe 订阅订单处理成功 trade_no=%s event_type=%s client_ip=%s", referenceId, string(event.Type), callerIp))
 		return
 	} else if err != nil && !errors.Is(err, model.ErrSubscriptionOrderNotFound) {
-		log.Println(i18n.Translate("ctrl.complete_subscription_order_failed"), err.Error(), referenceId)
+		logger.LogError(ctx, fmt.Sprintf("Stripe 订阅订单处理失败 trade_no=%s event_type=%s client_ip=%s error=%q", referenceId, string(event.Type), callerIp, err.Error()))
 		return
 	}
 
-	err := model.Recharge(referenceId, customerId)
+	err := model.Recharge(referenceId, customerId, callerIp)
 	if err != nil {
-		log.Println(err.Error(), referenceId)
+		logger.LogError(ctx, fmt.Sprintf("Stripe 充值处理失败 trade_no=%s event_type=%s client_ip=%s error=%q", referenceId, string(event.Type), callerIp, err.Error()))
 		return
 	}
 
 	total, _ := strconv.ParseFloat(event.GetObjectValue("amount_total"), 64)
 	currency := strings.ToUpper(event.GetObjectValue("currency"))
-	log.Printf(i18n.Translate("topup.stripe_payment_received", map[string]any{"OrderNo": referenceId, "Amount": fmt.Sprintf("%.2f", total/100), "Currency": currency}))
+	logger.LogInfo(ctx, fmt.Sprintf("Stripe 充值成功 trade_no=%s amount_total=%.2f currency=%s event_type=%s client_ip=%s", referenceId, total/100, currency, string(event.Type), callerIp))
 
 	if topUp := model.GetTopUpByTradeNo(referenceId); topUp != nil {
 		go service.SendTopupConfirmationEmail(topUp.UserId, topUp.Money, topUp.Amount, currency, topUp.TradeNo)
 	}
 }
 
-func sessionExpired(event stripe.Event) {
+func sessionExpired(ctx context.Context, event stripe.Event) {
 	referenceId := event.GetObjectValue("client_reference_id")
 	status := event.GetObjectValue("status")
 	if "expired" != status {
-		log.Println(i18n.Translate("topup.stripe_invalid_expired_status", map[string]any{"Status": status, "OrderNo": referenceId}))
+		logger.LogWarn(ctx, fmt.Sprintf("Stripe checkout.expired 状态异常，忽略处理 trade_no=%s status=%s", referenceId, status))
 		return
 	}
 
 	if len(referenceId) == 0 {
-		log.Println(i18n.Translate("topup.stripe_no_order_number"))
+		logger.LogWarn(ctx, "Stripe checkout.expired 缺少订单号")
 		return
 	}
 
 	// Subscription order expiration
 	LockOrder(referenceId)
 	defer UnlockOrder(referenceId)
-	if err := model.ExpireSubscriptionOrder(referenceId, model.PaymentMethodStripe); err == nil {
+	if err := model.ExpireSubscriptionOrder(referenceId, model.PaymentProviderStripe); err == nil {
+		logger.LogInfo(ctx, fmt.Sprintf("Stripe 订阅订单已过期 trade_no=%s", referenceId))
 		return
 	} else if err != nil && !errors.Is(err, model.ErrSubscriptionOrderNotFound) {
-		log.Println(i18n.Translate("topup.stripe_expire_sub_failed", map[string]any{"OrderNo": referenceId, "Error": err.Error()}))
+		logger.LogError(ctx, fmt.Sprintf("Stripe 订阅订单过期处理失败 trade_no=%s error=%q", referenceId, err.Error()))
 		return
 	}
 
-	topUp := model.GetTopUpByTradeNo(referenceId)
-	if topUp == nil {
-		log.Println(i18n.Translate("topup.stripe_order_not_found", map[string]any{"OrderNo": referenceId}))
+	err := model.UpdatePendingTopUpStatus(referenceId, model.PaymentProviderStripe, common.TopUpStatusExpired)
+	if errors.Is(err, model.ErrTopUpNotFound) {
+		logger.LogWarn(ctx, fmt.Sprintf("Stripe 充值订单不存在，无法标记过期 trade_no=%s", referenceId))
 		return
 	}
-
-	if topUp.Status != common.TopUpStatusPending {
-		log.Println(i18n.Translate("topup.stripe_order_status_error", map[string]any{"OrderNo": referenceId}))
-	}
-
-	topUp.Status = common.TopUpStatusExpired
-	err := topUp.Update()
 	if err != nil {
-		log.Println(i18n.Translate("topup.stripe_expire_order_failed", map[string]any{"OrderNo": referenceId, "Error": err.Error()}))
+		logger.LogError(ctx, fmt.Sprintf("Stripe 充值订单过期处理失败 trade_no=%s error=%q", referenceId, err.Error()))
 		return
 	}
 
-	log.Println(i18n.Translate("topup.stripe_order_expired", map[string]any{"OrderNo": referenceId}))
+	logger.LogInfo(ctx, fmt.Sprintf("Stripe 充值订单已过期 trade_no=%s", referenceId))
 }
 
 // genStripeLink generates a Stripe Checkout session URL for payment.
