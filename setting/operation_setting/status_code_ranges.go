@@ -2,11 +2,12 @@ package operation_setting
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/common"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/QuantumNous/new-api/common"
 
 	"github.com/QuantumNous/new-api/types"
 )
@@ -35,8 +36,24 @@ var alwaysSkipRetryStatusCodes = map[int]struct{}{
 	524: {},
 }
 
+// alwaysSkipRetryCodes lists upstream/internal error codes that are inherently
+// terminal: retrying against another channel will produce the same outcome
+// because the rejection is content/policy driven rather than a per-channel
+// transient failure. Keys MUST be lowercase; IsAlwaysSkipRetryCode lowercases
+// the lookup so upstream casing variations still match.
 var alwaysSkipRetryCodes = map[types.ErrorCode]struct{}{
 	types.ErrorCodeBadResponseBody: {},
+	// Zhipu / GLM input moderation
+	"data_inspection_failed": {},
+	// OpenAI / Azure OpenAI content moderation
+	"content_filter":               {},
+	"content_policy_violation":     {},
+	"responsibleaipolicyviolation": {},
+	// Google Gemini safety stops
+	"safety":     {},
+	"recitation": {},
+	// Anthropic / generic policy refusals
+	"policy_violation": {},
 }
 
 func AutomaticDisableStatusCodesToString() string {
@@ -75,7 +92,13 @@ func IsAlwaysSkipRetryStatusCode(code int) bool {
 }
 
 func IsAlwaysSkipRetryCode(errorCode types.ErrorCode) bool {
-	_, exists := alwaysSkipRetryCodes[errorCode]
+	if _, exists := alwaysSkipRetryCodes[errorCode]; exists {
+		return true
+	}
+	// Upstream providers vary in casing (e.g. Azure "ResponsibleAIPolicyViolation",
+	// Gemini "SAFETY"). Normalize to lowercase for a deterministic match.
+	lower := types.ErrorCode(strings.ToLower(string(errorCode)))
+	_, exists := alwaysSkipRetryCodes[lower]
 	return exists
 }
 
