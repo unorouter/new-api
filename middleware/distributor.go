@@ -150,8 +150,14 @@ func Distribute() func(c *gin.Context) {
 					}
 					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam, capSkip)
 
-					// fallback: if no capable channel found, retry without the filter
+					// fallback: if no capable channel found, retry without the filter.
+					// The capability-filtered pass advanced ContextKeyAutoGroupIndex past
+					// the end of the auto-group list while exhausting candidates, so reset
+					// the auto-group iteration state before retrying or the second call
+					// would start past the end and find nothing.
 					if channel == nil && len(capSkip) > 0 {
+						common.SetContextKey(c, constant.ContextKeyAutoGroupIndex, 0)
+						common.SetContextKey(c, constant.ContextKeyAutoGroupRetryIndex, 0)
 						retryParam.SetRetry(0)
 						channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
 					}
