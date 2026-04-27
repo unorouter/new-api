@@ -966,6 +966,9 @@ topup.creem_skip_sign_verify_test_mode: "Skip Creem webhook sign verify in test 
 
 # Controller messages
 ctrl.admin_cleared_binding_for_user: "admin cleared %s binding for user %s"
+ctrl.admin_add_quota: "admin ({{.Admin}}) added quota {{.Quota}} to user"
+ctrl.admin_subtract_quota: "admin ({{.Admin}}) subtracted quota {{.Quota}} from user"
+ctrl.admin_override_quota: "admin ({{.Admin}}) overrode user quota from {{.OldQuota}} to {{.NewQuota}}"
 ctrl.automatically_channel_test_finished: "automatically channel test finished"
 ctrl.automatically_test_channels_with_interval_minutes: "automatically test channels with interval %f minutes"
 ctrl.automatically_testing_all_channels: "automatically testing all channels"

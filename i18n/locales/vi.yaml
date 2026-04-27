@@ -954,6 +954,9 @@ topup.creem_skip_sign_verify_test_mode: "Bỏ qua xác minh chữ ký webhook Cr
 
 # Controller messages
 ctrl.admin_cleared_binding_for_user: "quản trị viên đã xóa liên kết %s cho người dùng %s"
+ctrl.admin_add_quota: "quản trị viên ({{.Admin}}) đã tăng hạn mức người dùng {{.Quota}}"
+ctrl.admin_subtract_quota: "quản trị viên ({{.Admin}}) đã giảm hạn mức người dùng {{.Quota}}"
+ctrl.admin_override_quota: "quản trị viên ({{.Admin}}) đã thay thế hạn mức người dùng từ {{.OldQuota}} thành {{.NewQuota}}"
 ctrl.automatically_channel_test_finished: "kiểm tra kênh tự động đã hoàn tất"
 ctrl.automatically_test_channels_with_interval_minutes: "tự động kiểm tra kênh với khoảng thời gian %f phút"
 ctrl.automatically_testing_all_channels: "đang tự động kiểm tra tất cả các kênh"

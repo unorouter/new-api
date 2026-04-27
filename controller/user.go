@@ -850,7 +850,7 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 				return dto.Fail[dto.ManageUserData](err.Error())
 			}
 			model.RecordLog(user.Id, model.LogTypeManage,
-				fmt.Sprintf("管理员(%s)增加用户额度 %s", adminName, logger.LogQuota(req.Value)))
+				i18n.T(ginCtx, "ctrl.admin_add_quota", map[string]any{"Admin": adminName, "Quota": logger.LogQuota(req.Value)}))
 		case "subtract":
 			if req.Value <= 0 {
 				return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, i18n.MsgUserQuotaChangeZero))
@@ -859,14 +859,14 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 				return dto.Fail[dto.ManageUserData](err.Error())
 			}
 			model.RecordLog(user.Id, model.LogTypeManage,
-				fmt.Sprintf("管理员(%s)减少用户额度 %s", adminName, logger.LogQuota(req.Value)))
+				i18n.T(ginCtx, "ctrl.admin_subtract_quota", map[string]any{"Admin": adminName, "Quota": logger.LogQuota(req.Value)}))
 		case "override":
 			oldQuota := user.Quota
 			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
 				return dto.Fail[dto.ManageUserData](err.Error())
 			}
 			model.RecordLog(user.Id, model.LogTypeManage,
-				fmt.Sprintf("管理员(%s)覆盖用户额度从 %s 为 %s", adminName, logger.LogQuota(oldQuota), logger.LogQuota(req.Value)))
+				i18n.T(ginCtx, "ctrl.admin_override_quota", map[string]any{"Admin": adminName, "OldQuota": logger.LogQuota(oldQuota), "NewQuota": logger.LogQuota(req.Value)}))
 		default:
 			return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, i18n.MsgInvalidParams))
 		}
