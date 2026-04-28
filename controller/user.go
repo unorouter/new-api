@@ -83,6 +83,7 @@ func Login(c *gin.Context) {
 
 // setupLogin sets session & cookies and returns user info
 func setupLogin(user *model.User, c *gin.Context) {
+	model.UpdateUserLastLoginAt(user.Id)
 	session := sessions.Default(c)
 	session.Set("id", user.Id)
 	session.Set("username", user.Username)

@@ -65,7 +65,7 @@ func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesRespons
 				Type: "function",
 				Function: dto.FunctionResponse{
 					Name:      name,
-					Arguments: out.Arguments,
+					Arguments: out.ArgumentsString(),
 				},
 			})
 		}
@@ -489,7 +489,7 @@ func ChatCompletionsResponseToResponsesResponse(resp *dto.OpenAITextResponse, mo
 				Status:    "completed",
 				CallId:    callID,
 				Name:      tc.Function.Name,
-				Arguments: tc.Function.Arguments,
+				Arguments: json.RawMessage(tc.Function.Arguments),
 			})
 		}
 	}

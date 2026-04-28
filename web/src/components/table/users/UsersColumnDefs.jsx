@@ -30,7 +30,14 @@ import {
   Dropdown,
 } from '@douyinfe/semi-ui';
 import { IconMore } from '@douyinfe/semi-icons';
-import { renderGroup, renderNumber, renderQuota } from '../../../helpers';
+import {
+  renderGroup,
+  renderNumber,
+  renderQuota,
+  timestamp2string,
+} from '../../../helpers';
+
+const renderTimestamp = (text) => (text ? timestamp2string(text) : '-');
 
 /**
  * Render user role
@@ -360,6 +367,16 @@ export const getUsersColumns = ({
       title: t('邀请信息'),
       dataIndex: 'invite',
       render: (text, record, index) => renderInviteInfo(text, record),
+    },
+    {
+      title: t('创建时间'),
+      dataIndex: 'created_at',
+      render: renderTimestamp,
+    },
+    {
+      title: t('最后登录'),
+      dataIndex: 'last_login_at',
+      render: renderTimestamp,
     },
     {
       title: '',

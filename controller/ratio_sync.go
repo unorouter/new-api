@@ -21,9 +21,12 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
+"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/go-fuego/fuego"
+	"github.com/samber/lo"
 )
 
 const (
@@ -59,12 +62,63 @@ func valuesEqual(a, b interface{}) bool {
 	return a == b
 }
 
-var ratioTypes = []string{"model_ratio", "completion_ratio", "cache_ratio", "model_price"}
+var ratioTypes = []string{"model_ratio", "completion_ratio", "cache_ratio", "create_cache_ratio", "image_ratio", "audio_ratio", "audio_completion_ratio", "model_price", billing_setting.BillingModeField, billing_setting.BillingExprField}
+
+var numericPricingSyncFields = map[string]bool{
+	"model_ratio":            true,
+	"completion_ratio":       true,
+	"cache_ratio":            true,
+	"create_cache_ratio":     true,
+	"image_ratio":            true,
+	"audio_ratio":            true,
+	"audio_completion_ratio": true,
+	"model_price":            true,
+}
 
 type upstreamResult struct {
 	Name string         `json:"name"`
 	Data map[string]any `json:"data,omitempty"`
 	Err  string         `json:"err,omitempty"`
+}
+
+func valueMap(value any) map[string]any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed
+	case map[string]float64:
+		return lo.MapValues(typed, func(value float64, _ string) any { return value })
+	case map[string]string:
+		return lo.MapValues(typed, func(value string, _ string) any { return value })
+	default:
+		return nil
+	}
+}
+
+func asFloat64(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case json.Number:
+		parsed, err := typed.Float64()
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func normalizeSyncValue(field string, value any) any {
+	if numericPricingSyncFields[field] {
+		if parsed, ok := asFloat64(value); ok {
+			return parsed
+		}
+	}
+	return value
 }
 
 func FetchUpstreamRatios(c fuego.ContextWithBody[dto.UpstreamRequest]) (*dto.Response[dto.FetchUpstreamRatiosResult], error) {

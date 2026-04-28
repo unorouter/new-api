@@ -194,7 +194,7 @@ func (s *ChatToResponsesStreamState) FinalEvents(usage *dto.Usage) []dto.Respons
 				Status:    "completed",
 				CallId:    callID,
 				Name:      s.ToolCallName[callID],
-				Arguments: args,
+				Arguments: json.RawMessage(args),
 			},
 		})
 	}
@@ -451,7 +451,7 @@ func (s *ChatToResponsesStreamState) buildFinalOutput() []dto.ResponsesOutput {
 			Status:    "completed",
 			CallId:    callID,
 			Name:      s.ToolCallName[callID],
-			Arguments: s.ToolCallArgs[callID],
+			Arguments: json.RawMessage(s.ToolCallArgs[callID]),
 		}
 	}
 	output := make([]dto.ResponsesOutput, 0, len(itemsByIndex))
