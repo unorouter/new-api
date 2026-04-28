@@ -11,7 +11,7 @@ import (
 func GetAllLogs(c fuego.ContextWithParams[dto.GetAllLogsParams]) (*dto.Response[dto.PageData[*model.Log]], error) {
 	pageInfo := dto.PageInfo(c)
 	p, _ := dto.ParseParams[dto.GetAllLogsParams](c)
-	logs, total, err := model.GetAllLogs(p.Type, p.StartTimestamp, p.EndTimestamp, p.ModelName, p.Username, p.TokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), p.Channel, p.Group, p.RequestID)
+	logs, total, err := model.GetAllLogs(p.Type, p.StartTimestamp, p.EndTimestamp, p.ModelName, p.Username, p.TokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), p.Channel, p.Group, p.RequestID, p.SubscriptionPlan)
 	if err != nil {
 		return dto.FailPage[*model.Log](err.Error())
 	}
@@ -22,7 +22,7 @@ func GetUserLogs(c fuego.ContextWithParams[dto.GetUserLogsParams]) (*dto.Respons
 	pageInfo := dto.PageInfo(c)
 	userId := dto.UserID(c)
 	p, _ := dto.ParseParams[dto.GetUserLogsParams](c)
-	logs, total, err := model.GetUserLogs(userId, p.Type, p.StartTimestamp, p.EndTimestamp, p.ModelName, p.TokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), p.Group, p.RequestID)
+	logs, total, err := model.GetUserLogs(userId, p.Type, p.StartTimestamp, p.EndTimestamp, p.ModelName, p.TokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), p.Group, p.RequestID, p.SubscriptionPlan)
 	if err != nil {
 		return dto.FailPage[*model.Log](err.Error())
 	}

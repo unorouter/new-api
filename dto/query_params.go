@@ -60,25 +60,27 @@ type SearchRedemptionsParams struct {
 // ─── Log ────────────────────────────────────────────────────────────
 
 type GetAllLogsParams struct {
-	Type           int    `query:"type"`
-	StartTimestamp int64  `query:"start_timestamp"`
-	EndTimestamp   int64  `query:"end_timestamp"`
-	Username       string `query:"username"         description:"Filter by username"`
-	TokenName      string `query:"token_name"       description:"Filter by token name"`
-	ModelName      string `query:"model_name"       description:"Filter by model name"`
-	Channel        int    `query:"channel"`
-	Group          string `query:"group"            description:"Filter by group"`
-	RequestID      string `query:"request_id"       description:"Filter by request ID"`
+	Type             int    `query:"type"`
+	StartTimestamp   int64  `query:"start_timestamp"`
+	EndTimestamp     int64  `query:"end_timestamp"`
+	Username         string `query:"username"          description:"Filter by username"`
+	TokenName        string `query:"token_name"        description:"Filter by token name"`
+	ModelName        string `query:"model_name"        description:"Filter by model name"`
+	Channel          int    `query:"channel"`
+	Group            string `query:"group"             description:"Filter by group"`
+	RequestID        string `query:"request_id"        description:"Filter by request ID"`
+	SubscriptionPlan string `query:"subscription_plan" description:"Filter by subscription plan title (substring)"`
 }
 
 type GetUserLogsParams struct {
-	Type           int    `query:"type"`
-	StartTimestamp int64  `query:"start_timestamp"`
-	EndTimestamp   int64  `query:"end_timestamp"`
-	TokenName      string `query:"token_name"       description:"Filter by token name"`
-	ModelName      string `query:"model_name"       description:"Filter by model name"`
-	Group          string `query:"group"            description:"Filter by group"`
-	RequestID      string `query:"request_id"       description:"Filter by request ID"`
+	Type             int    `query:"type"`
+	StartTimestamp   int64  `query:"start_timestamp"`
+	EndTimestamp     int64  `query:"end_timestamp"`
+	TokenName        string `query:"token_name"        description:"Filter by token name"`
+	ModelName        string `query:"model_name"        description:"Filter by model name"`
+	Group            string `query:"group"             description:"Filter by group"`
+	RequestID        string `query:"request_id"        description:"Filter by request ID"`
+	SubscriptionPlan string `query:"subscription_plan" description:"Filter by subscription plan title (substring)"`
 }
 
 type LogStatParams struct {

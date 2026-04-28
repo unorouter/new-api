@@ -103,6 +103,15 @@ const LogsFilters = ({
             size='small'
           />
 
+          <Form.Input
+            field='subscription_plan'
+            prefix={<IconSearch />}
+            placeholder={t('订阅计划')}
+            showClear
+            pure
+            size='small'
+          />
+
           {isAdminUser && (
             <>
               <Form.Input

@@ -955,6 +955,10 @@ func maybeResetUserSubscriptionWithPlanTx(tx *gorm.DB, sub *UserSubscription, pl
 			sub.LastResetTime = base.Unix()
 			return tx.Save(sub).Error
 		}
+		if next > 0 && next != sub.NextResetTime {
+			sub.NextResetTime = next
+			return tx.Save(sub).Error
+		}
 		return nil
 	}
 	sub.AmountUsed = 0
@@ -1003,7 +1007,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 		var subs []UserSubscription
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").
 			Where("user_id = ? AND status = ? AND end_time > ?", userId, "active", now).
-			Order("end_time asc, id asc").
+			Order("end_time desc, id desc").
 			Find(&subs).Error; err != nil {
 			return errors.New(i18n.Translate("model.no_active_subscription"))
 		}

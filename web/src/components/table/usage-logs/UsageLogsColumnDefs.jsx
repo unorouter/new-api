@@ -819,10 +819,28 @@ export const getLogsColumns = ({
         const other = getLogOther(record.other);
         const isSubscription = other?.billing_source === 'subscription';
         if (isSubscription) {
-          // Subscription billed: show only tag (no $0), but keep tooltip for equivalent cost.
+          const planLabel =
+            other?.subscription_plan_title ||
+            (other?.subscription_plan_id
+              ? `#${other.subscription_plan_id}`
+              : '');
+          const subIdLabel = other?.subscription_id
+            ? ` (#${other.subscription_id})`
+            : '';
+          const tooltipLines = [
+            `${t('由订阅抵扣')}：${renderQuota(text, 6)}`,
+            planLabel ? `${planLabel}${subIdLabel}` : '',
+          ].filter(Boolean);
           return (
-            <Tooltip content={`${t('由订阅抵扣')}：${renderQuota(text, 6)}`}>
-              <span>{renderBillingTag(record, t)}</span>
+            <Tooltip content={tooltipLines.join(' · ')}>
+              <span>
+                {renderBillingTag(record, t)}
+                {planLabel && (
+                  <Tag color='blue' shape='circle' style={{ marginLeft: 4 }}>
+                    {planLabel}
+                  </Tag>
+                )}
+              </span>
             </Tooltip>
           );
         }
