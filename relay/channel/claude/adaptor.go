@@ -35,6 +35,7 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	// support, which is an acceptable tradeoff given prefill is a deprecated
 	// pattern that Anthropic now officially recommends against.
 	request.Messages, request.System = HandleUnsupportedAssistantPrefill(request.Messages, request.System)
+	relaycommon.EnsureDeepSeekReasoningContentClaude(request)
 	return request, nil
 }
 

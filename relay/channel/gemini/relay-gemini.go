@@ -442,7 +442,12 @@ func CovertOpenAI2Gemini(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 			// 先将json.RawMessage解析
 			var jsonSchema dto.FormatJsonSchema
 			if err := common.Unmarshal(textRequest.ResponseFormat.JsonSchema, &jsonSchema); err == nil {
-				cleanedSchema := removeAdditionalPropertiesWithDepth(jsonSchema.Schema, 0)
+				// Gemini's response_schema only accepts inlined OpenAPI 3.0
+				// schemas - no $defs / $ref indirection. Pydantic and most
+				// JSON-schema generators emit refs by default, so we inline
+				// them before forwarding.
+				inlinedSchema := inlineSchemaRefs(jsonSchema.Schema)
+				cleanedSchema := removeAdditionalPropertiesWithDepth(inlinedSchema, 0)
 				geminiRequest.GenerationConfig.ResponseSchema = cleanedSchema
 			}
 		}
@@ -912,6 +917,130 @@ func normalizeGeminiSchemaTypeAndNullable(schema map[string]interface{}) {
 		} else {
 			delete(schema, "type")
 		}
+	}
+}
+
+// inlineSchemaRefs replaces all $ref pointers with deep copies of the
+// referenced definitions and removes the now-orphaned $defs/definitions
+// map. Gemini's API accepts only fully-inlined OpenAPI 3.0 schemas;
+// $defs and $ref are JSON-Schema-2020 features it does not support.
+//
+// Only local pointers ("#/$defs/Name", "#/definitions/Name") are
+// resolved. External pointers (URI refs) and unknown targets are left
+// in place — Gemini will reject them, which is the correct behavior for
+// schemas that aren't self-contained.
+//
+// Cycle protection: a max depth of 32 substitutions guards against
+// pathological recursive schemas. Self-referential types lose their
+// recursion at the depth limit, which is a Gemini-side limitation we
+// inherit (its schema validator can't represent recursion either).
+func inlineSchemaRefs(schema interface{}) interface{} {
+	root, ok := schema.(map[string]interface{})
+	if !ok {
+		return schema
+	}
+	defs := collectDefs(root)
+	if len(defs) == 0 {
+		return schema
+	}
+	resolved := resolveRefs(root, defs, 0)
+	resolvedMap, ok := resolved.(map[string]interface{})
+	if !ok {
+		return resolved
+	}
+	delete(resolvedMap, "$defs")
+	delete(resolvedMap, "definitions")
+	return resolvedMap
+}
+
+func collectDefs(root map[string]interface{}) map[string]interface{} {
+	defs := make(map[string]interface{})
+	for _, key := range []string{"$defs", "definitions"} {
+		if d, ok := root[key].(map[string]interface{}); ok {
+			for name, def := range d {
+				defs[name] = def
+			}
+		}
+	}
+	return defs
+}
+
+func resolveRefs(node interface{}, defs map[string]interface{}, depth int) interface{} {
+	if depth >= 32 {
+		return node
+	}
+	switch v := node.(type) {
+	case map[string]interface{}:
+		if rawRef, ok := v["$ref"].(string); ok {
+			name := refName(rawRef)
+			if name != "" {
+				if target, exists := defs[name]; exists {
+					// Replace the $ref node with a deep copy of the
+					// target so cousin references don't share map
+					// identity (and therefore mutations).
+					inlined := deepCopyJSON(target)
+					// Recurse into the inlined target — it may itself
+					// contain refs that need resolution.
+					return resolveRefs(inlined, defs, depth+1)
+				}
+			}
+			// Unresolvable ref: leave the node unchanged. Gemini will
+			// 400 on it, which beats silent acceptance of an incomplete
+			// schema.
+			return v
+		}
+		out := make(map[string]interface{}, len(v))
+		for key, child := range v {
+			if key == "$defs" || key == "definitions" {
+				// Don't descend into definition tables — they contain
+				// schemas that may be referenced from elsewhere, but
+				// resolving refs inside them inline-expands every cousin
+				// definition. Once collectDefs has snapshotted them we
+				// can drop them; the root-level cleanup handles that.
+				continue
+			}
+			out[key] = resolveRefs(child, defs, depth)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(v))
+		for i, item := range v {
+			out[i] = resolveRefs(item, defs, depth)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func refName(ref string) string {
+	const defsPrefix = "#/$defs/"
+	const definitionsPrefix = "#/definitions/"
+	switch {
+	case strings.HasPrefix(ref, defsPrefix):
+		return ref[len(defsPrefix):]
+	case strings.HasPrefix(ref, definitionsPrefix):
+		return ref[len(definitionsPrefix):]
+	}
+	return ""
+}
+
+func deepCopyJSON(node interface{}) interface{} {
+	switch v := node.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(v))
+		for key, child := range v {
+			out[key] = deepCopyJSON(child)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(v))
+		for i, item := range v {
+			out[i] = deepCopyJSON(item)
+		}
+		return out
+	default:
+		return v
 	}
 }
 

@@ -356,6 +356,15 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		}
 	}
 
+	// DeepSeek V4 thinking-mode compatibility — see
+	// relay/common/deepseek_thinking.go for the spec/rationale and the
+	// rules applied. Runs for every OpenAI-shape outbound request, so
+	// both native OpenAI clients and the Claude->OpenAI conversion path
+	// produce the request shape DeepSeek V4 upstreams expect.
+	if err := relaycommon.ApplyDeepSeekV4OpenAIRequestRules(request); err != nil {
+		return nil, err
+	}
+
 	return request, nil
 }
 
