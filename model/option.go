@@ -548,14 +548,19 @@ func updateOptionMap(key string, value string) (err error) {
 		InvalidatePricingCache()
 	case "CacheRatio":
 		err = ratio_setting.UpdateCacheRatioByJSONString(value)
+		InvalidatePricingCache()
 	case "CreateCacheRatio":
 		err = ratio_setting.UpdateCreateCacheRatioByJSONString(value)
+		InvalidatePricingCache()
 	case "ImageRatio":
 		err = ratio_setting.UpdateImageRatioByJSONString(value)
+		InvalidatePricingCache()
 	case "AudioRatio":
 		err = ratio_setting.UpdateAudioRatioByJSONString(value)
+		InvalidatePricingCache()
 	case "AudioCompletionRatio":
 		err = ratio_setting.UpdateAudioCompletionRatioByJSONString(value)
+		InvalidatePricingCache()
 	case "TopUpLink":
 		common.TopUpLink = value
 	//case "ChatLink":

@@ -93,10 +93,17 @@ func toPricingModels(src []model.Pricing) []dto.PricingModel {
 			ModelPrice:             m.ModelPrice,
 			OwnerBy:                m.OwnerBy,
 			CompletionRatio:        m.CompletionRatio,
+			CacheRatio:             m.CacheRatio,
+			CreateCacheRatio:       m.CreateCacheRatio,
+			ImageRatio:             m.ImageRatio,
+			AudioRatio:             m.AudioRatio,
+			AudioCompletionRatio:   m.AudioCompletionRatio,
 			EnableGroup:            m.EnableGroup,
 			SupportedEndpointTypes: m.SupportedEndpointTypes,
 			PricingVersion:         m.PricingVersion,
 			GridPricing:            m.GridPricing,
+			BillingMode:            m.BillingMode,
+			BillingExpr:            m.BillingExpr,
 		}
 	}
 	return out
