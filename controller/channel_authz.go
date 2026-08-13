@@ -115,6 +115,68 @@ func clearChannelReadOnlyFields(channel *PatchChannel, requestData map[string]an
 	}
 }
 
+// channelHasSensitiveChangesTyped reports whether an update touches a field
+// that redirects live traffic or exposes credentials.
+//
+// The map-based variant exists because a raw request body distinguishes "field
+// absent" from "field sent unchanged". A typed body cannot, so this compares
+// every sensitive field against the stored channel: an absent field decodes to
+// its zero value and an unchanged field matches the origin, and neither counts
+// as a change. Key is special-cased on non-empty because the update form leaves
+// it blank to mean "keep the existing key".
+func channelHasSensitiveChangesTyped(channel *PatchChannel, origin *model.Channel) bool {
+	if channel.Type != origin.Type {
+		return true
+	}
+	if channel.Key != "" && channel.Key != origin.Key {
+		return true
+	}
+	if !equalStringPtr(channel.BaseURL, origin.BaseURL) {
+		return true
+	}
+	if !equalStringPtr(channel.OpenAIOrganization, origin.OpenAIOrganization) {
+		return true
+	}
+	if !equalStringPtr(channel.HeaderOverride, origin.HeaderOverride) {
+		return true
+	}
+	if !equalStringPtr(channel.ParamOverride, origin.ParamOverride) {
+		return true
+	}
+	if !equalStringPtr(channel.Setting, origin.Setting) {
+		return true
+	}
+	if channel.Other != origin.Other {
+		return true
+	}
+	if channel.OtherSettings != origin.OtherSettings {
+		return true
+	}
+	if channel.KeyMode != nil {
+		return true
+	}
+	if !equalStringPtr(channel.WorkflowTemplates, origin.WorkflowTemplates) {
+		return true
+	}
+	return false
+}
+
+// clearChannelServerManagedFields drops the accounting and probe columns the
+// server owns, so a client cannot set them through the update endpoint.
+// Channel.Update persists via GORM struct-Updates, which skips zero values, so
+// zeroing a field here is exactly "leave whatever the database already holds".
+// The typed-body handler has no raw JSON to inspect, and none of these may ever
+// come from a request anyway, so the presence check the map-based variant does
+// is unnecessary here.
+func clearChannelServerManagedFields(channel *PatchChannel) {
+	channel.CreatedTime = 0
+	channel.TestTime = 0
+	channel.ResponseTime = 0
+	channel.Balance = 0
+	channel.BalanceUpdatedTime = 0
+	channel.UsedQuota = 0
+}
+
 // channelNonSensitiveFields lists routing / server-managed channel
 // fields a ChannelWrite admin may edit without ChannelSensitiveWrite. When a new
 // field is added to model.Channel it must be added to either this set or

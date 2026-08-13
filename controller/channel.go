@@ -13,11 +13,13 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/authz"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-fuego/fuego"
@@ -790,10 +792,21 @@ func UpdateChannel(c fuego.ContextWithBody[PatchChannel]) (*dto.Response[PatchCh
 	if err := validateChannel(&channel.Channel, false); err != nil {
 		return dto.Fail[PatchChannel](err.Error())
 	}
+	// Accounting and probe columns are server-owned: a client that sets balance
+	// or used_quota would falsify cost accounting, and a future test_time would
+	// make the channel skip its scheduled health probes indefinitely.
+	clearChannelServerManagedFields(&channel)
 	// Preserve existing ChannelInfo to ensure multi-key channels keep correct state even if the client does not send ChannelInfo in the request.
 	originChannel, err := model.GetChannelById(channel.Id, true)
 	if err != nil {
 		return dto.Fail[PatchChannel](err.Error())
+	}
+	// Rewriting a channel's key, base_url or type redirects live traffic and can
+	// exfiltrate every request routed through it, so it needs the sensitive
+	// permission even though the route itself only demands ChannelWrite.
+	if channelHasSensitiveChangesTyped(&channel, originChannel) &&
+		!authz.Can(dto.UserID(c), dto.UserRole(c), authz.ChannelSensitiveWrite) {
+		return dto.Fail[PatchChannel](common.TranslateMessage(dto.GinCtx(c), i18n.MsgAuthInsufficientPrivilege))
 	}
 	originProxy := originChannel.GetSetting().Proxy
 	newProxy, _ := service.NormalizeProxyURL(channel.GetSetting().Proxy)
