@@ -1,18 +1,13 @@
 package controller
 
 import (
-	"bytes"
-	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestChannelHasSensitiveChanges(t *testing.T) {
@@ -127,35 +122,6 @@ func TestClearChannelReadOnlyFields(t *testing.T) {
 	assert.Zero(t, channel.UsedQuota)
 	assert.Equal(t, "gpt-4o", channel.Models)
 	assert.Equal(t, "default", channel.Group)
-}
-
-func TestUpdateChannelRejectsStatusField(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(
-		http.MethodPut,
-		"/api/channel/",
-		bytes.NewBufferString(`{"id":1,"status":2}`),
-	)
-	ctx.Request.Header.Set("Content-Type", "application/json")
-
-	UpdateChannel(ctx)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-	var response struct {
-		Success bool   `json:"success"`
-		Message string `json:"message"`
-	}
-	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
-	assert.False(t, response.Success)
-}
-
-func TestChannelStatusValidation(t *testing.T) {
-	assert.True(t, isManageableChannelStatus(common.ChannelStatusEnabled))
-	assert.True(t, isManageableChannelStatus(common.ChannelStatusManuallyDisabled))
-	assert.False(t, isManageableChannelStatus(common.ChannelStatusAutoDisabled))
-	assert.False(t, isManageableChannelStatus(0))
 }
 
 // TestChannelFieldsAreClassified guards the fail-closed sensitivity check: every

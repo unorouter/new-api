@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,8 +27,10 @@ import (
 )
 
 type ModelRequest struct {
-	Model string `json:"model"`
-	Group string `json:"group,omitempty"`
+	Model  string          `json:"model"`
+	Group  string          `json:"group,omitempty"`
+	Tools  json.RawMessage `json:"tools,omitempty"`
+	Stream *bool           `json:"stream,omitempty"`
 }
 
 func Distribute() func(c *gin.Context) {
@@ -39,6 +42,9 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
+		// detect request capabilities for capability-aware routing
+		detectRequestCapabilities(c, modelRequest)
+
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -82,8 +88,52 @@ func Distribute() func(c *gin.Context) {
 					abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorModelNameRequired))
 					return
 				}
-				var selectGroup string
 				usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+				// Per-model group override from the token's mapping: resolves to a
+				// comma-separated scoped-auto group the channel-select engine already
+				// handles. Unmapped models keep the base (usually auto) behavior; an
+				// explicit X-Group header below still wins.
+				if mappingJSON := common.GetContextKeyString(c, constant.ContextKeyTokenGroupMapping); mappingJSON != "" {
+					mapping := service.ParseTokenGroupMapping(mappingJSON)
+					mappedGroup := service.ResolveTokenGroupForModel(mapping, modelRequest.Model, "")
+					if mappedGroup == "" {
+						mappedGroup = service.ResolveTokenGroupForModel(mapping, ratio_setting.FormatMatchingModelName(modelRequest.Model), "")
+					}
+					if mappedGroup != "" {
+						usingGroup = mappedGroup
+						common.SetContextKey(c, constant.ContextKeyUsingGroup, mappedGroup)
+						common.SetContextKey(c, constant.ContextKeyTokenGroup, mappedGroup)
+						common.SetContextKey(c, constant.ContextKeyTokenGroupMappingApplied, true)
+					}
+				}
+				// per-request group override via header (any relay path).
+				// Authorize against the user's ACCOUNT group (ContextKeyUserGroup),
+				// not usingGroup: the latter is the token-effective group (often
+				// "auto" or a token-pinned group), so GetUserUsableGroups would
+				// miss the user's special-group grants. (The playground path above
+				// passes usingGroup, but usingGroup there equals the user group on
+				// the playground flow; the header override runs on every relay.)
+				if headerGroup := c.GetHeader("X-Group"); headerGroup != "" {
+					userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+					userId := common.GetContextKeyInt(c, constant.ContextKeyUserId)
+					if headerGroup != usingGroup &&
+						headerGroup != "auto" &&
+						!service.GroupInUserUsableGroupsForUser(userId, userGroup, headerGroup) {
+						abortWithOpenAiMessage(c, http.StatusForbidden, "No permission to access this group")
+						return
+					}
+					usingGroup = headerGroup
+					common.SetContextKey(c, constant.ContextKeyUsingGroup, usingGroup)
+					// The channel-select retry pool (RetryParam.TokenGroup) reads
+					// ContextKeyTokenGroup, not usingGroup. Without this, a header
+					// pin selected the first channel correctly but a forced retry
+					// (e.g. a per-upstream moderation 400 that fails over) fell back
+					// to the token's auto group and served an out-of-pin channel
+					// (pinned pol, moderation-rejected, retried onto trp1). Mirror
+					// the per-model GroupMapping pin: scope BOTH keys to the header.
+					common.SetContextKey(c, constant.ContextKeyTokenGroup, usingGroup)
+					common.SetContextKey(c, constant.ContextKeyTokenGroupMappingApplied, true)
+				}
 				// check path is /pg/chat/completions
 				if strings.HasPrefix(c.Request.URL.Path, "/pg/chat/completions") {
 					playgroundRequest := &dto.PlayGroundRequest{}
@@ -107,12 +157,11 @@ func Distribute() func(c *gin.Context) {
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
 						channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) {
-						if usingGroup == "auto" {
+						if usingGroup == "auto" || service.IsCompositeTokenGroup(usingGroup) {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
-							autoGroups := service.GetRequestAutoGroups(c, userGroup)
+							autoGroups := service.GetTokenAutoGroups(c, userGroup, usingGroup)
 							for _, g := range autoGroups {
 								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) {
-									selectGroup = g
 									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
 									channel = preferred
 									affinityUsable = true
@@ -122,7 +171,6 @@ func Distribute() func(c *gin.Context) {
 							}
 						} else if model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, preferred.Id) {
 							channel = preferred
-							selectGroup = usingGroup
 							affinityUsable = true
 							service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
 						}
@@ -133,29 +181,57 @@ func Distribute() func(c *gin.Context) {
 				}
 
 				if channel == nil {
-					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
+					// build capability skip set to avoid channels that strip required features
+					capSkip := model.GetCapabilitySkipSet(
+						usingGroup, modelRequest.Model,
+						common.GetContextKeyBool(c, constant.ContextKeyRequestNeedsTools),
+						common.GetContextKeyBool(c, constant.ContextKeyRequestNeedsStreaming),
+						common.GetContextKeyBool(c, constant.ContextKeyRequestNeedsHTTP),
+					)
+
+					retryParam := &service.RetryParam{
 						Ctx:         c,
 						ModelName:   modelRequest.Model,
 						TokenGroup:  usingGroup,
 						RequestPath: c.Request.URL.Path,
 						Retry:       common.GetPointer(0),
-					})
-					if err != nil {
-						showGroup := usingGroup
-						if usingGroup == "auto" {
-							showGroup = fmt.Sprintf("auto(%s)", selectGroup)
-						}
-						message := i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": showGroup, "Model": modelRequest.Model, "Error": err.Error()})
-						// 如果错误，但是渠道不为空，说明是数据库一致性问题
-						//if channel != nil {
-						//	common.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
-						//	message = "数据库一致性已被破坏，请联系管理员"
-						//}
-						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, types.ErrorCodeModelNotFound)
-						return
 					}
-					if channel == nil {
-						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
+					channel, _, err = service.CacheGetRandomSatisfiedChannel(retryParam, capSkip)
+
+					// fallback: if no capable channel found, retry without the filter.
+					// The capability-filtered pass advanced ContextKeyAutoGroupIndex past
+					// the end of the auto-group list while exhausting candidates, so reset
+					// the auto-group iteration state before retrying or the second call
+					// would start past the end and find nothing.
+					if channel == nil && len(capSkip) > 0 {
+						common.SetContextKey(c, constant.ContextKeyAutoGroupIndex, 0)
+						common.SetContextKey(c, constant.ContextKeyAutoGroupRetryIndex, 0)
+						retryParam.SetRetry(0)
+						channel, _, err = service.CacheGetRandomSatisfiedChannel(retryParam)
+					}
+
+					if err != nil || channel == nil {
+						// A pinned token whose groups are all down gets a targeted error
+						// when the model is still served elsewhere - the OVERRIDE is the
+						// lockout, not the platform. Pins come as a per-model GroupMapping
+						// (flag) or a plain token.group set to a specific group (never
+						// flagged, which left real pin lockouts wearing the generic
+						// "all providers busy" message).
+						pinUserGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+						tokenPinned := common.GetContextKeyBool(c, constant.ContextKeyTokenGroupMappingApplied) ||
+							(usingGroup != "" && usingGroup != "auto" && usingGroup != "default" && usingGroup != pinUserGroup)
+						if tokenPinned &&
+							model.HasEnabledChannelForModelOutsideGroups(modelRequest.Model, service.ParseTokenGroups(usingGroup)) {
+							abortWithOpenAiMessage(c, http.StatusServiceUnavailable, fmt.Sprintf("This API key is pinned to a billing group that currently has no available provider for %q - the model itself is online and served by other groups. This is a problem with the key, not the model: open your token settings and set its group to \"auto\" (or delete the pin), then retry.", modelRequest.Model), types.ErrorCodeGetChannelFailed)
+							return
+						}
+						// distinguish a model that exists but has all channels disabled
+						// (e.g. auto-disabled on rate limit) from a model that is unknown.
+						if model.ModelHasAnyChannel(modelRequest.Model) {
+							abortWithOpenAiMessage(c, http.StatusServiceUnavailable, fmt.Sprintf("All providers for model %q are busy right now (they hit their rate limit). This is not a spelling error. Please try again in a little while, or switch to another model.", modelRequest.Model), types.ErrorCodeGetChannelFailed)
+						} else {
+							abortWithOpenAiMessage(c, http.StatusServiceUnavailable, fmt.Sprintf("Model %q is not offered here. Check the model name for typos, or switch to a model from our supported list.", modelRequest.Model), types.ErrorCodeModelNotFound)
+						}
 						return
 					}
 				}
@@ -349,7 +425,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		if err != nil {
 			return nil, false, err
 		}
-		modelRequest.Model = req.Model
+		modelRequest = *req
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/realtime") {
 		//wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01
@@ -410,7 +486,29 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		common.SetContextKey(c, constant.ContextKeyTokenGroup, modelRequest.Group)
 	}
 
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") && modelRequest.Model != "" {
+		modelRequest.Model = ratio_setting.WithCompactModelSuffix(modelRequest.Model)
+	}
+	modelRequest.Model = normalizeContext1MSuffix(modelRequest.Model)
 	return &modelRequest, shouldSelectChannel, nil
+}
+
+// context1MSuffix is published lowercase (model ids are lowercased at sync), but
+// Anthropic documents the window as "1M" so clients configure it that way. Match
+// the suffix case-insensitively and rewrite it to the published form, otherwise
+// the request misses the model entirely AND the param_override that appends the
+// context-1m beta header (a suffix condition) never fires.
+const context1MSuffix = "[1m]"
+
+func normalizeContext1MSuffix(modelName string) string {
+	if len(modelName) <= len(context1MSuffix) {
+		return modelName
+	}
+	tail := modelName[len(modelName)-len(context1MSuffix):]
+	if tail == context1MSuffix || !strings.EqualFold(tail, context1MSuffix) {
+		return modelName
+	}
+	return modelName[:len(modelName)-len(context1MSuffix)] + context1MSuffix
 }
 
 // 修复 #4834: GET /v1/video/generations/:task_id && /v1/video/:task_id 此前不解析 model，
@@ -449,6 +547,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelCreateTime, channel.CreatedTime)
 	common.SetContextKey(c, constant.ContextKeyChannelSetting, channel.GetSetting())
 	common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, channel.GetOtherSettings())
+	common.SetContextKey(c, constant.ContextKeyChannelWorkflowTemplates, channel.GetWorkflowTemplatesRaw())
 	paramOverride := channel.GetParamOverride()
 	headerOverride := channel.GetHeaderOverride()
 	if mergedParam, applied := service.ApplyChannelAffinityOverrideTemplate(c, paramOverride); applied {
@@ -500,6 +599,23 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 		c.Set("bot_id", channel.Other)
 	}
 	return nil
+}
+
+// detectRequestCapabilities inspects the parsed request to determine what
+// capabilities are needed (tools, streaming) and stores them in the gin context
+// for capability-aware channel routing.
+func detectRequestCapabilities(c *gin.Context, req *ModelRequest) {
+	if req == nil {
+		return
+	}
+	if len(req.Tools) > 2 { // longer than "[]" or "null"
+		common.SetContextKey(c, constant.ContextKeyRequestNeedsTools, true)
+	}
+	if req.Stream != nil && *req.Stream {
+		common.SetContextKey(c, constant.ContextKeyRequestNeedsStreaming, true)
+	} else {
+		common.SetContextKey(c, constant.ContextKeyRequestNeedsHTTP, true)
+	}
 }
 
 // extractModelNameFromGeminiPath 从 Gemini API URL 路径中提取模型名

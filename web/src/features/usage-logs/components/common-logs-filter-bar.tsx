@@ -85,8 +85,10 @@ function buildSearchSourceKey(values: {
   token?: unknown
   group?: unknown
   username?: unknown
+  discordId?: unknown
   requestId?: unknown
   upstreamRequestId?: unknown
+  subscriptionPlan?: unknown
   type?: unknown
 }) {
   return [
@@ -97,8 +99,10 @@ function buildSearchSourceKey(values: {
     values.token,
     values.group,
     values.username,
+    values.discordId,
     values.requestId,
     values.upstreamRequestId,
+    values.subscriptionPlan,
     Array.isArray(values.type) ? values.type.join(',') : values.type,
   ]
     .map((value) => String(value ?? ''))
@@ -130,8 +134,10 @@ export function CommonLogsFilterBar<TData>(
       token: searchParams.token,
       group: searchParams.group,
       username: searchParams.username,
+      discordId: searchParams.discordId,
       requestId: searchParams.requestId,
       upstreamRequestId: searchParams.upstreamRequestId,
+      subscriptionPlan: searchParams.subscriptionPlan,
       type: searchParams.type,
     }
     const filters: CommonLogFilters = {
@@ -144,8 +150,10 @@ export function CommonLogsFilterBar<TData>(
       token: searchParams.token || undefined,
       group: searchParams.group || undefined,
       username: searchParams.username || undefined,
+      discordId: searchParams.discordId || undefined,
       requestId: searchParams.requestId || undefined,
       upstreamRequestId: searchParams.upstreamRequestId || undefined,
+      subscriptionPlan: searchParams.subscriptionPlan || undefined,
     }
     return {
       sourceKey: buildSearchSourceKey(sourceValues),
@@ -160,8 +168,10 @@ export function CommonLogsFilterBar<TData>(
     searchParams.token,
     searchParams.group,
     searchParams.username,
+    searchParams.discordId,
     searchParams.requestId,
     searchParams.upstreamRequestId,
+    searchParams.subscriptionPlan,
     searchParams.type,
   ])
   const [draft, setDraft] = useState<CommonLogDraft>(() => searchState)
@@ -238,7 +248,8 @@ export function CommonLogsFilterBar<TData>(
     !!filters.username ||
     !!filters.channel ||
     !!filters.requestId ||
-    !!filters.upstreamRequestId
+    !!filters.upstreamRequestId ||
+    !!filters.subscriptionPlan
 
   const hasTypeFilter = logType !== LOG_TYPE_ALL_VALUE
   const hasAdditionalFilters =
@@ -372,7 +383,7 @@ export function CommonLogsFilterBar<TData>(
       {isAdmin && (
         <LogsFilterField>
           <LogsFilterInput
-            placeholder={t('Username')}
+            placeholder={t('Username or Discord ID')}
             type={sensitiveType}
             value={filters.username || ''}
             onChange={(e) => handleChange('username', e.target.value)}
@@ -403,6 +414,14 @@ export function CommonLogsFilterBar<TData>(
           placeholder={t('Upstream Request ID')}
           value={filters.upstreamRequestId || ''}
           onChange={(e) => handleChange('upstreamRequestId', e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+      </LogsFilterField>
+      <LogsFilterField>
+        <LogsFilterInput
+          placeholder={t('Subscription Plan')}
+          value={filters.subscriptionPlan || ''}
+          onChange={(e) => handleChange('subscriptionPlan', e.target.value)}
           onKeyDown={handleKeyDown}
         />
       </LogsFilterField>

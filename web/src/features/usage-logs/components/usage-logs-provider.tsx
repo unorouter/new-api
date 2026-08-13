@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, type ReactNode } from 'react'
 
-import { useIsAdmin } from '@/hooks/use-admin'
+import { useCanViewAllData } from '@/hooks/use-admin'
 
 import type { ChannelAffinityInfo } from '../types'
 
@@ -92,7 +92,7 @@ export function useUsageLogsContext() {
  * mine" is treated exactly like a regular user for that view.
  */
 export function useLogsViewScope() {
-  const canManageScope = useIsAdmin()
+  const canManageScope = useCanViewAllData()
   const { viewScope, setViewScope } = useUsageLogsContext()
 
   return {

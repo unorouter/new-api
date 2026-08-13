@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -22,6 +23,7 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
+	service.RegisterSystemTaskHandler(diagCleanupHandler{})
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and
@@ -67,6 +69,32 @@ func (channelTestHandler) Run(ctx context.Context, task *model.SystemTask, runne
 		return
 	}
 	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
+}
+
+// diagCleanupHandler prunes channel_diagnostics. Transition rows are append-only
+// and one is written per status flip, so without retention the table grows without
+// bound.
+type diagCleanupHandler struct{}
+
+func (diagCleanupHandler) Type() string { return model.SystemTaskTypeDiagCleanup }
+
+func (diagCleanupHandler) Enabled() bool { return true }
+
+func (diagCleanupHandler) Interval() time.Duration { return 24 * time.Hour }
+
+func (diagCleanupHandler) NewPayload() any { return nil }
+
+func (diagCleanupHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	days := operation_setting.GetMonitorSetting().SnapshotModelStatusRetentionDays
+	if days <= 0 {
+		days = 30
+	}
+	deleted, err := model.PruneChannelDiagnosticsBefore(common.GetTimestamp() - int64(days)*24*60*60)
+	if err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
+		return
+	}
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, map[string]int64{"deleted": deleted}, nil)
 }
 
 // modelUpdateHandler runs the scheduled upstream model update detection job.
@@ -159,5 +187,12 @@ func finishSystemTaskHandler(task *model.SystemTask, runnerID string, status mod
 	}
 	if err := model.FinishSystemTask(task.TaskID, runnerID, status, result, errorMessage); err != nil {
 		common.SysLog(fmt.Sprintf("system task %s failed to persist result: %v", task.TaskID, err))
+		// FinishSystemTask requires the lease, so a lost lock leaves the row running
+		// and the scheduler will never start this task type again. Force it terminal.
+		if errors.Is(err, model.ErrSystemTaskLockLost) {
+			if markErr := model.MarkSystemTaskLeaseExpired(task.TaskID); markErr != nil {
+				common.SysLog(fmt.Sprintf("system task %s failed to mark lease expired: %v", task.TaskID, markErr))
+			}
+		}
 	}
 }

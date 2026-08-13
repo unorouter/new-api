@@ -5,11 +5,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/gin-gonic/gin"
@@ -18,6 +19,26 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+// generateOAuthCodeRequest drives prod's fuego GenerateOAuthCode handler through a
+// real registered gin route, so the query-param parsing and auth-flow creation
+// contract is exercised exactly as in production. sessionSetup, when set, seeds the
+// dashboard session identity the bind intent resolves via middleware.GetSessionAuthIdentity.
+func generateOAuthCodeRequest(t *testing.T, query url.Values, sessionSetup gin.HandlerFunc) *httptest.ResponseRecorder {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	if sessionSetup != nil {
+		engine.Use(sessionSetup)
+	}
+	router := dto.NewRouter(nil, engine, "test")
+	dto.GetP(router, "/api/oauth/state", GenerateOAuthCode)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/oauth/state?"+query.Encode(), nil)
+	engine.ServeHTTP(recorder, request)
+	return recorder
+}
 
 type authFlowTestOAuthProvider struct {
 	exchangeErr   error
@@ -69,23 +90,18 @@ func setupAuthFlowControllerTest(t *testing.T) *authFlowTestOAuthProvider {
 
 func TestGenerateOAuthCodeCarriesAffiliateInLoginFlow(t *testing.T) {
 	setupAuthFlowControllerTest(t)
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/oauth/state", strings.NewReader(`{"provider":"auth-flow-test","intent":"login","aff":"invite-code"}`))
-	c.Request.Header.Set("Content-Type", "application/json")
 
-	GenerateOAuthCode(c)
+	recorder := generateOAuthCodeRequest(t, url.Values{
+		"provider": {"auth-flow-test"},
+		"intent":   {"login"},
+		"aff":      {"invite-code"},
+	}, nil)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
-	var response struct {
-		Success bool `json:"success"`
-		Data    struct {
-			FlowToken string `json:"flow_token"`
-		} `json:"data"`
-	}
+	var response dto.Response[string]
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	require.True(t, response.Success)
-	flow, err := model.GetAuthFlow(response.Data.FlowToken, model.AuthFlowMatch{
+	flow, err := model.GetAuthFlow(response.Data, model.AuthFlowMatch{
 		Purpose: model.AuthFlowPurposeOAuth, Provider: "auth-flow-test", Intent: model.AuthFlowIntentLogin,
 	})
 	require.NoError(t, err)
@@ -98,27 +114,22 @@ func TestGenerateOAuthCodeCarriesAffiliateInLoginFlow(t *testing.T) {
 
 func TestGenerateOAuthCodeBindsFlowToAuthenticatedSession(t *testing.T) {
 	setupAuthFlowControllerTest(t)
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/oauth/state", strings.NewReader(`{"provider":"auth-flow-test","intent":"bind"}`))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("id", 42)
-	c.Set("session_id", "session-42")
-	c.Set("auth_version", int64(3))
-	c.Set("session_version", int64(2))
 
-	GenerateOAuthCode(c)
+	recorder := generateOAuthCodeRequest(t, url.Values{
+		"provider": {"auth-flow-test"},
+		"intent":   {"bind"},
+	}, func(c *gin.Context) {
+		c.Set("id", 42)
+		c.Set("session_id", "session-42")
+		c.Set("auth_version", int64(3))
+		c.Set("session_version", int64(2))
+	})
 
 	require.Equal(t, http.StatusOK, recorder.Code)
-	var response struct {
-		Success bool `json:"success"`
-		Data    struct {
-			FlowToken string `json:"flow_token"`
-		} `json:"data"`
-	}
+	var response dto.Response[string]
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	require.True(t, response.Success)
-	flow, err := model.GetAuthFlow(response.Data.FlowToken, model.AuthFlowMatch{
+	flow, err := model.GetAuthFlow(response.Data, model.AuthFlowMatch{
 		Purpose: model.AuthFlowPurposeOAuth, Provider: "auth-flow-test", Intent: model.AuthFlowIntentBind,
 		UserId: 42, SessionId: "session-42",
 	})
@@ -170,7 +181,7 @@ func TestOAuthLoginConsumesFlowAfterProviderIdentityAndOnProviderError(t *testin
 	provider.userInfoErr = nil
 	successToken, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
 		Purpose: model.AuthFlowPurposeOAuth, Provider: "auth-flow-test", Intent: model.AuthFlowIntentLogin,
-		Payload: `{invalid`, ExpiresAt: time.Now().Add(time.Minute),
+		Payload: `{}`, ExpiresAt: time.Now().Add(time.Minute),
 	})
 	require.NoError(t, err)
 	router := gin.New()

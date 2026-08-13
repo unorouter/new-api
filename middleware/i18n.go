@@ -6,7 +6,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/types"
 )
 
 // I18n middleware detects and sets the language preference for the request
@@ -22,7 +22,7 @@ func I18n() gin.HandlerFunc {
 // Priority: 1. User setting (if logged in) -> 2. Accept-Language header -> 3. Default language
 func detectLanguage(c *gin.Context) string {
 	// 1. Try to get language from user setting (set by auth middleware)
-	if userSetting, ok := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting); ok {
+	if userSetting, ok := common.GetContextKeyType[types.UserSetting](c, constant.ContextKeyUserSetting); ok {
 		if userSetting.Language != "" && i18n.IsSupported(userSetting.Language) {
 			return userSetting.Language
 		}

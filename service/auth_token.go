@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	AccessTokenTTL        = 15 * time.Minute
+	AccessTokenTTL        = 30 * 24 * time.Hour
 	SecurityProofTTL      = 5 * time.Minute
 	LoginSessionTTL       = 30 * 24 * time.Hour
 	RefreshReplayWindow   = 30 * time.Second

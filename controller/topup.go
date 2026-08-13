@@ -3,13 +3,13 @@ package controller
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -18,11 +18,12 @@ import (
 
 	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 	"github.com/samber/lo"
 	"github.com/shopspring/decimal"
 )
 
-func GetTopUpInfo(c *gin.Context) {
+func GetTopUpInfo(c fuego.ContextNoBody) (*dto.Response[dto.TopUpInfoData], error) {
 	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
 
 	// 获取支付方式
@@ -31,26 +32,31 @@ func GetTopUpInfo(c *gin.Context) {
 		payMethods = []map[string]string{}
 	}
 
-	// 如果启用了 Stripe 支付，添加到支付方法列表
-	if isStripeTopUpEnabled() {
-		// 检查是否已经包含 Stripe
-		hasStripe := false
-		for _, method := range payMethods {
-			if method["type"] == "stripe" {
-				hasStripe = true
-				break
-			}
-		}
+	// 如果启用了 Stripe 支付，添加到支付方法列表；否则过滤掉已存储的 Stripe 条目
+	stripeConfigured := setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != ""
+	stripeEnabled := setting.StripeEnabled && stripeConfigured
 
-		if !hasStripe {
-			stripeMethod := map[string]string{
-				"name":      "Stripe",
-				"type":      "stripe",
-				"color":     "#635BFF",
-				"min_topup": strconv.Itoa(setting.StripeMinTopUp),
+	filteredMethods := make([]map[string]string, 0, len(payMethods))
+	hasStripe := false
+	for _, method := range payMethods {
+		if method["type"] == "stripe" {
+			if !stripeEnabled {
+				continue
 			}
-			payMethods = append(payMethods, stripeMethod)
+			hasStripe = true
 		}
+		filteredMethods = append(filteredMethods, method)
+	}
+	payMethods = filteredMethods
+
+	if stripeEnabled && !hasStripe {
+		stripeMethod := map[string]string{
+			"name":      "Stripe",
+			"type":      "stripe",
+			"color":     "rgba(var(--semi-purple-5), 1)",
+			"min_topup": strconv.Itoa(setting.StripeMinTopUp),
+		}
+		payMethods = append(payMethods, stripeMethod)
 	}
 
 	// Waffo Pancake is displayed above the standard Waffo gateway.
@@ -74,63 +80,100 @@ func GetTopUpInfo(c *gin.Context) {
 		}
 	}
 
-	// 如果启用了 Waffo 支付，添加到支付方法列表
 	enableWaffo := isWaffoTopUpEnabled()
 	if enableWaffo {
 		hasWaffo := false
 		for _, method := range payMethods {
-			if method["type"] == model.PaymentMethodWaffo {
+			if method["type"] == "waffo" {
 				hasWaffo = true
 				break
 			}
 		}
-
 		if !hasWaffo {
 			waffoMethod := map[string]string{
 				"name":      "Waffo (Global Payment)",
 				"type":      model.PaymentMethodWaffo,
-				"color":     "#3B82F6",
+				"color":     "rgba(var(--semi-blue-5), 1)",
 				"min_topup": strconv.Itoa(setting.WaffoMinTopUp),
 			}
 			payMethods = append(payMethods, waffoMethod)
 		}
 	}
 
-	data := gin.H{
-		"enable_online_topup":              isEpayTopUpEnabled(),
-		"enable_stripe_topup":              isStripeTopUpEnabled(),
-		"enable_creem_topup":               isCreemTopUpEnabled(),
-		"enable_waffo_topup":               enableWaffo,
-		"enable_waffo_pancake_topup":       enableWaffoPancake,
-		"enable_redemption":                complianceConfirmed,
-		"payment_compliance_confirmed":     complianceConfirmed,
-		"payment_compliance_terms_version": operation_setting.CurrentComplianceTermsVersion,
-		"waffo_pay_methods": func() interface{} {
-			if enableWaffo {
-				return setting.GetWaffoPayMethods()
-			}
-			return nil
-		}(),
-		"creem_products":          setting.CreemProducts,
-		"pay_methods":             payMethods,
-		"min_topup":               operation_setting.MinTopUp,
-		"stripe_min_topup":        setting.StripeMinTopUp,
-		"waffo_min_topup":         setting.WaffoMinTopUp,
-		"waffo_pancake_min_topup": setting.WaffoPancakeMinTopUp,
-		"amount_options":          operation_setting.GetPaymentSetting().AmountOptions,
-		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
-		"topup_link":              common.TopUpLink,
+	var waffoPayMethods interface{}
+	if enableWaffo {
+		waffoPayMethods = setting.GetWaffoPayMethods()
 	}
-	common.ApiSuccess(c, data)
-}
 
-type EpayRequest struct {
-	Amount        int64  `json:"amount"`
-	PaymentMethod string `json:"payment_method"`
-}
+	enableNowPayments := isNowPaymentsTopUpEnabled()
+	if enableNowPayments {
+		hasNowPayments := false
+		for _, method := range payMethods {
+			if method["type"] == model.PaymentMethodNowPayments {
+				hasNowPayments = true
+				break
+			}
+		}
+		if !hasNowPayments {
+			payMethods = append(payMethods, map[string]string{
+				"name":      "Crypto (NowPayments)",
+				"type":      model.PaymentMethodNowPayments,
+				"color":     "rgba(var(--semi-orange-5), 1)",
+				"min_topup": strconv.Itoa(setting.NowPaymentsMinTopUp),
+			})
+		}
+	}
 
-type AmountRequest struct {
-	Amount int64 `json:"amount"`
+	enableDeloPay := isDeloPayTopUpEnabled()
+	if enableDeloPay {
+		hasDeloPay := false
+		for _, method := range payMethods {
+			if method["type"] == model.PaymentMethodDeloPay {
+				hasDeloPay = true
+				break
+			}
+		}
+		if !hasDeloPay {
+			payMethods = append(payMethods, map[string]string{
+				"name":      "PayPal",
+				"type":      model.PaymentMethodDeloPay,
+				"color":     "rgba(var(--semi-indigo-5), 1)",
+				"min_topup": strconv.Itoa(setting.DeloPayMinTopUp),
+			})
+		}
+	}
+
+	data := dto.TopUpInfoData{
+		EnableOnlineTopup:             isEpayTopUpEnabled(),
+		EnableStripeTopup:             isStripeTopUpEnabled(),
+		EnableCreemTopup:              isCreemTopUpEnabled(),
+		EnableWaffoTopup:              enableWaffo,
+		EnableWaffoPancakeTopup:       enableWaffoPancake,
+		EnableNowPaymentsTopup:        enableNowPayments,
+		EnableDeloPayTopup:            enableDeloPay,
+		EnableRedemption:              complianceConfirmed,
+		PaymentComplianceConfirmed:    complianceConfirmed,
+		PaymentComplianceTermsVersion: operation_setting.CurrentComplianceTermsVersion,
+		WaffoPayMethods:               waffoPayMethods,
+		CreemProducts:                 setting.CreemProducts,
+		CreemFeeFixed:                 setting.CreemFeeFixed,
+		CreemFeePercent:               setting.CreemFeePercent,
+		CreemFeeThreshold:             setting.CreemFeeThreshold,
+		DeloPayFeeThreshold:           setting.DeloPayFeeThreshold,
+		PayMethods:                    payMethods,
+		MinTopup:                      operation_setting.MinTopUp,
+		StripeMinTopup:                setting.StripeMinTopUp,
+		WaffoMinTopup:                 setting.WaffoMinTopUp,
+		WaffoPancakeMinTopup:          setting.WaffoPancakeMinTopUp,
+		NowPaymentsMinTopup:           setting.NowPaymentsMinTopUp,
+		DeloPayMinTopup:               setting.DeloPayMinTopUp,
+		DeloPayFeeFixed:               setting.DeloPayFeeFixed,
+		DeloPayFeePercent:             setting.DeloPayFeePercent,
+		AmountOptions:                 operation_setting.GetPaymentSetting().AmountOptions,
+		Discount:                      operation_setting.GetPaymentSetting().AmountDiscount,
+		TopUpLink:                     common.TopUpLink,
+	}
+	return dto.Ok(data)
 }
 
 func GetEpayClient() *epay.Client {
@@ -149,7 +192,7 @@ func GetEpayClient() *epay.Client {
 
 func getPayMoney(amount int64, group string) float64 {
 	dAmount := decimal.NewFromInt(amount)
-	// 充值金额以“展示类型”为准：
+	// 充值金额以"展示类型"为准：
 	// - USD/CNY: 前端传 amount 为金额单位；TOKENS: 前端传 tokens，需要换成 USD 金额
 	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
 		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
@@ -187,33 +230,28 @@ func getMinTopup() int64 {
 	return int64(minTopup)
 }
 
-func RequestEpay(c *gin.Context) {
-	var req EpayRequest
-	err := c.ShouldBindJSON(&req)
+func RequestEpay(c fuego.ContextWithBody[dto.EpayRequest]) (*dto.Response[dto.EpayPayResponse], error) {
+	ginCtx := dto.GinCtx(c)
+	req, err := c.Body()
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
-		return
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "common.invalid_params"))
 	}
 	if req.Amount < getMinTopup() {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getMinTopup())})
-		return
+		return dto.Fail[dto.EpayPayResponse](fmt.Sprintf("Top-up amount cannot be less than %v", getMinTopup()))
 	}
 
-	id := c.GetInt("id")
+	id := dto.UserID(c)
 	group, err := model.GetUserGroup(id, true)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
-		return
+		return dto.Fail[dto.EpayPayResponse]("Failed to get user group")
 	}
 	payMoney := getPayMoney(req.Amount, group)
 	if payMoney < 0.01 {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
-		return
+		return dto.Fail[dto.EpayPayResponse]("Top-up amount is too low")
 	}
 
 	if !operation_setting.ContainsPayMethod(req.PaymentMethod) {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "支付方式不存在"})
-		return
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.method_not_exists"))
 	}
 
 	callBackAddress := service.GetCallbackAddress()
@@ -223,8 +261,7 @@ func RequestEpay(c *gin.Context) {
 	tradeNo = fmt.Sprintf("USR%dNO%s", id, tradeNo)
 	client := GetEpayClient()
 	if client == nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "当前管理员未配置支付信息"})
-		return
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.not_configured"))
 	}
 	uri, params, err := client.Purchase(&epay.PurchaseArgs{
 		Type:           req.PaymentMethod,
@@ -236,9 +273,7 @@ func RequestEpay(c *gin.Context) {
 		ReturnUrl:      returnUrl,
 	})
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 拉起支付失败 user_id=%d trade_no=%s payment_method=%s amount=%d error=%q", id, tradeNo, req.PaymentMethod, req.Amount, err.Error()))
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
-		return
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.start_failed"))
 	}
 	amount := req.Amount
 	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
@@ -258,12 +293,9 @@ func RequestEpay(c *gin.Context) {
 	}
 	err = topUp.Insert()
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 创建充值订单失败 user_id=%d trade_no=%s payment_method=%s amount=%d error=%q", id, tradeNo, req.PaymentMethod, req.Amount, err.Error()))
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "创建订单失败"})
-		return
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.create_failed"))
 	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 充值订单创建成功 user_id=%d trade_no=%s payment_method=%s amount=%d money=%.2f uri=%q params=%q", id, tradeNo, req.PaymentMethod, req.Amount, payMoney, uri, common.GetJsonString(params)))
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": params, "url": uri})
+	return dto.Ok(dto.EpayPayResponse{Params: params, Url: uri})
 }
 
 // tradeNo lock
@@ -310,7 +342,7 @@ func UnlockOrder(tradeNo string) {
 
 func EpayNotify(c *gin.Context) {
 	if !isEpayWebhookEnabled() {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 被拒绝 reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Epay webhook rejected reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
 		_, _ = c.Writer.Write([]byte("fail"))
 		return
 	}
@@ -320,7 +352,7 @@ func EpayNotify(c *gin.Context) {
 	if c.Request.Method == "POST" {
 		// POST 请求：从 POST body 解析参数
 		if err := c.Request.ParseForm(); err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook POST 表单解析失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Epay webhook POST form parsing failed path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
 			_, _ = c.Writer.Write([]byte("fail"))
 			return
 		}
@@ -335,166 +367,155 @@ func EpayNotify(c *gin.Context) {
 			return r
 		}, map[string]string{})
 	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 webhook 收到请求 path=%q client_ip=%s method=%s params=%q", c.Request.RequestURI, c.ClientIP(), c.Request.Method, common.GetJsonString(params)))
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Epay webhook received request path=%q client_ip=%s method=%s params=%q", c.Request.RequestURI, c.ClientIP(), c.Request.Method, common.GetJsonString(params)))
 
 	if len(params) == 0 {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 参数为空 path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Epay webhook parameters are empty path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
 		_, _ = c.Writer.Write([]byte("fail"))
 		return
 	}
 	client := GetEpayClient()
 	if client == nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 client 未初始化 path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Epay client not initialized path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
 		_, err := c.Writer.Write([]byte("fail"))
 		if err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook 响应写入失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Epay webhook response write failed path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
 		}
 		return
 	}
 	verifyInfo, err := client.Verify(params)
 	if err != nil || !verifyInfo.VerifyStatus {
 		if _, writeErr := c.Writer.Write([]byte("fail")); writeErr != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook 响应写入失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), writeErr.Error()))
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Epay webhook response write failed path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), writeErr.Error()))
 		}
 		if err != nil {
-			logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 验签失败 path=%q client_ip=%s verify_error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Epay webhook signature verification failed path=%q client_ip=%s verify_error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
 		} else {
-			logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 验签失败 path=%q client_ip=%s verify_status=false", c.Request.RequestURI, c.ClientIP()))
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Epay webhook signature verification failed path=%q client_ip=%s verify_status=false", c.Request.RequestURI, c.ClientIP()))
 		}
 		return
 	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 webhook 验签成功 trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", verifyInfo.ServiceTradeNo, verifyInfo.Type, verifyInfo.TradeStatus, c.ClientIP(), common.GetJsonString(verifyInfo)))
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Epay webhook signature verified trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", verifyInfo.ServiceTradeNo, verifyInfo.Type, verifyInfo.TradeStatus, c.ClientIP(), common.GetJsonString(verifyInfo)))
 
 	if verifyInfo.TradeStatus == epay.StatusTradeSuccess {
-		// 进程内锁只是优化；重复/并发回调的正确性由 RechargeEpay 的
-		// 数据库行锁 + 事务内状态校验保证（多实例部署下同样安全）。
+		// In-process lock is only an optimization: correctness under duplicate or
+		// concurrent callbacks comes from RechargeEpay's row lock + in-transaction
+		// status check, which also holds across multiple instances.
 		LockOrder(verifyInfo.ServiceTradeNo)
 		defer UnlockOrder(verifyInfo.ServiceTradeNo)
 		alreadyDone, err := model.RechargeEpay(verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP())
 		if err != nil {
 			switch {
 			case errors.Is(err, model.ErrTopUpNotFound):
-				logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 回调订单不存在 trade_no=%s callback_type=%s client_ip=%s verify_info=%q", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP(), common.GetJsonString(verifyInfo)))
+				logger.LogWarn(c.Request.Context(), fmt.Sprintf("Epay callback order does not exist trade_no=%s callback_type=%s client_ip=%s verify_info=%q", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP(), common.GetJsonString(verifyInfo)))
 			case errors.Is(err, model.ErrPaymentMethodMismatch):
-				logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 订单支付网关不匹配 trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
+				logger.LogWarn(c.Request.Context(), fmt.Sprintf("Epay order payment gateway mismatch trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
 			case errors.Is(err, model.ErrTopUpStatusInvalid):
-				logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 订单状态非法 trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
+				logger.LogWarn(c.Request.Context(), fmt.Sprintf("Epay order status invalid trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
 			default:
-				logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 充值处理失败 trade_no=%s client_ip=%s error=%q", verifyInfo.ServiceTradeNo, c.ClientIP(), err.Error()))
+				logger.LogError(c.Request.Context(), fmt.Sprintf("Epay topup processing failed trade_no=%s client_ip=%s error=%q", verifyInfo.ServiceTradeNo, c.ClientIP(), err.Error()))
 			}
 			if _, writeErr := c.Writer.Write([]byte("fail")); writeErr != nil {
-				logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook 响应写入失败 trade_no=%s client_ip=%s error=%q", verifyInfo.ServiceTradeNo, c.ClientIP(), writeErr.Error()))
+				logger.LogError(c.Request.Context(), fmt.Sprintf("Epay webhook response write failed trade_no=%s client_ip=%s error=%q", verifyInfo.ServiceTradeNo, c.ClientIP(), writeErr.Error()))
 			}
 			return
 		}
 		if alreadyDone {
-			logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 重复回调幂等忽略 trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
+			logger.LogInfo(c.Request.Context(), fmt.Sprintf("Epay duplicate callback ignored trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
 		} else {
-			logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 充值成功 trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
+			logger.LogInfo(c.Request.Context(), fmt.Sprintf("Epay topup succeeded trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
+			if topUp := model.GetTopUpByTradeNo(verifyInfo.ServiceTradeNo); topUp != nil {
+				if err := model.CreditReferralCommission(topUp.UserId, topUp.Money, "epay", topUp.Id); err != nil {
+					logger.LogError(c.Request.Context(), fmt.Sprintf("referral commission failed user_id=%d error=%q", topUp.UserId, err.Error()))
+				}
+			}
 		}
 	} else {
-		logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 webhook 忽略事件 trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", verifyInfo.ServiceTradeNo, verifyInfo.Type, verifyInfo.TradeStatus, c.ClientIP(), common.GetJsonString(verifyInfo)))
+		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Epay webhook ignored event trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", verifyInfo.ServiceTradeNo, verifyInfo.Type, verifyInfo.TradeStatus, c.ClientIP(), common.GetJsonString(verifyInfo)))
 	}
 	if _, writeErr := c.Writer.Write([]byte("success")); writeErr != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook 响应写入失败 trade_no=%s client_ip=%s error=%q", verifyInfo.ServiceTradeNo, c.ClientIP(), writeErr.Error()))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Epay webhook response write failed trade_no=%s client_ip=%s error=%q", verifyInfo.ServiceTradeNo, c.ClientIP(), writeErr.Error()))
 	}
 }
 
-func RequestAmount(c *gin.Context) {
-	var req AmountRequest
-	err := c.ShouldBindJSON(&req)
+func RequestAmount(c fuego.ContextWithBody[dto.AmountRequest]) (*dto.Response[string], error) {
+	ginCtx := dto.GinCtx(c)
+	req, err := c.Body()
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
-		return
+		return dto.Fail[string](common.TranslateMessage(ginCtx, "common.invalid_params"))
 	}
 
 	if req.Amount < getMinTopup() {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getMinTopup())})
-		return
+		return dto.Fail[string](fmt.Sprintf("Top-up amount cannot be less than %v", getMinTopup()))
 	}
-	id := c.GetInt("id")
+	id := dto.UserID(c)
 	group, err := model.GetUserGroup(id, true)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
-		return
+		return dto.Fail[string]("Failed to get user group")
 	}
 	payMoney := getPayMoney(req.Amount, group)
 	if payMoney <= 0.01 {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
-		return
+		return dto.Fail[string]("Top-up amount is too low")
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64)})
+	return dto.Ok(strconv.FormatFloat(payMoney, 'f', 2, 64))
 }
 
-func GetUserTopUps(c *gin.Context) {
-	userId := c.GetInt("id")
-	pageInfo := common.GetPageQuery(c)
-	keyword := c.Query("keyword")
+func GetUserTopUps(c fuego.ContextWithParams[dto.TopUpSearchParams]) (*dto.Response[dto.PageData[*model.TopUp]], error) {
+	userId := dto.UserID(c)
+	pageInfo := dto.PageInfo(c)
+	p, _ := dto.ParseParams[dto.TopUpSearchParams](c)
 
 	var (
 		topups []*model.TopUp
 		total  int64
 		err    error
 	)
-	if keyword != "" {
-		topups, total, err = model.SearchUserTopUps(userId, keyword, pageInfo)
+	if p.Keyword != "" {
+		topups, total, err = model.SearchUserTopUps(userId, p.Keyword, pageInfo)
 	} else {
 		topups, total, err = model.GetUserTopUps(userId, pageInfo)
 	}
 	if err != nil {
-		common.ApiError(c, err)
-		return
+		return dto.FailPage[*model.TopUp](err.Error())
 	}
 
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(topups)
-	common.ApiSuccess(c, pageInfo)
+	return dto.OkPage(pageInfo, topups, int(total))
 }
 
-// GetAllTopUps 管理员获取全平台充值记录
-func GetAllTopUps(c *gin.Context) {
-	pageInfo := common.GetPageQuery(c)
-	keyword := c.Query("keyword")
+func GetAllTopUps(c fuego.ContextWithParams[dto.TopUpSearchParams]) (*dto.Response[dto.PageData[*model.TopUp]], error) {
+	pageInfo := dto.PageInfo(c)
+	p, _ := dto.ParseParams[dto.TopUpSearchParams](c)
 
 	var (
 		topups []*model.TopUp
 		total  int64
 		err    error
 	)
-	if keyword != "" {
-		topups, total, err = model.SearchAllTopUps(keyword, pageInfo)
+	if p.Keyword != "" {
+		topups, total, err = model.SearchAllTopUps(p.Keyword, pageInfo)
 	} else {
 		topups, total, err = model.GetAllTopUps(pageInfo)
 	}
 	if err != nil {
-		common.ApiError(c, err)
-		return
+		return dto.FailPage[*model.TopUp](err.Error())
 	}
 
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(topups)
-	common.ApiSuccess(c, pageInfo)
+	return dto.OkPage(pageInfo, topups, int(total))
 }
 
-type AdminCompleteTopupRequest struct {
-	TradeNo string `json:"trade_no"`
-}
-
-// AdminCompleteTopUp 管理员补单接口
-func AdminCompleteTopUp(c *gin.Context) {
-	var req AdminCompleteTopupRequest
-	if err := c.ShouldBindJSON(&req); err != nil || req.TradeNo == "" {
-		common.ApiErrorMsg(c, "参数错误")
-		return
+func AdminCompleteTopUp(c fuego.ContextWithBody[dto.AdminCompleteTopupRequest]) (dto.MessageResponse, error) {
+	ginCtx := dto.GinCtx(c)
+	req, err := c.Body()
+	if err != nil || req.TradeNo == "" {
+		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
 	}
 
 	// 订单级互斥，防止并发补单
 	LockOrder(req.TradeNo)
 	defer UnlockOrder(req.TradeNo)
 
-	if err := model.ManualCompleteTopUp(req.TradeNo, c.ClientIP()); err != nil {
-		common.ApiError(c, err)
-		return
+	if err := model.ManualCompleteTopUp(req.TradeNo, ginCtx.ClientIP()); err != nil {
+		return dto.FailMsg(err.Error())
 	}
-	common.ApiSuccess(c, nil)
+	return dto.Msg("")
 }

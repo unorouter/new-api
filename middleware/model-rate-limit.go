@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/common/limiter"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -23,47 +27,54 @@ const (
 )
 
 // 检查Redis中的请求限制
-func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64) (bool, error) {
+// retryAfter is the seconds until the oldest recorded request slides out of the
+// window (the real wait), 0 when allowed or unknown (caller falls back to the
+// full window).
+func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64) (bool, int64, error) {
 	// 如果maxCount为0，表示不限制
 	if maxCount == 0 {
-		return true, nil
+		return true, 0, nil
 	}
 
 	// 获取当前计数
 	length, err := rdb.LLen(ctx, key).Result()
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 
 	// 如果未达到限制，允许请求
 	if length < int64(maxCount) {
-		return true, nil
+		return true, 0, nil
 	}
 
 	// 检查时间窗口
 	oldTimeStr, _ := rdb.LIndex(ctx, key, -1).Result()
 	oldTime, err := time.Parse(modelRateLimitTimeFormat, oldTimeStr)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 
 	nowTimeStr := time.Now().UTC().Format(modelRateLimitTimeFormat)
 	nowTime, err := time.Parse(modelRateLimitTimeFormat, nowTimeStr)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	// 如果在时间窗口内已达到限制，拒绝请求
 	subTime := nowTime.Sub(oldTime).Seconds()
 	if int64(subTime) < duration {
-		rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
-		return false, nil
+		rdb.Expire(ctx, key, time.Duration(duration)*time.Second)
+		remaining := duration - int64(subTime)
+		if remaining < 1 {
+			remaining = 1
+		}
+		return false, remaining, nil
 	}
 
-	return true, nil
+	return true, 0, nil
 }
 
 // 记录Redis请求
-func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxCount int) {
+func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64) {
 	// 如果maxCount为0，不记录请求
 	if maxCount == 0 {
 		return
@@ -72,7 +83,7 @@ func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxC
 	now := time.Now().UTC().Format(modelRateLimitTimeFormat)
 	rdb.LPush(ctx, key, now)
 	rdb.LTrim(ctx, key, 0, int64(maxCount-1))
-	rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
+	rdb.Expire(ctx, key, time.Duration(duration)*time.Second)
 }
 
 // Redis限流处理器
@@ -84,14 +95,18 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 
 		// 1. 检查成功请求数限制
 		successKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, userId)
-		allowed, err := checkRedisRateLimit(ctx, rdb, successKey, successMaxCount, duration)
+		allowed, retryAfter, err := checkRedisRateLimit(ctx, rdb, successKey, successMaxCount, duration)
 		if err != nil {
-			fmt.Println("检查成功请求数限制失败:", err.Error())
+			fmt.Println("failed to check success request rate limit:", err.Error())
 			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
 			return
 		}
 		if !allowed {
-			abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到请求数限制：%d分钟内最多请求%d次", setting.ModelRequestRateLimitDurationMinutes, successMaxCount))
+			if retryAfter <= 0 {
+				retryAfter = duration
+			}
+			c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
+			abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, "rate_limit.reached", map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Count": successMaxCount}))
 			return
 		}
 
@@ -109,13 +124,13 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 			)
 
 			if err != nil {
-				fmt.Println("检查总请求数限制失败:", err.Error())
+				fmt.Println("failed to check total request rate limit:", err.Error())
 				abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
 				return
 			}
 
 			if !allowed {
-				abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到总请求数限制：%d分钟内最多请求%d次，包括失败次数，请检查您的请求是否正确", setting.ModelRequestRateLimitDurationMinutes, totalMaxCount))
+				abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, "rate_limit.total_reached", map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Count": totalMaxCount}))
 			}
 		}
 
@@ -124,14 +139,14 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 
 		// 5. 如果请求成功，记录成功请求
 		if c.Writer.Status() < 400 {
-			recordRedisRequest(ctx, rdb, successKey, successMaxCount)
+			recordRedisRequest(ctx, rdb, successKey, successMaxCount, duration)
 		}
 	}
 }
 
 // 内存限流处理器
 func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
-	inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
+	inMemoryRateLimiter.Init(inMemoryCleanupHorizon)
 
 	return func(c *gin.Context) {
 		userId := strconv.Itoa(c.GetInt("id"))
@@ -164,6 +179,117 @@ func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) 
 	}
 }
 
+const (
+	perModelRateLimitKeyMark      = "perModelRateLimitKey"
+	perModelRateLimitMaxMark      = "perModelRateLimitMax"
+	perModelRateLimitDurationMark = "perModelRateLimitDuration"
+	// In-memory cleanup horizon must cover the largest per-model window (Redis
+	// unaffected); entries idle longer than this are evicted.
+	inMemoryCleanupHorizon = 24 * time.Hour
+)
+
+// perModelRateLimit enforces a per-user, per-model success-count cap for the
+// configured `:free` models. Returns false when the request was blocked (already
+// aborted). Paid/small models (not in the map) return true unchanged. On allow it
+// stashes the key/max so the post-handler records the request only on success.
+func perModelRateLimit(c *gin.Context) bool {
+	if !setting.HasModelRateLimits() {
+		return true
+	}
+	// The ONLY exemption is the explicit per-user UnlimitedFreeModels grant.
+	// No role or balance bypass: infrastructure accounts (guest-token owner,
+	// autotest) get the grant instead, so every exemption is visible in the
+	// user's setting and revocable from the admin drawer.
+	if s, ok := common.GetContextKeyType[types.UserSetting](c, constant.ContextKeyUserSetting); ok && s.UnlimitedFreeModels {
+		return true
+	}
+	var mr ModelRequest
+	if err := common.UnmarshalBodyReusable(c, &mr); err != nil || mr.Model == "" {
+		return true
+	}
+	_, successMaxCount, windowMinutes, found := setting.GetModelRateLimit(mr.Model)
+	if !found || successMaxCount <= 0 {
+		return true
+	}
+
+	if windowMinutes <= 0 {
+		windowMinutes = setting.ModelRequestRateLimitDurationMinutes
+	}
+	duration := int64(windowMinutes * 60)
+	userId := strconv.Itoa(c.GetInt("id"))
+	key := fmt.Sprintf("rateLimit:MODEL:%s:%s", userId, mr.Model)
+
+	allowed := true
+	// Real remaining wait from the limiter (0 = unknown -> full window fallback).
+	var retryAfter int64
+	if common.RedisEnabled {
+		ok, remaining, err := checkRedisRateLimit(context.Background(), common.RDB, key, successMaxCount, duration)
+		if err == nil {
+			allowed = ok
+			retryAfter = remaining
+		}
+	} else {
+		inMemoryRateLimiter.Init(inMemoryCleanupHorizon)
+		allowed = inMemoryRateLimiter.Request(key+"_check", successMaxCount, duration)
+	}
+
+	if !allowed {
+		paidName := strings.TrimSuffix(mr.Model, ":free")
+		if retryAfter <= 0 {
+			retryAfter = duration
+		}
+		c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
+		c.Header("X-RateLimit-Limit", strconv.Itoa(successMaxCount))
+		c.Header("X-RateLimit-Remaining", "0")
+		c.Header("X-RateLimit-Reset", strconv.FormatInt(time.Now().Unix()+retryAfter, 10))
+		msg := fmt.Sprintf("Too many requests. The free tier allows %v request(s) every %v min per account on %v - nothing is used up, retry in %vs. The paid %v has no per-minute limit.",
+			successMaxCount, windowMinutes, mr.Model, retryAfter, paidName)
+		// Surface the rejection in the usage logs (aborting here skips the
+		// relay's own error logging entirely). DB guard keeps unit tests DB-free.
+		if model.DB != nil {
+			group := c.GetString("group")
+			// Rate limiting runs before the distributor selects a channel, so attach
+			// the channel the request would have been routed to for log attribution.
+			channelId := 0
+			if ch := model.GetChannelForLog(group, mr.Model, c.Request.URL.Path); ch != nil {
+				channelId = ch.Id
+			}
+			model.RecordErrorLog(c, c.GetInt("id"), channelId, mr.Model,
+				c.GetString("token_name"), msg, c.GetInt("token_id"), 0, false,
+				group, map[string]interface{}{
+					"status_code": http.StatusTooManyRequests,
+					"retry_after": retryAfter,
+				})
+		}
+		abortWithOpenAiMessage(c, http.StatusTooManyRequests, msg)
+		return false
+	}
+
+	c.Set(perModelRateLimitKeyMark, key)
+	c.Set(perModelRateLimitMaxMark, successMaxCount)
+	c.Set(perModelRateLimitDurationMark, duration)
+	return true
+}
+
+// recordPerModelSuccess records a successful per-model request after the handler
+// runs, so failed upstream calls never burn the user's budget.
+func recordPerModelSuccess(c *gin.Context) {
+	key := c.GetString(perModelRateLimitKeyMark)
+	maxCount := c.GetInt(perModelRateLimitMaxMark)
+	if key == "" || maxCount <= 0 || c.Writer.Status() >= 400 {
+		return
+	}
+	duration := c.GetInt64(perModelRateLimitDurationMark)
+	if duration <= 0 {
+		duration = int64(setting.ModelRequestRateLimitDurationMinutes * 60)
+	}
+	if common.RedisEnabled {
+		recordRedisRequest(context.Background(), common.RDB, key, maxCount, duration)
+	} else {
+		inMemoryRateLimiter.Request(key, maxCount, duration)
+	}
+}
+
 // ModelRequestRateLimit 模型请求限流中间件
 func ModelRequestRateLimit() func(c *gin.Context) {
 	return func(c *gin.Context) {
@@ -172,6 +298,11 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 			c.Next()
 			return
 		}
+
+		if !perModelRateLimit(c) {
+			return
+		}
+		defer recordPerModelSuccess(c)
 
 		// 计算限流参数
 		duration := int64(setting.ModelRequestRateLimitDurationMinutes * 60)

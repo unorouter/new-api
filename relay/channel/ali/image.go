@@ -23,7 +23,14 @@ import (
 
 func oaiImage2AliImageRequest(info *relaycommon.RelayInfo, request dto.ImageRequest, isSync bool) (*AliImageRequest, error) {
 	var imageRequest AliImageRequest
-	imageRequest.Model = request.Model
+	// Send the model-mapped upstream name (e.g. "z-image-turbo"), never the
+	// published alias ("z-image-turbo:free") which DashScope 404s as "Model not
+	// exist". request.Model can still carry the alias here, so prefer the mapped
+	// name resolved by ModelMappedHelper.
+	imageRequest.Model = info.UpstreamModelName
+	if imageRequest.Model == "" {
+		imageRequest.Model = request.Model
+	}
 	imageRequest.ResponseFormat = request.ResponseFormat
 	if request.Extra != nil {
 		if val, ok := request.Extra["parameters"]; ok {
@@ -160,7 +167,10 @@ func getImageBase64sFromForm(c *gin.Context, fieldName string) ([]string, error)
 
 func oaiFormEdit2AliImageEdit(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (*AliImageRequest, error) {
 	var imageRequest AliImageRequest
-	imageRequest.Model = request.Model
+	imageRequest.Model = info.UpstreamModelName
+	if imageRequest.Model == "" {
+		imageRequest.Model = request.Model
+	}
 	imageRequest.ResponseFormat = request.ResponseFormat
 
 	imageBase64s, err := getImageBase64sFromForm(c, "image")

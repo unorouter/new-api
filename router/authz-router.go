@@ -12,8 +12,10 @@ import (
 // actions, and role baselines) used by the client permission editor.
 func registerAuthzRoutes(apiRouter *gin.RouterGroup) {
 	authzRoute := apiRouter.Group("/authz")
-	authzRoute.Use(middleware.AdminAuth())
 	{
-		authzRoute.GET("/catalog", controller.GetPermissionCatalog)
+		// Read-only permission schema. Mods load the Users page (which mounts the
+		// user drawer and fetches the catalog), so gate the read with ModAuth;
+		// any future authz WRITE routes must use AdminAuth explicitly.
+		authzRoute.GET("/catalog", middleware.ModAuth(), controller.GetPermissionCatalog)
 	}
 }

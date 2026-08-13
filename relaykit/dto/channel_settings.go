@@ -10,19 +10,33 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
+// ChannelCapabilities describes tested capabilities of an upstream channel.
+// nil fields mean "unknown/not tested" and the channel is assumed capable.
+type ChannelCapabilities struct {
+	ToolCalling *bool `json:"tool_calling,omitempty"`
+	Streaming   *bool `json:"streaming,omitempty"`
+	HTTP        *bool `json:"http,omitempty"` // non-streaming request support
+}
+
 type ChannelSettings struct {
-	ForceFormat            bool   `json:"force_format,omitempty"`
-	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
-	Proxy                  string `json:"proxy"`
-	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt           string `json:"system_prompt,omitempty"`
-	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	ForceFormat            bool                 `json:"force_format,omitempty"`
+	ThinkingToContent      bool                 `json:"thinking_to_content,omitempty"`
+	Proxy                  string               `json:"proxy"`
+	PassThroughBodyEnabled bool                 `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt           string               `json:"system_prompt,omitempty"`
+	SystemPromptOverride   bool                 `json:"system_prompt_override,omitempty"`
+	Capabilities           *ChannelCapabilities `json:"capabilities,omitempty"`
 	// HTTPProtocol controls outbound HTTP version negotiation for this channel.
 	// Accepted values: "", "auto" (default), "http1".
 	HTTPProtocol string `json:"http_protocol,omitempty"`
 	// HTTP2ConnectionShards spreads HTTP/2 traffic across N independent transports
 	// (1-8). Zero/unset means 1. Ignored when HTTPProtocol is "http1".
 	HTTP2ConnectionShards int `json:"http2_connection_shards,omitempty"`
+	// AutoTestIntervalMinutes overrides the global scheduled-test cadence for this
+	// channel. Zero/unset uses the global monitor setting. Lanes metered per exit IP
+	// (a web reverse behind a rotating tunnel) spend a scarce per-IP request budget
+	// on every probe, so they are probed far less often than a commercial upstream.
+	AutoTestIntervalMinutes int `json:"auto_test_interval_minutes,omitempty"`
 }
 
 const (
@@ -103,6 +117,18 @@ const (
 	advancedCustomConverterOpenAIResponsesToGemini     = "openai_responses_to_gemini_generate_content"
 	advancedCustomConverterGeminiContentToOpenAIChat   = "gemini_generate_content_to_openai_chat_completions"
 	advancedCustomConverterOpenAIChatToGeminiContent   = "openai_chat_completions_to_gemini_generate_content"
+)
+
+// Exported converter names for host code that persists or validates the
+// channel converter field outside this package.
+const (
+	AdvancedCustomConverterNone                                         = advancedCustomConverterNone
+	AdvancedCustomConverterAnthropicMessagesToOpenAIChatCompletions     = advancedCustomConverterClaudeMessagesToOpenAIChat
+	AdvancedCustomConverterOpenAIChatCompletionsToAnthropicMessages     = advancedCustomConverterOpenAIChatToClaudeMessages
+	AdvancedCustomConverterOpenAIChatCompletionsToOpenAIResponses       = advancedCustomConverterOpenAIChatToOpenAIResponses
+	AdvancedCustomConverterOpenAIResponsesToOpenAIChatCompletions       = advancedCustomConverterOpenAIResponsesToOpenAIChat
+	AdvancedCustomConverterGeminiGenerateContentToOpenAIChatCompletions = advancedCustomConverterGeminiContentToOpenAIChat
+	AdvancedCustomConverterOpenAIChatCompletionsToGeminiGenerateContent = advancedCustomConverterOpenAIChatToGeminiContent
 )
 
 const (

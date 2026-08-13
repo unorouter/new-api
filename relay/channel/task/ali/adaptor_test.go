@@ -42,6 +42,50 @@ func TestConvertToAliRequestWan27I2VBuildsMediaFromImage(t *testing.T) {
 	require.NotContains(t, string(body), `"img_url"`)
 }
 
+func TestConvertToAliRequestHappyhorseI2VBuildsMediaFromImage(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	req := relaycommon.TaskSubmitReq{
+		Model:  "happyhorse-1.0-i2v",
+		Prompt: "a cat walking",
+		Image:  "https://example.com/first.png",
+	}
+
+	aliReq, err := adaptor.convertToAliRequest(testRelayInfo(), req)
+
+	require.NoError(t, err)
+	require.Equal(t, []AliVideoMedia{
+		{Type: "first_frame", URL: "https://example.com/first.png"},
+	}, aliReq.Input.Media)
+	require.Empty(t, aliReq.Input.ImgURL)
+
+	body, err := common.Marshal(aliReq)
+	require.NoError(t, err)
+	require.Contains(t, string(body), `"media"`)
+	require.NotContains(t, string(body), `"img_url"`)
+}
+
+func TestConvertToAliRequestHappyhorseR2VBuildsReferenceImageAndRequiresPrompt(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+
+	// r2v with a prompt -> reference_image media entry.
+	ok, err := adaptor.convertToAliRequest(testRelayInfo(), relaycommon.TaskSubmitReq{
+		Model:  "happyhorse-1.1-r2v",
+		Prompt: "the subject dances",
+		Image:  "https://example.com/ref.png",
+	})
+	require.NoError(t, err)
+	require.Equal(t, []AliVideoMedia{
+		{Type: "reference_image", URL: "https://example.com/ref.png"},
+	}, ok.Input.Media)
+
+	// r2v without a prompt -> rejected.
+	_, err = adaptor.convertToAliRequest(testRelayInfo(), relaycommon.TaskSubmitReq{
+		Model: "happyhorse-1.1-r2v",
+		Image: "https://example.com/ref.png",
+	})
+	require.Error(t, err)
+}
+
 func TestConvertToAliRequestWan27I2VBuildsFirstAndLastFrameFromImages(t *testing.T) {
 	adaptor := &TaskAdaptor{}
 	req := relaycommon.TaskSubmitReq{

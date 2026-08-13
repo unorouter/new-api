@@ -83,16 +83,55 @@ func InitOptionMap() {
 	common.OptionMap["Price"] = strconv.FormatFloat(operation_setting.Price, 'f', -1, 64)
 	common.OptionMap["USDExchangeRate"] = strconv.FormatFloat(operation_setting.USDExchangeRate, 'f', -1, 64)
 	common.OptionMap["MinTopUp"] = strconv.Itoa(operation_setting.MinTopUp)
+	common.OptionMap["StripeEnabled"] = strconv.FormatBool(setting.StripeEnabled)
 	common.OptionMap["StripeMinTopUp"] = strconv.Itoa(setting.StripeMinTopUp)
 	common.OptionMap["StripeApiSecret"] = setting.StripeApiSecret
 	common.OptionMap["StripeWebhookSecret"] = setting.StripeWebhookSecret
 	common.OptionMap["StripePriceId"] = setting.StripePriceId
 	common.OptionMap["StripeUnitPrice"] = strconv.FormatFloat(setting.StripeUnitPrice, 'f', -1, 64)
 	common.OptionMap["StripePromotionCodesEnabled"] = strconv.FormatBool(setting.StripePromotionCodesEnabled)
+	common.OptionMap["StripeManagedPayments"] = strconv.FormatBool(setting.StripeManagedPayments)
+	common.OptionMap["StripeTextModerationEnabled"] = strconv.FormatBool(setting.StripeTextModerationEnabled)
+	common.OptionMap["CreemEnabled"] = strconv.FormatBool(setting.CreemEnabled)
 	common.OptionMap["CreemApiKey"] = setting.CreemApiKey
 	common.OptionMap["CreemProducts"] = setting.CreemProducts
 	common.OptionMap["CreemTestMode"] = strconv.FormatBool(setting.CreemTestMode)
+	common.OptionMap["CreemFeeFixed"] = strconv.FormatFloat(setting.CreemFeeFixed, 'f', -1, 64)
+	common.OptionMap["CreemFeePercent"] = strconv.FormatFloat(setting.CreemFeePercent, 'f', -1, 64)
+	common.OptionMap["CreemFeeThreshold"] = strconv.FormatFloat(setting.CreemFeeThreshold, 'f', -1, 64)
 	common.OptionMap["CreemWebhookSecret"] = setting.CreemWebhookSecret
+	common.OptionMap["CreemModerationEnabled"] = strconv.FormatBool(setting.CreemModerationEnabled)
+	common.OptionMap["ModerationApiKey"] = setting.ModerationApiKey
+	common.OptionMap["ModerationBaseUrl"] = setting.ModerationBaseUrl
+	common.OptionMap["ModerationModel"] = setting.ModerationModel
+	common.OptionMap["ModerationProvidersText"] = setting.ModerationProvidersText
+	common.OptionMap["ModerationProvidersMedia"] = setting.ModerationProvidersMedia
+	common.OptionMap["ModerationCategoryThresholds"] = setting.ModerationCategoryThresholds
+	common.OptionMap["ModerationDefaultThreshold"] = strconv.FormatFloat(setting.ModerationDefaultThreshold, 'f', -1, 64)
+	common.OptionMap["ModerationFailOpen"] = strconv.FormatBool(setting.ModerationFailOpen)
+	common.OptionMap["ModerationMaxInputChars"] = strconv.Itoa(setting.ModerationMaxInputChars)
+	common.OptionMap["NowPaymentsEnabled"] = strconv.FormatBool(setting.NowPaymentsEnabled)
+	common.OptionMap["NowPaymentsApiKey"] = setting.NowPaymentsApiKey
+	common.OptionMap["NowPaymentsIpnSecret"] = setting.NowPaymentsIpnSecret
+	common.OptionMap["NowPaymentsSandbox"] = strconv.FormatBool(setting.NowPaymentsSandbox)
+	common.OptionMap["NowPaymentsUnitPrice"] = strconv.FormatFloat(setting.NowPaymentsUnitPrice, 'f', -1, 64)
+	common.OptionMap["NowPaymentsMinTopUp"] = strconv.Itoa(setting.NowPaymentsMinTopUp)
+	common.OptionMap["NowPaymentsFeePaidByUser"] = strconv.FormatBool(setting.NowPaymentsFeePaidByUser)
+	common.OptionMap["NowPaymentsIsFixedRate"] = strconv.FormatBool(setting.NowPaymentsIsFixedRate)
+	common.OptionMap["NowPaymentsSubscriptionEnabled"] = strconv.FormatBool(setting.NowPaymentsSubscriptionEnabled)
+	common.OptionMap["NowPaymentsEmail"] = setting.NowPaymentsEmail
+	common.OptionMap["NowPaymentsPassword"] = setting.NowPaymentsPassword
+	common.OptionMap["DeloPayEnabled"] = strconv.FormatBool(setting.DeloPayEnabled)
+	common.OptionMap["DeloPayApiKey"] = setting.DeloPayApiKey
+	common.OptionMap["DeloPayProfileId"] = setting.DeloPayProfileId
+	common.OptionMap["DeloPayWebhookSecret"] = setting.DeloPayWebhookSecret
+	common.OptionMap["DeloPayTestMode"] = strconv.FormatBool(setting.DeloPayTestMode)
+	common.OptionMap["DeloPayMinTopUp"] = strconv.Itoa(setting.DeloPayMinTopUp)
+	common.OptionMap["DeloPayFeeFixed"] = strconv.FormatFloat(setting.DeloPayFeeFixed, 'f', -1, 64)
+	common.OptionMap["DeloPayFeePercent"] = strconv.FormatFloat(setting.DeloPayFeePercent, 'f', -1, 64)
+	common.OptionMap["DeloPayFeeThreshold"] = strconv.FormatFloat(setting.DeloPayFeeThreshold, 'f', -1, 64)
+	common.OptionMap["DeloPaySubscriptionEnabled"] = strconv.FormatBool(setting.DeloPaySubscriptionEnabled)
+	common.OptionMap["DeloPayCheckoutPane"] = setting.DeloPayCheckoutPane
 	common.OptionMap["WaffoEnabled"] = strconv.FormatBool(setting.WaffoEnabled)
 	common.OptionMap["WaffoApiKey"] = setting.WaffoApiKey
 	common.OptionMap["WaffoPrivateKey"] = setting.WaffoPrivateKey
@@ -134,14 +173,21 @@ func InitOptionMap() {
 	common.OptionMap["QuotaForNewUser"] = strconv.Itoa(common.QuotaForNewUser)
 	common.OptionMap["QuotaForInviter"] = strconv.Itoa(common.QuotaForInviter)
 	common.OptionMap["QuotaForInvitee"] = strconv.Itoa(common.QuotaForInvitee)
+	common.OptionMap["ReferralCommissionEnabled"] = strconv.FormatBool(common.ReferralCommissionEnabled)
+	common.OptionMap["ReferralCommissionPercent"] = strconv.FormatFloat(common.ReferralCommissionPercent, 'f', -1, 64)
+	common.OptionMap["ReferralCommissionMaxRecharges"] = strconv.Itoa(common.ReferralCommissionMaxRecharges)
 	common.OptionMap["QuotaRemindThreshold"] = strconv.Itoa(common.QuotaRemindThreshold)
 	common.OptionMap["PreConsumedQuota"] = strconv.Itoa(common.PreConsumedQuota)
 	common.OptionMap["ModelRequestRateLimitCount"] = strconv.Itoa(setting.ModelRequestRateLimitCount)
 	common.OptionMap["ModelRequestRateLimitDurationMinutes"] = strconv.Itoa(setting.ModelRequestRateLimitDurationMinutes)
 	common.OptionMap["ModelRequestRateLimitSuccessCount"] = strconv.Itoa(setting.ModelRequestRateLimitSuccessCount)
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
+	common.OptionMap["ModelRequestRateLimitModels"] = setting.ModelRequestRateLimitModels2JSONString()
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
+	common.OptionMap["ModelQuotaType"] = ratio_setting.ModelQuotaType2JSONString()
+	common.OptionMap["ModelGridPricing"] = ratio_setting.ModelGridPricing2JSONString()
+	common.OptionMap["ModelUpstreamCostMarkup"] = ratio_setting.UpstreamCostMarkup2JSONString()
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
 	common.OptionMap["CreateCacheRatio"] = ratio_setting.CreateCacheRatio2JSONString()
 	common.OptionMap["GroupRatio"] = ratio_setting.GroupRatio2JSONString()
@@ -167,12 +213,14 @@ func InitOptionMap() {
 	common.OptionMap["CheckSensitiveEnabled"] = strconv.FormatBool(setting.CheckSensitiveEnabled)
 	common.OptionMap["DemoSiteEnabled"] = strconv.FormatBool(operation_setting.DemoSiteEnabled)
 	common.OptionMap["SelfUseModeEnabled"] = strconv.FormatBool(operation_setting.SelfUseModeEnabled)
+	common.OptionMap["ShowOriginalPriceEnabled"] = strconv.FormatBool(operation_setting.ShowOriginalPriceEnabled)
 	common.OptionMap["ModelRequestRateLimitEnabled"] = strconv.FormatBool(setting.ModelRequestRateLimitEnabled)
 	common.OptionMap["CheckSensitiveOnPromptEnabled"] = strconv.FormatBool(setting.CheckSensitiveOnPromptEnabled)
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
 	common.OptionMap["SensitiveWords"] = setting.SensitiveWordsToString()
 	common.OptionMap["StreamCacheQueueLength"] = strconv.Itoa(setting.StreamCacheQueueLength)
 	common.OptionMap["AutomaticDisableKeywords"] = operation_setting.AutomaticDisableKeywordsToString()
+	common.OptionMap["ChannelFaultKeywords"] = operation_setting.ChannelFaultKeywordsToString()
 	common.OptionMap["AutomaticDisableStatusCodes"] = operation_setting.AutomaticDisableStatusCodesToString()
 	common.OptionMap["AutomaticRetryStatusCodes"] = operation_setting.AutomaticRetryStatusCodesToString()
 	common.OptionMap["ExposeRatioEnabled"] = strconv.FormatBool(ratio_setting.IsExposeRatioEnabled())
@@ -302,7 +350,7 @@ func updateOptionMap(key string, value string) (err error) {
 			common.ImageDownloadPermission = intValue
 		}
 	}
-	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" {
+	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" || key == "NowPaymentsSandbox" || key == "NowPaymentsFeePaidByUser" || key == "NowPaymentsIsFixedRate" || key == "DeloPayTestMode" {
 		boolValue := value == "true"
 		switch key {
 		case "PasswordRegisterEnabled":
@@ -369,6 +417,8 @@ func updateOptionMap(key string, value string) (err error) {
 			operation_setting.DemoSiteEnabled = boolValue
 		case "SelfUseModeEnabled":
 			operation_setting.SelfUseModeEnabled = boolValue
+		case "ShowOriginalPriceEnabled":
+			operation_setting.ShowOriginalPriceEnabled = boolValue
 		case "CheckSensitiveOnPromptEnabled":
 			setting.CheckSensitiveOnPromptEnabled = boolValue
 		case "ModelRequestRateLimitEnabled":
@@ -387,6 +437,26 @@ func updateOptionMap(key string, value string) (err error) {
 			system_setting.WorkerAllowHttpImageRequestEnabled = boolValue
 		case "DefaultUseAutoGroup":
 			setting.DefaultUseAutoGroup = boolValue
+		case "StripeEnabled":
+			setting.StripeEnabled = boolValue
+		case "CreemEnabled":
+			setting.CreemEnabled = boolValue
+		case "NowPaymentsEnabled":
+			setting.NowPaymentsEnabled = boolValue
+		case "NowPaymentsSandbox":
+			setting.NowPaymentsSandbox = boolValue
+		case "NowPaymentsFeePaidByUser":
+			setting.NowPaymentsFeePaidByUser = boolValue
+		case "NowPaymentsIsFixedRate":
+			setting.NowPaymentsIsFixedRate = boolValue
+		case "NowPaymentsSubscriptionEnabled":
+			setting.NowPaymentsSubscriptionEnabled = boolValue
+		case "DeloPayEnabled":
+			setting.DeloPayEnabled = boolValue
+		case "DeloPayTestMode":
+			setting.DeloPayTestMode = boolValue
+		case "DeloPaySubscriptionEnabled":
+			setting.DeloPaySubscriptionEnabled = boolValue
 		case "ExposeRatioEnabled":
 			ratio_setting.SetExposeRatioEnabled(boolValue)
 		}
@@ -443,14 +513,72 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.StripeMinTopUp, _ = strconv.Atoi(value)
 	case "StripePromotionCodesEnabled":
 		setting.StripePromotionCodesEnabled = value == "true"
+	case "StripeManagedPayments":
+		setting.StripeManagedPayments = value == "true"
+	case "StripeTextModerationEnabled":
+		setting.StripeTextModerationEnabled = value == "true"
 	case "CreemApiKey":
 		setting.CreemApiKey = value
 	case "CreemProducts":
 		setting.CreemProducts = value
 	case "CreemTestMode":
 		setting.CreemTestMode = value == "true"
+	case "CreemFeeFixed":
+		setting.CreemFeeFixed, _ = strconv.ParseFloat(value, 64)
+	case "CreemFeePercent":
+		setting.CreemFeePercent, _ = strconv.ParseFloat(value, 64)
+	case "CreemFeeThreshold":
+		setting.CreemFeeThreshold, _ = strconv.ParseFloat(value, 64)
 	case "CreemWebhookSecret":
 		setting.CreemWebhookSecret = value
+	case "CreemModerationEnabled":
+		setting.CreemModerationEnabled = value == "true"
+	case "ModerationApiKey":
+		setting.ModerationApiKey = value
+	case "ModerationBaseUrl":
+		setting.ModerationBaseUrl = value
+	case "ModerationModel":
+		setting.ModerationModel = value
+	case "ModerationProvidersText":
+		setting.ModerationProvidersText = value
+	case "ModerationProvidersMedia":
+		setting.ModerationProvidersMedia = value
+	case "ModerationCategoryThresholds":
+		setting.ModerationCategoryThresholds = value
+	case "ModerationDefaultThreshold":
+		setting.ModerationDefaultThreshold, _ = strconv.ParseFloat(value, 64)
+	case "ModerationFailOpen":
+		setting.ModerationFailOpen = value == "true"
+	case "ModerationMaxInputChars":
+		setting.ModerationMaxInputChars, _ = strconv.Atoi(value)
+	case "NowPaymentsApiKey":
+		setting.NowPaymentsApiKey = value
+	case "NowPaymentsIpnSecret":
+		setting.NowPaymentsIpnSecret = value
+	case "NowPaymentsUnitPrice":
+		setting.NowPaymentsUnitPrice, _ = strconv.ParseFloat(value, 64)
+	case "NowPaymentsMinTopUp":
+		setting.NowPaymentsMinTopUp, _ = strconv.Atoi(value)
+	case "NowPaymentsEmail":
+		setting.NowPaymentsEmail = value
+	case "NowPaymentsPassword":
+		setting.NowPaymentsPassword = value
+	case "DeloPayApiKey":
+		setting.DeloPayApiKey = value
+	case "DeloPayProfileId":
+		setting.DeloPayProfileId = value
+	case "DeloPayWebhookSecret":
+		setting.DeloPayWebhookSecret = value
+	case "DeloPayMinTopUp":
+		setting.DeloPayMinTopUp, _ = strconv.Atoi(value)
+	case "DeloPayFeeFixed":
+		setting.DeloPayFeeFixed, _ = strconv.ParseFloat(value, 64)
+	case "DeloPayFeePercent":
+		setting.DeloPayFeePercent, _ = strconv.ParseFloat(value, 64)
+	case "DeloPayFeeThreshold":
+		setting.DeloPayFeeThreshold, _ = strconv.ParseFloat(value, 64)
+	case "DeloPayCheckoutPane":
+		setting.DeloPayCheckoutPane = value
 	case "WaffoEnabled":
 		setting.WaffoEnabled = value == "true"
 	case "WaffoApiKey":
@@ -533,6 +661,16 @@ func updateOptionMap(key string, value string) (err error) {
 		common.QuotaForInviter, _ = strconv.Atoi(value)
 	case "QuotaForInvitee":
 		common.QuotaForInvitee, _ = strconv.Atoi(value)
+	case "ReferralCommissionEnabled":
+		common.ReferralCommissionEnabled, _ = strconv.ParseBool(value)
+	case "ReferralCommissionPercent":
+		if v, parseErr := strconv.ParseFloat(value, 64); parseErr == nil && v >= 0 && v <= 100 {
+			common.ReferralCommissionPercent = v
+		}
+	case "ReferralCommissionMaxRecharges":
+		if v, parseErr := strconv.Atoi(value); parseErr == nil && v >= 0 {
+			common.ReferralCommissionMaxRecharges = v
+		}
 	case "QuotaRemindThreshold":
 		common.QuotaRemindThreshold, _ = strconv.Atoi(value)
 	case "PreConsumedQuota":
@@ -545,6 +683,8 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.ModelRequestRateLimitSuccessCount, _ = strconv.Atoi(value)
 	case "ModelRequestRateLimitGroup":
 		err = setting.UpdateModelRequestRateLimitGroupByJSONString(value)
+	case "ModelRequestRateLimitModels":
+		err = setting.UpdateModelRequestRateLimitModelsByJSONString(value)
 	case "RetryTimes":
 		common.RetryTimes, _ = strconv.Atoi(value)
 	case "DataExportInterval":
@@ -553,26 +693,44 @@ func updateOptionMap(key string, value string) (err error) {
 		common.DataExportDefaultTime = value
 	case "ModelRatio":
 		err = ratio_setting.UpdateModelRatioByJSONString(value)
+		InvalidatePricingCache()
 	case "GroupRatio":
 		err = ratio_setting.UpdateGroupRatioByJSONString(value)
+		InvalidatePricingCache()
 	case "GroupGroupRatio":
 		err = ratio_setting.UpdateGroupGroupRatioByJSONString(value)
 	case "UserUsableGroups":
 		err = setting.UpdateUserUsableGroupsByJSONString(value)
 	case "CompletionRatio":
 		err = ratio_setting.UpdateCompletionRatioByJSONString(value)
+		InvalidatePricingCache()
 	case "ModelPrice":
 		err = ratio_setting.UpdateModelPriceByJSONString(value)
+		InvalidatePricingCache()
+	case "ModelQuotaType":
+		err = ratio_setting.UpdateModelQuotaTypeByJSONString(value)
+		InvalidatePricingCache()
+	case "ModelGridPricing":
+		err = ratio_setting.UpdateModelGridPricingByJSONString(value)
+		InvalidatePricingCache()
+	case "ModelUpstreamCostMarkup":
+		err = ratio_setting.UpdateUpstreamCostMarkupByJSONString(value)
+		InvalidatePricingCache()
 	case "CacheRatio":
 		err = ratio_setting.UpdateCacheRatioByJSONString(value)
+		InvalidatePricingCache()
 	case "CreateCacheRatio":
 		err = ratio_setting.UpdateCreateCacheRatioByJSONString(value)
+		InvalidatePricingCache()
 	case "ImageRatio":
 		err = ratio_setting.UpdateImageRatioByJSONString(value)
+		InvalidatePricingCache()
 	case "AudioRatio":
 		err = ratio_setting.UpdateAudioRatioByJSONString(value)
+		InvalidatePricingCache()
 	case "AudioCompletionRatio":
 		err = ratio_setting.UpdateAudioCompletionRatioByJSONString(value)
+		InvalidatePricingCache()
 	case "TopUpLink":
 		common.TopUpLink = value
 	//case "ChatLink":
@@ -587,6 +745,8 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.SensitiveWordsFromString(value)
 	case "AutomaticDisableKeywords":
 		operation_setting.AutomaticDisableKeywordsFromString(value)
+	case "ChannelFaultKeywords":
+		operation_setting.ChannelFaultKeywordsFromString(value)
 	case "AutomaticDisableStatusCodes":
 		err = operation_setting.AutomaticDisableStatusCodesFromString(value)
 	case "AutomaticRetryStatusCodes":

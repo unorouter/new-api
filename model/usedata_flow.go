@@ -26,7 +26,7 @@ func GetFlowQuotaData(startTime int64, endTime int64, username string, userID in
 	switch {
 	case role >= common.RoleRootUser:
 		return getRootFlowQuotaData(startTime, endTime, username)
-	case role >= common.RoleAdminUser:
+	case role >= common.RoleModUser:
 		return getAdminFlowQuotaData(startTime, endTime, username)
 	default:
 		return getSelfFlowQuotaData(startTime, endTime, userID)

@@ -46,6 +46,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
 import { confirmPaymentCompliance } from '../api'
@@ -141,15 +142,38 @@ const paymentSchema = z.object({
       })
     }
   }),
+  StripeEnabled: z.boolean(),
   StripeApiSecret: z.string(),
   StripeWebhookSecret: z.string(),
   StripePriceId: z.string(),
   StripeUnitPrice: z.coerce.number().min(0),
   StripeMinTopUp: z.coerce.number().min(0),
   StripePromotionCodesEnabled: z.boolean(),
+  StripeManagedPayments: z.boolean(),
+  StripeTextModerationEnabled: z.boolean(),
+  CreemEnabled: z.boolean(),
   CreemApiKey: z.string(),
   CreemWebhookSecret: z.string(),
   CreemTestMode: z.boolean(),
+  CreemFeeFixed: z.coerce.number().min(0),
+  CreemFeePercent: z.coerce.number().min(0),
+  CreemFeeThreshold: z.coerce.number().min(0),
+  CreemModerationEnabled: z.boolean(),
+  ModerationApiKey: z.string(),
+  ModerationBaseUrl: z.string(),
+  ModerationModel: z.string(),
+  ModerationProvidersText: z.string(),
+  ModerationProvidersMedia: z.string(),
+  ModerationCategoryThresholds: z.string().superRefine((value, ctx) => {
+    if (!value) return
+    const error = getJsonError(value, (parsed) => typeof parsed === 'object')
+    if (error) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: error })
+    }
+  }),
+  ModerationDefaultThreshold: z.coerce.number().min(0).max(1),
+  ModerationFailOpen: z.boolean(),
+  ModerationMaxInputChars: z.coerce.number().min(0),
   CreemProducts: z.string().superRefine((value, ctx) => {
     const error = getJsonError(value, (parsed) => Array.isArray(parsed))
     if (error) {
@@ -159,6 +183,28 @@ const paymentSchema = z.object({
       })
     }
   }),
+  NowPaymentsEnabled: z.boolean(),
+  NowPaymentsApiKey: z.string(),
+  NowPaymentsIpnSecret: z.string(),
+  NowPaymentsSandbox: z.boolean(),
+  NowPaymentsUnitPrice: z.coerce.number().min(0),
+  NowPaymentsMinTopUp: z.coerce.number().min(0),
+  NowPaymentsFeePaidByUser: z.boolean(),
+  NowPaymentsIsFixedRate: z.boolean(),
+  NowPaymentsSubscriptionEnabled: z.boolean(),
+  NowPaymentsEmail: z.string(),
+  NowPaymentsPassword: z.string(),
+  DeloPayEnabled: z.boolean(),
+  DeloPayApiKey: z.string(),
+  DeloPayProfileId: z.string(),
+  DeloPayWebhookSecret: z.string(),
+  DeloPayTestMode: z.boolean(),
+  DeloPayMinTopUp: z.coerce.number().min(0),
+  DeloPayFeeFixed: z.coerce.number().min(0),
+  DeloPayFeePercent: z.coerce.number().min(0),
+  DeloPayFeeThreshold: z.coerce.number().min(0),
+  DeloPaySubscriptionEnabled: z.boolean(),
+  DeloPayCheckoutPane: z.string(),
   WaffoEnabled: z.boolean(),
   WaffoApiKey: z.string(),
   WaffoPrivateKey: z.string(),
@@ -427,16 +473,55 @@ export function PaymentSettingsSection({
       PayMethods: values.PayMethods.trim(),
       AmountOptions: values.AmountOptions.trim(),
       AmountDiscount: values.AmountDiscount.trim(),
+      StripeEnabled: values.StripeEnabled,
       StripeApiSecret: values.StripeApiSecret.trim(),
       StripeWebhookSecret: values.StripeWebhookSecret.trim(),
       StripePriceId: values.StripePriceId.trim(),
       StripeUnitPrice: values.StripeUnitPrice,
       StripeMinTopUp: values.StripeMinTopUp,
       StripePromotionCodesEnabled: values.StripePromotionCodesEnabled,
+      StripeManagedPayments: values.StripeManagedPayments,
+      StripeTextModerationEnabled: values.StripeTextModerationEnabled,
+      CreemEnabled: values.CreemEnabled,
       CreemApiKey: values.CreemApiKey.trim(),
       CreemWebhookSecret: values.CreemWebhookSecret.trim(),
       CreemTestMode: values.CreemTestMode,
+      CreemFeeFixed: values.CreemFeeFixed,
+      CreemFeePercent: values.CreemFeePercent,
+      CreemFeeThreshold: values.CreemFeeThreshold,
+      CreemModerationEnabled: values.CreemModerationEnabled,
+      ModerationApiKey: values.ModerationApiKey.trim(),
+      ModerationBaseUrl: values.ModerationBaseUrl.trim(),
+      ModerationModel: values.ModerationModel.trim(),
+      ModerationProvidersText: values.ModerationProvidersText.trim(),
+      ModerationProvidersMedia: values.ModerationProvidersMedia.trim(),
+      ModerationCategoryThresholds: values.ModerationCategoryThresholds.trim(),
+      ModerationDefaultThreshold: values.ModerationDefaultThreshold,
+      ModerationFailOpen: values.ModerationFailOpen,
+      ModerationMaxInputChars: values.ModerationMaxInputChars,
       CreemProducts: values.CreemProducts.trim(),
+      NowPaymentsEnabled: values.NowPaymentsEnabled,
+      NowPaymentsApiKey: values.NowPaymentsApiKey.trim(),
+      NowPaymentsIpnSecret: values.NowPaymentsIpnSecret.trim(),
+      NowPaymentsSandbox: values.NowPaymentsSandbox,
+      NowPaymentsUnitPrice: values.NowPaymentsUnitPrice,
+      NowPaymentsMinTopUp: values.NowPaymentsMinTopUp,
+      NowPaymentsFeePaidByUser: values.NowPaymentsFeePaidByUser,
+      NowPaymentsIsFixedRate: values.NowPaymentsIsFixedRate,
+      NowPaymentsSubscriptionEnabled: values.NowPaymentsSubscriptionEnabled,
+      NowPaymentsEmail: values.NowPaymentsEmail.trim(),
+      NowPaymentsPassword: values.NowPaymentsPassword.trim(),
+      DeloPayEnabled: values.DeloPayEnabled,
+      DeloPayApiKey: values.DeloPayApiKey.trim(),
+      DeloPayProfileId: values.DeloPayProfileId.trim(),
+      DeloPayWebhookSecret: values.DeloPayWebhookSecret.trim(),
+      DeloPayTestMode: values.DeloPayTestMode,
+      DeloPayMinTopUp: values.DeloPayMinTopUp,
+      DeloPayFeeFixed: values.DeloPayFeeFixed,
+      DeloPayFeePercent: values.DeloPayFeePercent,
+      DeloPayFeeThreshold: values.DeloPayFeeThreshold,
+      DeloPaySubscriptionEnabled: values.DeloPaySubscriptionEnabled,
+      DeloPayCheckoutPane: values.DeloPayCheckoutPane.trim(),
       WaffoEnabled: values.WaffoEnabled,
       WaffoSandbox: values.WaffoSandbox,
       WaffoMerchantId: values.WaffoMerchantId.trim(),
@@ -471,6 +556,7 @@ export function PaymentSettingsSection({
       PayMethods: initialRef.current.PayMethods.trim(),
       AmountOptions: initialRef.current.AmountOptions.trim(),
       AmountDiscount: initialRef.current.AmountDiscount.trim(),
+      StripeEnabled: initialRef.current.StripeEnabled,
       StripeApiSecret: initialRef.current.StripeApiSecret.trim(),
       StripeWebhookSecret: initialRef.current.StripeWebhookSecret.trim(),
       StripePriceId: initialRef.current.StripePriceId.trim(),
@@ -478,10 +564,53 @@ export function PaymentSettingsSection({
       StripeMinTopUp: initialRef.current.StripeMinTopUp,
       StripePromotionCodesEnabled:
         initialRef.current.StripePromotionCodesEnabled,
+      StripeManagedPayments: initialRef.current.StripeManagedPayments,
+      StripeTextModerationEnabled:
+        initialRef.current.StripeTextModerationEnabled,
+      CreemEnabled: initialRef.current.CreemEnabled,
       CreemApiKey: initialRef.current.CreemApiKey.trim(),
       CreemWebhookSecret: initialRef.current.CreemWebhookSecret.trim(),
       CreemTestMode: initialRef.current.CreemTestMode,
+      CreemFeeFixed: initialRef.current.CreemFeeFixed,
+      CreemFeePercent: initialRef.current.CreemFeePercent,
+      CreemFeeThreshold: initialRef.current.CreemFeeThreshold,
+      CreemModerationEnabled: initialRef.current.CreemModerationEnabled,
+      ModerationApiKey: initialRef.current.ModerationApiKey.trim(),
+      ModerationBaseUrl: initialRef.current.ModerationBaseUrl.trim(),
+      ModerationModel: initialRef.current.ModerationModel.trim(),
+      ModerationProvidersText: initialRef.current.ModerationProvidersText.trim(),
+      ModerationProvidersMedia:
+        initialRef.current.ModerationProvidersMedia.trim(),
+      ModerationCategoryThresholds:
+        initialRef.current.ModerationCategoryThresholds.trim(),
+      ModerationDefaultThreshold: initialRef.current.ModerationDefaultThreshold,
+      ModerationFailOpen: initialRef.current.ModerationFailOpen,
+      ModerationMaxInputChars: initialRef.current.ModerationMaxInputChars,
       CreemProducts: initialRef.current.CreemProducts.trim(),
+      NowPaymentsEnabled: initialRef.current.NowPaymentsEnabled,
+      NowPaymentsApiKey: initialRef.current.NowPaymentsApiKey.trim(),
+      NowPaymentsIpnSecret: initialRef.current.NowPaymentsIpnSecret.trim(),
+      NowPaymentsSandbox: initialRef.current.NowPaymentsSandbox,
+      NowPaymentsUnitPrice: initialRef.current.NowPaymentsUnitPrice,
+      NowPaymentsMinTopUp: initialRef.current.NowPaymentsMinTopUp,
+      NowPaymentsFeePaidByUser: initialRef.current.NowPaymentsFeePaidByUser,
+      NowPaymentsIsFixedRate: initialRef.current.NowPaymentsIsFixedRate,
+      NowPaymentsSubscriptionEnabled:
+        initialRef.current.NowPaymentsSubscriptionEnabled,
+      NowPaymentsEmail: initialRef.current.NowPaymentsEmail.trim(),
+      NowPaymentsPassword: initialRef.current.NowPaymentsPassword.trim(),
+      DeloPayEnabled: initialRef.current.DeloPayEnabled,
+      DeloPayApiKey: initialRef.current.DeloPayApiKey.trim(),
+      DeloPayProfileId: initialRef.current.DeloPayProfileId.trim(),
+      DeloPayWebhookSecret: initialRef.current.DeloPayWebhookSecret.trim(),
+      DeloPayTestMode: initialRef.current.DeloPayTestMode,
+      DeloPayMinTopUp: initialRef.current.DeloPayMinTopUp,
+      DeloPayFeeFixed: initialRef.current.DeloPayFeeFixed,
+      DeloPayFeePercent: initialRef.current.DeloPayFeePercent,
+      DeloPayFeeThreshold: initialRef.current.DeloPayFeeThreshold,
+      DeloPaySubscriptionEnabled:
+        initialRef.current.DeloPaySubscriptionEnabled,
+      DeloPayCheckoutPane: initialRef.current.DeloPayCheckoutPane.trim(),
       WaffoEnabled: initialRef.current.WaffoEnabled,
       WaffoSandbox: initialRef.current.WaffoSandbox,
       WaffoMerchantId: initialRef.current.WaffoMerchantId.trim(),
@@ -562,6 +691,10 @@ export function PaymentSettingsSection({
       })
     }
 
+    if (sanitized.StripeEnabled !== initial.StripeEnabled) {
+      updates.push({ key: 'StripeEnabled', value: sanitized.StripeEnabled })
+    }
+
     if (
       sanitized.StripeApiSecret &&
       sanitized.StripeApiSecret !== initial.StripeApiSecret
@@ -591,6 +724,23 @@ export function PaymentSettingsSection({
       updates.push({ key: 'StripeMinTopUp', value: sanitized.StripeMinTopUp })
     }
 
+    if (sanitized.StripeManagedPayments !== initial.StripeManagedPayments) {
+      updates.push({
+        key: 'StripeManagedPayments',
+        value: sanitized.StripeManagedPayments,
+      })
+    }
+
+    if (
+      sanitized.StripeTextModerationEnabled !==
+      initial.StripeTextModerationEnabled
+    ) {
+      updates.push({
+        key: 'StripeTextModerationEnabled',
+        value: sanitized.StripeTextModerationEnabled,
+      })
+    }
+
     if (
       sanitized.StripePromotionCodesEnabled !==
       initial.StripePromotionCodesEnabled
@@ -599,6 +749,10 @@ export function PaymentSettingsSection({
         key: 'StripePromotionCodesEnabled',
         value: sanitized.StripePromotionCodesEnabled,
       })
+    }
+
+    if (sanitized.CreemEnabled !== initial.CreemEnabled) {
+      updates.push({ key: 'CreemEnabled', value: sanitized.CreemEnabled })
     }
 
     if (
@@ -623,10 +777,203 @@ export function PaymentSettingsSection({
     }
 
     if (
+      sanitized.CreemModerationEnabled !== initial.CreemModerationEnabled
+    ) {
+      updates.push({
+        key: 'CreemModerationEnabled',
+        value: sanitized.CreemModerationEnabled,
+      })
+    }
+
+    // Every DeloPay key was missing from this diff, so the tab rendered its
+    // fields but silently discarded edits on save.
+    for (const key of [
+      'DeloPayEnabled',
+      'DeloPayProfileId',
+      'DeloPayTestMode',
+      'DeloPayMinTopUp',
+      'DeloPayFeeFixed',
+      'DeloPayFeePercent',
+      'DeloPaySubscriptionEnabled',
+      'DeloPayCheckoutPane',
+      'CreemFeeFixed',
+      'CreemFeePercent',
+      'CreemFeeThreshold',
+      'DeloPayFeeThreshold',
+    ] as const) {
+      if (sanitized[key] !== initial[key]) {
+        updates.push({ key, value: sanitized[key] })
+      }
+    }
+
+    for (const key of ['DeloPayApiKey', 'DeloPayWebhookSecret'] as const) {
+      if (sanitized[key] && sanitized[key] !== initial[key]) {
+        updates.push({ key, value: sanitized[key] })
+      }
+    }
+
+    if (
+      sanitized.ModerationApiKey &&
+      sanitized.ModerationApiKey !== initial.ModerationApiKey
+    ) {
+      updates.push({
+        key: 'ModerationApiKey',
+        value: sanitized.ModerationApiKey,
+      })
+    }
+
+    if (sanitized.ModerationBaseUrl !== initial.ModerationBaseUrl) {
+      updates.push({
+        key: 'ModerationBaseUrl',
+        value: sanitized.ModerationBaseUrl,
+      })
+    }
+
+    if (sanitized.ModerationModel !== initial.ModerationModel) {
+      updates.push({ key: 'ModerationModel', value: sanitized.ModerationModel })
+    }
+
+    if (
+      sanitized.ModerationProvidersText !== initial.ModerationProvidersText
+    ) {
+      updates.push({
+        key: 'ModerationProvidersText',
+        value: sanitized.ModerationProvidersText,
+      })
+    }
+
+    if (
+      sanitized.ModerationProvidersMedia !== initial.ModerationProvidersMedia
+    ) {
+      updates.push({
+        key: 'ModerationProvidersMedia',
+        value: sanitized.ModerationProvidersMedia,
+      })
+    }
+
+    if (
+      normalizeJsonForComparison(sanitized.ModerationCategoryThresholds) !==
+      normalizeJsonForComparison(initial.ModerationCategoryThresholds)
+    ) {
+      updates.push({
+        key: 'ModerationCategoryThresholds',
+        value: sanitized.ModerationCategoryThresholds,
+      })
+    }
+
+    if (
+      sanitized.ModerationDefaultThreshold !==
+      initial.ModerationDefaultThreshold
+    ) {
+      updates.push({
+        key: 'ModerationDefaultThreshold',
+        value: sanitized.ModerationDefaultThreshold,
+      })
+    }
+
+    if (sanitized.ModerationFailOpen !== initial.ModerationFailOpen) {
+      updates.push({
+        key: 'ModerationFailOpen',
+        value: sanitized.ModerationFailOpen,
+      })
+    }
+
+    if (sanitized.ModerationMaxInputChars !== initial.ModerationMaxInputChars) {
+      updates.push({
+        key: 'ModerationMaxInputChars',
+        value: sanitized.ModerationMaxInputChars,
+      })
+    }
+
+    if (
       normalizeJsonForComparison(sanitized.CreemProducts) !==
       normalizeJsonForComparison(initial.CreemProducts)
     ) {
       updates.push({ key: 'CreemProducts', value: sanitized.CreemProducts })
+    }
+
+    if (sanitized.NowPaymentsEnabled !== initial.NowPaymentsEnabled) {
+      updates.push({
+        key: 'NowPaymentsEnabled',
+        value: sanitized.NowPaymentsEnabled,
+      })
+    }
+    if (
+      sanitized.NowPaymentsApiKey &&
+      sanitized.NowPaymentsApiKey !== initial.NowPaymentsApiKey
+    ) {
+      updates.push({
+        key: 'NowPaymentsApiKey',
+        value: sanitized.NowPaymentsApiKey,
+      })
+    }
+    if (
+      sanitized.NowPaymentsIpnSecret &&
+      sanitized.NowPaymentsIpnSecret !== initial.NowPaymentsIpnSecret
+    ) {
+      updates.push({
+        key: 'NowPaymentsIpnSecret',
+        value: sanitized.NowPaymentsIpnSecret,
+      })
+    }
+    if (sanitized.NowPaymentsSandbox !== initial.NowPaymentsSandbox) {
+      updates.push({
+        key: 'NowPaymentsSandbox',
+        value: sanitized.NowPaymentsSandbox,
+      })
+    }
+    if (sanitized.NowPaymentsUnitPrice !== initial.NowPaymentsUnitPrice) {
+      updates.push({
+        key: 'NowPaymentsUnitPrice',
+        value: sanitized.NowPaymentsUnitPrice,
+      })
+    }
+    if (sanitized.NowPaymentsMinTopUp !== initial.NowPaymentsMinTopUp) {
+      updates.push({
+        key: 'NowPaymentsMinTopUp',
+        value: sanitized.NowPaymentsMinTopUp,
+      })
+    }
+    if (
+      sanitized.NowPaymentsFeePaidByUser !== initial.NowPaymentsFeePaidByUser
+    ) {
+      updates.push({
+        key: 'NowPaymentsFeePaidByUser',
+        value: sanitized.NowPaymentsFeePaidByUser,
+      })
+    }
+    if (sanitized.NowPaymentsIsFixedRate !== initial.NowPaymentsIsFixedRate) {
+      updates.push({
+        key: 'NowPaymentsIsFixedRate',
+        value: sanitized.NowPaymentsIsFixedRate,
+      })
+    }
+    if (
+      sanitized.NowPaymentsSubscriptionEnabled !==
+      initial.NowPaymentsSubscriptionEnabled
+    ) {
+      updates.push({
+        key: 'NowPaymentsSubscriptionEnabled',
+        value: sanitized.NowPaymentsSubscriptionEnabled,
+      })
+    }
+    if (
+      sanitized.NowPaymentsEmail &&
+      sanitized.NowPaymentsEmail !== initial.NowPaymentsEmail
+    ) {
+      updates.push({
+        key: 'NowPaymentsEmail',
+        value: sanitized.NowPaymentsEmail,
+      })
+    }
+    if (
+      sanitized.NowPaymentsPassword &&
+      sanitized.NowPaymentsPassword !== initial.NowPaymentsPassword
+    ) {
+      updates.push({
+        key: 'NowPaymentsPassword',
+        value: sanitized.NowPaymentsPassword,
+      })
     }
 
     if (sanitized.WaffoEnabled !== initial.WaffoEnabled) {
@@ -877,11 +1224,13 @@ export function PaymentSettingsSection({
           />
           <Tabs defaultValue='general' className='min-w-0'>
             <div className='overflow-x-auto pb-1'>
-              <TabsList className='grid min-w-[44rem] grid-cols-6'>
+              <TabsList className='grid min-w-[44rem] grid-cols-7'>
                 <TabsTrigger value='general'>{t('General')}</TabsTrigger>
                 <TabsTrigger value='epay'>Epay</TabsTrigger>
                 <TabsTrigger value='stripe'>{t('Stripe')}</TabsTrigger>
                 <TabsTrigger value='creem'>Creem</TabsTrigger>
+                <TabsTrigger value='nowpayments'>NowPayments</TabsTrigger>
+                <TabsTrigger value='delopay'>DeloPay</TabsTrigger>
                 <TabsTrigger value='waffo-pancake'>Waffo Pancake</TabsTrigger>
                 <TabsTrigger value='waffo'>Waffo</TabsTrigger>
               </TabsList>
@@ -991,7 +1340,7 @@ export function PaymentSettingsSection({
                             onBlur={field.onBlur}
                             textareaRef={field.ref}
                             placeholder={t(
-                              '[{"name":"支付宝","type":"alipay","icon":"SiAlipay"}]'
+                              '[{"name":"Alipay","type":"alipay","icon":"SiAlipay"}]'
                             )}
                             heightClassName='h-40 min-h-40 max-h-40'
                             aria-invalid={Boolean(
@@ -1134,6 +1483,566 @@ export function PaymentSettingsSection({
               </div>
             </TabsContent>
 
+            <TabsContent
+              value='nowpayments'
+              className={paymentTabContentClassName}
+            >
+              <div className='space-y-4'>
+                <div>
+                  <h3 className='text-lg font-medium'>
+                    {t('NowPayments Gateway (Crypto)')}
+                  </h3>
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'Accept 200+ cryptocurrencies via NowPayments hosted checkout'
+                )}
+              </p>
+            </div>
+
+            <div className='rounded-md bg-blue-50 p-4 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100'>
+              <p className='mb-2 font-medium'>{t('IPN Configuration:')}</p>
+              <ul className='list-inside list-disc space-y-1'>
+                <li>
+                  {t('IPN URL:')}{' '}
+                  <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                    {'<ServerAddress>/api/nowpayments/webhook'}
+                  </code>
+                </li>
+                <li>
+                  {t(
+                    'Configure in your NowPayments dashboard. Use sandbox.nowpayments.io for testing.'
+                  )}
+                </li>
+              </ul>
+            </div>
+
+            <FormField
+              control={form.control}
+              name='NowPaymentsEnabled'
+              render={({ field }) => (
+                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
+                  <div className='space-y-0.5'>
+                    <FormLabel className='text-base'>
+                      {t('Enable NowPayments gateway')}
+                    </FormLabel>
+                    <FormDescription>
+                      {t(
+                        'When off, NowPayments is hidden from the recharge page'
+                      )}
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='NowPaymentsSandbox'
+              render={({ field }) => (
+                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
+                  <div className='space-y-0.5'>
+                    <FormLabel className='text-base'>
+                      {t('Sandbox mode')}
+                    </FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Route requests to api-sandbox.nowpayments.io for testing'
+                      )}
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <div className='grid gap-6 md:grid-cols-2'>
+              <FormField
+                control={form.control}
+                name='NowPaymentsApiKey'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('NowPayments API key')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='password'
+                        placeholder={t('Enter NowPayments API key')}
+                        autoComplete='new-password'
+                        {...field}
+                        onChange={(event) => field.onChange(event.target.value)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Leave blank unless updating')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='NowPaymentsIpnSecret'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('IPN Secret')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='password'
+                        placeholder={t('Enter NowPayments IPN secret')}
+                        autoComplete='new-password'
+                        {...field}
+                        onChange={(event) => field.onChange(event.target.value)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('HMAC-SHA512 signing secret. Leave blank unless updating')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className='grid gap-6 md:grid-cols-2'>
+              <FormField
+                control={form.control}
+                name='NowPaymentsUnitPrice'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Unit price (USD per quota unit)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        step='0.01'
+                        {...field}
+                        onChange={(event) => field.onChange(event.target.value)}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='NowPaymentsMinTopUp'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Minimum top-up amount')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        {...field}
+                        onChange={(event) => field.onChange(event.target.value)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'NowPayments per-currency floor applies on top (BTC ~$3 USD)'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name='NowPaymentsFeePaidByUser'
+              render={({ field }) => (
+                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
+                  <div className='space-y-0.5'>
+                    <FormLabel className='text-base'>
+                      {t('Fee paid by user')}
+                    </FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Forward NowPayments service fee to the user instead of absorbing it'
+                      )}
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='NowPaymentsIsFixedRate'
+              render={({ field }) => (
+                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
+                  <div className='space-y-0.5'>
+                    <FormLabel className='text-base'>
+                      {t('Fixed exchange rate')}
+                    </FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Lock the crypto/USD rate for the duration of the checkout window'
+                      )}
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='NowPaymentsSubscriptionEnabled'
+              render={({ field }) => (
+                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
+                  <div className='space-y-0.5'>
+                    <FormLabel className='text-base'>
+                      {t('Enable crypto subscriptions (email renewal)')}
+                    </FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Crypto cannot auto-pull. Each cycle NowPayments emails a fresh invoice the user must pay manually.'
+                      )}
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <div className='grid gap-6 md:grid-cols-2'>
+              <FormField
+                control={form.control}
+                name='NowPaymentsEmail'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('NowPayments account email (for subscriptions)')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type='email'
+                        placeholder={t('account@example.com')}
+                        autoComplete='off'
+                        {...field}
+                        onChange={(event) => field.onChange(event.target.value)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Subscription plans API requires JWT auth via account email + password (top-ups still use x-api-key)'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='NowPaymentsPassword'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('NowPayments account password (for subscriptions)')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type='password'
+                        placeholder={t('Enter NowPayments account password')}
+                        autoComplete='new-password'
+                        {...field}
+                        onChange={(event) => field.onChange(event.target.value)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Leave blank unless updating')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </div>
+            </TabsContent>
+
+            <TabsContent
+              value='delopay'
+              className={paymentTabContentClassName}
+            >
+              <div className='space-y-4'>
+                <div>
+                  <h3 className='text-lg font-medium'>
+                    {t('DeloPay Gateway (PayPal)')}
+                  </h3>
+                  <p className='text-muted-foreground text-sm'>
+                    {t('Accept PayPal via DeloPay hosted checkout')}
+                  </p>
+                </div>
+
+                <div className='rounded-md bg-blue-50 p-4 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100'>
+                  <p className='mb-2 font-medium'>
+                    {t('Webhook Configuration:')}
+                  </p>
+                  <ul className='list-inside list-disc space-y-1'>
+                    <li>
+                      {t('Webhook URL:')}{' '}
+                      <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                        {'<ServerAddress>/api/delopay/webhook'}
+                      </code>
+                    </li>
+                    <li>
+                      {t(
+                        'Which methods the checkout offers is set by the connectors enabled on the profile. Enable only PayPal there to keep this PayPal-only.'
+                      )}
+                    </li>
+                  </ul>
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name='DeloPayEnabled'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between rounded-lg border p-4'>
+                      <div className='space-y-0.5'>
+                        <FormLabel>{t('Enable DeloPay gateway')}</FormLabel>
+                        <FormDescription>
+                          {t('When off, DeloPay is hidden from the recharge page')}
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='DeloPayTestMode'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between rounded-lg border p-4'>
+                      <div className='space-y-0.5'>
+                        <FormLabel>{t('Test mode')}</FormLabel>
+                        <FormDescription>
+                          {t(
+                            'Runs payments against the processor sandbox and keeps them out of live reporting'
+                          )}
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                <div className='grid gap-4 md:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='DeloPayApiKey'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('DeloPay API key')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder={t('Enter DeloPay API key')}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='DeloPayProfileId'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('DeloPay profile ID')}</FormLabel>
+                        <FormControl>
+                          <Input placeholder='pro_...' {...field} />
+                        </FormControl>
+                        <FormDescription>
+                          {t('The shop profile payments are created against')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='DeloPayWebhookSecret'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('DeloPay webhook secret')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder={t('Enter DeloPay webhook secret')}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='DeloPayMinTopUp'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Minimum top-up amount')}</FormLabel>
+                        <FormControl>
+                          <Input type='number' min={0} {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='DeloPayFeeFixed'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Processing fee (fixed)')}</FormLabel>
+                        <FormControl>
+                          <Input type='number' min={0} step='0.01' {...field} />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Added to what the buyer pays, on top of the top-up amount. The credit granted stays the top-up amount. 0 charges exactly the top-up.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='DeloPayFeePercent'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Processing fee (percent)')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            step='0.001'
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Fraction of the top-up added to the charge, e.g. 0.039 for 3.9%. Applied before the fixed fee.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='DeloPayFeeThreshold'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('No fee above')}</FormLabel>
+                        <FormControl>
+                          <Input type='number' min={0} step='0.01' {...field} />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Top-ups above this amount are charged without the processing fee. 0 applies the fee to every amount.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='DeloPayCheckoutPane'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Checkout method')}</FormLabel>
+                        <FormControl>
+                          <Input placeholder='paypal' {...field} />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Opens the checkout on this single method. Leave empty to show every method the profile offers.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name='DeloPaySubscriptionEnabled'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between rounded-lg border p-4'>
+                      <div className='space-y-0.5'>
+                        <FormLabel>
+                          {t('Enable DeloPay for subscriptions')}
+                        </FormLabel>
+                        <FormDescription>
+                          {t(
+                            'Each cycle is charged as a separate payment; the user pays every renewal manually.'
+                          )}
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </TabsContent>
+
             <TabsContent value='epay' className={paymentTabContentClassName}>
               <div className='space-y-4'>
                 <div>
@@ -1261,6 +2170,29 @@ export function PaymentSettingsSection({
                     {t('Configuration for Stripe payment integration')}
                   </p>
                 </div>
+
+                <FormField
+                  control={form.control}
+                  name='StripeEnabled'
+                  render={({ field }) => (
+                    <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
+                      <div className='space-y-0.5'>
+                        <FormLabel className='text-base'>
+                          {t('Enable Stripe')}
+                        </FormLabel>
+                        <FormDescription>
+                          {t('Show Stripe as a top-up option for users')}
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
 
                 <div className='rounded-md bg-blue-50 p-4 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100'>
                   <p className='mb-2 font-medium'>
@@ -1441,6 +2373,54 @@ export function PaymentSettingsSection({
                       </SettingsSwitchItem>
                     )}
                   />
+
+                  <FormField
+                    control={form.control}
+                    name='StripeManagedPayments'
+                    render={({ field }) => (
+                      <SettingsSwitchItem>
+                        <SettingsSwitchContent>
+                          <FormLabel>
+                            {t('Managed Payments (Merchant of Record)')}
+                          </FormLabel>
+                          <FormDescription>
+                            {t(
+                              'Use Stripe as merchant of record (handles tax, VAT, disputes). Adds a 3.5% fee. Requires code integration.'
+                            )}
+                          </FormDescription>
+                        </SettingsSwitchContent>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </SettingsSwitchItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='StripeTextModerationEnabled'
+                    render={({ field }) => (
+                      <SettingsSwitchItem>
+                        <SettingsSwitchContent>
+                          <FormLabel>{t('Text Moderation')}</FormLabel>
+                          <FormDescription>
+                            {t(
+                              'Screen text and image generation prompts through the moderation backend (configured in the Creem tab) before relay. Enable when using Managed Payments.'
+                            )}
+                          </FormDescription>
+                        </SettingsSwitchContent>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </SettingsSwitchItem>
+                    )}
+                  />
                 </div>
               </div>
             </TabsContent>
@@ -1453,6 +2433,29 @@ export function PaymentSettingsSection({
                     {t('Configuration for Creem payment integration')}
                   </p>
                 </div>
+
+                <FormField
+                  control={form.control}
+                  name='CreemEnabled'
+                  render={({ field }) => (
+                    <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
+                      <div className='space-y-0.5'>
+                        <FormLabel className='text-base'>
+                          {t('Enable Creem')}
+                        </FormLabel>
+                        <FormDescription>
+                          {t('Show Creem as a top-up option for users')}
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
 
                 <div className='rounded-md bg-blue-50 p-4 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100'>
                   <p className='mb-2 font-medium'>
@@ -1523,6 +2526,65 @@ export function PaymentSettingsSection({
                   />
                 </div>
 
+                <div className='grid gap-4 sm:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='CreemFeeFixed'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Processing fee (fixed)')}</FormLabel>
+                        <FormControl>
+                          <Input type='number' min={0} step='0.01' {...field} />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Added to what the buyer pays, on top of the top-up amount. The credit granted stays the top-up amount. 0 charges exactly the top-up.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='CreemFeePercent'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Processing fee (percent)')}</FormLabel>
+                        <FormControl>
+                          <Input type='number' min={0} step='0.001' {...field} />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Fraction of the top-up added to the charge, e.g. 0.039 for 3.9%. Applied before the fixed fee.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='CreemFeeThreshold'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('No fee above')}</FormLabel>
+                        <FormControl>
+                          <Input type='number' min={0} step='0.01' {...field} />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Top-ups above this amount are charged without the processing fee. 0 applies the fee to every amount.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
                 <FormField
                   control={form.control}
                   name='CreemTestMode'
@@ -1543,6 +2605,280 @@ export function PaymentSettingsSection({
                     </SettingsSwitchItem>
                   )}
                 />
+
+                <FormField
+                  control={form.control}
+                  name='CreemModerationEnabled'
+                  render={({ field }) => (
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel>
+                          {t('Image & Video Moderation')}
+                        </FormLabel>
+                        <FormDescription>
+                          {t(
+                            'Screen image and video prompts through the moderation backend below before generation'
+                          )}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
+
+                <div className='rounded-lg border border-border p-4'>
+                  <div className='mb-4'>
+                    <FormLabel className='text-base'>
+                      {t('Moderation Backend')}
+                    </FormLabel>
+                    <FormDescription>
+                      {t(
+                        'OpenAI omni-moderation endpoint used by both gates above (image/video and Stripe text moderation). Vendor-neutral; uses its own key, not a payment processor.'
+                      )}
+                    </FormDescription>
+                  </div>
+
+                  <div className='mb-6 grid gap-6 md:grid-cols-2'>
+                    <FormField
+                      control={form.control}
+                      name='ModerationProvidersText'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Text Providers')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='openai'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Backend priority for TEXT prompts (comma-separated). Default openai; Creem is image/video-oriented and is not recommended for chat text.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='ModerationProvidersMedia'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Image & Video Providers')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='openai,creem'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Backend priority for IMAGE/VIDEO prompts (comma-separated). First to return a decision wins; on rate-limit/outage the next is tried. Each runs only if its key is set.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <div className='grid gap-6 md:grid-cols-2'>
+                    <FormField
+                      control={form.control}
+                      name='ModerationApiKey'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Moderation API Key')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='password'
+                              placeholder={t('Enter OpenAI API key')}
+                              autoComplete='new-password'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'OpenAI API key for /v1/moderations (leave blank unless updating)'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='ModerationBaseUrl'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Moderation Base URL')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='https://api.openai.com'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'OpenAI-compatible base URL; /v1/moderations is appended'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='ModerationModel'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Moderation Model')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='omni-moderation-latest'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Moderation model name')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='ModerationDefaultThreshold'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {t('Default Block Threshold')}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              step='0.01'
+                              min='0'
+                              max='1'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Score (0-1) that blocks any category not listed below. Lower = stricter.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='ModerationMaxInputChars'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Max Input Characters')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min='0'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Only the last N characters of the prompt are screened (the newest turn). Caps token cost and avoids 429s on long chats. 0 = no limit.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name='ModerationFailOpen'
+                    render={({ field }) => (
+                      <SettingsSwitchItem className='mt-6'>
+                        <SettingsSwitchContent>
+                          <FormLabel>
+                            {t('Fail Open on Backend Error')}
+                          </FormLabel>
+                          <FormDescription>
+                            {t(
+                              'When the moderation backend is unreachable or rate-limited, allow the request through instead of blocking it. Content denials still block. Off = strict (block on any backend error).'
+                            )}
+                          </FormDescription>
+                        </SettingsSwitchContent>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </SettingsSwitchItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='ModerationCategoryThresholds'
+                    render={({ field }) => (
+                      <FormItem className='mt-6'>
+                        <FormLabel>{t('Category Thresholds')}</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            rows={4}
+                            placeholder='{"sexual/minors":0.2,"sexual":0.92}'
+                            {...field}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'JSON map of OpenAI moderation category to its block threshold (0-1). Hard-block CSAM at a low value; raise sexual/violence to let legal fiction pass.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
                 <FormField
                   control={form.control}

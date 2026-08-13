@@ -133,7 +133,13 @@ func GetTaskRequest(c *gin.Context) (TaskSubmitReq, error) {
 	return req, nil
 }
 
-func validatePrompt(prompt string) *dto.TaskError {
+// validatePrompt requires a non-empty prompt for text-to-* tasks. Image-input
+// tasks (image-to-video, reference-to-video) drive generation from the image,
+// so an empty prompt is allowed when an image is present.
+func validatePrompt(prompt string, hasImage bool) *dto.TaskError {
+	if hasImage {
+		return nil
+	}
 	if strings.TrimSpace(prompt) == "" {
 		return createTaskError(fmt.Errorf("prompt is required"), "invalid_request", http.StatusBadRequest, true)
 	}
@@ -230,7 +236,7 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 		hasInputReference = true
 	}
 
-	if taskErr := validatePrompt(prompt); taskErr != nil {
+	if taskErr := validatePrompt(prompt, hasInputReference); taskErr != nil {
 		return taskErr
 	}
 
@@ -295,7 +301,7 @@ func ValidateBasicTaskRequest(c *gin.Context, info *RelayInfo, action string) *d
 		return createTaskError(err, "invalid_request", http.StatusBadRequest, true)
 	}
 
-	if taskErr := validatePrompt(req.Prompt); taskErr != nil {
+	if taskErr := validatePrompt(req.Prompt, req.HasImage()); taskErr != nil {
 		return taskErr
 	}
 

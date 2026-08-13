@@ -257,6 +257,13 @@ export type BillingSettings = {
   TopUpLink: string
   'general_setting.docs_link': string
   'quota_setting.enable_free_model_pre_consume': boolean
+  'quota_setting.enable_free_abuse_auto_block': boolean
+  'quota_setting.free_abuse_max_per_minute': number
+  'quota_setting.free_abuse_max_distinct_models': number
+  'quota_setting.free_abuse_max_per_day': number
+  'quota_setting.free_abuse_max_errors_per_hour': number
+  'quota_setting.free_abuse_max_media_err_models': number
+  'quota_setting.charge_on_error': boolean
   QuotaPerUnit: number
   USDExchangeRate: number
   'general_setting.quota_display_type': string
@@ -298,16 +305,55 @@ export type BillingSettings = {
   'payment_setting.compliance_confirmed_at': number
   'payment_setting.compliance_confirmed_by': number
   'payment_setting.compliance_confirmed_ip': string
+  StripeEnabled: boolean
   StripeApiSecret: string
   StripeWebhookSecret: string
   StripePriceId: string
   StripeUnitPrice: number
   StripeMinTopUp: number
   StripePromotionCodesEnabled: boolean
+  StripeManagedPayments: boolean
+  StripeTextModerationEnabled: boolean
+  CreemEnabled: boolean
   CreemApiKey: string
   CreemWebhookSecret: string
   CreemTestMode: boolean
+  CreemFeeFixed: number
+  CreemFeePercent: number
+  CreemFeeThreshold: number
+  CreemModerationEnabled: boolean
+  ModerationApiKey: string
+  ModerationBaseUrl: string
+  ModerationModel: string
+  ModerationProvidersText: string
+  ModerationProvidersMedia: string
+  ModerationCategoryThresholds: string
+  ModerationDefaultThreshold: number
+  ModerationFailOpen: boolean
+  ModerationMaxInputChars: number
   CreemProducts: string
+  NowPaymentsEnabled: boolean
+  NowPaymentsApiKey: string
+  NowPaymentsIpnSecret: string
+  NowPaymentsSandbox: boolean
+  NowPaymentsUnitPrice: number
+  NowPaymentsMinTopUp: number
+  NowPaymentsFeePaidByUser: boolean
+  NowPaymentsIsFixedRate: boolean
+  NowPaymentsSubscriptionEnabled: boolean
+  NowPaymentsEmail: string
+  NowPaymentsPassword: string
+  DeloPayEnabled: boolean
+  DeloPayApiKey: string
+  DeloPayProfileId: string
+  DeloPayWebhookSecret: string
+  DeloPayTestMode: boolean
+  DeloPayMinTopUp: number
+  DeloPayFeeFixed: number
+  DeloPayFeePercent: number
+  DeloPayFeeThreshold: number
+  DeloPaySubscriptionEnabled: boolean
+  DeloPayCheckoutPane: string
   WaffoEnabled: boolean
   WaffoApiKey: string
   WaffoPrivateKey: string
@@ -333,13 +379,39 @@ export type BillingSettings = {
   'checkin_setting.enabled': boolean
   'checkin_setting.min_quota': number
   'checkin_setting.max_quota': number
+  ReferralCommissionEnabled: boolean
+  ReferralCommissionPercent: number
+  ReferralCommissionMaxRecharges: number
 }
 
 export type OperationsSettings = {
   DefaultCollapseSidebar: boolean
   DemoSiteEnabled: boolean
   SelfUseModeEnabled: boolean
+  'general_setting.force_upstream_streaming_enabled': boolean
+  ChannelDisableThreshold: string
   QuotaRemindThreshold: string
+  AutomaticDisableChannelEnabled: boolean
+  AutomaticEnableChannelEnabled: boolean
+  AutomaticDisableKeywords: string
+  ChannelFaultKeywords: string
+  AutomaticDisableStatusCodes: string
+  AutomaticRetryStatusCodes: string
+  'monitor_setting.auto_test_channel_enabled': boolean
+  'monitor_setting.auto_test_channel_minutes': number
+  'monitor_setting.auto_test_disabled_channels_only': boolean
+  'monitor_setting.channel_status_notify_enabled': boolean
+  'monitor_setting.snapshot_model_status_enabled': boolean
+  'monitor_setting.snapshot_model_status_retention_days': number
+  'monitor_setting.disable_on_empty_response': boolean
+  'monitor_setting.empty_response_rate_threshold': number
+  'monitor_setting.empty_response_min_samples': number
+  'monitor_setting.empty_response_absolute_floor': number
+  'monitor_setting.channel_failure_rate_threshold': number
+  'monitor_setting.channel_failure_min_samples': number
+  'monitor_setting.channel_failure_absolute_floor': number
+  'monitor_setting.channel_failure_dead_floor': number
+  'monitor_setting.channel_failure_streak_floor': number
   SMTPServer: string
   SMTPPort: string
   SMTPAccount: string
@@ -373,6 +445,7 @@ export type SecuritySettings = {
   ModelRequestRateLimitSuccessCount: number
   ModelRequestRateLimitDurationMinutes: number
   ModelRequestRateLimitGroup: string
+  ModelRequestRateLimitModels: string
   CheckSensitiveEnabled: boolean
   CheckSensitiveOnPromptEnabled: boolean
   SensitiveWords: string

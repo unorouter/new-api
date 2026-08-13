@@ -149,7 +149,6 @@ import {
 import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
 import {
   CHANNEL_FORM_DEFAULT_VALUES,
-  CHANNEL_TYPE_ADVANCED_CUSTOM,
   channelFormSchema,
   channelsQueryKeys,
   getAdvancedCustomStats,
@@ -769,7 +768,7 @@ export function ChannelMutateDrawer({
   )
   const shouldPreviewUnsavedModels =
     !isEditing ||
-    (currentType === CHANNEL_TYPE_ADVANCED_CUSTOM && canEditSensitive)
+    (currentType === 60 && canEditSensitive)
   const {
     unlocked: doubaoApiEditUnlocked,
     handleClick: handleApiConfigSecretClick,
@@ -1440,7 +1439,7 @@ export function ChannelMutateDrawer({
     }
 
     // Advanced Custom may use a model discovery route with no authentication.
-    if (!isEditing && type !== CHANNEL_TYPE_ADVANCED_CUSTOM) {
+    if (!isEditing && type !== 60) {
       const key = form.getValues('key')
       if (!key?.trim()) {
         toast.error(t('Please enter API key first'))
@@ -1457,7 +1456,7 @@ export function ChannelMutateDrawer({
     }
     const type = form.getValues('type')
     const editingAdvancedCustom =
-      isEditing && type === CHANNEL_TYPE_ADVANCED_CUSTOM
+      isEditing && type === 60
     if (editingAdvancedCustom && channelId === null) {
       throw new Error(t('No channel selected'))
     }
@@ -2793,7 +2792,7 @@ export function ChannelMutateDrawer({
                               />
                             )}
 
-                            {currentType === CHANNEL_TYPE_ADVANCED_CUSTOM && (
+                            {currentType === 60 && (
                               <FormField
                                 control={form.control}
                                 name='advanced_custom'
@@ -3779,6 +3778,7 @@ export function ChannelMutateDrawer({
                                           FIELD_PLACEHOLDERS.REMARK
                                         )}
                                         rows={2}
+                                        maxLength={1024}
                                         {...field}
                                       />
                                     </FormControl>
