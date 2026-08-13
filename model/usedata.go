@@ -41,7 +41,7 @@ type QuotaDataLogParams struct {
 func UpdateQuotaData() {
 	for {
 		if common.DataExportEnabled {
-			common.SysLog("正在更新数据看板数据...")
+			common.SysLog("Updating dashboard data...")
 			SaveQuotaDataCache()
 		}
 		time.Sleep(time.Duration(common.DataExportInterval) * time.Minute)
@@ -121,7 +121,7 @@ func SaveQuotaDataCache() {
 		}
 	}
 	CacheQuotaData = make(map[string]*QuotaData)
-	common.SysLog(fmt.Sprintf("保存数据看板数据成功，共保存%d条数据", size))
+	common.SysLog(fmt.Sprintf("Dashboard data saved successfully, %d records saved in total", size))
 }
 
 func increaseQuotaData(quotaData *QuotaData) {
@@ -168,6 +168,25 @@ func GetQuotaDataGroupByUser(startTime int64, endTime int64) (quotaData []*Quota
 		Group("username, created_at").
 		Find(&quotaDatas).Error
 	return quotaDatas, err
+}
+
+type QuotaDataSummary struct {
+	Count             int64 `json:"count"`
+	Quota             int64 `json:"quota"`
+	TokenUsed         int64 `json:"token_used"`
+	EarliestCreatedAt int64 `json:"earliest_created_at"`
+}
+
+// GetQuotaDataSummary aggregates in SQL what callers previously computed by
+// pulling every quota_data row (1M+ rows, ~150MB JSON per call from the badge
+// endpoint alone). Keep totals-only consumers on this.
+func GetQuotaDataSummary(startTime int64, endTime int64) (*QuotaDataSummary, error) {
+	var s QuotaDataSummary
+	err := DB.Table("quota_data").
+		Select("COALESCE(sum(count),0) as count, COALESCE(sum(quota),0) as quota, COALESCE(sum(token_used),0) as token_used, COALESCE(min(created_at),0) as earliest_created_at").
+		Where("created_at >= ? and created_at <= ?", startTime, endTime).
+		Scan(&s).Error
+	return &s, err
 }
 
 func GetAllQuotaDates(startTime int64, endTime int64, username string) (quotaData []*QuotaData, err error) {

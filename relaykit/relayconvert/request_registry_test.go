@@ -99,7 +99,7 @@ func TestRequestConverterRegistryListsSupportedTextConverters(t *testing.T) {
 			} else {
 				assert.Nil(t, spec.Convert)
 			}
-			assert.Equal(t, tt.advancedCustom, dto.IsAdvancedCustomConverterAllowed(tt.converter))
+			assert.Equal(t, tt.advancedCustom, types.IsAdvancedCustomConverterAllowed(tt.converter))
 		})
 	}
 }

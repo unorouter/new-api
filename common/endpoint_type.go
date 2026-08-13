@@ -30,6 +30,15 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI, constant.EndpointTypeOpenAIResponse}
 	case constant.ChannelTypeSora:
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
+	case constant.ChannelTypeAIHorde:
+		// aihorde is an async task; return it verbatim and do NOT let the
+		// IsImageGenerationModel prepend add a sync /v1/images endpoint it can't serve.
+		return []constant.EndpointType{constant.EndpointTypeAIHorde}
+	case constant.ChannelTypeRunware:
+		// Every runware model is image inference, and they are addressed by AIR
+		// (civitai:257749@290640), which no name matcher recognises. Decide on the channel
+		// type so the prepend below is not what has to detect it.
+		return []constant.EndpointType{constant.EndpointTypeImageGeneration}
 	case constant.ChannelTypeSub2API, constant.ChannelTypeNewAPI:
 		endpointTypes = []constant.EndpointType{
 			constant.EndpointTypeOpenAI,

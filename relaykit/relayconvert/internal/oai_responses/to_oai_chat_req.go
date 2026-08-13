@@ -94,7 +94,7 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 	if len(req.ParallelToolCalls) > 0 && kitutil.GetJsonType(req.ParallelToolCalls) == "boolean" {
 		var parallelToolCalls bool
 		if err := kitutil.Unmarshal(req.ParallelToolCalls, &parallelToolCalls); err == nil {
-			out.ParallelTooCalls = &parallelToolCalls
+			out.ParallelToolCalls = &parallelToolCalls
 		}
 	}
 	if len(req.PromptCacheKey) > 0 && kitutil.GetJsonType(req.PromptCacheKey) == "string" {

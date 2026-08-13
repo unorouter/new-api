@@ -116,8 +116,8 @@ func OpenAIChatRequestToClaudeMessages(c context.Context, info convmeta.Meta, te
 		claudeRequest.Stream = kitutil.GetPointer(true)
 	}
 
-	if textRequest.ToolChoice != nil || textRequest.ParallelTooCalls != nil {
-		claudeToolChoice := sharedclaude.MapOpenAIToolChoice(textRequest.ToolChoice, textRequest.ParallelTooCalls)
+	if textRequest.ToolChoice != nil || textRequest.ParallelToolCalls != nil {
+		claudeToolChoice := sharedclaude.MapOpenAIToolChoice(textRequest.ToolChoice, textRequest.ParallelToolCalls)
 		if claudeToolChoice != nil {
 			claudeRequest.ToolChoice = claudeToolChoice
 		}

@@ -10,7 +10,7 @@ import (
 	webauthn "github.com/go-webauthn/webauthn/webauthn"
 )
 
-var errSessionNotFound = errors.New("Passkey 会话不存在或已过期")
+var errSessionNotFound = errors.New("Passkey session does not exist or has expired")
 
 const passkeyFlowTTL = 5 * time.Minute
 
@@ -21,7 +21,7 @@ type flowPayload struct {
 
 func CreateSessionDataFlow(purpose string, userID int, sessionID, scope string, data *webauthn.SessionData) (string, int64, error) {
 	if data == nil {
-		return "", 0, errors.New("Passkey 会话数据不能为空")
+		return "", 0, errors.New("Passkey session data cannot be empty")
 	}
 	payload, err := common.Marshal(flowPayload{SessionData: *data, Scope: scope})
 	if err != nil {

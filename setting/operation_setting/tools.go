@@ -89,25 +89,25 @@ func isValidToolPrice(price float64) bool {
 func decodeToolPricesJSON(value string, ignoreInvalidEntries bool) (map[string]float64, error) {
 	rawValue := json.RawMessage(strings.TrimSpace(value))
 	if common.GetJsonType(rawValue) != "object" {
-		return nil, fmt.Errorf("工具价格必须是 JSON 对象")
+		return nil, fmt.Errorf("tool prices must be a JSON object")
 	}
 
 	var rawPrices map[string]json.RawMessage
 	if err := common.Unmarshal(rawValue, &rawPrices); err != nil {
-		return nil, fmt.Errorf("解析工具价格失败: %w", err)
+		return nil, fmt.Errorf("failed to parse tool prices: %w", err)
 	}
 
 	prices := make(map[string]float64, len(rawPrices))
 	for name, rawPrice := range rawPrices {
 		var entryErr error
 		if common.GetJsonType(rawPrice) != "number" {
-			entryErr = fmt.Errorf("工具价格 %q 必须是非负数字", name)
+			entryErr = fmt.Errorf("tool price %q must be a non-negative number", name)
 		} else {
 			var price float64
 			if err := common.Unmarshal(rawPrice, &price); err != nil {
-				entryErr = fmt.Errorf("解析工具价格 %q 失败: %w", name, err)
+				entryErr = fmt.Errorf("failed to parse tool price %q: %w", name, err)
 			} else if !isValidToolPrice(price) {
-				entryErr = fmt.Errorf("工具价格 %q 必须是有限的非负数字", name)
+				entryErr = fmt.Errorf("tool price %q must be a finite non-negative number", name)
 			} else {
 				prices[name] = price
 			}
@@ -137,7 +137,7 @@ func ValidateToolPricesJSON(value string) error {
 func LoadToolPricesFromJSONString(value string) {
 	prices, err := decodeToolPricesJSON(value, true)
 	if err != nil {
-		common.SysError("加载工具价格失败，将使用硬编码兜底: " + err.Error())
+		common.SysError("failed to load tool prices, falling back to hardcoded defaults: " + err.Error())
 		prices = make(map[string]float64)
 	}
 	toolPriceSetting.Prices = prices

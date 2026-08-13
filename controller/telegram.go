@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -48,14 +49,14 @@ var (
 func TelegramBindStart(c *gin.Context) {
 	if !common.TelegramOAuthEnabled {
 		c.JSON(http.StatusOK, gin.H{
-			"message": "管理员未开启通过 Telegram 登录以及注册",
+			"message": "Cannot enable Telegram OAuth, please fill in Telegram Bot Token first!",
 			"success": false,
 		})
 		return
 	}
 	identity, ok := middleware.GetSessionAuthIdentity(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "未登录"})
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Not logged in"})
 		return
 	}
 	expiresAt := time.Now().Add(telegramBindFlowTTL)
@@ -235,10 +236,7 @@ func telegramBindFailure(c *gin.Context, errorCode string) {
 
 func TelegramLogin(c *gin.Context) {
 	if !common.TelegramOAuthEnabled {
-		c.JSON(200, gin.H{
-			"message": "管理员未开启通过 Telegram 登录以及注册",
-			"success": false,
-		})
+		c.JSON(200, dto.ApiResponse{Message: "Cannot enable Telegram OAuth, please fill in Telegram Bot Token first!"})
 		return
 	}
 	params := c.Request.URL.Query()
@@ -246,7 +244,7 @@ func TelegramLogin(c *gin.Context) {
 	if err != nil {
 		common.SysLog("TelegramLogin authorization failed: " + err.Error())
 		c.JSON(200, gin.H{
-			"message": "无效的请求",
+			"message": common.TranslateMessage(c, "common.invalid_params"),
 			"success": false,
 		})
 		return
@@ -254,16 +252,13 @@ func TelegramLogin(c *gin.Context) {
 
 	user := model.User{TelegramId: telegramId}
 	if err := user.FillUserByTelegramId(); err != nil {
-		c.JSON(200, gin.H{
-			"message": err.Error(),
-			"success": false,
-		})
+		c.JSON(200, dto.ApiResponse{Message: err.Error()})
 		return
 	}
 	if err := claimTelegramAuthorization(params, time.Now()); err != nil {
 		common.SysLog("TelegramLogin assertion replay rejected: " + err.Error())
 		c.JSON(http.StatusForbidden, gin.H{
-			"message": "该登录凭据已被使用",
+			"message": "This login credential has already been used",
 			"success": false,
 		})
 		return

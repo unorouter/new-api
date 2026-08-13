@@ -61,6 +61,13 @@ const quotaSchema = z.object({
   }),
   quota_setting: z.object({
     enable_free_model_pre_consume: z.boolean(),
+    enable_free_abuse_auto_block: z.boolean(),
+    free_abuse_max_per_minute: z.coerce.number().min(0),
+    free_abuse_max_distinct_models: z.coerce.number().min(0),
+    free_abuse_max_per_day: z.coerce.number().min(0),
+    free_abuse_max_errors_per_hour: z.coerce.number().min(0),
+    free_abuse_max_media_err_models: z.coerce.number().min(0),
+    charge_on_error: z.boolean(),
   }),
 })
 
@@ -262,6 +269,198 @@ export function QuotaSettingsSection({
                 )}
               />
             </SettingsFormGridItem>
+
+            <SettingsFormGridItem span='full'>
+              <FormField
+                control={form.control}
+                name='quota_setting.enable_free_abuse_auto_block'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Auto-block free model abuse')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'When a zero-balance user exceeds the free-request limit below, automatically block their free models until they top up.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        disabled={updateOption.isPending}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+            </SettingsFormGridItem>
+
+            <SettingsFormGridItem span='full'>
+              <FormField
+                control={form.control}
+                name='quota_setting.charge_on_error'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Charge on failed requests')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'When enabled, pre-consumed quota is kept (not refunded) for requests that an upstream processed but returned an error. Local failures (no available channel, invalid request) are always refunded.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        disabled={updateOption.isPending}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+            </SettingsFormGridItem>
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_max_per_minute'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    {t('Free model requests per minute before auto-block')}
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Threshold for auto-block detection. Only applies when auto-block is enabled.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_max_distinct_models'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    {t('Distinct free models per minute before auto-block')}
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Auto-block when a user hits more than this many different free models in a minute (fast model-switching = scraping). Only applies when auto-block is enabled.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_max_per_day'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    {t('Free model requests per day before auto-block')}
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Catches slow-but-relentless scrapers that stay under the per-minute limits. 0 disables. Only applies when auto-block is enabled.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_max_errors_per_hour'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    {t('Free model errors per hour before auto-block')}
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Auto-block when a zero-balance user racks up this many failed free-model requests in an hour (relentless retrying of rate-limited models = bot). 0 disables. Only applies when auto-block is enabled.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_max_media_err_models'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    {t('Distinct failing free media models before auto-block')}
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Auto-block when a zero-balance user fails this many DISTINCT free image/audio/video models within a minute (catalog probing). Media only; text models are exempt. Kept low because no legitimate user fires several failing media generations back-to-back. 0 disables. Only applies when auto-block is enabled.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}

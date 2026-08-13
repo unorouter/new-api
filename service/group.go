@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -34,14 +35,65 @@ func GetUserUsableGroups(userGroup string) map[string]string {
 		}
 		// 如果userGroup不在UserUsableGroups中，返回UserUsableGroups + userGroup
 		if _, ok := groupsCopy[userGroup]; !ok {
-			groupsCopy[userGroup] = "用户分组"
+			groupsCopy[userGroup] = "User group"
 		}
 	}
 	return groupsCopy
 }
 
+// Membership without materializing the map: GetUserUsableGroups clones the whole
+// usable-group map (thousands of entries), which is 62%-of-CPU expensive on the
+// per-request path. Semantics mirror the clone-based version: the user's own group
+// is always usable (the clone re-adds it after specials run), special "+:"/plain
+// entries grant, special "-:" revokes a base-map entry.
 func GroupInUserUsableGroups(userGroup, groupName string) bool {
-	_, ok := GetUserUsableGroups(userGroup)[groupName]
+	if userGroup != "" && groupName == userGroup {
+		return true
+	}
+	if userGroup != "" {
+		if specialSettings, ok := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.Get(userGroup); ok {
+			if _, ok := specialSettings[groupName]; ok {
+				return true
+			}
+			if _, ok := specialSettings["+:"+groupName]; ok {
+				return true
+			}
+			if _, ok := specialSettings["-:"+groupName]; ok {
+				return false
+			}
+		}
+	}
+	return setting.UserUsableGroupsContains(groupName)
+}
+
+// GetUserUsableGroupsForUser is the per-user variant: the group-string usable set
+// PLUS the groups granted to this specific user id (users.setting.usable_groups).
+// Private routing groups are granted per user here, so the user keeps group=auto
+// and reaches them via the X-Group header. Only groups that exist in GroupRatio
+// are surfaced (mirrors the global usable-group contract).
+func GetUserUsableGroupsForUser(userId int, userGroup string) map[string]string {
+	groups := GetUserUsableGroups(userGroup)
+	userSetting, err := model.GetUserSetting(userId, false)
+	if err != nil {
+		return groups
+	}
+	for _, g := range userSetting.UsableGroups {
+		if g == "" {
+			continue
+		}
+		if _, ok := groups[g]; ok {
+			continue
+		}
+		if !ratio_setting.ContainsGroupRatio(g) {
+			continue
+		}
+		groups[g] = setting.GetUsableGroupDescription(g)
+	}
+	return groups
+}
+
+func GroupInUserUsableGroupsForUser(userId int, userGroup, groupName string) bool {
+	_, ok := GetUserUsableGroupsForUser(userId, userGroup)[groupName]
 	return ok
 }
 
@@ -95,6 +147,9 @@ func FilterUserTokenAutoGroups(userGroup string, groups []string) []string {
 // The absence of the context value means that the token inherits the complete
 // global Auto list; a present (even empty) value is an explicit token snapshot.
 func GetRequestAutoGroups(c *gin.Context, userGroup string) []string {
+	if c == nil {
+		return GetUserAutoGroup(userGroup)
+	}
 	value, ok := common.GetContextKey(c, constant.ContextKeyTokenAutoGroups)
 	if !ok {
 		return GetUserAutoGroup(userGroup)
@@ -130,4 +185,91 @@ func GetUserGroupRatio(userGroup, group string) float64 {
 		return ratio
 	}
 	return ratio_setting.GetGroupRatio(group)
+}
+
+// IsCompositeTokenGroup reports whether a token's group value pins multiple
+// groups (comma-separated), which behaves like a scoped auto group.
+func IsCompositeTokenGroup(tokenGroup string) bool {
+	return strings.Contains(tokenGroup, ",")
+}
+
+// ParseTokenGroups splits a composite token group into its trimmed non-empty
+// elements, preserving declared order.
+func ParseTokenGroups(tokenGroup string) []string {
+	parts := strings.Split(tokenGroup, ",")
+	groups := make([]string, 0, len(parts))
+	for _, g := range parts {
+		g = strings.TrimSpace(g)
+		if g != "" {
+			groups = append(groups, g)
+		}
+	}
+	return groups
+}
+
+// ParseTokenGroupMapping parses a token's per-model group mapping JSON
+// ({"model":["group",...]}). Returns nil on empty or invalid input.
+func ParseTokenGroupMapping(mappingJSON string) map[string][]string {
+	mappingJSON = strings.TrimSpace(mappingJSON)
+	if mappingJSON == "" || mappingJSON == "{}" {
+		return nil
+	}
+	var mapping map[string][]string
+	if err := common.UnmarshalJsonStr(mappingJSON, &mapping); err != nil {
+		return nil
+	}
+	if len(mapping) == 0 {
+		return nil
+	}
+	return mapping
+}
+
+// ResolveTokenGroupForModel returns the effective token group for a request:
+// when the token's per-model mapping pins groups for this model, they compose
+// into a comma-separated scoped-auto group; otherwise the base group is kept.
+func ResolveTokenGroupForModel(mapping map[string][]string, model, baseGroup string) string {
+	if len(mapping) == 0 {
+		return baseGroup
+	}
+	groups, ok := mapping[model]
+	if !ok || len(groups) == 0 {
+		return baseGroup
+	}
+	cleaned := make([]string, 0, len(groups))
+	for _, g := range groups {
+		g = strings.TrimSpace(g)
+		if g != "" {
+			cleaned = append(cleaned, g)
+		}
+	}
+	if len(cleaned) == 0 {
+		return baseGroup
+	}
+	return strings.Join(cleaned, ",")
+}
+
+// GetTokenAutoGroups returns the ordered group list the channel-select engine
+// iterates for a token: the configured auto groups for "auto", or - for a
+// composite pinned group like "vip,discount" - the pinned groups the user may
+// actually use, cheapest ratio first (pinning exists so users avoid billing at
+// a pricier group, so the cheapest usable pinned group must be tried first).
+func GetTokenAutoGroups(c *gin.Context, userGroup, tokenGroup string) []string {
+	if !IsCompositeTokenGroup(tokenGroup) {
+		return GetRequestAutoGroups(c, userGroup)
+	}
+	usable := GetUserUsableGroups(userGroup)
+	groups := make([]string, 0)
+	for _, g := range ParseTokenGroups(tokenGroup) {
+		if _, ok := usable[g]; !ok {
+			continue
+		}
+		if !ratio_setting.ContainsGroupRatio(g) {
+			continue
+		}
+		groups = append(groups, g)
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		return GetUserGroupRatio(userGroup, groups[i]) < GetUserGroupRatio(userGroup, groups[j])
+	})
+	return groups
 }

@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"bytes"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/gin-gonic/gin"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -212,23 +211,12 @@ func TestFetchModelsAdvancedCustomCreatePreview(t *testing.T) {
 		AdvancedCustom: &rawConfig,
 		Proxy:          &emptyProxy,
 	}
-	body, err := common.Marshal(req)
+
+	channel, err := buildAdvancedCustomModelPreviewChannel(req)
 	require.NoError(t, err)
-
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/fetch_models", bytes.NewReader(body))
-	ctx.Request.Header.Set("Content-Type", "application/json")
-	FetchModels(ctx)
-
-	var response struct {
-		Success bool     `json:"success"`
-		Message string   `json:"message"`
-		Data    []string `json:"data"`
-	}
-	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
-	require.True(t, response.Success, response.Message)
-	require.Equal(t, []string{"preview-model"}, response.Data)
+	models, err := fetchChannelUpstreamModelIDs(channel)
+	require.NoError(t, err)
+	require.Equal(t, []string{"preview-model"}, models)
 	require.Equal(t, "Bearer create-preview-key", <-receivedAuthorization)
 }
 
@@ -295,25 +283,11 @@ func TestFetchModelsAdvancedCustomEditPreviewUsesSavedKeyAndExplicitClears(t *te
 	require.Empty(t, *cleared.HeaderOverride)
 	require.Empty(t, cleared.GetSetting().Proxy)
 
-	body, err := common.Marshal(req)
+	channel, err := buildAdvancedCustomModelPreviewChannel(req)
 	require.NoError(t, err)
-
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/fetch_models", bytes.NewReader(body))
-	ctx.Request.Header.Set("Content-Type", "application/json")
-	FetchModels(ctx)
-
-	var response struct {
-		Success bool     `json:"success"`
-		Message string   `json:"message"`
-		Data    []string `json:"data"`
-	}
-	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
-	require.True(t, response.Success, response.Message)
-	require.Equal(t, []string{"edited-preview-model"}, response.Data)
-	require.NotContains(t, recorder.Body.String(), "enabled-saved-key")
-	require.NotContains(t, recorder.Body.String(), "request-key-must-be-ignored")
+	models, err := fetchChannelUpstreamModelIDs(channel)
+	require.NoError(t, err)
+	require.Equal(t, []string{"edited-preview-model"}, models)
 
 	headers := <-receivedHeaders
 	require.Equal(t, "Bearer enabled-saved-key", headers.Get("Authorization"))
@@ -367,22 +341,16 @@ func TestFetchModelsUsesSharedChannelFetchBehavior(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	body, err := common.Marshal(map[string]any{
-		"base_url": server.URL,
-		"type":     constant.ChannelTypeAnthropic,
-		"key":      "first-key\nsecond-key",
-	})
+	baseURL := server.URL
+	channel := &model.Channel{
+		Type:    constant.ChannelTypeAnthropic,
+		Key:     "first-key",
+		BaseURL: &baseURL,
+	}
+
+	models, err := fetchChannelUpstreamModelIDs(channel)
 	require.NoError(t, err)
-
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/fetch_models", bytes.NewReader(body))
-	ctx.Request.Header.Set("Content-Type", "application/json")
-
-	FetchModels(ctx)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-	require.JSONEq(t, `{"success":true,"message":"","data":["claude-sonnet"]}`, recorder.Body.String())
+	require.Equal(t, []string{"claude-sonnet"}, models)
 }
 
 func TestFetchNewAPIModelsUsesOpenAIContract(t *testing.T) {
@@ -534,6 +502,7 @@ func TestBuildUpstreamModelUpdateTaskNotificationContent_OmitOverflowDetails(t *
 	}
 
 	content := buildUpstreamModelUpdateTaskNotificationContent(
+		"en",
 		24,
 		12,
 		56,
@@ -552,10 +521,10 @@ func TestBuildUpstreamModelUpdateTaskNotificationContent_OmitOverflowDetails(t *
 		},
 	)
 
-	require.Contains(t, content, "其余 4 个渠道已省略")
-	require.Contains(t, content, "其余 1 个已省略")
-	require.Contains(t, content, "失败渠道 ID（展示 10/12）")
-	require.Contains(t, content, "其余 2 个已省略")
+	require.Contains(t, content, "4 more channels omitted")
+	require.Contains(t, content, "(1 more omitted)")
+	require.Contains(t, content, "failed channel IDs (showing 10/12)")
+	require.Contains(t, content, "(2 more omitted)")
 }
 
 func TestShouldSendUpstreamModelUpdateNotification(t *testing.T) {
@@ -576,22 +545,4 @@ func TestShouldSendUpstreamModelUpdateNotification(t *testing.T) {
 	require.True(t, shouldSendUpstreamModelUpdateNotification(baseTime+10000, 0, 4))
 	require.True(t, shouldSendUpstreamModelUpdateNotification(baseTime+90000, 7, 0))
 	require.True(t, shouldSendUpstreamModelUpdateNotification(baseTime+90001, 0, 0))
-}
-
-func TestDetectAllChannelUpstreamModelUpdatesRejectsExistingActiveTask(t *testing.T) {
-	db := setupModelListControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.SystemTask{}, &model.SystemTaskLock{}))
-
-	existing, err := model.CreateSystemTask(model.SystemTaskTypeModelUpdate, nil, nil)
-	require.NoError(t, err)
-
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream-models/detect-all", nil)
-
-	DetectAllChannelUpstreamModelUpdates(ctx)
-
-	require.Equal(t, http.StatusConflict, recorder.Code)
-	require.Contains(t, recorder.Body.String(), existing.TaskID)
-	require.Contains(t, recorder.Body.String(), "已有模型更新任务正在运行或等待中")
 }

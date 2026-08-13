@@ -52,8 +52,10 @@ export interface CommonLogFilters extends CommonFilters {
   token?: string
   group?: string
   username?: string
+  discordId?: string
   requestId?: string
   upstreamRequestId?: string
+  subscriptionPlan?: string
 }
 
 /**
@@ -316,6 +318,7 @@ export interface GetLogsParams {
   page_size?: number
   type?: number
   username?: string
+  discord_id?: string
   token_name?: string
   model_name?: string
   start_timestamp?: number
@@ -324,6 +327,7 @@ export interface GetLogsParams {
   group?: string
   request_id?: string
   upstream_request_id?: string
+  subscription_plan?: string
 }
 
 export interface GetLogsResponse {

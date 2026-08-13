@@ -89,7 +89,7 @@ func (s *BillingSession) Refund(c *gin.Context) {
 	s.refunded = true
 	s.mu.Unlock()
 
-	logger.LogInfo(c, fmt.Sprintf("用户 %d 请求失败, 返还预扣费（token_quota=%s, funding=%s）",
+	logger.LogInfo(c, fmt.Sprintf("user %d request failed, refunding pre-consumed quota (token_quota=%s, funding=%s)",
 		s.relayInfo.UserId,
 		logger.FormatQuota(s.tokenConsumed),
 		s.funding.Source(),
@@ -191,9 +191,9 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 	if s.shouldTrust(c) {
 		s.trusted = true
 		effectiveQuota = 0
-		logger.LogInfo(c, fmt.Sprintf("用户 %d 额度充足, 信任且不需要预扣费 (funding=%s)", s.relayInfo.UserId, s.funding.Source()))
+		logger.LogInfo(c, fmt.Sprintf("user %d has sufficient quota, trusted and no pre-consume needed (funding=%s)", s.relayInfo.UserId, s.funding.Source()))
 	} else if effectiveQuota > 0 {
-		logger.LogInfo(c, fmt.Sprintf("用户 %d 需要预扣费 %s (funding=%s)", s.relayInfo.UserId, logger.FormatQuota(effectiveQuota), s.funding.Source()))
+		logger.LogInfo(c, fmt.Sprintf("user %d needs pre-consume %s (funding=%s)", s.relayInfo.UserId, logger.FormatQuota(effectiveQuota), s.funding.Source()))
 	}
 
 	// ---- 1) 预扣令牌额度 ----
@@ -227,7 +227,7 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 		}
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "no active subscription") || strings.Contains(errMsg, "subscription quota insufficient") {
-			return types.NewErrorWithStatusCode(fmt.Errorf("订阅额度不足或未配置订阅: %s", errMsg), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			return types.NewErrorWithStatusCode(fmt.Errorf("insufficient subscription quota or no subscription configured: %s", errMsg), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
 		return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 	}
@@ -255,7 +255,7 @@ func (s *BillingSession) reserveFunding(delta int) error {
 	case *SubscriptionFunding:
 		if err := model.PostConsumeUserSubscriptionDelta(funding.subscriptionId, int64(delta)); err != nil {
 			return types.NewErrorWithStatusCode(
-				fmt.Errorf("订阅额度不足或未配置订阅: %s", err.Error()),
+				fmt.Errorf("insufficient subscription quota or no subscription configured: %s", err.Error()),
 				types.ErrorCodeInsufficientUserQuota,
 				http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(),
@@ -367,15 +367,24 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 		}
-		if userQuota <= 0 {
+		// Only a genuinely free request (paid group ratio == 0) may proceed on a
+		// non-positive balance. A paid group (ratio > 0) bills the user even when
+		// the per-token math rounds to 0, so a zero-balance user must be blocked.
+		if userQuota <= 0 && requestChargesQuota(c, relayInfo) {
+			if cameFromFreeFailover(c, relayInfo) {
+				return nil, types.NewErrorWithStatusCode(
+					fmt.Errorf("This model is busy right now (free providers hit their rate limit). Please try again in a little while, or switch to another model."),
+					types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
+					types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			}
 			return nil, types.NewErrorWithStatusCode(
-				fmt.Errorf("用户额度不足, 剩余额度: %s", logger.FormatQuota(userQuota)),
+				fmt.Errorf("insufficient user quota, remaining: %s", logger.FormatQuota(userQuota)),
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
 		if userQuota-preConsumedQuota < 0 {
 			return nil, types.NewErrorWithStatusCode(
-				fmt.Errorf("预扣费额度失败, 用户剩余额度: %s, 需要预扣费额度: %s", logger.FormatQuota(userQuota), logger.FormatQuota(preConsumedQuota)),
+				fmt.Errorf("pre-consume quota failed, user remaining: %s, required pre-consume: %s", logger.FormatQuota(userQuota), logger.FormatQuota(preConsumedQuota)),
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}

@@ -71,6 +71,24 @@ func ValidateSSRFProtectedFetchURL(urlStr string) error {
 	return validateURLWithCurrentFetchSetting(urlStr, true)
 }
 
+// PROD-ONLY (fork): first-byte (response-header) deadline for all upstream clients.
+// Defaults to 60s: a hung/slow reseller must fail over to a sibling BEFORE fragile
+// clients (e.g. JanitorAI's ~60s fetch abort) give up with "Load failed", and well
+// before Cloudflare's 100s edge (524). Classifies as a channel timeout so failover +
+// disable trigger. RESPONSE_HEADER_TIMEOUT overrides it alone; RELAY_TIMEOUT also
+// overrides but additionally deadlines the AWS relay context and the whole-response
+// client timeout, so prefer the former. Bounds only time-to-headers, so a slow
+// generation (streaming, STREAMING_TIMEOUT) or long non-stream body is unaffected.
+func responseHeaderTimeout() time.Duration {
+	if common.ResponseHeaderTimeout > 0 {
+		return time.Duration(common.ResponseHeaderTimeout) * time.Second
+	}
+	if common.RelayTimeout > 0 {
+		return time.Duration(common.RelayTimeout) * time.Second
+	}
+	return 60 * time.Second
+}
+
 func newRelayHTTPTransport() *http.Transport {
 	var transport *http.Transport
 	if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok && defaultTransport != nil {
@@ -95,6 +113,10 @@ func newRelayHTTPTransport() *http.Transport {
 	if common.TLSInsecureSkipVerify {
 		transport.TLSClientConfig = common.InsecureTLSConfig
 	}
+	// ResponseHeaderTimeout limits the time waiting for response headers (time to first byte).
+	// Unlike http.Client.Timeout, it does not affect streaming once headers arrive.
+	// This ensures upstream requests fail before Cloudflare's 100s proxy timeout (524 error).
+	transport.ResponseHeaderTimeout = responseHeaderTimeout()
 	return transport
 }
 

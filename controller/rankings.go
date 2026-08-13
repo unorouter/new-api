@@ -1,24 +1,44 @@
 package controller
 
 import (
-	"net/http"
-
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 )
 
-func GetRankings(c *gin.Context) {
-	result, err := service.GetRankingsSnapshot(c.DefaultQuery("period", "week"))
+func GetRankings(c fuego.ContextWithParams[dto.GetRankingsParams]) (*dto.Response[*service.RankingsResponse], error) {
+	p, err := dto.ParseParams[dto.GetRankingsParams](c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
+		return dto.Fail[*service.RankingsResponse](err.Error())
+	}
+	period := p.Period
+	if period == "" {
+		period = "week"
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    result,
-	})
+	result, err := service.GetRankingsSnapshot(period)
+	if err != nil {
+		return dto.Fail[*service.RankingsResponse](err.Error())
+	}
+	return dto.Ok(result)
+}
+
+func GetModelRanking(c fuego.ContextWithParams[dto.GetModelRankingParams]) (*dto.Response[*service.ModelRankingResponse], error) {
+	p, err := dto.ParseParams[dto.GetModelRankingParams](c)
+	if err != nil {
+		return dto.Fail[*service.ModelRankingResponse](err.Error())
+	}
+	if p.Model == "" {
+		return dto.Fail[*service.ModelRankingResponse]("model is required")
+	}
+	period := p.Period
+	if period == "" {
+		period = "week"
+	}
+
+	result, err := service.GetModelRankingSnapshot(p.Model, period)
+	if err != nil {
+		return dto.Fail[*service.ModelRankingResponse](err.Error())
+	}
+	return dto.Ok(result)
 }

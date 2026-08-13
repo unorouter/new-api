@@ -92,6 +92,47 @@ const (
 	LogTypeLogin   = 7
 )
 
+// populateChannelNames resolves each log's ChannelName from its ChannelId,
+// using the channel cache when enabled, otherwise a single bulk DB query.
+func populateChannelNames(logs []*Log) {
+	channelIds := types.NewSet[int]()
+	for _, log := range logs {
+		if log.ChannelId != 0 {
+			channelIds.Add(log.ChannelId)
+		}
+	}
+	if channelIds.Len() == 0 {
+		return
+	}
+
+	var channels []struct {
+		Id   int    `gorm:"column:id"`
+		Name string `gorm:"column:name"`
+	}
+	if common.MemoryCacheEnabled {
+		for _, channelId := range channelIds.Items() {
+			if cacheChannel, err := CacheGetChannel(channelId); err == nil {
+				channels = append(channels, struct {
+					Id   int    `gorm:"column:id"`
+					Name string `gorm:"column:name"`
+				}{Id: channelId, Name: cacheChannel.Name})
+			}
+		}
+	} else {
+		if err := DB.Table("channels").Select("id, name").Where("id IN ?", channelIds.Items()).Find(&channels).Error; err != nil {
+			return
+		}
+	}
+
+	channelMap := make(map[int]string, len(channels))
+	for _, channel := range channels {
+		channelMap[channel.Id] = channel.Name
+	}
+	for i := range logs {
+		logs[i].ChannelName = channelMap[logs[i].ChannelId]
+	}
+}
+
 func ensureLogRequestId(log *Log) {
 	if log != nil && log.RequestId == "" {
 		log.RequestId = common.NewRequestId()
@@ -114,8 +155,8 @@ func assignDisplayLogIds(logs []*Log, startIdx int) {
 }
 
 func formatUserLogs(logs []*Log, startIdx int) {
+	populateChannelNames(logs)
 	for i := range logs {
-		logs[i].ChannelName = ""
 		var otherMap map[string]interface{}
 		otherMap, _ = common.StrToMap(logs[i].Other)
 		if otherMap != nil {
@@ -388,13 +429,20 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		logger.LogError(c, "failed to record log: "+err.Error())
 	}
 	if common.DataExportEnabled {
+		totalTokens := params.PromptTokens + params.CompletionTokens
+		if cacheTokens, ok := params.Other["cache_tokens"].(int); ok {
+			totalTokens += cacheTokens
+		}
+		if cacheCreationTokens, ok := params.Other["cache_creation_tokens"].(int); ok {
+			totalTokens += cacheCreationTokens
+		}
 		LogQuotaData(QuotaDataLogParams{
 			UserID:    userId,
 			Username:  username,
 			ModelName: params.ModelName,
 			Quota:     params.Quota,
 			CreatedAt: createdAt,
-			TokenUsed: params.PromptTokens + params.CompletionTokens,
+			TokenUsed: totalTokens,
 			UseGroup:  params.Group,
 			TokenID:   params.TokenId,
 			ChannelID: params.ChannelId,
@@ -465,7 +513,22 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 }
 
-func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+// looksLikeDiscordSnowflake reports whether s is a Discord ID (all digits,
+// 17-20 chars). Usernames are effectively never pure long digit runs, so a match
+// is safe to treat as a Discord-ID search.
+func looksLikeDiscordSnowflake(s string) bool {
+	if len(s) < 17 || len(s) > 20 {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, discordId string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string, subscriptionPlan string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB
@@ -473,14 +536,43 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 		tx = LOG_DB.Where("logs.type = ?", logType)
 	}
 
-	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
-		return nil, 0, err
+	// Resolve a Discord ID to its user (logs may live in a separate LOG_DB, so
+	// filter by the resolved user_id rather than joining the users table).
+	if discordId != "" {
+		var uid int
+		if e := DB.Model(&User{}).Where("discord_id = ?", discordId).Limit(1).Pluck("id", &uid).Error; e != nil || uid == 0 {
+			return []*Log{}, 0, nil
+		}
+		tx = tx.Where("logs.user_id = ?", uid)
 	}
-	if tx, err = applyExplicitLogTextFilter(tx, "logs.username", username); err != nil {
-		return nil, 0, err
+
+	if modelName != "" {
+		modelNamePattern, err := modelNameLikePattern(modelName)
+		if err != nil {
+			return nil, 0, err
+		}
+		tx = tx.Where("LOWER(logs.model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
+	}
+	if username != "" {
+		// A Discord snowflake (all digits, 17-20 chars) pasted into the username
+		// box resolves to that user's logs, so admins can search by Discord ID
+		// without a separate field.
+		if looksLikeDiscordSnowflake(username) {
+			var uid int
+			if e := DB.Model(&User{}).Where("discord_id = ?", username).Limit(1).Pluck("id", &uid).Error; e != nil || uid == 0 {
+				return []*Log{}, 0, nil
+			}
+			tx = tx.Where("logs.user_id = ?", uid)
+		} else {
+			tx = tx.Where("logs.username = ?", username)
+		}
 	}
 	if tokenName != "" {
-		tx = tx.Where("logs.token_name = ?", tokenName)
+		tokenNamePattern, err := sanitizeLikePattern(tokenName)
+		if err != nil {
+			return nil, 0, err
+		}
+		tx = tx.Where("LOWER(logs.token_name) LIKE LOWER(?) ESCAPE '!'", "%"+tokenNamePattern+"%")
 	}
 	if requestId != "" {
 		tx = tx.Where("logs.request_id = ?", requestId)
@@ -500,7 +592,29 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	if group != "" {
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
 	}
-	err = tx.Model(&Log{}).Count(&total).Error
+	if subscriptionPlan != "" {
+		planPattern, err := sanitizeLikePattern(subscriptionPlan)
+		if err != nil {
+			return nil, 0, err
+		}
+		tx = tx.Where("LOWER(logs.other) LIKE LOWER(?) ESCAPE '!'", `%"subscription_plan_title":"%`+planPattern+`%"%`)
+	}
+	// A request_id names ONE row, so counting is pointless work: the unbounded count below
+	// scanned the whole logs table and took 40 to 60 seconds under load, which starved the
+	// rest of the gateway while a caller only wanted that single row.
+	if requestId != "" || upstreamRequestId != "" {
+		err = tx.Order("logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
+		if err != nil {
+			common.SysError("failed to search logs by request id: " + err.Error())
+			return nil, 0, errors.New("failed to query logs")
+		}
+		populateChannelNames(logs)
+		assignDisplayLogIds(logs, startIdx)
+		return logs, int64(len(logs)), nil
+	}
+	// Bounded like GetUserLogs: an unbounded count over a large logs table is the slowest
+	// part of the query and nothing downstream needs an exact total past this cap.
+	err = tx.Model(&Log{}).Limit(logSearchCountLimit).Count(&total).Error
 	if err != nil {
 		return nil, 0, err
 	}
@@ -516,52 +630,14 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 		assignDisplayLogIds(logs, startIdx)
 	}
 
-	channelIds := types.NewSet[int]()
-	for _, log := range logs {
-		if log.ChannelId != 0 {
-			channelIds.Add(log.ChannelId)
-		}
-	}
-
-	if channelIds.Len() > 0 {
-		var channels []struct {
-			Id   int    `gorm:"column:id"`
-			Name string `gorm:"column:name"`
-		}
-		if common.MemoryCacheEnabled {
-			// Cache get channel
-			for _, channelId := range channelIds.Items() {
-				if cacheChannel, err := CacheGetChannel(channelId); err == nil {
-					channels = append(channels, struct {
-						Id   int    `gorm:"column:id"`
-						Name string `gorm:"column:name"`
-					}{
-						Id:   channelId,
-						Name: cacheChannel.Name,
-					})
-				}
-			}
-		} else {
-			// Bulk query channels from DB
-			if err = DB.Table("channels").Select("id, name").Where("id IN ?", channelIds.Items()).Find(&channels).Error; err != nil {
-				return logs, total, err
-			}
-		}
-		channelMap := make(map[int]string, len(channels))
-		for _, channel := range channels {
-			channelMap[channel.Id] = channel.Name
-		}
-		for i := range logs {
-			logs[i].ChannelName = channelMap[logs[i].ChannelId]
-		}
-	}
+	populateChannelNames(logs)
 
 	return logs, total, err
 }
 
 const logSearchCountLimit = 10000
 
-func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string, subscriptionPlan string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB.Where("logs.user_id = ?", userId)
@@ -569,11 +645,19 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 		tx = LOG_DB.Where("logs.user_id = ? and logs.type = ?", userId, logType)
 	}
 
-	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
-		return nil, 0, err
+	if modelName != "" {
+		modelNamePattern, err := modelNameLikePattern(modelName)
+		if err != nil {
+			return nil, 0, err
+		}
+		tx = tx.Where("LOWER(logs.model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
 	}
 	if tokenName != "" {
-		tx = tx.Where("logs.token_name = ?", tokenName)
+		tokenNamePattern, err := sanitizeLikePattern(tokenName)
+		if err != nil {
+			return nil, 0, err
+		}
+		tx = tx.Where("LOWER(logs.token_name) LIKE LOWER(?) ESCAPE '!'", "%"+tokenNamePattern+"%")
 	}
 	if requestId != "" {
 		tx = tx.Where("logs.request_id = ?", requestId)
@@ -590,10 +674,17 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	if group != "" {
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
 	}
+	if subscriptionPlan != "" {
+		planPattern, err := sanitizeLikePattern(subscriptionPlan)
+		if err != nil {
+			return nil, 0, err
+		}
+		tx = tx.Where("LOWER(logs.other) LIKE LOWER(?) ESCAPE '!'", `%"subscription_plan_title":"%`+planPattern+`%"%`)
+	}
 	err = tx.Model(&Log{}).Limit(logSearchCountLimit).Count(&total).Error
 	if err != nil {
 		common.SysError("failed to count user logs: " + err.Error())
-		return nil, 0, errors.New("查询日志失败")
+		return nil, 0, errors.New("failed to query logs")
 	}
 	order := "logs.id desc"
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
@@ -602,7 +693,7 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	err = tx.Order(order).Limit(num).Offset(startIdx).Find(&logs).Error
 	if err != nil {
 		common.SysError("failed to search user logs: " + err.Error())
-		return nil, 0, errors.New("查询日志失败")
+		return nil, 0, errors.New("failed to query logs")
 	}
 
 	formatUserLogs(logs, startIdx)
@@ -621,15 +712,17 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	// 为rpm和tpm创建单独的查询
 	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")
 
-	if tx, err = applyExplicitLogTextFilter(tx, "username", username); err != nil {
-		return stat, err
-	}
-	if rpmTpmQuery, err = applyExplicitLogTextFilter(rpmTpmQuery, "username", username); err != nil {
-		return stat, err
+	if username != "" {
+		tx = tx.Where("username = ?", username)
+		rpmTpmQuery = rpmTpmQuery.Where("username = ?", username)
 	}
 	if tokenName != "" {
-		tx = tx.Where("token_name = ?", tokenName)
-		rpmTpmQuery = rpmTpmQuery.Where("token_name = ?", tokenName)
+		tokenNamePattern, err := sanitizeLikePattern(tokenName)
+		if err != nil {
+			return stat, err
+		}
+		tx = tx.Where("LOWER(token_name) LIKE LOWER(?) ESCAPE '!'", "%"+tokenNamePattern+"%")
+		rpmTpmQuery = rpmTpmQuery.Where("LOWER(token_name) LIKE LOWER(?) ESCAPE '!'", "%"+tokenNamePattern+"%")
 	}
 	if startTimestamp != 0 {
 		tx = tx.Where("created_at >= ?", startTimestamp)
@@ -637,11 +730,13 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	if endTimestamp != 0 {
 		tx = tx.Where("created_at <= ?", endTimestamp)
 	}
-	if tx, err = applyExplicitLogTextFilter(tx, "model_name", modelName); err != nil {
-		return stat, err
-	}
-	if rpmTpmQuery, err = applyExplicitLogTextFilter(rpmTpmQuery, "model_name", modelName); err != nil {
-		return stat, err
+	if modelName != "" {
+		modelNamePattern, err := modelNameLikePattern(modelName)
+		if err != nil {
+			return stat, err
+		}
+		tx = tx.Where("LOWER(model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
+		rpmTpmQuery = rpmTpmQuery.Where("LOWER(model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
 	}
 	if channel != 0 {
 		tx = tx.Where("channel_id = ?", channel)
@@ -661,11 +756,11 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	// 执行查询
 	if err := tx.Scan(&stat).Error; err != nil {
 		common.SysError("failed to query log stat: " + err.Error())
-		return stat, errors.New("查询统计数据失败")
+		return stat, errors.New("failed to query statistics data")
 	}
 	if err := rpmTpmQuery.Scan(&stat).Error; err != nil {
 		common.SysError("failed to query rpm/tpm stat: " + err.Error())
-		return stat, errors.New("查询统计数据失败")
+		return stat, errors.New("failed to query statistics data")
 	}
 
 	return stat, nil
@@ -677,7 +772,11 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		tx = tx.Where("username = ?", username)
 	}
 	if tokenName != "" {
-		tx = tx.Where("token_name = ?", tokenName)
+		tokenNamePattern, err := sanitizeLikePattern(tokenName)
+		if err != nil {
+			return 0
+		}
+		tx = tx.Where("LOWER(token_name) LIKE LOWER(?) ESCAPE '!'", "%"+tokenNamePattern+"%")
 	}
 	if startTimestamp != 0 {
 		tx = tx.Where("created_at >= ?", startTimestamp)
@@ -686,7 +785,11 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		tx = tx.Where("created_at <= ?", endTimestamp)
 	}
 	if modelName != "" {
-		tx = tx.Where("model_name = ?", modelName)
+		modelNamePattern, err := modelNameLikePattern(modelName)
+		if err != nil {
+			return 0
+		}
+		tx = tx.Where("LOWER(model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
 	}
 	tx.Where("type = ?", LogTypeConsume).Scan(&token)
 	return token

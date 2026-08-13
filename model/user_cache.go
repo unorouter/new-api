@@ -6,7 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,6 +22,8 @@ type UserBase struct {
 	Role        int    `json:"role"`
 	Username    string `json:"username"`
 	Setting     string `json:"setting"`
+	CreatedAt   int64  `json:"created_at"`
+	UsedQuota   int    `json:"used_quota"`
 	AuthVersion int64  `json:"-"`
 	CacheSchema int    `json:"-"`
 }
@@ -33,10 +35,13 @@ func (user *UserBase) WriteContext(c *gin.Context) {
 	common.SetContextKey(c, constant.ContextKeyUserEmail, user.Email)
 	common.SetContextKey(c, constant.ContextKeyUserName, user.Username)
 	common.SetContextKey(c, constant.ContextKeyUserSetting, user.GetSetting())
+	common.SetContextKey(c, constant.ContextKeyUserCreatedAt, user.CreatedAt)
+	common.SetContextKey(c, constant.ContextKeyUserUsedQuota, user.UsedQuota)
+	common.SetContextKey(c, constant.ContextKeyUserRole, user.Role)
 }
 
-func (user *UserBase) GetSetting() dto.UserSetting {
-	setting := dto.UserSetting{}
+func (user *UserBase) GetSetting() types.UserSetting {
+	setting := types.UserSetting{}
 	if user.Setting != "" {
 		err := common.Unmarshal([]byte(user.Setting), &setting)
 		if err != nil {
@@ -189,10 +194,10 @@ func getUserNameCache(userId int) (string, error) {
 	return cache.Username, nil
 }
 
-func getUserSettingCache(userId int) (dto.UserSetting, error) {
+func getUserSettingCache(userId int) (types.UserSetting, error) {
 	cache, err := GetUserCache(userId)
 	if err != nil {
-		return dto.UserSetting{}, err
+		return types.UserSetting{}, err
 	}
 	return cache.GetSetting(), nil
 }

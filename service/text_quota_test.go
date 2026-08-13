@@ -733,6 +733,86 @@ func TestTryTieredSettleNoClampInRange(t *testing.T) {
 	require.Nil(t, relayInfo.QuotaClamp, "in-range settlement must not record a clamp")
 }
 
+// Providers that bill by GPU time report a real per-request cost, and the same prompt at the
+// same size can cost different amounts. Those requests must bill actual cost times the markup
+// rather than a flat per-call price, which is what makes a model whose cost is unknown until
+// after it runs (an arbitrary user-supplied checkpoint) safe to sell.
+func TestCalculateTextQuotaSummaryBillsUpstreamCostWithMarkup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	newInfo := func(cost float64) *relaycommon.RelayInfo {
+		priceData := hosttypes.PriceData{
+			ModelPrice:     0.001,
+			UsePrice:       true,
+			GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1},
+		}
+		return &relaycommon.RelayInfo{
+			OriginModelName: "autismmix-sdxl",
+			PriceData:       priceData,
+			UpstreamCostUSD: cost,
+			StartTime:       time.Now(),
+		}
+	}
+	usage := &dto.Usage{PromptTokens: 1, TotalTokens: 1}
+
+	// An expensive request bills its real cost at the default 20x markup, not the flat
+	// price, so a large or high-step generation cannot be sold below cost.
+	expensive := calculateTextQuotaSummary(ctx, newInfo(0.0139), usage)
+	cheapFlat := calculateTextQuotaSummary(ctx, newInfo(0), usage)
+	assert.Greater(t, expensive.Quota, cheapFlat.Quota,
+		"a costlier upstream request must cost the user more")
+
+	// Cost scales with the upstream: 10x the cost is 10x the quota.
+	low := calculateTextQuotaSummary(ctx, newInfo(0.001), usage)
+	high := calculateTextQuotaSummary(ctx, newInfo(0.01), usage)
+	assert.InDelta(t, 10.0, float64(high.Quota)/float64(low.Quota), 0.01)
+
+	// The flat price is a floor: a very cheap request is never billed under it.
+	tiny := calculateTextQuotaSummary(ctx, newInfo(0.0000001), usage)
+	assert.Equal(t, cheapFlat.Quota, tiny.Quota,
+		"a cost below the flat price must still bill the flat price")
+}
+
+func TestCalculateTextQuotaSummaryUpstreamCostIgnoresImageCountRatio(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	// A batch's reported upstream cost is the SUM over its images, so the image-count
+	// ratio must not scale it again. Billing both charged a 4-image request 4x over.
+	newInfo := func(cost float64, n float64) *relaycommon.RelayInfo {
+		priceData := hosttypes.PriceData{
+			ModelPrice:     0.02,
+			UsePrice:       true,
+			GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1},
+		}
+		priceData.AddOtherRatio("n", n)
+		return &relaycommon.RelayInfo{
+			OriginModelName: "custom-civitai",
+			PriceData:       priceData,
+			UpstreamCostUSD: cost,
+			StartTime:       time.Now(),
+		}
+	}
+	usage := &dto.Usage{PromptTokens: 1, TotalTokens: 1}
+
+	// $0.0083 summed over 4 images at the default 20x markup is $0.166.
+	batch := calculateTextQuotaSummary(ctx, newInfo(0.0083, 4), usage)
+	require.Equal(t, int(0.0083*20*common.QuotaPerUnit), batch.Quota)
+
+	// The same cost bills the same regardless of how many images produced it: the count
+	// is already baked into the summed cost.
+	single := calculateTextQuotaSummary(ctx, newInfo(0.0083, 1), usage)
+	assert.Equal(t, single.Quota, batch.Quota,
+		"an upstream-cost batch must not be multiplied by its image count")
+
+	// The floor still applies, and there the count is the only thing scaling a per-image
+	// flat price up to the batch, so it must STILL be applied.
+	floored := calculateTextQuotaSummary(ctx, newInfo(0.00001, 4), usage)
+	assert.Equal(t, int(0.02*4*common.QuotaPerUnit), floored.Quota,
+		"a flat-priced batch still bills per image")
+}
+
 func TestCalculateTextQuotaSummaryFixedPriceAppliesImageCountOnceAndAllowsOverride(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())

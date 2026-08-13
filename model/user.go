@@ -9,8 +9,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
@@ -77,39 +77,42 @@ func resolveUserSortOptions(sortOptions []UserSortOptions) UserSortOptions {
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
-	Id               int                        `json:"id"`
-	Username         string                     `json:"username" gorm:"unique;index" validate:"max=20"`
-	Password         string                     `json:"password" gorm:"not null;" validate:"min=8,max=20"`
-	OriginalPassword string                     `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
-	DisplayName      string                     `json:"display_name" gorm:"index" validate:"max=20"`
-	Role             int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
-	Status           int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
-	Email            string                     `json:"email" gorm:"index" validate:"max=50"`
-	GitHubId         string                     `json:"github_id" gorm:"column:github_id;index"`
-	DiscordId        string                     `json:"discord_id" gorm:"column:discord_id;index"`
-	OidcId           string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
-	WeChatId         string                     `json:"wechat_id" gorm:"column:wechat_id;index"`
-	TelegramId       string                     `json:"telegram_id" gorm:"column:telegram_id;index"`
-	VerificationCode string                     `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
-	AccessToken      *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
-	Quota            int                        `json:"quota" gorm:"type:int;default:0"`
-	UsedQuota        int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
-	RequestCount     int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
-	Group            string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
-	AffCode          string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
-	AffCount         int                        `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
-	AffQuota         int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
-	AffHistoryQuota  int                        `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
-	InviterId        int                        `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
-	DeletedAt        gorm.DeletedAt             `gorm:"index"`
-	LinuxDOId        string                     `json:"linux_do_id" gorm:"column:linux_do_id;index"`
-	Setting          string                     `json:"setting" gorm:"type:text;column:setting"`
-	Remark           string                     `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
-	StripeCustomer   string                     `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
-	CreatedAt        int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
-	LastLoginAt      int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
-	AuthVersion      int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
-	AdminPermissions map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
+	Id                        int                        `json:"id"`
+	Username                  string                     `json:"username" gorm:"unique;index" validate:"max=20"`
+	Password                  string                     `json:"password" gorm:"not null;" validate:"omitempty,min=8,max=20"`
+	OriginalPassword          string                     `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
+	DisplayName               string                     `json:"display_name" gorm:"index" validate:"max=20"`
+	Role                      int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
+	Status                    int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
+	Email                     string                     `json:"email" gorm:"index" validate:"max=50"`
+	GitHubId                  string                     `json:"github_id" gorm:"column:github_id;index"`
+	DiscordId                 string                     `json:"discord_id" gorm:"column:discord_id;index"`
+	OidcId                    string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
+	WeChatId                  string                     `json:"wechat_id" gorm:"column:wechat_id;index"`
+	TelegramId                string                     `json:"telegram_id" gorm:"column:telegram_id;index"`
+	VerificationCode          string                     `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
+	AccessToken               *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
+	Quota                     int                        `json:"quota" gorm:"type:int;default:0"`
+	UsedQuota                 int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
+	RequestCount              int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
+	Group                     string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
+	AffCode                   string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
+	AffCount                  int                        `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
+	AffQuota                  int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
+	AffHistoryQuota           int                        `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
+	InviterId                 int                        `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
+	ReferralCommissionPercent *float64                   `json:"referral_commission_percent" gorm:"type:decimal(5,2);column:referral_commission_percent"` // nil = use global default
+	DeletedAt                 gorm.DeletedAt             `gorm:"index"`
+	LinuxDOId                 string                     `json:"linux_do_id" gorm:"column:linux_do_id;index"`
+	Setting                   string                     `json:"setting" gorm:"type:text;column:setting"`
+	Remark                    string                     `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
+	StripeCustomer            string                     `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
+	CreemCustomer             string                     `json:"creem_customer" gorm:"type:varchar(64);column:creem_customer;index"`
+	CreatedAt                 int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
+	LastLoginAt               int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
+	RegisterIp                string                     `json:"register_ip,omitempty" gorm:"type:varchar(64);column:register_ip;index"`
+	AuthVersion               int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
+	AdminPermissions          map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -122,6 +125,8 @@ func (user *User) ToBaseUser() *UserBase {
 		Username:    user.Username,
 		Setting:     user.Setting,
 		Email:       user.Email,
+		CreatedAt:   user.CreatedAt,
+		UsedQuota:   user.UsedQuota,
 		AuthVersion: user.AuthVersion,
 		CacheSchema: userCacheSchemaVersion,
 	}
@@ -143,7 +148,7 @@ func (user *User) SetAccessToken(token string) {
 // writing a stale user snapshot back over concurrently updated fields.
 func UpdateUserAccessToken(id int, token string) error {
 	if id == 0 {
-		return errors.New("id 为空！")
+		return errors.New("id is empty")
 	}
 	result := DB.Model(&User{}).Where("id = ?", id).Update("access_token", token)
 	if result.Error != nil {
@@ -155,8 +160,8 @@ func UpdateUserAccessToken(id int, token string) error {
 	return nil
 }
 
-func (user *User) GetSetting() dto.UserSetting {
-	setting := dto.UserSetting{}
+func (user *User) GetSetting() types.UserSetting {
+	setting := types.UserSetting{}
 	if user.Setting != "" {
 		err := common.Unmarshal([]byte(user.Setting), &setting)
 		if err != nil {
@@ -166,7 +171,7 @@ func (user *User) GetSetting() dto.UserSetting {
 	return setting
 }
 
-func (user *User) SetSetting(setting dto.UserSetting) {
+func (user *User) SetSetting(setting types.UserSetting) {
 	settingBytes, err := common.Marshal(setting)
 	if err != nil {
 		common.SysLog("failed to marshal setting: " + err.Error())
@@ -175,9 +180,9 @@ func (user *User) SetSetting(setting dto.UserSetting) {
 	user.Setting = string(settingBytes)
 }
 
-func UpdateUserSetting(userId int, setting dto.UserSetting) error {
+func UpdateUserSetting(userId int, setting types.UserSetting) error {
 	if userId == 0 {
-		return errors.New("id 为空！")
+		return errors.New("id is empty")
 	}
 	settingBytes, err := common.Marshal(setting)
 	if err != nil {
@@ -243,7 +248,17 @@ func generateDefaultSidebarConfigForRole(userRole int) string {
 	}
 
 	// 管理员区域 - 根据角色决定
-	if userRole == common.RoleAdminUser {
+	if userRole == common.RoleModUser {
+		// 版主只读：仅用户与渠道诊断，其余管理项关闭
+		defaultConfig["admin"] = map[string]interface{}{
+			"enabled":    true,
+			"channel":    true,
+			"models":     false,
+			"redemption": false,
+			"user":       true,
+			"setting":    false,
+		}
+	} else if userRole == common.RoleAdminUser {
 		// 管理员可以访问管理员区域，但不能访问系统设置
 		defaultConfig["admin"] = map[string]interface{}{
 			"enabled":    true,
@@ -269,7 +284,7 @@ func generateDefaultSidebarConfigForRole(userRole int) string {
 	// 转换为JSON字符串
 	configBytes, err := common.Marshal(defaultConfig)
 	if err != nil {
-		common.SysLog("生成默认边栏配置失败: " + err.Error())
+		common.SysLog("failed to generate default sidebar config: " + err.Error())
 		return ""
 	}
 
@@ -303,6 +318,21 @@ func CheckUserExistOrDeleted(username string, email string) (bool, error) {
 
 func NormalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// CountUsersByRegisterIp includes soft-deleted users so register/delete/re-register cycles still count.
+func CountUsersByRegisterIp(ip string) (int64, error) {
+	var count int64
+	err := DB.Unscoped().Model(&User{}).Where("register_ip = ?", ip).Count(&count).Error
+	return count, err
+}
+
+// HasEarlierUserWithRegisterIp reports whether an older account (incl. soft-deleted) shares this
+// register IP. The first account per IP stays reward-eligible; later siblings are not.
+func HasEarlierUserWithRegisterIp(ip string, userId int) (bool, error) {
+	var count int64
+	err := DB.Unscoped().Model(&User{}).Where("register_ip = ? AND id < ?", ip, userId).Count(&count).Error
+	return count > 0, err
 }
 
 func emailQuery(tx *gorm.DB, email string) *gorm.DB {
@@ -441,8 +471,8 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 	query := tx.Unscoped().Model(&User{})
 
 	// 构建搜索条件
-	likeCondition := "username LIKE ? OR email LIKE ? OR display_name LIKE ?"
-	likeArgs := []interface{}{"%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%"}
+	likeCondition := "username LIKE ? OR email LIKE ? OR display_name LIKE ? OR github_id LIKE ? OR discord_id LIKE ? OR oidc_id LIKE ? OR wechat_id LIKE ? OR telegram_id LIKE ? OR linux_do_id LIKE ?"
+	likeArgs := []interface{}{"%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%"}
 
 	// 尝试将关键字转换为整数ID
 	keywordInt, err := strconv.Atoi(keyword)
@@ -492,7 +522,7 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 
 func GetUserById(id int, selectAll bool) (*User, error) {
 	if id == 0 {
-		return nil, errors.New("id 为空！")
+		return nil, errors.New("id is empty")
 	}
 	user := User{Id: id}
 	var err error = nil
@@ -504,9 +534,23 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	return &user, err
 }
 
+// UserHasPassword reports whether the user has a local password set, without
+// pulling the hash into memory.
+func UserHasPassword(id int) (bool, error) {
+	if id == 0 {
+		return false, errors.New("id is empty")
+	}
+	var password string
+	err := DB.Model(&User{}).Select("password").Where("id = ?", id).Scan(&password).Error
+	if err != nil {
+		return false, err
+	}
+	return password != "", nil
+}
+
 func GetUserIdByAffCode(affCode string) (int, error) {
 	if affCode == "" {
-		return 0, errors.New("affCode 为空！")
+		return 0, errors.New("affCode is empty")
 	}
 	var user User
 	err := DB.Select("id").First(&user, "aff_code = ?", affCode).Error
@@ -515,7 +559,7 @@ func GetUserIdByAffCode(affCode string) (int, error) {
 
 func DeleteUserById(id int) (err error) {
 	if id == 0 {
-		return errors.New("id 为空！")
+		return errors.New("id is empty")
 	}
 	user := User{Id: id}
 	return user.Delete()
@@ -523,10 +567,19 @@ func DeleteUserById(id int) (err error) {
 
 func HardDeleteUserById(id int) error {
 	if id == 0 {
-		return errors.New("id 为空！")
+		return errors.New("id is empty")
 	}
 	user := User{Id: id}
 	return user.HardDelete()
+}
+
+func GetUserByIdUnscoped(id int) (*User, error) {
+	if id == 0 {
+		return nil, errors.New("id is empty")
+	}
+	user := User{Id: id}
+	err := DB.Unscoped().First(&user, "id = ?", id).Error
+	return &user, err
 }
 
 func inviteUser(inviterId int) error {
@@ -544,10 +597,112 @@ func inviteUser(inviterId int) error {
 	return nil
 }
 
+// CreditReferralCommission credits the inviter with a commission when the referred user recharges
+// This implements payment-based referral rewards instead of instant registration bonuses
+func CreditReferralCommission(userId int, rechargeAmount float64, paymentMethod string, topUpId int) error {
+	if !common.ReferralCommissionEnabled || rechargeAmount <= 0 {
+		return nil
+	}
+
+	user, err := GetUserById(userId, true)
+	if err != nil || user.InviterId == 0 {
+		return err
+	}
+
+	// Per-inviter rate override: use inviter's custom rate if set, otherwise fall back to global
+	inviter, err := GetUserById(user.InviterId, true)
+	if err != nil {
+		return err
+	}
+
+	rate := common.ReferralCommissionPercent
+	if inviter.ReferralCommissionPercent != nil {
+		rate = *inviter.ReferralCommissionPercent
+	}
+	if rate <= 0 || rate > 100 {
+		return nil
+	}
+
+	commission := int(rechargeAmount * (rate / 100) * common.QuotaPerUnit)
+	if commission <= 0 {
+		return nil
+	}
+
+	// Wrap count check, commission insert, and quota update in a single transaction
+	// to prevent race conditions from concurrent recharges
+	credited := false
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		// Check max commission count within the transaction
+		if common.ReferralCommissionMaxRecharges > 0 {
+			var count int64
+			if err := tx.Model(&ReferralCommission{}).Where("invitee_id = ?", userId).Count(&count).Error; err != nil {
+				return err
+			}
+			if int(count) >= common.ReferralCommissionMaxRecharges {
+				return nil
+			}
+		}
+
+		// Idempotency: skip if this topup already credited a commission for this invitee
+		var existing int64
+		if err := tx.Model(&ReferralCommission{}).Where("invitee_id = ? AND top_up_id = ? AND payment_method = ?", userId, topUpId, paymentMethod).Count(&existing).Error; err != nil {
+			return err
+		}
+		if existing > 0 {
+			return nil
+		}
+
+		// First commission ever from this invitee => a newly-counted invited user.
+		// aff_count is otherwise only bumped by the legacy instant-bonus path, so
+		// payment-based referrals never incremented it (invitee count stuck at 0).
+		var priorFromInvitee int64
+		if err := tx.Model(&ReferralCommission{}).Where("invitee_id = ?", userId).Count(&priorFromInvitee).Error; err != nil {
+			return err
+		}
+
+		// Record commission event for full audit trail
+		if err := tx.Create(&ReferralCommission{
+			InviterId:       user.InviterId,
+			InviteeId:       userId,
+			TopUpId:         topUpId,
+			RechargeAmount:  rechargeAmount,
+			CommissionQuota: commission,
+			CommissionRate:  rate,
+			PaymentMethod:   paymentMethod,
+		}).Error; err != nil {
+			return err
+		}
+
+		// Atomically update inviter's aff_quota (+ aff_count on first credit)
+		inviterUpdates := map[string]interface{}{
+			"aff_quota":   gorm.Expr("aff_quota + ?", commission),
+			"aff_history": gorm.Expr("aff_history + ?", commission),
+		}
+		if priorFromInvitee == 0 {
+			inviterUpdates["aff_count"] = gorm.Expr("aff_count + ?", 1)
+		}
+		if err := tx.Model(&User{}).Where("id = ?", user.InviterId).Updates(inviterUpdates).Error; err != nil {
+			return err
+		}
+
+		credited = true
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if credited {
+		RecordLog(user.InviterId, LogTypeSystem, fmt.Sprintf("Referral commission for invited user top-up: $%.2f (%.1f%% of $%.2f)", float64(commission)/common.QuotaPerUnit, rate, rechargeAmount))
+	}
+	return nil
+}
+
 func (user *User) TransferAffQuotaToQuota(quota int) error {
 	// 检查quota是否小于最小额度
 	if float64(quota) < common.QuotaPerUnit {
-		return fmt.Errorf("转移额度最小为%s！", logger.LogQuota(common.QuotaFromFloat(common.QuotaPerUnit)))
+		return fmt.Errorf("minimum transfer quota is %s", logger.LogQuota(common.QuotaFromFloat(common.QuotaPerUnit)))
 	}
 
 	// 开始数据库事务
@@ -565,7 +720,7 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 
 	// 再次检查用户的AffQuota是否足够
 	if user.AffQuota < quota {
-		return errors.New("邀请额度不足！")
+		return errors.New("insufficient invitation quota")
 	}
 
 	// 更新用户额度
@@ -579,6 +734,78 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 
 	// 提交事务
 	return tx.Commit().Error
+}
+
+// ErrInsufficientQuota signals the sender's balance is below the transfer amount.
+var ErrInsufficientQuota = errors.New("insufficient quota")
+
+// TransferQuotaBetweenUsers moves quota from one user to another in a single
+// locked transaction. Both rows are locked FOR UPDATE (ascending id to avoid
+// deadlocks) and the sender's balance is re-checked under the lock, so
+// concurrent transfers cannot overspend. Returns the sender's balance after the
+// transfer. ErrInsufficientQuota is returned (no mutation) when the sender lacks
+// the funds.
+func TransferQuotaBetweenUsers(fromId, toId, quota int) (fromBalanceAfter int, err error) {
+	if quota <= 0 {
+		return 0, errors.New("transfer quota must be positive")
+	}
+	if fromId == toId {
+		return 0, errors.New("cannot transfer to self")
+	}
+
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return 0, tx.Error
+	}
+	defer tx.Rollback()
+
+	// Lock in ascending id order so two opposing transfers never deadlock.
+	firstId, secondId := fromId, toId
+	if firstId > secondId {
+		firstId, secondId = secondId, firstId
+	}
+	var a, b User
+	if err = lockForUpdate(tx).First(&a, firstId).Error; err != nil {
+		return 0, err
+	}
+	if err = lockForUpdate(tx).First(&b, secondId).Error; err != nil {
+		return 0, err
+	}
+
+	fromUser, toUser := &a, &b
+	if fromUser.Id != fromId {
+		fromUser, toUser = &b, &a
+	}
+
+	if fromUser.Quota < quota {
+		return 0, ErrInsufficientQuota
+	}
+
+	fromUser.Quota -= quota
+	toUser.Quota += quota
+	if err = tx.Save(fromUser).Error; err != nil {
+		return 0, err
+	}
+	if err = tx.Save(toUser).Error; err != nil {
+		return 0, err
+	}
+	if err = tx.Commit().Error; err != nil {
+		return 0, err
+	}
+
+	gopool.Go(func() {
+		if e := cacheDecrUserQuota(fromId, int64(quota)); e != nil {
+			common.SysLog("failed to decrease sender quota cache: " + e.Error())
+		}
+	})
+	gopool.Go(func() {
+		if e := cacheIncrUserQuota(toId, int64(quota)); e != nil {
+			common.SysLog("failed to increase receiver quota cache: " + e.Error())
+		}
+	})
+	clearFreeBlockOnGrant(toId)
+
+	return fromUser.Quota, nil
 }
 
 func (user *User) prepareForInsert(tx *gorm.DB) error {
@@ -643,7 +870,7 @@ func (user *User) Insert(inviterId int) error {
 
 			// 初始化用户设置，包括默认的边栏配置
 			if user.Setting == "" {
-				defaultSetting := dto.UserSetting{}
+				defaultSetting := types.UserSetting{}
 				// 这里暂时不设置SidebarModules，因为需要在用户创建后根据角色设置
 				user.SetSetting(defaultSetting)
 			}
@@ -670,21 +897,21 @@ func (user *User) finishInsert(inviterId int) {
 			currentSetting.SidebarModules = defaultSidebarConfig
 			createdUser.SetSetting(currentSetting)
 			createdUser.Update(false)
-			common.SysLog(fmt.Sprintf("为新用户 %s (角色: %d) 初始化边栏配置", createdUser.Username, createdUser.Role))
+			common.SysLog(fmt.Sprintf("initialized sidebar config for new user %s (role: %d)", createdUser.Username, createdUser.Role))
 		}
 	}
 
 	if common.QuotaForNewUser > 0 {
-		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", logger.LogQuota(common.QuotaForNewUser)))
+		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("New user registration bonus %s", logger.LogQuota(common.QuotaForNewUser)))
 	}
 	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
 		if common.QuotaForInvitee > 0 {
 			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
-			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
+			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("Invite code bonus %s", logger.LogQuota(common.QuotaForInvitee)))
 		}
 		if common.QuotaForInviter > 0 {
 			//_ = IncreaseUserQuota(inviterId, common.QuotaForInviter)
-			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
+			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("Invited user bonus %s", logger.LogQuota(common.QuotaForInviter)))
 			_ = inviteUser(inviterId)
 		}
 	}
@@ -707,7 +934,7 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 
 		// 初始化用户设置
 		if user.Setting == "" {
-			defaultSetting := dto.UserSetting{}
+			defaultSetting := types.UserSetting{}
 			user.SetSetting(defaultSetting)
 		}
 
@@ -727,20 +954,20 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 			currentSetting.SidebarModules = defaultSidebarConfig
 			createdUser.SetSetting(currentSetting)
 			createdUser.Update(false)
-			common.SysLog(fmt.Sprintf("为新用户 %s (角色: %d) 初始化边栏配置", createdUser.Username, createdUser.Role))
+			common.SysLog(fmt.Sprintf("initialized sidebar config for new user %s (role: %d)", createdUser.Username, createdUser.Role))
 		}
 	}
 
 	if common.QuotaForNewUser > 0 {
-		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", logger.LogQuota(common.QuotaForNewUser)))
+		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("New user registration bonus %s", logger.LogQuota(common.QuotaForNewUser)))
 	}
 	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
 		if common.QuotaForInvitee > 0 {
 			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
-			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
+			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("Invite code bonus %s", logger.LogQuota(common.QuotaForInvitee)))
 		}
 		if common.QuotaForInviter > 0 {
-			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
+			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("Invited user bonus %s", logger.LogQuota(common.QuotaForInviter)))
 			_ = inviteUser(inviterId)
 		}
 	}
@@ -842,6 +1069,10 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 		"display_name": newUser.DisplayName,
 		"group":        newUser.Group,
 		"remark":       newUser.Remark,
+		// nil clears the column so the inviter falls back to the global rate.
+		// A map is used instead of struct Updates precisely so that nil writes
+		// NULL rather than being skipped.
+		"referral_commission_percent": newUser.ReferralCommissionPercent,
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password
@@ -905,7 +1136,7 @@ func (user *User) ClearBinding(bindingType string) error {
 
 func (user *User) Delete() error {
 	if user.Id == 0 {
-		return errors.New("id 为空！")
+		return errors.New("id is empty")
 	}
 	var nextAuthVersion int64
 	if err := DB.Transaction(func(tx *gorm.DB) error {
@@ -929,7 +1160,7 @@ func (user *User) Delete() error {
 
 func (user *User) HardDelete() error {
 	if user.Id == 0 {
-		return errors.New("id 为空！")
+		return errors.New("id is empty")
 	}
 	var tokens []Token
 	var deletedAuthVersion int64
@@ -1013,7 +1244,7 @@ func (user *User) ValidateAndFill() (err error) {
 
 func (user *User) FillUserById() error {
 	if user.Id == 0 {
-		return errors.New("id 为空！")
+		return errors.New("id is empty")
 	}
 	DB.Where(User{Id: user.Id}).First(user)
 	return nil
@@ -1021,7 +1252,7 @@ func (user *User) FillUserById() error {
 
 func (user *User) FillUserByEmail() error {
 	if user.Email == "" {
-		return errors.New("email 为空！")
+		return errors.New("email is empty")
 	}
 	DB.Where(User{Email: user.Email}).First(user)
 	return nil
@@ -1029,7 +1260,7 @@ func (user *User) FillUserByEmail() error {
 
 func (user *User) FillUserByGitHubId() error {
 	if user.GitHubId == "" {
-		return errors.New("GitHub id 为空！")
+		return errors.New("GitHub id is empty")
 	}
 	DB.Where(User{GitHubId: user.GitHubId}).First(user)
 	return nil
@@ -1045,7 +1276,7 @@ func (user *User) UpdateGitHubId(newGitHubId string) error {
 
 func (user *User) FillUserByDiscordId() error {
 	if user.DiscordId == "" {
-		return errors.New("discord id 为空！")
+		return errors.New("discord id is empty")
 	}
 	DB.Where(User{DiscordId: user.DiscordId}).First(user)
 	return nil
@@ -1053,7 +1284,7 @@ func (user *User) FillUserByDiscordId() error {
 
 func (user *User) FillUserByOidcId() error {
 	if user.OidcId == "" {
-		return errors.New("oidc id 为空！")
+		return errors.New("oidc id is empty")
 	}
 	DB.Where(User{OidcId: user.OidcId}).First(user)
 	return nil
@@ -1061,7 +1292,7 @@ func (user *User) FillUserByOidcId() error {
 
 func (user *User) FillUserByWeChatId() error {
 	if user.WeChatId == "" {
-		return errors.New("WeChat id 为空！")
+		return errors.New("WeChat id is empty")
 	}
 	DB.Where(User{WeChatId: user.WeChatId}).First(user)
 	return nil
@@ -1069,11 +1300,11 @@ func (user *User) FillUserByWeChatId() error {
 
 func (user *User) FillUserByTelegramId() error {
 	if user.TelegramId == "" {
-		return errors.New("Telegram id 为空！")
+		return errors.New("Telegram id is empty")
 	}
 	err := DB.Where(User{TelegramId: user.TelegramId}).First(user).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return errors.New("该 Telegram 账户未绑定")
+		return errors.New("this Telegram account is not bound")
 	}
 	return nil
 }
@@ -1124,7 +1355,7 @@ func IsTelegramIdAlreadyTaken(telegramId string) bool {
 
 func ResetUserPasswordByEmail(email string, password string) error {
 	if email == "" || password == "" {
-		return errors.New("邮箱地址或密码为空！")
+		return errors.New("email address or password is empty")
 	}
 	user, err := GetUniqueUserByEmail(email)
 	if err != nil {
@@ -1230,7 +1461,7 @@ func GetUserGroup(id int, fromDB bool) (group string, err error) {
 }
 
 // GetUserSetting gets setting from Redis first, falls back to DB if needed
-func GetUserSetting(id int, fromDB bool) (settingMap dto.UserSetting, err error) {
+func GetUserSetting(id int, fromDB bool) (settingMap types.UserSetting, err error) {
 	var setting string
 	defer func() {
 		// Update Redis cache asynchronously on successful DB read
@@ -1269,7 +1500,7 @@ func GetUserSetting(id int, fromDB bool) (settingMap dto.UserSetting, err error)
 
 func IncreaseUserQuota(id int, quota int, db bool) (err error) {
 	if quota < 0 {
-		return errors.New("quota 不能为负数！")
+		return errors.New("quota cannot be negative")
 	}
 	gopool.Go(func() {
 		err := cacheIncrUserQuota(id, int64(quota))
@@ -1277,11 +1508,84 @@ func IncreaseUserQuota(id int, quota int, db bool) (err error) {
 			common.SysLog("failed to increase user quota: " + err.Error())
 		}
 	})
+	reArmLowBalanceWarnings(id)
 	if !db && common.BatchUpdateEnabled {
 		addNewRecord(BatchUpdateTypeUserQuota, id, quota)
 		return nil
 	}
 	return increaseUserQuota(id, quota)
+}
+
+// reArmLowBalanceWarnings re-arms the low-balance warning latch and lifts the
+// free-model abuse block, but ONLY when the increase actually pulls the user
+// back above their warning threshold. IncreaseUserQuota is on the settlement
+// path: every streamed request refunds its unused pre-consumed quota through
+// here, and an unconditional clear let each tiny refund re-arm the latch, so a
+// user hovering below threshold with steady traffic got a "quota running low"
+// mail on nearly every request. Gating on the threshold means real top-ups
+// re-arm while refunds do not. Key format mirrors quotaWarnLatchKey in
+// service/quota.go (kept literal to avoid a model->service import cycle).
+func reArmLowBalanceWarnings(id int) {
+	gopool.Go(func() {
+		if !common.RedisEnabled {
+			// No latch to gate against; only the (idempotent, cheap-short-circuit)
+			// free-block clear is meaningful without Redis.
+			clearFreeBlockOnGrant(id)
+			return
+		}
+		warnKey := fmt.Sprintf("quota_warned:%d", id)
+		latched := false
+		if _, err := common.RedisGet(warnKey); err == nil {
+			latched = true
+		}
+		s, err := GetUserSetting(id, false)
+		blocked := err == nil && s.BlockFreeWhenNoQuota
+		if !latched && !blocked {
+			return
+		}
+
+		threshold := common.QuotaRemindThreshold
+		if err == nil && s.QuotaWarningThreshold > 0 {
+			threshold = int(s.QuotaWarningThreshold)
+		}
+		quota, qErr := GetUserQuota(id, false)
+		if qErr != nil || quota < threshold {
+			return
+		}
+
+		if latched {
+			_ = common.RedisDel(warnKey)
+		}
+		if blocked {
+			clearFreeBlockOnGrant(id)
+		}
+	})
+}
+
+// clearFreeBlockOnGrant lifts an active "block free models when balance is zero"
+// flag once the user receives quota, whether via top-up or a subscription
+// purchase/renewal/reset. Cheap cache read short-circuits the common case where
+// no flag is set, so normal grants stay write-free.
+func clearFreeBlockOnGrant(id int) {
+	gopool.Go(func() {
+		s, err := GetUserSetting(id, false)
+		if err != nil || !s.BlockFreeWhenNoQuota {
+			return
+		}
+		u, err := GetUserById(id, true)
+		if err != nil {
+			return
+		}
+		ns := u.GetSetting()
+		if !ns.BlockFreeWhenNoQuota {
+			return
+		}
+		ns.BlockFreeWhenNoQuota = false
+		u.SetSetting(ns)
+		if err := u.Update(false); err != nil {
+			common.SysLog("failed to clear free-block flag on topup: " + err.Error())
+		}
+	})
 }
 
 func increaseUserQuota(id int, quota int) (err error) {
@@ -1294,7 +1598,7 @@ func increaseUserQuota(id int, quota int) (err error) {
 
 func DecreaseUserQuota(id int, quota int, db bool) (err error) {
 	if quota < 0 {
-		return errors.New("quota 不能为负数！")
+		return errors.New("quota cannot be negative")
 	}
 	gopool.Go(func() {
 		err := cacheDecrUserQuota(id, int64(quota))

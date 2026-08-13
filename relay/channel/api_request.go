@@ -532,7 +532,15 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	resp, err := relayClient.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
-		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
+		// PROD-ONLY (fork): an upstream first-byte/header timeout is a channel fault
+		// (fail over + disable via the channel:-prefixed code), NOT a client hangup.
+		if types.IsUpstreamTimeoutError(err) && !errors.Is(c.Request.Context().Err(), context.Canceled) {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusGatewayTimeout)
+		}
+		// Preserve the underlying cause (timeout, EOF, connection refused, etc.) so admins
+		// can see it in the error log panel. MaskSensitiveInfo (applied downstream) still
+		// anonymizes any host/path that appears inside the error string.
+		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed)
 	}
 	if resp == nil {
 		return nil, errors.New("resp is nil")

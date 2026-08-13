@@ -39,6 +39,12 @@ import type {
   WaffoPaymentResponse,
   WaffoPancakePaymentRequest,
   WaffoPancakePaymentResponse,
+  NowPaymentsPaymentRequest,
+  NowPaymentsPaymentResponse,
+  DeloPayPaymentRequest,
+  DeloPayPaymentResponse,
+  InvitedUsersResponse,
+  ReferralCommissionsResponse,
 } from './types'
 
 // ============================================================================
@@ -182,6 +188,54 @@ export async function requestWaffoPancakePayment(
 }
 
 /**
+ * Calculate payment amount for NowPayments
+ */
+export async function calculateNowPaymentsAmount(
+  request: AmountRequest
+): Promise<AmountResponse> {
+  const res = await api.post('/api/user/nowpayments/amount', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Request NowPayments crypto payment
+ */
+export async function requestNowPaymentsPayment(
+  request: NowPaymentsPaymentRequest
+): Promise<NowPaymentsPaymentResponse> {
+  const res = await api.post('/api/user/nowpayments/pay', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Calculate payment amount for DeloPay
+ */
+export async function calculateDeloPayAmount(
+  request: AmountRequest
+): Promise<AmountResponse> {
+  const res = await api.post('/api/user/delopay/amount', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Request DeloPay (PayPal) payment
+ */
+export async function requestDeloPayPayment(
+  request: DeloPayPaymentRequest
+): Promise<DeloPayPaymentResponse> {
+  const res = await api.post('/api/user/delopay/pay', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
  * Get affiliate code
  */
 export async function getAffiliateCode(): Promise<AffiliateCodeResponse> {
@@ -196,6 +250,32 @@ export async function transferAffiliateQuota(
   request: AffiliateTransferRequest
 ): Promise<AffiliateTransferResponse> {
   const res = await api.post('/api/user/aff_transfer', request)
+  return res.data
+}
+
+/**
+ * Get the paginated list of invited users (referees) of the current user.
+ */
+export async function getInvitedUsers(
+  page: number,
+  pageSize: number
+): Promise<ApiResponse<InvitedUsersResponse>> {
+  const res = await api.get('/api/user/aff/invitees', {
+    params: { p: page, page_size: pageSize },
+  })
+  return res.data
+}
+
+/**
+ * Get the paginated list of referral commission credits earned by the current user.
+ */
+export async function getReferralCommissions(
+  page: number,
+  pageSize: number
+): Promise<ApiResponse<ReferralCommissionsResponse>> {
+  const res = await api.get('/api/user/aff/commissions', {
+    params: { p: page, page_size: pageSize },
+  })
   return res.data
 }
 
