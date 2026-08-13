@@ -602,6 +602,7 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 	var logMoney float64
 	var logPaymentMethod string
 	var logOrderId int
+	var logTopUpId int
 	var upgradeGroup string
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var order SubscriptionOrder
@@ -637,9 +638,11 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 		if subscription.PrevUserGroup != "" {
 			upgradeGroup = strings.TrimSpace(subscription.UpgradeGroup)
 		}
-		if err := upsertSubscriptionTopUpTx(tx, &order); err != nil {
+		ledgerTopUpId, err := upsertSubscriptionTopUpTx(tx, &order)
+		if err != nil {
 			return err
 		}
+		logTopUpId = ledgerTopUpId
 		order.Status = common.TopUpStatusSuccess
 		order.CompleteTime = common.GetTimestamp()
 		if providerPayload != "" {
@@ -670,17 +673,25 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 		RecordLog(logUserId, LogTypeTopup, msg)
 		common.CaptureSubscriptionSuccess(logUserId, logMoney, logPlanTitle, logPaymentMethod, logOrderId)
 
-		// Credit referral commission to inviter (if enabled)
-		if err := CreditReferralCommission(logUserId, logMoney, logPaymentMethod, logOrderId); err != nil {
+		// Keyed on the top_ups row this order was mirrored into, NOT the order
+		// id: the commission uniqueness key is (invitee_id, top_up_id,
+		// payment_method), and the two tables share an id range.
+		if err := CreditReferralCommission(logUserId, logMoney, logPaymentMethod, logTopUpId); err != nil {
 			common.SysLog(fmt.Sprintf("subscription referral commission failed for user %d: %v", logUserId, err))
 		}
 	}
 	return nil
 }
 
-func upsertSubscriptionTopUpTx(tx *gorm.DB, order *SubscriptionOrder) error {
+// upsertSubscriptionTopUpTx mirrors the paid order into the top_ups ledger and
+// returns that row's id. The id is what the referral commission must be keyed
+// on: its uniqueness key is (invitee_id, top_up_id, payment_method), so keying
+// a subscription payout on the SubscriptionOrder id borrows an unrelated
+// table's id space and can silently collide with a genuine top-up of the same
+// number, suppressing a real payout.
+func upsertSubscriptionTopUpTx(tx *gorm.DB, order *SubscriptionOrder) (int, error) {
 	if tx == nil || order == nil {
-		return errors.New("invalid subscription order")
+		return 0, errors.New("invalid subscription order")
 	}
 	now := common.GetTimestamp()
 	var topup TopUp
@@ -697,22 +708,28 @@ func upsertSubscriptionTopUpTx(tx *gorm.DB, order *SubscriptionOrder) error {
 				CompleteTime:    now,
 				Status:          common.TopUpStatusSuccess,
 			}
-			return tx.Create(&topup).Error
+			if err := tx.Create(&topup).Error; err != nil {
+				return 0, err
+			}
+			return topup.Id, nil
 		}
-		return err
+		return 0, err
 	}
 	topup.Money = order.Money
 	if topup.PaymentMethod == "" {
 		topup.PaymentMethod = order.PaymentMethod
 	} else if topup.PaymentMethod != order.PaymentMethod {
-		return ErrPaymentMethodMismatch
+		return 0, ErrPaymentMethodMismatch
 	}
 	if topup.CreateTime == 0 {
 		topup.CreateTime = order.CreateTime
 	}
 	topup.CompleteTime = now
 	topup.Status = common.TopUpStatusSuccess
-	return tx.Save(&topup).Error
+	if err := tx.Save(&topup).Error; err != nil {
+		return 0, err
+	}
+	return topup.Id, nil
 }
 
 func ExpireSubscriptionOrder(tradeNo string, expectedPaymentProvider string) error {
@@ -1105,13 +1122,30 @@ func creemRenewalDedupKey(transactionId string) string {
 // signals "could not map this renewal to a user" so the caller can log + 200
 // (Creem retries otherwise) without treating it as a server error.
 func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
+	dedupKeyHeld := ""
 	if in.LastTransactionId != "" && common.RedisEnabled {
-		ok, err := common.RedisSetNX(creemRenewalDedupKey(in.LastTransactionId), "1", 30*24*time.Hour)
+		key := creemRenewalDedupKey(in.LastTransactionId)
+		ok, err := common.RedisSetNX(key, "1", 30*24*time.Hour)
 		if err == nil && !ok {
 			// Already processed this renewal charge (webhook retry).
 			return 0, 0, nil
 		}
+		if err == nil {
+			dedupKeyHeld = key
+		}
 	}
+
+	// The dedup key is claimed BEFORE the work, so it has to be released when
+	// the work does not happen. Holding it for its full 30 day TTL after a
+	// failure makes every later retry report "already processed", so a renewal
+	// that failed once is suppressed forever and the customer's paid period is
+	// never extended.
+	renewed := false
+	defer func() {
+		if dedupKeyHeld != "" && !renewed {
+			_ = common.RedisDel(dedupKeyHeld)
+		}
+	}()
 
 	var resolvedUserId, resolvedSubId int
 	err := DB.Transaction(func(tx *gorm.DB) error {
@@ -1219,6 +1253,10 @@ func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
 	if err != nil {
 		return 0, 0, err
 	}
+	// Only a renewal that actually rolled a subscription forward may keep the
+	// dedup key; an unmappable charge returns (0, 0, nil) and must stay
+	// retryable once the missing order or customer link shows up.
+	renewed = resolvedSubId > 0
 
 	// Re-arm the low-balance warning for the refilled subscription.
 	if resolvedSubId > 0 && common.RedisEnabled {
