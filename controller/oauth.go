@@ -73,25 +73,20 @@ func GenerateOAuthCode(c fuego.ContextWithParams[dto.GenerateOAuthCodeParams]) (
 	if intent == model.AuthFlowIntentBind {
 		if redirectURI != "" {
 			// External frontend bind: the dashboard session cookie does not survive the
-			// cross-domain redirect, so resolve the user from request headers instead.
-			if authHeader := ginCtx.GetHeader("Authorization"); authHeader != "" {
-				if user, err := model.ValidateAccessToken(authHeader); err == nil && user != nil {
-					userID = user.Id
-				}
-			}
-			if userID == 0 {
-				if idStr := ginCtx.GetHeader("New-Api-User"); idStr != "" {
-					if id, err := strconv.Atoi(idStr); err == nil && id > 0 {
-						user := &model.User{Id: id}
-						if user.FillUserById() == nil && user.Status == common.UserStatusEnabled {
-							userID = id
-						}
-					}
-				}
-			}
-			if userID == 0 {
+			// cross-domain redirect, so the caller proves identity with its access
+			// token instead. The identity MUST come from a verified credential: this
+			// route is public (only CORS + rate limiting), so trusting a plain
+			// New-Api-User header here let anyone mint a bind state for an arbitrary
+			// account and attach their own OAuth identity to it.
+			authHeader := ginCtx.GetHeader("Authorization")
+			if authHeader == "" {
 				return dto.Fail[string]("Authentication required for bind")
 			}
+			user, err := model.ValidateAccessToken(authHeader)
+			if err != nil || user == nil || user.Status != common.UserStatusEnabled {
+				return dto.Fail[string]("Authentication required for bind")
+			}
+			userID = user.Id
 		} else {
 			identity, ok := middleware.GetSessionAuthIdentity(ginCtx)
 			if !ok {
