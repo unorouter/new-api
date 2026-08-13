@@ -440,8 +440,13 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 		// 计算应充值额度：
 		// - Stripe 订单：Money 代表经分组倍率换算后的美元数量，直接 * QuotaPerUnit
 		// - 其他订单（如易支付）：Amount 为美元数量，* QuotaPerUnit
+		// DeloPay belongs with the Money providers: RechargeDeloPay credits
+		// Money*QuotaPerUnit, so settling the same order by hand from Amount
+		// would grant a different quota than the webhook would have.
 		var quotaErr error
-		if topUp.PaymentProvider == PaymentProviderStripe || topUp.PaymentProvider == PaymentProviderNowPayments {
+		if topUp.PaymentProvider == PaymentProviderStripe ||
+			topUp.PaymentProvider == PaymentProviderNowPayments ||
+			topUp.PaymentProvider == PaymentProviderDeloPay {
 			quotaToAdd, quotaErr = common.QuotaFromDecimalStrict(
 				decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
 			)
@@ -697,7 +702,7 @@ func RechargeNowPayments(referenceId string, payerCurrency string, actuallyPaid 
 		return errors.New("NowPayments order reference not provided")
 	}
 
-	var quota float64
+	var quota int
 	topUp := &TopUp{}
 
 	refCol := "`trade_no`"
@@ -706,7 +711,7 @@ func RechargeNowPayments(referenceId string, payerCurrency string, actuallyPaid 
 	}
 
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(refCol+" = ?", referenceId).First(topUp).Error
+		err := lockForUpdate(tx).Where(refCol+" = ?", referenceId).First(topUp).Error
 		if err != nil {
 			return errors.New("NowPayments order not found")
 		}
@@ -730,7 +735,16 @@ func RechargeNowPayments(referenceId string, payerCurrency string, actuallyPaid 
 			return err
 		}
 
-		quota = topUp.Money * common.QuotaPerUnit
+		// Convert through the shared helper like every other gateway: a raw
+		// float64 multiplication reaches the UPDATE unrounded and skips the
+		// non-positive guard, so a fractional Money would write a fractional
+		// quota and a zero one would silently credit nothing.
+		quota, err = common.QuotaFromDecimalStrict(
+			decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
+		)
+		if err != nil || quota <= 0 {
+			return errors.New("invalid top-up amount")
+		}
 		err = tx.Model(&User{}).Where("id = ?", topUp.UserId).Update("quota", gorm.Expr("quota + ?", quota)).Error
 		if err != nil {
 			return err
@@ -745,7 +759,8 @@ func RechargeNowPayments(referenceId string, payerCurrency string, actuallyPaid 
 	}
 
 	if quota > 0 {
-		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("NowPayments top-up success, quota: %v, amount: %v, currency: %v, paid: %v", logger.FormatQuota(int(quota)), topUp.Money, payerCurrency, actuallyPaid))
+		syncCreditUserQuotaCache(topUp.UserId, quota, "nowpayments topup")
+		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("NowPayments top-up success, quota: %v, amount: %v, currency: %v, paid: %v", logger.FormatQuota(quota), topUp.Money, payerCurrency, actuallyPaid))
 		common.CapturePaymentSuccess(topUp.UserId, topUp.Money, "nowpayments", topUp.Id)
 	}
 
@@ -761,7 +776,7 @@ func RechargeDeloPay(referenceId string, connector string) (err error) {
 		return errors.New("DeloPay order reference not provided")
 	}
 
-	var quota float64
+	var quota int
 	topUp := &TopUp{}
 
 	refCol := "`trade_no`"
@@ -770,7 +785,7 @@ func RechargeDeloPay(referenceId string, connector string) (err error) {
 	}
 
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(refCol+" = ?", referenceId).First(topUp).Error
+		err := lockForUpdate(tx).Where(refCol+" = ?", referenceId).First(topUp).Error
 		if err != nil {
 			return errors.New("DeloPay order not found")
 		}
@@ -794,7 +809,16 @@ func RechargeDeloPay(referenceId string, connector string) (err error) {
 			return err
 		}
 
-		quota = topUp.Money * common.QuotaPerUnit
+		// Convert through the shared helper like every other gateway: a raw
+		// float64 multiplication reaches the UPDATE unrounded and skips the
+		// non-positive guard, so a fractional Money would write a fractional
+		// quota and a zero one would silently credit nothing.
+		quota, err = common.QuotaFromDecimalStrict(
+			decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
+		)
+		if err != nil || quota <= 0 {
+			return errors.New("invalid top-up amount")
+		}
 		err = tx.Model(&User{}).Where("id = ?", topUp.UserId).Update("quota", gorm.Expr("quota + ?", quota)).Error
 		if err != nil {
 			return err
@@ -809,7 +833,8 @@ func RechargeDeloPay(referenceId string, connector string) (err error) {
 	}
 
 	if quota > 0 {
-		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("DeloPay top-up success, quota: %v, amount: %v, connector: %v", logger.FormatQuota(int(quota)), topUp.Money, connector))
+		syncCreditUserQuotaCache(topUp.UserId, quota, "delopay topup")
+		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("DeloPay top-up success, quota: %v, amount: %v, connector: %v", logger.FormatQuota(quota), topUp.Money, connector))
 		common.CapturePaymentSuccess(topUp.UserId, topUp.Money, "delopay", topUp.Id)
 	}
 
