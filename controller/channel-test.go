@@ -1343,11 +1343,33 @@ func selectChannelsForAutomaticTest(channels []*model.Channel, mode string) []*m
 // fail, so it is a reliable "last probed" marker. The manual test paths do not go
 // through this selector and stay immediate.
 func channelDueForScheduledTest(channel *model.Channel) bool {
-	minutes := channel.GetSetting().AutoTestIntervalMinutes
+	setting := channel.GetSetting()
+	minutes := setting.AutoTestIntervalMinutes
 	if minutes <= 0 || channel.TestTime <= 0 {
 		return true
 	}
-	return common.GetTimestamp()-channel.TestTime >= int64(minutes)*60
+	return common.GetTimestamp()-channel.TestTime >= int64(channelTestIntervalMinutes(channel.Id, minutes, setting.AutoTestIntervalMaxMinutes))*60
+}
+
+// channelTestIntervalMinutes places a channel at a fixed offset inside [min,max].
+// The offset comes from the channel id rather than rand so a channel keeps the
+// same slot across restarts: a random draw per cycle would re-roll every channel
+// every run and reconverge on the mean, which is the clumping the window exists
+// to break. Siblings on one upstream have different ids, so they spread.
+func channelTestIntervalMinutes(channelId, minMinutes, maxMinutes int) int {
+	if maxMinutes <= minMinutes {
+		return minMinutes
+	}
+	span := maxMinutes - minMinutes + 1
+	// FNV-1a over the id: adjacent ids land far apart, unlike id % span.
+	h := uint32(2166136261)
+	for v := uint32(channelId); ; v >>= 8 {
+		h = (h ^ (v & 0xff)) * 16777619
+		if v < 0x100 {
+			break
+		}
+	}
+	return minMinutes + int(h%uint32(span))
 }
 
 // TestAllChannels enqueues a channel_test system task instead of running the

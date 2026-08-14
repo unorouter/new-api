@@ -300,6 +300,25 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
 	require.Equal(t, 2, userID)
 }
 
+func TestChannelTestIntervalMinutesSpreadsAcrossWindow(t *testing.T) {
+	// max <= min degrades to the fixed interval
+	assert.Equal(t, 15, channelTestIntervalMinutes(1, 15, 0))
+	assert.Equal(t, 15, channelTestIntervalMinutes(1, 15, 15))
+
+	// every result sits inside [min,max] and is stable for a given id
+	seen := map[int]int{}
+	for id := 1; id <= 200; id++ {
+		got := channelTestIntervalMinutes(id, 10, 15)
+		assert.GreaterOrEqual(t, got, 10)
+		assert.LessOrEqual(t, got, 15)
+		assert.Equal(t, got, channelTestIntervalMinutes(id, 10, 15), "must not vary per call")
+		seen[got]++
+	}
+
+	// the point of the window: siblings must not all land on one value
+	assert.Greater(t, len(seen), 1, "ids collapsed onto a single interval")
+}
+
 func TestSelectChannelsForAutomaticTestHonorsPerChannelInterval(t *testing.T) {
 	now := common.GetTimestamp()
 	withInterval := func(minutes int, testTime int64) *model.Channel {
