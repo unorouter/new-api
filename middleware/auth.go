@@ -194,6 +194,27 @@ func authenticateDashboardRequest(c *gin.Context) (*model.UserBase, service.Auth
 	return user, identity, credentialKind == dashboardCredentialPAT, nil
 }
 
+// ResolveDashboardCredential returns the user behind the request's
+// Authorization header, or nil when it carries none that validates. It accepts
+// both credential kinds the dashboard issues: a login session token and a
+// personal access token.
+//
+// Exported for routes that must authenticate a caller themselves because they
+// cannot sit behind UserAuth, such as the OAuth bind flow, whose cross-domain
+// redirect drops the session cookie. Those routes must NOT re-implement this:
+// checking only model.ValidateAccessToken silently rejects every user without a
+// PAT, which is most of them.
+func ResolveDashboardCredential(c *gin.Context) (*model.UserBase, error) {
+	user, _, kind, err := classifyDashboardCredential(c)
+	if err != nil {
+		return nil, err
+	}
+	if kind == dashboardCredentialUnmatched {
+		return nil, nil
+	}
+	return user, nil
+}
+
 func classifyDashboardCredential(c *gin.Context) (*model.UserBase, service.AuthIdentity, dashboardCredentialKind, error) {
 	raw, ok := authorizationToken(c.GetHeader("Authorization"))
 	if !ok {

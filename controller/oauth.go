@@ -72,17 +72,17 @@ func GenerateOAuthCode(c fuego.ContextWithParams[dto.GenerateOAuthCodeParams]) (
 	sessionID := ""
 	if intent == model.AuthFlowIntentBind {
 		if redirectURI != "" {
-			// External frontend bind: the dashboard session cookie does not survive the
-			// cross-domain redirect, so the caller proves identity with its access
-			// token instead. The identity MUST come from a verified credential: this
-			// route is public (only CORS + rate limiting), so trusting a plain
-			// New-Api-User header here let anyone mint a bind state for an arbitrary
-			// account and attach their own OAuth identity to it.
-			authHeader := ginCtx.GetHeader("Authorization")
-			if authHeader == "" {
-				return dto.Fail[string]("Authentication required for bind")
-			}
-			user, err := model.ValidateAccessToken(authHeader)
+			// External frontend bind: the dashboard session cookie does not survive
+			// the cross-domain redirect, so the caller proves identity with its
+			// Authorization header instead. The identity MUST come from a verified
+			// credential: this route is public (only CORS + rate limiting), so
+			// trusting a plain New-Api-User header here let anyone mint a bind state
+			// for an arbitrary account and attach their own OAuth identity to it.
+			//
+			// Resolved through the shared dashboard resolver so BOTH credential kinds
+			// work; validating only the PAT column rejects every user who has never
+			// minted one, which is the large majority.
+			user, err := middleware.ResolveDashboardCredential(ginCtx)
 			if err != nil || user == nil || user.Status != common.UserStatusEnabled {
 				return dto.Fail[string]("Authentication required for bind")
 			}
