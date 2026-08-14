@@ -155,8 +155,11 @@ func assignDisplayLogIds(logs []*Log, startIdx int) {
 }
 
 func formatUserLogs(logs []*Log, startIdx int) {
-	populateChannelNames(logs)
 	for i := range logs {
+		// Never resolved for a user-facing view: the channel name identifies the
+		// upstream provider behind a model, which is ours and not the caller's
+		// to see. populateChannelNames is for the admin log view only.
+		logs[i].ChannelName = ""
 		var otherMap map[string]interface{}
 		otherMap, _ = common.StrToMap(logs[i].Other)
 		if otherMap != nil {
