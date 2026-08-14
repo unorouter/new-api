@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -175,17 +176,31 @@ type QuotaDataSummary struct {
 	Quota             int64 `json:"quota"`
 	TokenUsed         int64 `json:"token_used"`
 	EarliestCreatedAt int64 `json:"earliest_created_at"`
+	AvgTpm            int64 `json:"avg_tpm"`
 }
 
 // GetQuotaDataSummary aggregates in SQL what callers previously computed by
 // pulling every quota_data row (1M+ rows, ~150MB JSON per call from the badge
 // endpoint alone). Keep totals-only consumers on this.
+//
+// AvgTpm is derived here rather than by each caller: it is tokens over the
+// minutes since the first recorded request, so every consumer that wants it
+// needs the same clock read and the same guards against a zero/absent
+// earliest_created_at. Serving it precomputed keeps that in one place.
 func GetQuotaDataSummary(startTime int64, endTime int64) (*QuotaDataSummary, error) {
 	var s QuotaDataSummary
 	err := DB.Table("quota_data").
 		Select("COALESCE(sum(count),0) as count, COALESCE(sum(quota),0) as quota, COALESCE(sum(token_used),0) as token_used, COALESCE(min(created_at),0) as earliest_created_at").
 		Where("created_at >= ? and created_at <= ?", startTime, endTime).
 		Scan(&s).Error
+	if err != nil {
+		return &s, err
+	}
+	if s.EarliestCreatedAt > 0 {
+		if elapsedMinutes := float64(time.Now().Unix()-s.EarliestCreatedAt) / 60; elapsedMinutes > 0 {
+			s.AvgTpm = int64(math.Round(float64(s.TokenUsed) / elapsedMinutes))
+		}
+	}
 	return &s, err
 }
 
