@@ -37,6 +37,14 @@ type ChannelSettings struct {
 	// (a web reverse behind a rotating tunnel) spend a scarce per-IP request budget
 	// on every probe, so they are probed far less often than a commercial upstream.
 	AutoTestIntervalMinutes int `json:"auto_test_interval_minutes,omitempty"`
+	// AutoTestIntervalMaxMinutes turns the cadence into a window. When set above
+	// AutoTestIntervalMinutes, each channel picks its own due point inside
+	// [min,max] from a hash of its id, so sibling channels on one upstream spread
+	// across the window instead of coming due together. A shared upstream that
+	// serves N channels otherwise gets all N probes in the same cycle, which is
+	// what exhausts a per-IP budget or a slow captcha pool. Zero/unset = fixed
+	// interval at AutoTestIntervalMinutes.
+	AutoTestIntervalMaxMinutes int `json:"auto_test_interval_max_minutes,omitempty"`
 }
 
 const (
