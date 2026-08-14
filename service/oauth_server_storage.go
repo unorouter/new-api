@@ -343,11 +343,20 @@ func (s *OAuthStorage) RevokeToken(ctx context.Context, tokenOrTokenID, userID, 
 	// Defense-in-depth: filter by user + client even though zitadel validates
 	// the caller upstream. Prevents a regression in upstream validation from
 	// letting one client revoke another client's tokens.
-	if err := model.DB.WithContext(ctx).
+	// Branch on rows affected, not on the error: a Delete that matches nothing
+	// succeeds with a nil error, so returning early on err == nil made the
+	// refresh-token branch unreachable and a revoke request a silent no-op.
+	res := model.DB.WithContext(ctx).
 		Where("token_id = ? AND client_id = ?", tokenOrTokenID, clientID).
-		Delete(&model.OAuthToken{}).Error; err == nil {
+		Delete(&model.OAuthToken{})
+	if res.Error != nil {
+		return oidc.ErrServerError().WithParent(res.Error)
+	}
+	if res.RowsAffected > 0 {
 		return nil
 	}
+	// Not an access token, so treat the value as a refresh token and drop the
+	// grant behind it.
 	if err := model.DB.WithContext(ctx).
 		Where("refresh_token = ? AND client_id = ? AND user_id = ?", tokenOrTokenID, clientID, userID).
 		Delete(&model.OAuthGrant{}).Error; err != nil {
