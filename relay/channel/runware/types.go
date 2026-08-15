@@ -59,8 +59,11 @@ type ImageInferenceTask struct {
 	Strength  *float64 `json:"strength,omitempty"`
 
 	// FLUX.2-style multi-reference conditioning. Distinct from SeedImage: references
-	// steer content, seedImage is the img2img starting latent.
-	ReferenceImages []string `json:"referenceImages,omitempty"`
+	// steer content, seedImage is the img2img starting latent. The nesting is load-
+	// bearing: a TOP-LEVEL referenceImages key is accepted with a 200 and silently
+	// ignored (verified by seed-pinned A/B generation), only inputs.referenceImages
+	// steers, and only it incurs the per-megapixel input charge.
+	Inputs *TaskInputs `json:"inputs,omitempty"`
 
 	Lora       []LoraEntry      `json:"lora,omitempty"`
 	Embeddings []EmbeddingEntry `json:"embeddings,omitempty"`
@@ -71,6 +74,10 @@ type ImageInferenceTask struct {
 
 	CheckNSFW   *bool `json:"checkNSFW,omitempty"`
 	IncludeCost bool  `json:"includeCost,omitempty"`
+}
+
+type TaskInputs struct {
+	ReferenceImages []string `json:"referenceImages,omitempty"`
 }
 
 // LoraEntry and EmbeddingEntry both address their resource by AIR, so a Civitai LoRA is
