@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -179,6 +180,33 @@ func GetAndValidateResponsesCompactionRequest(c *gin.Context) (*dto.OpenAIRespon
 	return request, nil
 }
 
+// multipartExtraFields types the leftover form values the way the JSON path would have:
+// a value that parses as JSON (number, bool, array such as a LoRA chain) is kept raw,
+// anything else is a string. Keys the struct parse already consumed are skipped.
+func multipartExtraFields(formData url.Values) map[string]json.RawMessage {
+	consumed := map[string]bool{
+		"prompt": true, "model": true, "n": true, "quality": true, "size": true,
+		"stream": true, "image": true, "watermark": true, "response_format": true,
+	}
+	extra := make(map[string]json.RawMessage)
+	for key, values := range formData {
+		if consumed[key] || len(values) == 0 {
+			continue
+		}
+		value := values[0]
+		if json.Valid([]byte(value)) {
+			extra[key] = json.RawMessage(value)
+			continue
+		}
+		quoted, err := json.Marshal(value)
+		if err != nil {
+			continue
+		}
+		extra[key] = quoted
+	}
+	return extra
+}
+
 func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageRequest, error) {
 	imageRequest := &dto.ImageRequest{}
 
@@ -228,6 +256,10 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 				watermark := formData.Get("watermark") == "true"
 				imageRequest.Watermark = &watermark
 			}
+			// The JSON path collects unknown keys into Extra via UnmarshalJSON; the
+			// multipart path never did, so diffusion params (steps, cfg_scale, loras)
+			// silently vanished from any request that carried reference images.
+			imageRequest.Extra = multipartExtraFields(formData)
 			break
 		}
 		fallthrough

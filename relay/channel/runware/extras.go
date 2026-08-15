@@ -1,11 +1,54 @@
 package runware
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/gin-gonic/gin"
 )
+
+// Bounds one reference file; Runware's own inputs cap (8-10 per model) bounds the count.
+const maxReferenceBytes = 20 << 20
+
+// multipartReferenceImages reads the uploaded reference files of an /images/edits
+// request as data URIs. Both the "image[]" array convention and the bare OpenAI
+// "image" key are accepted. A JSON request has no multipart form and returns nil.
+func multipartReferenceImages(c *gin.Context) ([]string, error) {
+	if c == nil || c.Request == nil || c.Request.MultipartForm == nil {
+		return nil, nil
+	}
+	form := c.Request.MultipartForm
+	files := append(form.File["image[]"], form.File["image"]...)
+	refs := make([]string, 0, len(files))
+	for _, fh := range files {
+		if fh.Size > maxReferenceBytes {
+			return nil, fmt.Errorf("reference image %q exceeds %dMB", fh.Filename, maxReferenceBytes>>20)
+		}
+		f, err := fh.Open()
+		if err != nil {
+			return nil, fmt.Errorf("open reference image: %w", err)
+		}
+		data, err := io.ReadAll(io.LimitReader(f, maxReferenceBytes+1))
+		_ = f.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read reference image: %w", err)
+		}
+		if int64(len(data)) > maxReferenceBytes {
+			return nil, fmt.Errorf("reference image %q exceeds %dMB", fh.Filename, maxReferenceBytes>>20)
+		}
+		mime := fh.Header.Get("Content-Type")
+		if mime == "" {
+			mime = http.DetectContentType(data)
+		}
+		refs = append(refs, "data:"+mime+";base64,"+base64.StdEncoding.EncodeToString(data))
+	}
+	return refs, nil
+}
 
 // applyExtras maps diffusion parameters that the OpenAI image schema has no field for, and
 // which therefore arrive in ImageRequest.Extra, onto the Runware task.
