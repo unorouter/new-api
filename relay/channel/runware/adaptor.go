@@ -72,7 +72,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	if refs, err := multipartReferenceImages(c); err != nil {
 		return nil, err
 	} else if len(refs) > 0 {
-		task.ReferenceImages = refs
+		task.Inputs = &TaskInputs{ReferenceImages: refs}
 	}
 
 	// A passthrough model carries the checkpoint per request, so an arbitrary Civitai
