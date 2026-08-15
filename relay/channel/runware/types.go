@@ -58,6 +58,10 @@ type ImageInferenceTask struct {
 	MaskImage string   `json:"maskImage,omitempty"`
 	Strength  *float64 `json:"strength,omitempty"`
 
+	// FLUX.2-style multi-reference conditioning. Distinct from SeedImage: references
+	// steer content, seedImage is the img2img starting latent.
+	ReferenceImages []string `json:"referenceImages,omitempty"`
+
 	Lora       []LoraEntry      `json:"lora,omitempty"`
 	Embeddings []EmbeddingEntry `json:"embeddings,omitempty"`
 

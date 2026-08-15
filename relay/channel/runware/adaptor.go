@@ -34,6 +34,10 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, header)
 	header.Set("Authorization", "Bearer "+info.ApiKey)
+	// The generic setup mirrors the CLIENT's Content-Type. An /images/edits request
+	// arrives as multipart, but this adaptor always emits a JSON task array, and
+	// Runware answers a multipart-labelled JSON body with a bare 400.
+	header.Set("Content-Type", "application/json")
 	return nil
 }
 
@@ -62,6 +66,14 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	// they arrive in Extra. Anything unrecognised is dropped rather than forwarded, since
 	// Runware rejects unknown keys for the whole task.
 	applyExtras(&task, request.Extra)
+
+	// An /images/edits request carries its reference images as multipart file parts,
+	// which the OpenAI-shape parse never surfaces. Runware takes them as data URIs.
+	if refs, err := multipartReferenceImages(c); err != nil {
+		return nil, err
+	} else if len(refs) > 0 {
+		task.ReferenceImages = refs
+	}
 
 	// A passthrough model carries the checkpoint per request, so an arbitrary Civitai
 	// checkpoint is reachable without a config entry per model. The value replaces the
