@@ -53,7 +53,9 @@ func GetQuotaDatesByUser(c *gin.Context) {
 	})
 }
 
-const maxQuotaDateSpan = 2592000
+// Sanity bound only (garbage timestamps), not a load guard: the per-user query
+// is bounded by the user's own row count and the admin endpoint is unbounded.
+const maxQuotaDateSpan = 10 * 365 * 86400
 
 // GetFlowQuotaDates serves the admin/root Sankey. The model widens the returned
 // dimensions by role, so the caller's real role is passed through.
@@ -66,7 +68,7 @@ func GetFlowQuotaDates(c fuego.ContextWithParams[dto.GetFlowQuotaDatesParams]) (
 		return dto.Fail[[]*model.FlowQuotaData]("End time cannot be earlier than start time")
 	}
 	if p.EndTimestamp-p.StartTimestamp > maxQuotaDateSpan {
-		return dto.Fail[[]*model.FlowQuotaData]("Time span cannot exceed 1 month")
+		return dto.Fail[[]*model.FlowQuotaData]("Time span cannot exceed 10 years")
 	}
 	ginCtx := dto.GinCtx(c)
 	dates, err := model.GetFlowQuotaData(p.StartTimestamp, p.EndTimestamp, p.Username, dto.UserID(c), ginCtx.GetInt("role"))
@@ -87,7 +89,7 @@ func GetUserFlowQuotaDates(c fuego.ContextWithParams[dto.GetFlowQuotaDatesParams
 		return dto.Fail[[]*model.FlowQuotaData]("End time cannot be earlier than start time")
 	}
 	if p.EndTimestamp-p.StartTimestamp > maxQuotaDateSpan {
-		return dto.Fail[[]*model.FlowQuotaData]("Time span cannot exceed 1 month")
+		return dto.Fail[[]*model.FlowQuotaData]("Time span cannot exceed 10 years")
 	}
 	dates, err := model.GetFlowQuotaData(p.StartTimestamp, p.EndTimestamp, "", dto.UserID(c), common.RoleCommonUser)
 	if err != nil {
@@ -106,7 +108,7 @@ func GetUserQuotaDates(c fuego.ContextWithParams[dto.GetUserQuotaDatesParams]) (
 		return dto.Fail[[]*model.QuotaData]("End time cannot be earlier than start time")
 	}
 	if p.EndTimestamp-p.StartTimestamp > maxQuotaDateSpan {
-		return dto.Fail[[]*model.QuotaData]("Time span cannot exceed 1 month")
+		return dto.Fail[[]*model.QuotaData]("Time span cannot exceed 10 years")
 	}
 	dates, err := model.GetQuotaDataByUserId(userId, p.StartTimestamp, p.EndTimestamp)
 	if err != nil {
