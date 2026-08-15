@@ -221,7 +221,7 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 				userQuota = 0
 			}
 			return types.NewErrorWithStatusCode(
-				fmt.Errorf("用户额度不足, 剩余额度: %s", logger.FormatQuota(userQuota)),
+				fmt.Errorf("insufficient user quota, remaining: %s", logger.FormatQuota(userQuota)),
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}

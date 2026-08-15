@@ -38,6 +38,8 @@ var ChannelFaultKeywords = []string{
 	"api key expired",
 	"api_key_invalid",
 	"external billing pre-consume: insufficient balance",
+	// Both forms: upstreams running new-api still emit the Chinese text.
+	"insufficient user quota",
 	"用户额度不足",
 	"剩余额度",
 	// Alibaba Bailian/DashScope free-tier quota exhausted (Stop-on-Exhaust).

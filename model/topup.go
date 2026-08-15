@@ -148,7 +148,7 @@ func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, ta
 // 进程内的 LockOrder 只是优化，正确性由本函数的数据库行锁保证。
 func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (alreadyDone bool, err error) {
 	if tradeNo == "" {
-		return false, errors.New("未提供支付单号")
+		return false, errors.New("payment order number not provided")
 	}
 
 	refCol := "`trade_no`"
@@ -180,7 +180,7 @@ func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (
 			decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
 		)
 		if quotaErr != nil || quotaToAdd <= 0 {
-			return errors.New("无效的充值额度")
+			return errors.New("invalid top-up amount")
 		}
 		topUp.CompleteTime = common.GetTimestamp()
 		topUp.Status = common.TopUpStatusSuccess
@@ -250,7 +250,7 @@ func Recharge(referenceId string, customerId string, callerIp string) (err error
 			decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
 		)
 		if err != nil || quota <= 0 {
-			return errors.New("无效的充值额度")
+			return errors.New("invalid top-up amount")
 		}
 		return tx.Model(&User{}).Where("id = ?", topUp.UserId).
 			Updates(map[string]interface{}{"stripe_customer": customerId, "quota": gorm.Expr("quota + ?", quota)}).Error
@@ -531,7 +531,7 @@ func RechargeCreem(referenceId string, customerEmail string, customerName string
 		// Creem 直接使用 Amount 作为充值额度（整数）
 		quota, err = common.QuotaFromDecimalStrict(decimal.NewFromInt(topUp.Amount))
 		if err != nil || quota <= 0 {
-			return errors.New("无效的充值额度")
+			return errors.New("invalid top-up amount")
 		}
 
 		// 构建更新字段，优先使用邮箱，如果邮箱为空则使用用户名

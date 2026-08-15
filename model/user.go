@@ -211,7 +211,7 @@ var userBindColumns = map[string]bool{
 // 角色、状态、分组只允许通过各自带锁/CAS 的专用方法修改。
 func UpdateUserBindColumn(userId int, column string, value string) error {
 	if userId <= 0 {
-		return errors.New("id 为空！")
+		return errors.New("id is empty")
 	}
 	if !userBindColumns[column] {
 		return fmt.Errorf("invalid user bind column: %s", column)
