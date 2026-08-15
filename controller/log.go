@@ -16,10 +16,22 @@ func GetAllLogs(c fuego.ContextWithParams[dto.GetAllLogsParams]) (*dto.Response[
 	return dto.OkPage(pageInfo, logs, int(total))
 }
 
+// Sanity bound only (garbage timestamps), mirroring maxQuotaDateSpan: a bounded
+// window keeps the per-user stat aggregation on its covering index instead of
+// letting a zero start_timestamp scan the whole logs table.
+const maxLogDateSpan = 10 * 365 * 86400
+
+func logSpanTooWide(start, end int64) bool {
+	return start != 0 && end != 0 && end-start > maxLogDateSpan
+}
+
 func GetUserLogs(c fuego.ContextWithParams[dto.GetUserLogsParams]) (*dto.Response[dto.PageData[*model.Log]], error) {
 	pageInfo := dto.PageInfo(c)
 	userId := dto.UserID(c)
 	p, _ := dto.ParseParams[dto.GetUserLogsParams](c)
+	if logSpanTooWide(p.StartTimestamp, p.EndTimestamp) {
+		return dto.FailPage[*model.Log]("Time span cannot exceed 10 years")
+	}
 	logs, total, err := model.GetUserLogs(userId, p.Type, p.StartTimestamp, p.EndTimestamp, p.ModelName, p.TokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), p.Group, p.RequestID, p.UpstreamRequestID, p.SubscriptionPlan)
 	if err != nil {
 		return dto.FailPage[*model.Log](err.Error())
@@ -65,6 +77,9 @@ func GetLogsStat(c fuego.ContextWithParams[dto.LogStatParams]) (*dto.Response[dt
 func GetLogsSelfStat(c fuego.ContextWithParams[dto.LogSelfStatParams]) (*dto.Response[dto.LogStatData], error) {
 	username := dto.GinCtx(c).GetString("username")
 	p, _ := dto.ParseParams[dto.LogSelfStatParams](c)
+	if logSpanTooWide(p.StartTimestamp, p.EndTimestamp) {
+		return dto.Fail[dto.LogStatData]("Time span cannot exceed 10 years")
+	}
 	quotaNum, err := model.SumUsedQuota(p.Type, p.StartTimestamp, p.EndTimestamp, p.ModelName, username, p.TokenName, p.Channel, p.Group)
 	if err != nil {
 		return dto.Fail[dto.LogStatData](err.Error())
