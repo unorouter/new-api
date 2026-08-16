@@ -83,6 +83,10 @@ type PricingCatalogModel struct {
 	// embedding model as text, so a type check alone leaks models that 400 on
 	// /chat/completions.
 	Chat bool `json:"chat"`
+	// Which upstream protocols route this model. The send paths pick an endpoint
+	// from it, so it is a routing fact rather than a display one. 5KB across the
+	// whole catalog (1.23 entries per model), so it rides every response.
+	SupportedEndpointTypes []constant.EndpointType `json:"supported_endpoint_types" validate:"required"`
 }
 
 // PricingCatalogData is pre-sorted: free models first, then by name. Callers
