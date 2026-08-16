@@ -50,6 +50,9 @@ type PricingCatalogModel struct {
 	// Epoch ms, 0 when the model has no release date. Sorted on by callers.
 	ReleaseTs int64 `json:"release_ts"`
 	IsFree    bool  `json:"is_free"`
+	// False when every channel serving the model is disabled. Callers picking a
+	// default model must not land a user on one nothing can route.
+	Online bool `json:"online"`
 	// Whether the model can serve a chat completion. Upstream types every
 	// embedding model as text, so a type check alone leaks models that 400 on
 	// /chat/completions.
