@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -25,6 +26,34 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// Clients that derive max output from the CONTEXT window send values no
+// provider accepts (a JanitorAI-class client sent 958318 against Gemini's 65536
+// cap), and the upstream 400 is retried across every sibling channel with the
+// same doomed payload, so one request burns a minute before surfacing. We
+// already publish the real cap on /v1/models; clamp instead of trusting the
+// client to read it.
+//
+// Only trims a value ABOVE the model's own limit, and ignores absent or
+// implausible metadata (492 of 1161 models carry no maxOutputTokens, and a
+// couple record 0 or 1), so a missing limit can never zero out a live request.
+const minCredibleOutputLimit = 256
+
+func clampMaxTokensToModelLimit(modelName string, request *dto.GeneralOpenAIRequest) {
+	applyOutputLimit(model.GetModelLimits(modelName).MaxOutputTokens, request)
+}
+
+func applyOutputLimit(limit int, request *dto.GeneralOpenAIRequest) {
+	if limit < minCredibleOutputLimit {
+		return
+	}
+	capped := uint(limit)
+	for _, field := range []**uint{&request.MaxTokens, &request.MaxCompletionTokens} {
+		if *field != nil && **field > capped {
+			*field = &capped
+		}
+	}
+}
 
 func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
 	info.InitChannelMeta(c)
@@ -47,6 +76,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 	}
+
+	clampMaxTokensToModelLimit(info.OriginModelName, request)
 
 	// 强制上游流式：客户端发送 stream=false 且请求合格时，将 stream 改写为 true 让上游走 SSE，
 	// 响应层会把 SSE 聚合成一次性 JSON 返回给客户端。用来规避上游 reseller 网关对长响应的 30s header timeout。
