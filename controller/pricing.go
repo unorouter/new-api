@@ -80,7 +80,7 @@ func GetPricing(c fuego.ContextNoBody) (dto.PricingData, error) {
 
 	return dto.PricingData{
 		Success:           true,
-		Data:              toPricingModels(pricing),
+		Data:              toPricingModels(pricing, groupRatio),
 		Vendors:           toPricingVendors(model.GetVendors()),
 		GroupRatio:        groupRatio,
 		UsableGroup:       usableGroup,
@@ -129,7 +129,7 @@ func GetPricingModel(c fuego.ContextNoBody) (dto.PricingData, error) {
 
 	return dto.PricingData{
 		Success:           true,
-		Data:              toPricingModels([]model.Pricing{pricing}),
+		Data:              toPricingModels([]model.Pricing{pricing}, groupRatio),
 		Vendors:           toPricingVendors(model.GetVendors()),
 		GroupRatio:        groupRatio,
 		SupportedEndpoint: toEndpointInfoMap(model.GetSupportedEndpointMap()),
@@ -137,7 +137,34 @@ func GetPricingModel(c fuego.ContextNoBody) (dto.PricingData, error) {
 	}, nil
 }
 
-func toPricingModels(src []model.Pricing) []dto.PricingModel {
+// A model is free when every price input is zero for some group it is served
+// by. Mirrors the three billing shapes: fixed-price (sticker x cheapest group
+// ratio), and ratio-priced (model_price <= 0 AND either the group ratio or the
+// model ratio is 0).
+func modelIsFree(m model.Pricing, groupRatio map[string]float64) bool {
+	if m.QuotaType == 1 || m.QuotaType == 3 || m.QuotaType == 4 {
+		minRatio := 1.0
+		found := false
+		for _, g := range m.EnableGroup {
+			if r, ok := groupRatio[g]; ok && (!found || r < minRatio) {
+				minRatio = r
+				found = true
+			}
+		}
+		return m.ModelPrice*minRatio == 0
+	}
+	for _, g := range m.EnableGroup {
+		if m.ModelPrice <= 0 {
+			r, ok := groupRatio[g]
+			if (ok && r == 0) || m.ModelRatio == 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func toPricingModels(src []model.Pricing, groupRatio map[string]float64) []dto.PricingModel {
 	out := make([]dto.PricingModel, len(src))
 	for i, m := range src {
 		out[i] = dto.PricingModel{
@@ -164,6 +191,7 @@ func toPricingModels(src []model.Pricing) []dto.PricingModel {
 			BillingMode:            m.BillingMode,
 			BillingExpr:            m.BillingExpr,
 			Online:                 m.Online,
+			IsFree:                 modelIsFree(m, groupRatio),
 		}
 	}
 	return out

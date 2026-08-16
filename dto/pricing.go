@@ -31,6 +31,10 @@ type PricingModel struct {
 	BillingExpr            string                  `json:"billing_expr,omitempty"`
 	PricingVersion         string                  `json:"pricing_version,omitempty"`
 	Online                 bool                    `json:"online"`
+	// Derived here so callers that only gate on "is this free" (the guest
+	// free-model checks on the chat/image paths) read a flag instead of
+	// re-deriving it from ratios, model_price and the group map.
+	IsFree bool `json:"is_free"`
 }
 
 // PricingVendor mirrors model.PricingVendor for OpenAPI schema generation.
