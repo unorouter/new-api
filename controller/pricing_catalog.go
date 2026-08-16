@@ -119,6 +119,7 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 			Tags:      catalogTags(m.Tags),
 			ReleaseTs: md.ReleaseTs,
 			IsFree:    modelIsFree(m, groupRatio),
+			Online:    m.Online,
 			Chat:      chat,
 		})
 	}
