@@ -43,10 +43,14 @@ type PricingModel struct {
 // model fetches /pricing/model, which is ~3KB, rather than making every caller
 // pay for all of them.
 type PricingCatalogModel struct {
-	ModelName string   `json:"model_name"`
-	Vendor    string   `json:"vendor"`
-	Type      string   `json:"type"`
-	Tags      []string `json:"tags" validate:"required"`
+	ModelName string `json:"model_name"`
+	Vendor    string `json:"vendor"`
+	// Grouping key. Names collide across sources, so "same vendor" is an id
+	// comparison, not a string one.
+	VendorID int      `json:"vendor_id"`
+	Icon     string   `json:"icon,omitempty"`
+	Type     string   `json:"type"`
+	Tags     []string `json:"tags" validate:"required"`
 	// Epoch ms, 0 when the model has no release date. Sorted on by callers.
 	ReleaseTs int64 `json:"release_ts"`
 	IsFree    bool  `json:"is_free"`

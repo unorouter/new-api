@@ -194,9 +194,9 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	usableGroup := service.GetUserUsableGroups(group)
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
 
-	vendorByID := make(map[int]string)
+	vendorByID := make(map[int]model.PricingVendor)
 	for _, v := range model.GetVendors() {
-		vendorByID[v.ID] = v.Name
+		vendorByID[v.ID] = v
 	}
 
 	// The picker needs a name, a badge and a price; the browse page also filters
@@ -210,13 +210,16 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		md := parseCatalogMetadata(m.Metadata)
 		modelType, chat := catalogModality(m, md)
 		vendor := vendorByID[m.VendorID]
-		if vendor == "" {
-			vendor = "Unknown"
+		vendorName := vendor.Name
+		if vendorName == "" {
+			vendorName = "Unknown"
 		}
 		price := catalogPricing(m, groupRatio, showOriginal)
 		row := dto.PricingCatalogModel{
 			ModelName:           m.ModelName,
-			Vendor:              vendor,
+			Vendor:              vendorName,
+			VendorID:            m.VendorID,
+			Icon:                vendor.Icon,
 			Type:                modelType,
 			Tags:                catalogTags(m.Tags),
 			ReleaseTs:           md.ReleaseTs,
