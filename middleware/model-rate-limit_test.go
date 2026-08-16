@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,7 +16,9 @@ import (
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/types"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -123,5 +127,78 @@ func TestPerModelRateLimitBypassSemantics(t *testing.T) {
 		assert.True(t, first)
 		assert.False(t, second)
 		assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+	})
+}
+
+// Regression: the limiter used to only CHECK on admission and record after the
+// upstream answered, so every request that arrived during a slow call saw an
+// empty bucket. One account ran five "1/min" requests in eight seconds that way.
+// Concurrent callers must now collapse to exactly one admission, and a failed
+// request must give its slot back so failures stay free.
+func TestPerModelRateLimitRedisConcurrency(t *testing.T) {
+	require.NoError(t, setting.UpdateModelRequestRateLimitModelsByJSONString(`{"limited-model:free":[0,1]}`))
+	setting.ModelRequestRateLimitDurationMinutes = 1
+	require.NoError(t, i18n.Init())
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	prevRedis, prevRDB := common.RedisEnabled, common.RDB
+	common.RedisEnabled, common.RDB = true, rdb
+	t.Cleanup(func() { common.RedisEnabled, common.RDB = prevRedis, prevRDB })
+
+	// The bug was a GAP, not a data race: admission passed while an earlier
+	// request was still in flight (nothing recorded until it finished). So the
+	// test admits one request and, WITHOUT settling it, checks that the next
+	// caller is refused - which is exactly what record-on-completion allowed.
+	t.Run("a request in flight holds the slot", func(t *testing.T) {
+		inFlight, _ := newPerModelCtx(920001, common.RoleCommonUser, 0, types.UserSetting{}, "limited-model:free")
+		require.True(t, perModelRateLimit(inFlight))
+
+		for i := 0; i < 4; i++ {
+			c, w := newPerModelCtx(920001, common.RoleCommonUser, 0, types.UserSetting{}, "limited-model:free")
+			assert.False(t, perModelRateLimit(c), "request %d slipped through while one was in flight", i)
+			assert.Equal(t, http.StatusTooManyRequests, w.Code)
+		}
+	})
+
+	t.Run("parallel arrivals collapse to one admission", func(t *testing.T) {
+		const parallel = 8
+		var wg sync.WaitGroup
+		var admitted atomic.Int32
+		for i := 0; i < parallel; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				c, _ := newPerModelCtx(920004, common.RoleCommonUser, 0, types.UserSetting{}, "limited-model:free")
+				if perModelRateLimit(c) {
+					admitted.Add(1)
+				}
+			}()
+		}
+		wg.Wait()
+		assert.Equal(t, int32(1), admitted.Load())
+	})
+
+	t.Run("a failed request releases its slot", func(t *testing.T) {
+		c1, _ := newPerModelCtx(920002, common.RoleCommonUser, 0, types.UserSetting{}, "limited-model:free")
+		require.True(t, perModelRateLimit(c1))
+		c1.Writer.WriteHeader(http.StatusBadGateway)
+		settlePerModelRequest(c1)
+
+		c2, _ := newPerModelCtx(920002, common.RoleCommonUser, 0, types.UserSetting{}, "limited-model:free")
+		assert.True(t, perModelRateLimit(c2), "an upstream failure must not consume the user's slot")
+	})
+
+	t.Run("a successful request keeps its slot", func(t *testing.T) {
+		c1, _ := newPerModelCtx(920003, common.RoleCommonUser, 0, types.UserSetting{}, "limited-model:free")
+		require.True(t, perModelRateLimit(c1))
+		settlePerModelRequest(c1)
+
+		c2, w2 := newPerModelCtx(920003, common.RoleCommonUser, 0, types.UserSetting{}, "limited-model:free")
+		assert.False(t, perModelRateLimit(c2))
+		assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+		assert.NotEmpty(t, w2.Header().Get("Retry-After"))
 	})
 }
