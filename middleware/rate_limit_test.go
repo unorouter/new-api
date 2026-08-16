@@ -108,7 +108,7 @@ func TestRedisEmailVerificationRateLimiterPreservesResponseAndTTL(t *testing.T) 
 	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/verify", remoteAddr).Code)
 	response := performRateLimitRequest(router, "/verify", remoteAddr)
 	assert.Equal(t, http.StatusTooManyRequests, response.Code)
-	assert.JSONEq(t, `{"success":false,"message":"发送过于频繁，请等待 30 秒后再试"}`, response.Body.String())
+	assert.JSONEq(t, `{"success":false,"message":"Sending too frequently, please wait 30 seconds before trying again"}`, response.Body.String())
 
 	key := redisIPRateLimitKey(EmailVerificationRateLimitMark, "192.0.2.30")
 	assert.True(t, redisServer.Exists(key))

@@ -183,6 +183,7 @@ const (
 	perModelRateLimitKeyMark      = "perModelRateLimitKey"
 	perModelRateLimitMaxMark      = "perModelRateLimitMax"
 	perModelRateLimitDurationMark = "perModelRateLimitDuration"
+	perModelRateLimitMemberMark   = "perModelRateLimitMember"
 	// In-memory cleanup horizon must cover the largest per-model window (Redis
 	// unaffected); entries idle longer than this are evicted.
 	inMemoryCleanupHorizon = 24 * time.Hour
@@ -217,18 +218,33 @@ func perModelRateLimit(c *gin.Context) bool {
 	}
 	duration := int64(windowMinutes * 60)
 	userId := strconv.Itoa(c.GetInt("id"))
-	key := fmt.Sprintf("rateLimit:MODEL:%s:%s", userId, mr.Model)
 
 	allowed := true
 	// Real remaining wait from the limiter (0 = unknown -> full window fallback).
 	var retryAfter int64
+	// MODELW is a distinct namespace from the retired MODEL list keys: a ZADD
+	// against a leftover list would fail WRONGTYPE.
+	key := fmt.Sprintf("rateLimit:MODELW:%s:%s", userId, mr.Model)
+	member := ""
 	if common.RedisEnabled {
-		ok, remaining, err := checkRedisRateLimit(context.Background(), common.RDB, key, successMaxCount, duration)
+		// The slot is claimed HERE, not after the upstream answers. A check that
+		// only records on completion leaves the whole upstream latency (17-56s on
+		// free lanes) as a window where every concurrent request sees an empty
+		// bucket, which let one account run 5 "1/min" requests in 8 seconds.
+		member = fmt.Sprintf("%d:%s", time.Now().UnixNano(), common.GetRandomString(8))
+		ctx := context.Background()
+		ok, remaining, err := limiter.New(ctx, common.RDB).
+			Reserve(ctx, key, successMaxCount, time.Duration(duration)*time.Second, member)
 		if err == nil {
 			allowed = ok
-			retryAfter = remaining
+			retryAfter = int64(remaining.Seconds())
+			if !ok && remaining > 0 && retryAfter < 1 {
+				retryAfter = 1
+			}
 		}
 	} else {
+		// Already race-free: Request() checks and records under one mutex.
+		key = fmt.Sprintf("rateLimit:MODEL:%s:%s", userId, mr.Model)
 		inMemoryRateLimiter.Init(inMemoryCleanupHorizon)
 		allowed = inMemoryRateLimiter.Request(key+"_check", successMaxCount, duration)
 	}
@@ -268,26 +284,36 @@ func perModelRateLimit(c *gin.Context) bool {
 	c.Set(perModelRateLimitKeyMark, key)
 	c.Set(perModelRateLimitMaxMark, successMaxCount)
 	c.Set(perModelRateLimitDurationMark, duration)
+	c.Set(perModelRateLimitMemberMark, member)
 	return true
 }
 
-// recordPerModelSuccess records a successful per-model request after the handler
-// runs, so failed upstream calls never burn the user's budget.
-func recordPerModelSuccess(c *gin.Context) {
+// settlePerModelRequest finalizes the slot taken at admission: a failed upstream
+// call releases it, so failures stay free without letting concurrent requests
+// through. A success needs no write, because the reservation IS the record.
+func settlePerModelRequest(c *gin.Context) {
 	key := c.GetString(perModelRateLimitKeyMark)
 	maxCount := c.GetInt(perModelRateLimitMaxMark)
-	if key == "" || maxCount <= 0 || c.Writer.Status() >= 400 {
+	if key == "" || maxCount <= 0 {
+		return
+	}
+	failed := c.Writer.Status() >= 400
+	if common.RedisEnabled {
+		member := c.GetString(perModelRateLimitMemberMark)
+		if failed && member != "" {
+			ctx := context.Background()
+			_ = limiter.New(ctx, common.RDB).Release(ctx, key, member)
+		}
+		return
+	}
+	if failed {
 		return
 	}
 	duration := c.GetInt64(perModelRateLimitDurationMark)
 	if duration <= 0 {
 		duration = int64(setting.ModelRequestRateLimitDurationMinutes * 60)
 	}
-	if common.RedisEnabled {
-		recordRedisRequest(context.Background(), common.RDB, key, maxCount, duration)
-	} else {
-		inMemoryRateLimiter.Request(key, maxCount, duration)
-	}
+	inMemoryRateLimiter.Request(key, maxCount, duration)
 }
 
 // ModelRequestRateLimit 模型请求限流中间件
@@ -302,7 +328,7 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 		if !perModelRateLimit(c) {
 			return
 		}
-		defer recordPerModelSuccess(c)
+		defer settlePerModelRequest(c)
 
 		// 计算限流参数
 		duration := int64(setting.ModelRequestRateLimitDurationMinutes * 60)
