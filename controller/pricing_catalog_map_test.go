@@ -189,3 +189,28 @@ func TestListMetadataDropsSendPathFields(t *testing.T) {
 	assert.Nil(t, lean.SupportedParameters)
 	assert.Nil(t, lean.DefaultParameters)
 }
+
+func TestNewestFreeChatModel(t *testing.T) {
+	rows := []dto.PricingCatalogModel{
+		{ModelName: "paid-newest", ReleaseTs: 300, Chat: true, Online: true},
+		{ModelName: "free-old", IsFree: true, Chat: true, Online: true, ReleaseTs: 100},
+		{ModelName: "free-newest", IsFree: true, Chat: true, Online: true, ReleaseTs: 200},
+		// Same date as free-newest: the name breaks the tie, so the pick is stable.
+		{ModelName: "free-aaa", IsFree: true, Chat: true, Online: true, ReleaseTs: 200},
+	}
+	assert.Equal(t, "free-aaa", newestFreeChatModel(rows))
+
+	// A model nothing can route is a bad default even when it is the newest.
+	offline := []dto.PricingCatalogModel{
+		{ModelName: "free-offline", IsFree: true, Chat: true, Online: false, ReleaseTs: 900},
+		{ModelName: "free-live", IsFree: true, Chat: true, Online: true, ReleaseTs: 100},
+	}
+	assert.Equal(t, "free-live", newestFreeChatModel(offline))
+
+	// No free chat model: fall back to any free model rather than nothing.
+	assert.Equal(t, "free-image", newestFreeChatModel([]dto.PricingCatalogModel{
+		{ModelName: "free-image", IsFree: true, Chat: false, Online: true},
+	}))
+
+	assert.Empty(t, newestFreeChatModel([]dto.PricingCatalogModel{{ModelName: "paid"}}))
+}

@@ -92,6 +92,10 @@ type PricingCatalogData struct {
 	Success bool                  `json:"success"`
 	Data    []PricingCatalogModel `json:"data" validate:"required"`
 	Vendors []PricingVendor       `json:"vendors" validate:"required"`
+	// The chat default before a user picks anything: the newest free chat model
+	// that is actually routable, so a fresh visitor lands on the current
+	// flagship rather than whatever sorts first. Empty when none qualifies.
+	FirstFreeModel string `json:"first_free_model,omitempty"`
 }
 
 // PricingVendor mirrors model.PricingVendor for OpenAPI schema generation.
