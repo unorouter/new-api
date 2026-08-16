@@ -250,8 +250,35 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	})
 
 	return dto.PricingCatalogData{
-		Success: true,
-		Data:    out,
-		Vendors: toPricingVendors(model.GetVendors()),
+		Success:        true,
+		Data:           out,
+		Vendors:        toPricingVendors(model.GetVendors()),
+		FirstFreeModel: newestFreeChatModel(out),
 	}, nil
+}
+
+// Newest first, name as tiebreak: most models share a release date with another,
+// so date alone leaves the winner up to slice order. Falls back to any free
+// model when no free chat model is routable.
+func newestFreeChatModel(models []dto.PricingCatalogModel) string {
+	newest := func(match func(dto.PricingCatalogModel) bool) string {
+		best := ""
+		var bestTs int64
+		for _, m := range models {
+			if !match(m) {
+				continue
+			}
+			if best == "" || m.ReleaseTs > bestTs ||
+				(m.ReleaseTs == bestTs && m.ModelName < best) {
+				best, bestTs = m.ModelName, m.ReleaseTs
+			}
+		}
+		return best
+	}
+	if pick := newest(func(m dto.PricingCatalogModel) bool {
+		return m.IsFree && m.Chat && m.Online
+	}); pick != "" {
+		return pick
+	}
+	return newest(func(m dto.PricingCatalogModel) bool { return m.IsFree })
 }
