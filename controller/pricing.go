@@ -103,9 +103,19 @@ func GetPricingModel(c fuego.ContextNoBody) (dto.PricingData, error) {
 		return dto.PricingData{Success: false}, fuego.NotFoundError{Title: "model not found"}
 	}
 
-	groupRatio := map[string]float64{}
-	for s, f := range ratio_setting.GetGroupRatioCopy() {
-		groupRatio[s] = f
+	// Only the groups THIS model is served by. The full copy is every group the
+	// gateway knows (1600+ with per-channel routing groups), which dwarfs the
+	// model itself and is useless to a single-model caller.
+	all := ratio_setting.GetGroupRatioCopy()
+	groupRatio := make(map[string]float64, len(pricing.EnableGroup))
+	if common.StringsContains(pricing.EnableGroup, "all") {
+		groupRatio = all
+	} else {
+		for _, g := range pricing.EnableGroup {
+			if f, ok := all[g]; ok {
+				groupRatio[g] = f
+			}
+		}
 	}
 	if userId, exists := dto.GinCtx(c).Get("id"); exists {
 		if user, err := model.GetUserCache(userId.(int)); err == nil {
