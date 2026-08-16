@@ -24,7 +24,7 @@ type PricingModel struct {
 	ImageRatio             *float64                `json:"image_ratio,omitempty"`
 	AudioRatio             *float64                `json:"audio_ratio,omitempty"`
 	AudioCompletionRatio   *float64                `json:"audio_completion_ratio,omitempty"`
-	EnableGroup            []string                `json:"enable_groups"`
+	EnableGroup            []string                `json:"enable_groups" validate:"required"`
 	SupportedEndpointTypes []constant.EndpointType `json:"supported_endpoint_types"`
 	GridPricing            interface{}             `json:"grid_pricing,omitempty"`
 	BillingMode            string                  `json:"billing_mode,omitempty"`
@@ -49,11 +49,11 @@ type EndpointInfo struct {
 
 type PricingData struct {
 	Success           bool                    `json:"success"`
-	Data              []PricingModel          `json:"data"`
-	Vendors           []PricingVendor         `json:"vendors"`
+	Data              []PricingModel          `json:"data" validate:"required"`
+	Vendors           []PricingVendor         `json:"vendors" validate:"required"`
 	GroupRatio        map[string]float64      `json:"group_ratio"`
 	UsableGroup       map[string]string       `json:"usable_group"`
 	SupportedEndpoint map[string]EndpointInfo `json:"supported_endpoint"`
-	AutoGroups        []string                `json:"auto_groups"`
+	AutoGroups        []string                `json:"auto_groups" validate:"required"`
 	ShowOriginalPrice bool                    `json:"show_original_price"`
 }

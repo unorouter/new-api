@@ -26,8 +26,8 @@ type AdminUpsertSubscriptionPlanRequest struct {
 
 type SubscriptionSelfData struct {
 	BillingPreference string                      `json:"billing_preference"`
-	Subscriptions     []model.SubscriptionSummary `json:"subscriptions"`
-	AllSubscriptions  []model.SubscriptionSummary `json:"all_subscriptions"`
+	Subscriptions     []model.SubscriptionSummary `json:"subscriptions" validate:"required"`
+	AllSubscriptions  []model.SubscriptionSummary `json:"all_subscriptions" validate:"required"`
 }
 
 type SubscriptionBalancePayRequest struct {

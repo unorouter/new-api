@@ -20,10 +20,10 @@ const (
 )
 
 type RankingsResponse struct {
-	Models             []RankedModel      `json:"models"`
-	Vendors            []RankedVendor     `json:"vendors"`
-	TopMovers          []RankingMover     `json:"top_movers"`
-	TopDroppers        []RankingMover     `json:"top_droppers"`
+	Models             []RankedModel      `json:"models" validate:"required"`
+	Vendors            []RankedVendor     `json:"vendors" validate:"required"`
+	TopMovers          []RankingMover     `json:"top_movers" validate:"required"`
+	TopDroppers        []RankingMover     `json:"top_droppers" validate:"required"`
 	ModelsHistory      ModelHistorySeries `json:"models_history"`
 	VendorShareHistory VendorShareSeries  `json:"vendor_share_history"`
 }
@@ -75,8 +75,8 @@ type ModelHistoryModel struct {
 }
 
 type ModelHistorySeries struct {
-	Points  []ModelHistoryPoint `json:"points"`
-	Models  []ModelHistoryModel `json:"models"`
+	Points  []ModelHistoryPoint `json:"points" validate:"required"`
+	Models  []ModelHistoryModel `json:"models" validate:"required"`
 	Buckets int                 `json:"buckets"`
 }
 
@@ -95,8 +95,8 @@ type VendorShareVendor struct {
 }
 
 type VendorShareSeries struct {
-	Points  []VendorSharePoint  `json:"points"`
-	Vendors []VendorShareVendor `json:"vendors"`
+	Points  []VendorSharePoint  `json:"points" validate:"required"`
+	Vendors []VendorShareVendor `json:"vendors" validate:"required"`
 	Buckets int                 `json:"buckets"`
 }
 
