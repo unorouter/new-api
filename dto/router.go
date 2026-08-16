@@ -297,6 +297,11 @@ func ModelQuery() func(*fuego.BaseRoute) {
 	return fuego.OptionQuery("model", "Model name to look up (returns it even when all channels are offline)")
 }
 
+// CatalogFullQuery adds the optional "full" catalog query parameter.
+func CatalogFullQuery() func(*fuego.BaseRoute) {
+	return fuego.OptionQuery("full", "Include description and metadata (browse/compare need them; the model picker does not)")
+}
+
 // GinGet registers a raw gin handler GET route.
 func (r *Router) GinGet(path string, handler gin.HandlerFunc, opts ...func(*fuego.BaseRoute)) {
 	if r.engine == nil {

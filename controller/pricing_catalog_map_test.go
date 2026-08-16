@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -156,4 +157,35 @@ func TestModelMetadataCoversSyncedKeys(t *testing.T) {
 	assert.Equal(t, []string{"low", "high"}, md.ReasoningEfforts)
 	require.NotNil(t, md.DefaultParameters["temperature"])
 	assert.Equal(t, float64(1), *md.DefaultParameters["temperature"])
+}
+
+func TestTruncateDescription(t *testing.T) {
+	assert.Equal(t, "short", truncateDescription("short"))
+
+	long := strings.Repeat("word ", 80) // 400 chars
+	got := truncateDescription(long)
+	assert.LessOrEqual(t, len(got), catalogDescriptionChars+3)
+	assert.True(t, strings.HasSuffix(got, "..."))
+	// Cuts on a space, so the blurb does not end mid-word.
+	assert.False(t, strings.HasSuffix(strings.TrimSuffix(got, "..."), " "))
+
+	// A single unbroken token has no space to cut on; it must still truncate.
+	assert.True(t, strings.HasSuffix(truncateDescription(strings.Repeat("x", 500)), "..."))
+}
+
+func TestListMetadataDropsSendPathFields(t *testing.T) {
+	full := dto.ModelMetadata{
+		ContextWindow:          200000,
+		SupportedParametersAll: []string{"temperature", "top_p"},
+		SupportedParameters:    []string{"temperature"},
+		DefaultParameters:      map[string]*float64{"temperature": nil},
+	}
+	lean := listMetadata(full)
+
+	// Browse filters on these, so they must survive.
+	assert.Equal(t, 200000, lean.ContextWindow)
+	assert.Equal(t, []string{"temperature", "top_p"}, lean.SupportedParametersAll)
+	// Only the send path and the detail view read these, and both fetch per model.
+	assert.Nil(t, lean.SupportedParameters)
+	assert.Nil(t, lean.DefaultParameters)
 }

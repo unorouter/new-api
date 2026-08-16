@@ -51,6 +51,30 @@ var nonChatEndpoints = map[string]bool{
 	"embedding": true, "rerank": true, "moderation": true,
 }
 
+// Cards clamp the blurb to two lines, so the rest of a 1000-character
+// description is bytes nobody reads. The detail routes serve the full text.
+const catalogDescriptionChars = 200
+
+func truncateDescription(s string) string {
+	if len(s) <= catalogDescriptionChars {
+		return s
+	}
+	cut := s[:catalogDescriptionChars]
+	if i := strings.LastIndexByte(cut, ' '); i > 0 {
+		cut = cut[:i]
+	}
+	return cut + "..."
+}
+
+// A list caller filters and sorts; it does not send a request. Parameter lists
+// and provider defaults only matter once a specific model is chosen, and those
+// callers fetch that model on its own.
+func listMetadata(md dto.ModelMetadata) dto.ModelMetadata {
+	md.SupportedParameters = nil
+	md.DefaultParameters = nil
+	return md
+}
+
 // A model bills per call (a flat ModelPrice) rather than per token for these
 // quota types.
 func isFixedPriceQuota(quotaType int) bool {
@@ -175,6 +199,11 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		vendorByID[v.ID] = v.Name
 	}
 
+	// The picker needs a name, a badge and a price; the browse page also filters
+	// on metadata and renders a blurb. Off by default so the chat path is not
+	// paying for the browse page's fields.
+	full := dto.GinCtx(c).Query("full") == "true"
+
 	showOriginal := operation_setting.ShowOriginalPriceEnabled
 	out := make([]dto.PricingCatalogModel, 0, len(pricing))
 	for _, m := range pricing {
@@ -185,7 +214,7 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 			vendor = "Unknown"
 		}
 		price := catalogPricing(m, groupRatio, showOriginal)
-		out = append(out, dto.PricingCatalogModel{
+		row := dto.PricingCatalogModel{
 			ModelName:           m.ModelName,
 			Vendor:              vendor,
 			Type:                modelType,
@@ -201,9 +230,12 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 			OriginalInputPrice:  price.origInput,
 			OriginalOutputPrice: price.origOutput,
 			OriginalFixedPrice:  price.origFixed,
-			Description:         m.Description,
-			Metadata:            md,
-		})
+		}
+		if full {
+			row.Description = truncateDescription(m.Description)
+			row.Metadata = listMetadata(md)
+		}
+		out = append(out, row)
 	}
 
 	collator := newCatalogCollator()
