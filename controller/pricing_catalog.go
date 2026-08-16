@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -47,8 +48,15 @@ func parseCatalogMetadata(raw string) dto.ModelMetadata {
 	return md
 }
 
+// Keys are EndpointType VALUES, so they must match the constants exactly:
+// "rerank"/"moderation" were never endpoint types and matched nothing, which
+// let a moderation classifier through as chat-eligible. "embedding" (singular)
+// is not a constant either but is what the sync writes, so it stays.
 var nonChatEndpoints = map[string]bool{
-	"embedding": true, "rerank": true, "moderation": true,
+	string(constant.EndpointTypeEmbeddings):  true,
+	string(constant.EndpointTypeJinaRerank):  true,
+	string(constant.EndpointTypeModerations): true,
+	"embedding":                              true,
 }
 
 // Cards clamp the blurb to two lines, so the rest of a 1000-character
