@@ -37,6 +37,34 @@ type PricingModel struct {
 	IsFree bool `json:"is_free"`
 }
 
+// PricingCatalogModel is the row a model PICKER needs: enough to list, group,
+// search and badge a model, and nothing else. Deliberately carries no
+// enable_groups, ratios or metadata blob - a caller that needs those for one
+// model fetches /pricing/model, which is ~3KB, rather than making every caller
+// pay for all of them.
+type PricingCatalogModel struct {
+	ModelName string   `json:"model_name"`
+	Vendor    string   `json:"vendor"`
+	Type      string   `json:"type"`
+	Tags      []string `json:"tags" validate:"required"`
+	// Epoch ms, 0 when the model has no release date. Sorted on by callers.
+	ReleaseTs int64 `json:"release_ts"`
+	IsFree    bool  `json:"is_free"`
+	// Whether the model can serve a chat completion. Upstream types every
+	// embedding model as text, so a type check alone leaks models that 400 on
+	// /chat/completions.
+	Chat bool `json:"chat"`
+}
+
+// PricingCatalogData is pre-sorted: free models first, then by name. Callers
+// render it as-is; re-sorting client-side is what let three copies of this
+// ordering drift apart.
+type PricingCatalogData struct {
+	Success bool                  `json:"success"`
+	Data    []PricingCatalogModel `json:"data" validate:"required"`
+	Vendors []PricingVendor       `json:"vendors" validate:"required"`
+}
+
 // PricingVendor mirrors model.PricingVendor for OpenAPI schema generation.
 type PricingVendor struct {
 	ID          int    `json:"id"`
