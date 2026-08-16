@@ -302,6 +302,11 @@ func CatalogFullQuery() func(*fuego.BaseRoute) {
 	return fuego.OptionQuery("full", "Include description and metadata (browse/compare need them; the model picker does not)")
 }
 
+// CatalogVendorQuery adds the optional "vendor" catalog query parameter.
+func CatalogVendorQuery() func(*fuego.BaseRoute) {
+	return fuego.OptionQuery("vendor", "Only models served by this vendor, newest first (the vendor page)")
+}
+
 // GinGet registers a raw gin handler GET route.
 func (r *Router) GinGet(path string, handler gin.HandlerFunc, opts ...func(*fuego.BaseRoute)) {
 	if r.engine == nil {

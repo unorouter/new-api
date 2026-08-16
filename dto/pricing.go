@@ -88,14 +88,52 @@ type PricingCatalogModel struct {
 // PricingCatalogData is pre-sorted: free models first, then by name. Callers
 // render it as-is; re-sorting client-side is what let three copies of this
 // ordering drift apart.
+//
+// Deliberately NOT a {success, data} envelope. Clients unwrap that shape to
+// `data` and drop every sibling with it, so an envelope here would cost the
+// vendors and the default model. HTTP status carries success; the field names
+// say what they hold.
 type PricingCatalogData struct {
-	Success bool                  `json:"success"`
-	Data    []PricingCatalogModel `json:"data" validate:"required"`
+	Models  []PricingCatalogModel `json:"models" validate:"required"`
 	Vendors []PricingVendor       `json:"vendors" validate:"required"`
 	// The chat default before a user picks anything: the newest free chat model
 	// that is actually routable, so a fresh visitor lands on the current
 	// flagship rather than whatever sorts first. Empty when none qualifies.
 	FirstFreeModel string `json:"first_free_model,omitempty"`
+	// Totals over the same group-filtered list the rows come from. Derived here
+	// so a caller that wants four numbers does not download 341 rows to count
+	// them, and so the counts cannot disagree with the list.
+	Counts PricingCatalogCounts `json:"counts"`
+}
+
+type PricingCatalogCounts struct {
+	Models  int `json:"models"`
+	Free    int `json:"free"`
+	Paid    int `json:"paid"`
+	Vendors int `json:"vendors"`
+}
+
+// PricingVendorModel is the row for surfaces that only resolve a model NAME to
+// its vendor and badge: log tables, the token group-mapping picker, the status
+// page and the ticker. A third of the catalog row's size, because none of them
+// price anything.
+type PricingVendorModel struct {
+	ModelName string `json:"model_name"`
+	Vendor    string `json:"vendor"`
+	Chat      bool   `json:"chat"`
+	IsFree    bool   `json:"is_free"`
+	// The primary tag, already defaulted: callers group by it, and an empty
+	// string is not a group.
+	Tag       string `json:"tag"`
+	ReleaseTs int64  `json:"release_ts"`
+}
+
+// PricingVendorsData carries the vendor NAMES that actually serve a model, not
+// every configured vendor. 114 vendors exist but only 45 have a routable model,
+// so this cannot be derived from the vendor table.
+type PricingVendorsData struct {
+	VendorNames  []string             `json:"vendor_names" validate:"required"`
+	ModelVendors []PricingVendorModel `json:"model_vendors" validate:"required"`
 }
 
 // PricingVendor mirrors model.PricingVendor for OpenAPI schema generation.

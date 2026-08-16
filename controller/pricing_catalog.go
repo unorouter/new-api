@@ -176,9 +176,10 @@ func catalogModality(m model.Pricing, md dto.ModelMetadata) (modelType string, c
 // and badge every model, without the group maps and ratio fields that make
 // /pricing an order of magnitude larger. Pre-sorted (free first, then by name)
 // so callers do not each re-derive the same ordering.
-func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
-	pricing := model.GetPricing()
-
+// Every catalog surface must see the SAME models: what a caller may route is a
+// property of their group, so the filter belongs with the fetch rather than at
+// each call site. Group ratios come back too, since prices need them.
+func visiblePricing(c fuego.ContextNoBody) ([]model.Pricing, map[string]float64) {
 	groupRatio := ratio_setting.GetGroupRatioCopy()
 	var group string
 	if userId, exists := dto.GinCtx(c).Get("id"); exists {
@@ -192,34 +193,57 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		}
 	}
 	usableGroup := service.GetUserUsableGroups(group)
-	pricing = filterPricingByUsableGroups(pricing, usableGroup)
+	return filterPricingByUsableGroups(model.GetPricing(), usableGroup), groupRatio
+}
 
-	vendorByID := make(map[int]model.PricingVendor)
-	for _, v := range model.GetVendors() {
-		vendorByID[v.ID] = v
+// A model's vendor name, defaulted: a row with no resolvable vendor still has to
+// group somewhere.
+func catalogVendorName(vendorByID map[int]model.PricingVendor, vendorID int) string {
+	if name := vendorByID[vendorID].Name; name != "" {
+		return name
 	}
+	return "Unknown"
+}
+
+func vendorsByID() map[int]model.PricingVendor {
+	out := make(map[int]model.PricingVendor)
+	for _, v := range model.GetVendors() {
+		out[v.ID] = v
+	}
+	return out
+}
+
+func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
+	pricing, groupRatio := visiblePricing(c)
+	vendorByID := vendorsByID()
 
 	// The picker needs a name, a badge and a price; the browse page also filters
 	// on metadata and renders a blurb. Off by default so the chat path is not
 	// paying for the browse page's fields.
 	full := dto.GinCtx(c).Query("full") == "true"
+	// A vendor page shows one vendor's models, so it filters here rather than
+	// downloading all 341 rows to keep 12. Implies `full`: the cards render a
+	// blurb and capability chips.
+	vendorFilter := dto.GinCtx(c).Query("vendor")
+	if vendorFilter != "" {
+		full = true
+	}
 
 	showOriginal := operation_setting.ShowOriginalPriceEnabled
 	out := make([]dto.PricingCatalogModel, 0, len(pricing))
 	for _, m := range pricing {
 		md := parseCatalogMetadata(m.Metadata)
 		modelType, chat := catalogModality(m, md)
-		vendor := vendorByID[m.VendorID]
-		vendorName := vendor.Name
-		if vendorName == "" {
-			vendorName = "Unknown"
+		vendorName := catalogVendorName(vendorByID, m.VendorID)
+		if vendorFilter != "" && vendorName != vendorFilter {
+			continue
 		}
 		price := catalogPricing(m, groupRatio, showOriginal)
 		row := dto.PricingCatalogModel{
 			ModelName:           m.ModelName,
 			Vendor:              vendorName,
 			VendorID:            m.VendorID,
-			Icon:                vendor.Icon,
+			Icon:                vendorByID[m.VendorID].Icon,
 			Type:                modelType,
 			Tags:                catalogTags(m.Tags),
 			ReleaseTs:           md.ReleaseTs,
@@ -243,6 +267,15 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 
 	collator := newCatalogCollator()
 	sort.SliceStable(out, func(i, j int) bool {
+		// One vendor's page is a release timeline, so it reads newest first. The
+		// name tiebreak is load-bearing either way: most models share a release
+		// date with another, and date alone leaves those in slice order.
+		if vendorFilter != "" {
+			if out[i].ReleaseTs != out[j].ReleaseTs {
+				return out[i].ReleaseTs > out[j].ReleaseTs
+			}
+			return collator.CompareString(out[i].ModelName, out[j].ModelName) < 0
+		}
 		if out[i].IsFree != out[j].IsFree {
 			return out[i].IsFree
 		}
@@ -250,11 +283,68 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	})
 
 	return dto.PricingCatalogData{
-		Success:        true,
-		Data:           out,
+		Models:         out,
 		Vendors:        toPricingVendors(model.GetVendors()),
 		FirstFreeModel: newestFreeChatModel(out),
+		Counts:         catalogCounts(out),
 	}, nil
+}
+
+// GetPricingVendors resolves a model name to its vendor and badge for the log
+// table, the token group-mapping picker, the status page and the ticker. None of
+// them price anything, so this carries no prices, metadata or description: a
+// third of the catalog's size.
+func GetPricingVendors(c fuego.ContextNoBody) (dto.PricingVendorsData, error) {
+	pricing, groupRatio := visiblePricing(c)
+	vendorByID := vendorsByID()
+
+	out := make([]dto.PricingVendorModel, 0, len(pricing))
+	seen := make(map[string]struct{}, len(pricing))
+	names := make([]string, 0, len(vendorByID))
+	for _, m := range pricing {
+		md := parseCatalogMetadata(m.Metadata)
+		_, chat := catalogModality(m, md)
+		vendorName := catalogVendorName(vendorByID, m.VendorID)
+		if _, ok := seen[vendorName]; !ok {
+			seen[vendorName] = struct{}{}
+			names = append(names, vendorName)
+		}
+		tag := "Other"
+		if tags := catalogTags(m.Tags); len(tags) > 0 {
+			tag = tags[0]
+		}
+		out = append(out, dto.PricingVendorModel{
+			ModelName: m.ModelName,
+			Vendor:    vendorName,
+			Chat:      chat,
+			IsFree:    modelIsFree(m, groupRatio),
+			Tag:       tag,
+			ReleaseTs: md.ReleaseTs,
+		})
+	}
+
+	collator := newCatalogCollator()
+	sort.SliceStable(names, func(i, j int) bool {
+		return collator.CompareString(names[i], names[j]) < 0
+	})
+
+	return dto.PricingVendorsData{VendorNames: names, ModelVendors: out}, nil
+}
+
+// Vendors counts only vendors that actually serve a model, not every configured
+// one: it is quoted as "N+ providers", and an empty vendor is not a provider.
+func catalogCounts(models []dto.PricingCatalogModel) dto.PricingCatalogCounts {
+	counts := dto.PricingCatalogCounts{Models: len(models)}
+	vendors := make(map[string]struct{}, len(models))
+	for _, m := range models {
+		if m.IsFree {
+			counts.Free++
+		}
+		vendors[m.Vendor] = struct{}{}
+	}
+	counts.Paid = counts.Models - counts.Free
+	counts.Vendors = len(vendors)
+	return counts
 }
 
 // Newest first, name as tiebreak: most models share a release date with another,
