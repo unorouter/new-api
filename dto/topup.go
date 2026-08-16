@@ -29,7 +29,7 @@ type TopUpInfoData struct {
 	PaymentComplianceTermsVersion string              `json:"payment_compliance_terms_version"`
 	WaffoPayMethods               interface{}         `json:"waffo_pay_methods"`
 	CreemProducts                 string              `json:"creem_products"`
-	PayMethods                    []map[string]string `json:"pay_methods"`
+	PayMethods                    []map[string]string `json:"pay_methods" validate:"required"`
 	MinTopup                      int                 `json:"min_topup"`
 	StripeMinTopup                int                 `json:"stripe_min_topup"`
 	WaffoMinTopup                 int                 `json:"waffo_min_topup"`

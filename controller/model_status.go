@@ -57,9 +57,9 @@ type CardItemDTO struct {
 // of the bucket start; the lib accepts any ISO string (not just calendar days).
 type StatusBarDataDTO struct {
 	Day    string          `json:"day"`
-	Bar    []BarSegmentDTO `json:"bar"`
-	Card   []CardItemDTO   `json:"card"`
-	Events []EventDTO      `json:"events"`
+	Bar    []BarSegmentDTO `json:"bar" validate:"required"`
+	Card   []CardItemDTO   `json:"card" validate:"required"`
+	Events []EventDTO      `json:"events" validate:"required"`
 }
 
 // CompactBarDTO carries one model's buckets and its incident overlay. Events
