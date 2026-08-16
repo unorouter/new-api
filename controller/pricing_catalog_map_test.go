@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +36,7 @@ func TestCatalogModality(t *testing.T) {
 		{"absent modality is not chat", nil, "text", false},
 	}
 	for _, c := range cases {
-		gotType, gotChat := catalogModality(model.Pricing{}, catalogMetadata{OutputModalities: c.modalites})
+		gotType, gotChat := catalogModality(model.Pricing{}, dto.ModelMetadata{OutputModalities: c.modalites})
 		assert.Equal(t, c.wantType, gotType, c.name)
 		assert.Equal(t, c.wantChat, gotChat, c.name)
 	}
@@ -55,7 +56,7 @@ func TestParseCatalogMetadata(t *testing.T) {
 // source still publishes outputModalities ["text"] for it.
 func TestCatalogModalityEndpointOverridesTextClaim(t *testing.T) {
 	m := model.Pricing{SupportedEndpointTypes: []constant.EndpointType{"openai", "embedding"}}
-	gotType, gotChat := catalogModality(m, catalogMetadata{OutputModalities: []string{"text"}})
+	gotType, gotChat := catalogModality(m, dto.ModelMetadata{OutputModalities: []string{"text"}})
 	assert.Equal(t, "text", gotType)
 	assert.False(t, gotChat)
 }
@@ -117,4 +118,42 @@ func TestCatalogPricing(t *testing.T) {
 		assert.InDelta(t, 2, p.input, 1e-9)
 		assert.Nil(t, p.origInput)
 	})
+}
+
+// Every key the sync writes must survive the round trip. A field missing from
+// the struct is dropped silently: consumers see undefined rather than an error,
+// so a filter quietly returns nothing instead of failing.
+func TestModelMetadataCoversSyncedKeys(t *testing.T) {
+	// The 37 keys observed across all live models.
+	raw := `{"releaseTs":1764010580000,"releaseDate":"2025-11-24","contextWindow":200000,
+	"maxInputTokens":200000,"maxOutputTokens":64000,"maxImageInputs":6,
+	"outputModalities":["text"],"inputModalities":["text","image"],"mode":"chat",
+	"series":"claude","categories":["reasoning"],"tokenizer":"claude",
+	"knowledgeCutoff":"2025-03","deprecationDate":"2027-01-01","expirationDate":"2027-06-01",
+	"huggingFaceId":"org/model","quantization":"fp8","isModerated":true,
+	"isReasoning":true,"supportsTools":true,"supportsParallelTools":true,
+	"supportsVision":true,"supportsAudio":true,"supportsAudioOutput":true,
+	"supportsVideo":true,"supportsPdf":true,"supportsCache":true,
+	"supportsWebSearch":true,"supportsComputerUse":true,"supportsResponseFormat":true,
+	"supportsAssistantPrefill":true,"supportsUrlContext":true,
+	"supportsNativeStreaming":true,"supportsSystemMessages":true,
+	"supportedParameters":["temperature"],"supportedParametersAll":["temperature","top_p"],
+	"defaultParameters":{"temperature":1},"reasoningEfforts":["low","high"]}`
+
+	md := parseCatalogMetadata(raw)
+
+	assert.Equal(t, int64(1764010580000), md.ReleaseTs)
+	assert.Equal(t, 200000, md.ContextWindow)
+	assert.Equal(t, 6, md.MaxImageInputs)
+	assert.Equal(t, []string{"text"}, md.OutputModalities)
+	assert.Equal(t, "chat", md.Mode)
+	assert.Equal(t, "claude", md.Series)
+	assert.Equal(t, []string{"reasoning"}, md.Categories)
+	assert.True(t, md.IsReasoning)
+	assert.True(t, md.SupportsTools)
+	assert.True(t, md.SupportsSystemMessages)
+	assert.Equal(t, []string{"temperature", "top_p"}, md.SupportedParametersAll)
+	assert.Equal(t, []string{"low", "high"}, md.ReasoningEfforts)
+	require.NotNil(t, md.DefaultParameters["temperature"])
+	assert.Equal(t, float64(1), *md.DefaultParameters["temperature"])
 }

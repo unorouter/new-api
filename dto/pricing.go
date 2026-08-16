@@ -70,6 +70,11 @@ type PricingCatalogModel struct {
 	OriginalInputPrice  *float64 `json:"original_input_price,omitempty"`
 	OriginalOutputPrice *float64 `json:"original_output_price,omitempty"`
 	OriginalFixedPrice  *float64 `json:"original_fixed_price,omitempty"`
+
+	Description string `json:"description,omitempty"`
+	// The sync's hint blob, parsed. Vanilla /pricing still publishes it as a
+	// JSON string; only this route hands callers a typed object.
+	Metadata ModelMetadata `json:"metadata"`
 	// Whether the model can serve a chat completion. Upstream types every
 	// embedding model as text, so a type check alone leaks models that 400 on
 	// /chat/completions.

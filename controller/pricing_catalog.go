@@ -36,13 +36,10 @@ func catalogTags(raw string) []string {
 	return out
 }
 
-type catalogMetadata struct {
-	OutputModalities []string `json:"outputModalities"`
-	ReleaseTs        int64    `json:"releaseTs"`
-}
-
-func parseCatalogMetadata(raw string) catalogMetadata {
-	var md catalogMetadata
+// The blob is written by the sync and opaque to the gateway, so a model with
+// unparseable metadata still belongs in the catalog: it just carries no hints.
+func parseCatalogMetadata(raw string) dto.ModelMetadata {
+	var md dto.ModelMetadata
 	if raw == "" {
 		return md
 	}
@@ -135,7 +132,7 @@ func catalogPricing(m model.Pricing, groupRatio map[string]float64, showOriginal
 // rather than a name or tag heuristic. The endpoint check stays as the
 // authority on chat-eligibility: a model routed to /embeddings cannot serve a
 // chat completion no matter what modality it claims.
-func catalogModality(m model.Pricing, md catalogMetadata) (modelType string, chat bool) {
+func catalogModality(m model.Pricing, md dto.ModelMetadata) (modelType string, chat bool) {
 	for _, want := range []string{"image", "video", "audio", "embedding"} {
 		for _, got := range md.OutputModalities {
 			if got == want {
@@ -204,6 +201,8 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 			OriginalInputPrice:  price.origInput,
 			OriginalOutputPrice: price.origOutput,
 			OriginalFixedPrice:  price.origFixed,
+			Description:         m.Description,
+			Metadata:            md,
 		})
 	}
 
