@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"math"
+
 	"fmt"
 	"strings"
 
@@ -18,6 +20,46 @@ import (
 
 type SubscriptionPlanDTO struct {
 	Plan model.SubscriptionPlan `json:"plan"`
+	// Derived server-side so every client renders the same numbers instead of
+	// re-implementing the reset-period math: dollars granted per reset, and the
+	// total across the plan's whole duration.
+	QuotaPerResetUsd  float64 `json:"quota_per_reset_usd"`
+	EstimatedTotalUsd float64 `json:"estimated_total_usd"`
+}
+
+// How many quota resets fall inside one full plan duration. Mirrors the
+// gateway's own period lengths (30.44d month, 365.25d year).
+func estimateResetsPerDuration(resetPeriod, durationUnit string, durationValue int) int {
+	var durationSeconds float64
+	switch durationUnit {
+	case "year":
+		durationSeconds = float64(durationValue) * 365.25 * 86400
+	case "month":
+		durationSeconds = float64(durationValue) * 30.44 * 86400
+	case "day":
+		durationSeconds = float64(durationValue) * 86400
+	case "hour":
+		durationSeconds = float64(durationValue) * 3600
+	default:
+		return 1
+	}
+
+	var resetSeconds float64
+	switch resetPeriod {
+	case "daily":
+		resetSeconds = 86400
+	case "weekly":
+		resetSeconds = 7 * 86400
+	case "monthly":
+		resetSeconds = 30.44 * 86400
+	default:
+		return 1
+	}
+
+	if resetSeconds <= 0 || durationSeconds <= 0 {
+		return 0
+	}
+	return int(math.Floor(durationSeconds / resetSeconds))
 }
 
 type AdminUpsertSubscriptionPlanRequest struct {
@@ -47,8 +89,12 @@ func GetSubscriptionPlans(c fuego.ContextNoBody) (*dto.Response[[]SubscriptionPl
 	result := make([]SubscriptionPlanDTO, 0, len(plans))
 	for _, p := range plans {
 		p.NormalizeDefaults()
+		quotaPerResetUsd := float64(p.TotalAmount) / common.QuotaPerUnit
+		resets := estimateResetsPerDuration(p.QuotaResetPeriod, p.DurationUnit, p.DurationValue)
 		result = append(result, SubscriptionPlanDTO{
-			Plan: p,
+			Plan:              p,
+			QuotaPerResetUsd:  quotaPerResetUsd,
+			EstimatedTotalUsd: math.Round(quotaPerResetUsd*float64(resets)*100) / 100,
 		})
 	}
 	return dto.Ok(result)
