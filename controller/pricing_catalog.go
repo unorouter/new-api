@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"math"
 	"sort"
 	"strings"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/go-fuego/fuego"
 	"golang.org/x/text/collate"
@@ -50,6 +52,83 @@ func parseCatalogMetadata(raw string) catalogMetadata {
 
 var nonChatEndpoints = map[string]bool{
 	"embedding": true, "rerank": true, "moderation": true,
+}
+
+// A model bills per call (a flat ModelPrice) rather than per token for these
+// quota types.
+func isFixedPriceQuota(quotaType int) bool {
+	return quotaType == 1 || quotaType == 3 || quotaType == 4
+}
+
+// The cheapest ratio among the groups this model is actually served by. Display
+// prices quote the best rate a caller could get, so the discount shown matches
+// what they would pay on the cheapest lane.
+func minGroupRatio(enableGroups []string, groupRatio map[string]float64) float64 {
+	min := math.Inf(1)
+	for _, g := range enableGroups {
+		if r, ok := groupRatio[g]; ok && r < min {
+			min = r
+		}
+	}
+	if math.IsInf(min, 1) {
+		return 1
+	}
+	return min
+}
+
+// quotaToUSD converts a stored ratio to dollars per million tokens.
+const quotaToUSD = 2
+
+type catalogPrices struct {
+	input, output, fixed             float64
+	origInput, origOutput, origFixed *float64
+}
+
+// Prices are the sticker value times the cheapest group ratio. Original prices
+// are populated only when a discount actually applies, so a null means "no
+// strikethrough" rather than "free".
+func catalogPricing(m model.Pricing, groupRatio map[string]float64, showOriginal bool) catalogPrices {
+	var p catalogPrices
+	ratio := minGroupRatio(m.EnableGroup, groupRatio)
+	discounted := showOriginal && ratio < 1
+
+	if isFixedPriceQuota(m.QuotaType) {
+		p.fixed = m.ModelPrice * ratio
+		if discounted && m.ModelPrice > 0 {
+			sticker := m.ModelPrice
+			p.origFixed = &sticker
+		}
+	} else {
+		p.input = m.ModelRatio * quotaToUSD * ratio
+		p.output = p.input * m.CompletionRatio
+		if discounted {
+			in := m.ModelRatio * quotaToUSD
+			out := in * m.CompletionRatio
+			p.origInput = &in
+			p.origOutput = &out
+		}
+	}
+
+	// Grid pricing overrides the flat rate: the cheapest tier is what a caller
+	// sees quoted.
+	if len(m.GridPricing) > 0 {
+		minTier := math.Inf(1)
+		for _, row := range m.GridPricing {
+			price, ok := row["Pricing"].(float64)
+			if ok && price > 0 && price < minTier {
+				minTier = price
+			}
+		}
+		if !math.IsInf(minTier, 1) {
+			p.fixed = minTier * ratio
+			p.origFixed = nil
+			if discounted {
+				tier := minTier
+				p.origFixed = &tier
+			}
+		}
+	}
+	return p
 }
 
 // What a model emits is a stated fact, so type comes from outputModalities
@@ -99,6 +178,7 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		vendorByID[v.ID] = v.Name
 	}
 
+	showOriginal := operation_setting.ShowOriginalPriceEnabled
 	out := make([]dto.PricingCatalogModel, 0, len(pricing))
 	for _, m := range pricing {
 		md := parseCatalogMetadata(m.Metadata)
@@ -107,15 +187,23 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		if vendor == "" {
 			vendor = "Unknown"
 		}
+		price := catalogPricing(m, groupRatio, showOriginal)
 		out = append(out, dto.PricingCatalogModel{
-			ModelName: m.ModelName,
-			Vendor:    vendor,
-			Type:      modelType,
-			Tags:      catalogTags(m.Tags),
-			ReleaseTs: md.ReleaseTs,
-			IsFree:    modelIsFree(m, groupRatio),
-			Online:    m.Online,
-			Chat:      chat,
+			ModelName:           m.ModelName,
+			Vendor:              vendor,
+			Type:                modelType,
+			Tags:                catalogTags(m.Tags),
+			ReleaseTs:           md.ReleaseTs,
+			IsFree:              modelIsFree(m, groupRatio),
+			Online:              m.Online,
+			Chat:                chat,
+			InputPrice:          price.input,
+			OutputPrice:         price.output,
+			FixedPrice:          price.fixed,
+			IsFixedPrice:        isFixedPriceQuota(m.QuotaType),
+			OriginalInputPrice:  price.origInput,
+			OriginalOutputPrice: price.origOutput,
+			OriginalFixedPrice:  price.origFixed,
 		})
 	}
 

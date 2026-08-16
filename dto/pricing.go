@@ -53,6 +53,23 @@ type PricingCatalogModel struct {
 	// False when every channel serving the model is disabled. Callers picking a
 	// default model must not land a user on one nothing can route.
 	Online bool `json:"online"`
+
+	// Display prices in USD per million tokens, already multiplied by the
+	// cheapest servable group ratio. Derived here because the inputs (ratios,
+	// the group map, the sticker price) are gateway concepts; a caller that
+	// re-derives them has to ship the whole group map to do it.
+	InputPrice  float64 `json:"input_price"`
+	OutputPrice float64 `json:"output_price"`
+	// Per-call price for quota_type 1/3/4, where the model bills a flat rate
+	// rather than per token.
+	FixedPrice   float64 `json:"fixed_price"`
+	IsFixedPrice bool    `json:"is_fixed_price"`
+	// Undiscounted prices, set only when the model is actually discounted (a
+	// group ratio below 1) and the operator enables original-price display.
+	// Null means no strikethrough, NOT zero.
+	OriginalInputPrice  *float64 `json:"original_input_price,omitempty"`
+	OriginalOutputPrice *float64 `json:"original_output_price,omitempty"`
+	OriginalFixedPrice  *float64 `json:"original_fixed_price,omitempty"`
 	// Whether the model can serve a chat completion. Upstream types every
 	// embedding model as text, so a type check alone leaks models that 400 on
 	// /chat/completions.
