@@ -109,16 +109,13 @@ func Distribute() func(c *gin.Context) {
 				// per-request group override via header (any relay path).
 				// Authorize against the user's ACCOUNT group (ContextKeyUserGroup),
 				// not usingGroup: the latter is the token-effective group (often
-				// "auto" or a token-pinned group), so GetUserUsableGroups would
-				// miss the user's special-group grants. (The playground path above
-				// passes usingGroup, but usingGroup there equals the user group on
-				// the playground flow; the header override runs on every relay.)
+				// "auto" or a token-pinned group), so the user's special-group
+				// grants would be missed.
 				if headerGroup := c.GetHeader("X-Group"); headerGroup != "" {
 					userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
-					userId := common.GetContextKeyInt(c, constant.ContextKeyUserId)
 					if headerGroup != usingGroup &&
 						headerGroup != "auto" &&
-						!service.GroupInUserUsableGroupsForUser(userId, userGroup, headerGroup) {
+						!service.GroupInUserUsableGroups(userGroup, headerGroup) {
 						abortWithOpenAiMessage(c, http.StatusForbidden, "No permission to access this group")
 						return
 					}

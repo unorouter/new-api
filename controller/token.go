@@ -37,7 +37,7 @@ func validateTokenGroupMapping(userId int, mappingJSON string) error {
 	if err != nil {
 		return err
 	}
-	usable := service.GetUserUsableGroupsForUser(userId, userGroup)
+	usable := service.GetUserUsableGroups(userGroup)
 	for m, groups := range mapping {
 		if strings.TrimSpace(m) == "" {
 			return errors.New("group_mapping contains an empty model name")
