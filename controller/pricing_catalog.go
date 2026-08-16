@@ -282,12 +282,18 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		return collator.CompareString(out[i].ModelName, out[j].ModelName) < 0
 	})
 
-	return dto.PricingCatalogData{
+	data := dto.PricingCatalogData{
 		Models:         out,
 		Vendors:        toPricingVendors(model.GetVendors()),
 		FirstFreeModel: newestFreeChatModel(out),
 		Counts:         catalogCounts(out),
-	}, nil
+	}
+	// Only the browse/detail surface prints endpoint routes; the picker would be
+	// paying 716 bytes for something it never reads.
+	if full {
+		data.SupportedEndpoint = toEndpointInfoMap(model.GetSupportedEndpointMap())
+	}
+	return data, nil
 }
 
 // GetPricingVendors resolves a model name to its vendor and badge for the log
@@ -329,6 +335,73 @@ func GetPricingVendors(c fuego.ContextNoBody) (dto.PricingVendorsData, error) {
 	})
 
 	return dto.PricingVendorsData{VendorNames: names, ModelVendors: out}, nil
+}
+
+// GetPricingModelGroups returns the group panel for ONE model. Everything is
+// scoped to that model here rather than in the client, which previously had to
+// download the 56KB global auto-group list and the 1800-key ratio map to render
+// a handful of chips.
+func GetPricingModelGroups(c fuego.ContextNoBody) (dto.PricingModelGroupsData, error) {
+	modelName := dto.GinCtx(c).Query("model")
+	pricing, ok := model.GetPricingByModelName(modelName)
+	if !ok {
+		return dto.PricingModelGroupsData{}, fuego.NotFoundError{Title: "model not found"}
+	}
+
+	all := ratio_setting.GetGroupRatioCopy()
+	groupRatio := make(map[string]float64, len(pricing.EnableGroup))
+	if common.StringsContains(pricing.EnableGroup, "all") {
+		groupRatio = all
+	} else {
+		for _, g := range pricing.EnableGroup {
+			if f, ok := all[g]; ok {
+				groupRatio[g] = f
+			}
+		}
+	}
+
+	var userGroup string
+	if userId, exists := dto.GinCtx(c).Get("id"); exists {
+		if user, err := model.GetUserCache(userId.(int)); err == nil {
+			userGroup = user.Group
+			for g := range groupRatio {
+				if ratio, ok := ratio_setting.GetGroupGroupRatio(userGroup, g); ok {
+					groupRatio[g] = ratio
+				}
+			}
+		}
+	}
+
+	enabled := make(map[string]struct{}, len(pricing.EnableGroup))
+	for _, g := range pricing.EnableGroup {
+		enabled[g] = struct{}{}
+	}
+	servesAll := common.StringsContains(pricing.EnableGroup, "all")
+	chain := make([]string, 0, 4)
+	for _, g := range service.GetUserAutoGroup(userGroup) {
+		if _, ok := enabled[g]; ok || servesAll {
+			chain = append(chain, g)
+		}
+	}
+	// Cheapest first: the chain is what a caller falls through, so the order is
+	// the routing order, not the config order.
+	sort.SliceStable(chain, func(i, j int) bool {
+		ri, iok := groupRatio[chain[i]]
+		rj, jok := groupRatio[chain[j]]
+		if !iok {
+			return false
+		}
+		if !jok {
+			return true
+		}
+		return ri < rj
+	})
+
+	return dto.PricingModelGroupsData{
+		EnableGroups: pricing.EnableGroup,
+		GroupRatio:   groupRatio,
+		AutoChain:    chain,
+	}, nil
 }
 
 // Vendors counts only vendors that actually serve a model, not every configured

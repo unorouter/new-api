@@ -104,6 +104,10 @@ type PricingCatalogData struct {
 	// so a caller that wants four numbers does not download 341 rows to count
 	// them, and so the counts cannot disagree with the list.
 	Counts PricingCatalogCounts `json:"counts"`
+	// Endpoint path/method per endpoint type, for the detail panel that prints a
+	// model's callable routes. 11 keys, so it rides the list rather than needing
+	// a request of its own.
+	SupportedEndpoint map[string]EndpointInfo `json:"supported_endpoint,omitempty"`
 }
 
 type PricingCatalogCounts struct {
@@ -134,6 +138,20 @@ type PricingVendorModel struct {
 type PricingVendorsData struct {
 	VendorNames  []string             `json:"vendor_names" validate:"required"`
 	ModelVendors []PricingVendorModel `json:"model_vendors" validate:"required"`
+}
+
+// PricingModelGroupsData is the group panel for ONE model. Every field is
+// already scoped to that model: the full auto-group list is 56KB and the full
+// ratio map has 1800+ keys, and a caller rendering one model's groups needs
+// neither.
+type PricingModelGroupsData struct {
+	EnableGroups []string `json:"enable_groups" validate:"required"`
+	// Ratios for this model's groups only.
+	GroupRatio map[string]float64 `json:"group_ratio" validate:"required"`
+	// The auto-routing chain restricted to groups this model is served by,
+	// cheapest first. Intersecting the global chain client-side meant shipping
+	// all of it to keep a handful of entries.
+	AutoChain []string `json:"auto_chain" validate:"required"`
 }
 
 // PricingVendor mirrors model.PricingVendor for OpenAPI schema generation.
