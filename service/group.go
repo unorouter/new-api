@@ -66,37 +66,6 @@ func GroupInUserUsableGroups(userGroup, groupName string) bool {
 	return setting.UserUsableGroupsContains(groupName)
 }
 
-// GetUserUsableGroupsForUser is the per-user variant: the group-string usable set
-// PLUS the groups granted to this specific user id (users.setting.usable_groups).
-// Private routing groups are granted per user here, so the user keeps group=auto
-// and reaches them via the X-Group header. Only groups that exist in GroupRatio
-// are surfaced (mirrors the global usable-group contract).
-func GetUserUsableGroupsForUser(userId int, userGroup string) map[string]string {
-	groups := GetUserUsableGroups(userGroup)
-	userSetting, err := model.GetUserSetting(userId, false)
-	if err != nil {
-		return groups
-	}
-	for _, g := range userSetting.UsableGroups {
-		if g == "" {
-			continue
-		}
-		if _, ok := groups[g]; ok {
-			continue
-		}
-		if !ratio_setting.ContainsGroupRatio(g) {
-			continue
-		}
-		groups[g] = setting.GetUsableGroupDescription(g)
-	}
-	return groups
-}
-
-func GroupInUserUsableGroupsForUser(userId int, userGroup, groupName string) bool {
-	_, ok := GetUserUsableGroupsForUser(userId, userGroup)[groupName]
-	return ok
-}
-
 func IsUserSelectableGroup(userGroup, groupName string) bool {
 	if groupName == "" || groupName == "auto" {
 		return false

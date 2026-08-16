@@ -65,7 +65,7 @@ func GetPricing(c fuego.ContextNoBody) (dto.PricingData, error) {
 	// private groups + the models they serve flow through the pricing payload; the
 	// client matches group->models via each model's enable_groups.
 	if exists {
-		usableGroup = service.GetUserUsableGroupsForUser(userId.(int), group)
+		usableGroup = service.GetUserUsableGroups(group)
 	} else {
 		usableGroup = service.GetUserUsableGroups(group)
 	}

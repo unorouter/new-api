@@ -124,16 +124,4 @@ type UserSelfData struct {
 	Permissions               any     `json:"permissions"`
 	// False for OAuth-only accounts that never set a local password.
 	HasPassword bool `json:"has_password"`
-	// Only populated when the user has per-user usable-group grants
-	// (setting.usable_groups); absent otherwise so the common path stays cheap.
-	PrivateGroups []PrivateGroupInfo `json:"private_groups,omitempty"`
-}
-
-// PrivateGroupInfo describes a per-user usable group + the models it serves, so a
-// client can offer it as a routing-group override on those models.
-type PrivateGroupInfo struct {
-	Group  string   `json:"group"`
-	Desc   string   `json:"desc"`
-	Ratio  float64  `json:"ratio"`
-	Models []string `json:"models"`
 }

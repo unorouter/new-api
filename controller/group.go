@@ -22,7 +22,7 @@ func GetUserGroups(c fuego.ContextNoBody) (*dto.Response[map[string]dto.UserGrou
 	userGroup := ""
 	userId := dto.UserID(c)
 	userGroup, _ = model.GetUserGroup(userId, false)
-	userUsableGroups := service.GetUserUsableGroupsForUser(userId, userGroup)
+	userUsableGroups := service.GetUserUsableGroups(userGroup)
 	for groupName, _ := range ratio_setting.GetGroupRatioCopy() {
 		// UserUsableGroups contains the groups that the user can use
 		if desc, ok := userUsableGroups[groupName]; ok {

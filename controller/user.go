@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting"
@@ -688,22 +688,6 @@ func GetSelf(c fuego.ContextNoBody) (*dto.Response[dto.UserSelfData], error) {
 		SidebarModules:            userSetting.SidebarModules,
 		Permissions:               permissions,
 		HasPassword:               hasPassword,
-	}
-
-	// Optional join: only when the user actually has per-user grants. Keeps the
-	// common (no-private-group) path free of extra lookups.
-	if len(userSetting.UsableGroups) > 0 {
-		for _, g := range userSetting.UsableGroups {
-			if g == "" || !ratio_setting.ContainsGroupRatio(g) {
-				continue
-			}
-			data.PrivateGroups = append(data.PrivateGroups, dto.PrivateGroupInfo{
-				Group:  g,
-				Desc:   setting.GetUsableGroupDescription(g),
-				Ratio:  ratio_setting.GetGroupRatio(g),
-				Models: model.GetGroupEnabledModels(g),
-			})
-		}
 	}
 
 	return dto.Ok(data)
