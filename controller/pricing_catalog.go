@@ -77,12 +77,7 @@ func catalogModality(m model.Pricing, md catalogMetadata) (modelType string, cha
 // /pricing an order of magnitude larger. Pre-sorted (free first, then by name)
 // so callers do not each re-derive the same ordering.
 func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
-	var pricing []model.Pricing
-	if dto.GinCtx(c).Query("include_offline") == "true" {
-		pricing = model.GetPricingWithOffline()
-	} else {
-		pricing = model.GetPricing()
-	}
+	pricing := model.GetPricing()
 
 	groupRatio := ratio_setting.GetGroupRatioCopy()
 	var group string
