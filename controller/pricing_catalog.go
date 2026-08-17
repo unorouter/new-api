@@ -4,15 +4,19 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/go-fuego/fuego"
+	"github.com/samber/lo"
 	"golang.org/x/text/collate"
 	"golang.org/x/text/language"
 )
@@ -223,6 +227,65 @@ func vendorsByID() map[int]model.PricingVendor {
 
 // One mapping for the list row, shared by the list and the per-model detail, so
 // a caller reads the same field names whichever it fetched.
+// Reliability rides the catalog because it is a per-model FACT the gateway
+// already computes for the status and perf pages. Callers that want to sort or
+// badge on it would otherwise fetch two more whole-catalog payloads and join
+// them by name client-side.
+type reliability struct {
+	uptime  map[string]float64
+	success map[string]float64
+}
+
+// Both inputs are aggregate queries, and the catalog is a hot path, so the
+// result is cached rather than recomputed per request. The window matches what
+// the status and perf pages already report (24h).
+var (
+	reliabilityMu    sync.Mutex
+	reliabilityAt    time.Time
+	reliabilityValue reliability
+)
+
+const reliabilityTTL = 5 * time.Minute
+
+func catalogReliability() reliability {
+	reliabilityMu.Lock()
+	if !reliabilityAt.IsZero() && time.Since(reliabilityAt) < reliabilityTTL {
+		v := reliabilityValue
+		reliabilityMu.Unlock()
+		return v
+	}
+	reliabilityMu.Unlock()
+
+	out := reliability{
+		uptime:  map[string]float64{},
+		success: map[string]float64{},
+	}
+	// A reliability lookup must never fail the catalog: the prices are the
+	// payload, these two are decoration, so an error leaves them absent (null)
+	// rather than 500ing the model list.
+	if comps, err := model.GetAllPublicModelStatusComponents(); err == nil {
+		names := make([]string, 0, len(comps))
+		for _, comp := range comps {
+			names = append(names, comp.ModelName)
+		}
+		if u24, _, err := cachedUptimes(names); err == nil {
+			out.uptime = u24
+		}
+	}
+	activeGroups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto")
+	if summary, err := perfmetrics.QuerySummaryAll(24, activeGroups); err == nil {
+		for _, row := range summary.Models {
+			out.success[row.ModelName] = row.SuccessRate
+		}
+	}
+
+	reliabilityMu.Lock()
+	reliabilityAt = time.Now()
+	reliabilityValue = out
+	reliabilityMu.Unlock()
+	return out
+}
+
 func catalogRow(
 	m model.Pricing,
 	md dto.ModelMetadata,
@@ -232,8 +295,11 @@ func catalogRow(
 	chat bool,
 	groupRatio map[string]float64,
 	showOriginal bool,
+	rel reliability,
 ) dto.PricingCatalogModel {
 	price := catalogPricing(m, groupRatio, showOriginal)
+	uptime, hasUptime := rel.uptime[m.ModelName]
+	success, hasSuccess := rel.success[m.ModelName]
 	return dto.PricingCatalogModel{
 		ModelName:              m.ModelName,
 		Vendor:                 vendorName,
@@ -253,7 +319,16 @@ func catalogRow(
 		OriginalOutputPrice:    price.origOutput,
 		OriginalFixedPrice:     price.origFixed,
 		SupportedEndpointTypes: m.SupportedEndpointTypes,
+		Uptime24h:              optionalFloat(uptime, hasUptime),
+		SuccessRate:            optionalFloat(success, hasSuccess),
 	}
+}
+
+func optionalFloat(v float64, ok bool) *float64 {
+	if !ok {
+		return nil
+	}
+	return &v
 }
 
 func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
@@ -273,6 +348,7 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	}
 
 	showOriginal := operation_setting.ShowOriginalPriceEnabled
+	rel := catalogReliability()
 	out := make([]dto.PricingCatalogModel, 0, len(pricing))
 	for _, m := range pricing {
 		md := parseCatalogMetadata(m.Metadata)
@@ -281,7 +357,7 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		if vendorFilter != "" && vendorName != vendorFilter {
 			continue
 		}
-		row := catalogRow(m, md, vendorName, vendorByID[m.VendorID].Icon, modelType, chat, groupRatio, showOriginal)
+		row := catalogRow(m, md, vendorName, vendorByID[m.VendorID].Icon, modelType, chat, groupRatio, showOriginal, rel)
 		if full {
 			row.Description = truncateDescription(m.Description)
 			row.Metadata = listMetadata(md)
@@ -457,6 +533,7 @@ func GetPricingCatalogModel(c fuego.ContextNoBody) (dto.PricingCatalogDetail, er
 		vendorByID[pricing.VendorID].Icon,
 		modelType, chat, groupRatio,
 		operation_setting.ShowOriginalPriceEnabled,
+		catalogReliability(),
 	)
 
 	// The list strips parameter lists and provider defaults and truncates the
