@@ -125,10 +125,9 @@ func GetPricingModel(c fuego.ContextNoBody) (dto.PricingData, error) {
 	}, nil
 }
 
-// A model is free when every price input is zero for some group it is served
-// by. Mirrors the three billing shapes: fixed-price (sticker x cheapest group
-// ratio), and ratio-priced (model_price <= 0 AND either the group ratio or the
-// model ratio is 0).
+// A model is free when every price input is zero. Mirrors the two billing
+// shapes: fixed-price (sticker x cheapest group ratio) and ratio-priced
+// (model_price <= 0 AND either the model ratio or some group's ratio is 0).
 func modelIsFree(m model.Pricing, groupRatio map[string]float64) bool {
 	if m.QuotaType == 1 || m.QuotaType == 3 || m.QuotaType == 4 {
 		minRatio := 1.0
@@ -141,12 +140,21 @@ func modelIsFree(m model.Pricing, groupRatio map[string]float64) bool {
 		}
 		return m.ModelPrice*minRatio == 0
 	}
+	if m.ModelPrice > 0 {
+		return false
+	}
+	// Group-independent: a zero model ratio prices every group at zero, so the
+	// answer cannot depend on which groups are currently live. EnableGroup is
+	// built from ENABLED abilities only, so a model whose channels are all
+	// rate-limit-disabled arrives here with no groups at all, and iterating it
+	// reported a genuinely free model as paid (which then read as "not free" to
+	// every caller gating guest access on this flag).
+	if m.ModelRatio == 0 {
+		return true
+	}
 	for _, g := range m.EnableGroup {
-		if m.ModelPrice <= 0 {
-			r, ok := groupRatio[g]
-			if (ok && r == 0) || m.ModelRatio == 0 {
-				return true
-			}
+		if r, ok := groupRatio[g]; ok && r == 0 {
+			return true
 		}
 	}
 	return false
