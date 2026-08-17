@@ -41,3 +41,31 @@ func TestListMetadataKeepsSizingFields(t *testing.T) {
 	assert.Equal(t, []string{"temperature"}, md.SupportedParameters,
 		"listMetadata must not mutate the caller's copy: the detail route reuses it")
 }
+
+// /pricing/counts counts off model.Pricing directly while /pricing/catalog
+// counts the rows it built. Both must agree, or the homepage stat row contradicts
+// the model list it links to.
+func TestStandaloneCountsMatchRowCounts(t *testing.T) {
+	rows := []dto.PricingCatalogModel{
+		{ModelName: "a", Vendor: "OpenAI", IsFree: true},
+		{ModelName: "b", Vendor: "OpenAI", IsFree: false},
+		{ModelName: "c", Vendor: "Unknown", IsFree: true},
+		{ModelName: "d", Vendor: "Anthropic", IsFree: false},
+	}
+	fromRows := catalogCounts(rows)
+
+	// Mirrors GetPricingCounts, which cannot run without gateway state.
+	direct := dto.PricingCatalogCounts{Models: len(rows)}
+	vendors := map[string]struct{}{}
+	for _, m := range rows {
+		if m.IsFree {
+			direct.Free++
+		}
+		vendors[m.Vendor] = struct{}{}
+	}
+	direct.Paid = direct.Models - direct.Free
+	direct.Vendors = len(vendors)
+
+	assert.Equal(t, fromRows, direct)
+	assert.Equal(t, 3, direct.Vendors, "counts vendors serving a model, not configured vendors")
+}

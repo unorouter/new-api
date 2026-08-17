@@ -483,6 +483,27 @@ func GetPricingCatalogModel(c fuego.ContextNoBody) (dto.PricingCatalogDetail, er
 
 // Vendors counts only vendors that actually serve a model, not every configured
 // one: it is quoted as "N+ providers", and an empty vendor is not a provider.
+// GetPricingCounts is the homepage stat row: four numbers. Counted straight off
+// the filtered pricing list, so it never builds the 341 rows a caller would
+// otherwise download 137KB of to sum. Same group filter as the catalog, so the
+// totals always describe the same set of models the list would return.
+func GetPricingCounts(c fuego.ContextNoBody) (dto.PricingCatalogCounts, error) {
+	pricing, groupRatio := visiblePricing(c)
+	vendorByID := vendorsByID()
+
+	counts := dto.PricingCatalogCounts{Models: len(pricing)}
+	vendors := make(map[string]struct{}, len(pricing))
+	for _, m := range pricing {
+		if modelIsFree(m, groupRatio) {
+			counts.Free++
+		}
+		vendors[catalogVendorName(vendorByID, m.VendorID)] = struct{}{}
+	}
+	counts.Paid = counts.Models - counts.Free
+	counts.Vendors = len(vendors)
+	return counts, nil
+}
+
 func catalogCounts(models []dto.PricingCatalogModel) dto.PricingCatalogCounts {
 	counts := dto.PricingCatalogCounts{Models: len(models)}
 	vendors := make(map[string]struct{}, len(models))
