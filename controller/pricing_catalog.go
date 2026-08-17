@@ -459,6 +459,10 @@ func GetPricingCatalogModel(c fuego.ContextNoBody) (dto.PricingCatalogDetail, er
 		operation_setting.ShowOriginalPriceEnabled,
 	)
 
+	// The list strips parameter lists and provider defaults and truncates the
+	// blurb; a caller that asked for ONE model wants all of it.
+	row.Metadata = md
+
 	return dto.PricingCatalogDetail{
 		PricingCatalogModel: row,
 		EnableGroups:        groups,
