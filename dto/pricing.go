@@ -87,6 +87,13 @@ type PricingCatalogModel struct {
 	// from it, so it is a routing fact rather than a display one. 5KB across the
 	// whole catalog (1.23 entries per model), so it rides every response.
 	SupportedEndpointTypes []constant.EndpointType `json:"supported_endpoint_types" validate:"required"`
+	// Reliability over the last 24h: uptime is the share of probes that found a
+	// live channel, success rate the share of real requests that completed.
+	// Null when the model has no probe or no traffic in the window, which is
+	// distinct from a measured zero and must stay distinguishable so callers can
+	// rank "unmeasured" apart from "broken".
+	Uptime24h   *float64 `json:"uptime_24h,omitempty"`
+	SuccessRate *float64 `json:"success_rate,omitempty"`
 }
 
 // PricingCatalogDetail is one model's full record: the catalog row plus the
