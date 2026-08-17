@@ -106,9 +106,12 @@ type PricingCatalogDetail struct {
 	CacheRatio       *float64 `json:"cache_ratio,omitempty"`
 	CreateCacheRatio *float64 `json:"create_cache_ratio,omitempty"`
 	// Per-tier pricing rows, when the model bills on a grid rather than a flat
-	// rate. GridMinRatio is the cheapest group ratio the tiers are multiplied by.
-	GridPricing  interface{} `json:"grid_pricing,omitempty"`
-	GridMinRatio float64     `json:"grid_min_ratio"`
+	// rate. Columns vary per model, so a row is an open map, but the array shape
+	// is fixed: typed here rather than as interface{} so generated clients get a
+	// list instead of unknown. GridMinRatio is the cheapest group ratio the tiers
+	// are multiplied by.
+	GridPricing  []map[string]interface{} `json:"grid_pricing,omitempty"`
+	GridMinRatio float64                  `json:"grid_min_ratio"`
 	// True when the model bills through a tiered billing expression, which has no
 	// single per-token price to display.
 	IsTiered    bool   `json:"is_tiered"`
