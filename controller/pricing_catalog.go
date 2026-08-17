@@ -221,6 +221,41 @@ func vendorsByID() map[int]model.PricingVendor {
 	return out
 }
 
+// One mapping for the list row, shared by the list and the per-model detail, so
+// a caller reads the same field names whichever it fetched.
+func catalogRow(
+	m model.Pricing,
+	md dto.ModelMetadata,
+	vendorName string,
+	icon string,
+	modelType string,
+	chat bool,
+	groupRatio map[string]float64,
+	showOriginal bool,
+) dto.PricingCatalogModel {
+	price := catalogPricing(m, groupRatio, showOriginal)
+	return dto.PricingCatalogModel{
+		ModelName:              m.ModelName,
+		Vendor:                 vendorName,
+		VendorID:               m.VendorID,
+		Icon:                   icon,
+		Type:                   modelType,
+		Tags:                   catalogTags(m.Tags),
+		ReleaseTs:              md.ReleaseTs,
+		IsFree:                 modelIsFree(m, groupRatio),
+		Online:                 m.Online,
+		Chat:                   chat,
+		InputPrice:             price.input,
+		OutputPrice:            price.output,
+		FixedPrice:             price.fixed,
+		IsFixedPrice:           isFixedPriceQuota(m.QuotaType),
+		OriginalInputPrice:     price.origInput,
+		OriginalOutputPrice:    price.origOutput,
+		OriginalFixedPrice:     price.origFixed,
+		SupportedEndpointTypes: m.SupportedEndpointTypes,
+	}
+}
+
 func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	pricing, groupRatio := visiblePricing(c)
 	vendorByID := vendorsByID()
@@ -246,27 +281,7 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		if vendorFilter != "" && vendorName != vendorFilter {
 			continue
 		}
-		price := catalogPricing(m, groupRatio, showOriginal)
-		row := dto.PricingCatalogModel{
-			ModelName:              m.ModelName,
-			Vendor:                 vendorName,
-			VendorID:               m.VendorID,
-			Icon:                   vendorByID[m.VendorID].Icon,
-			Type:                   modelType,
-			Tags:                   catalogTags(m.Tags),
-			ReleaseTs:              md.ReleaseTs,
-			IsFree:                 modelIsFree(m, groupRatio),
-			Online:                 m.Online,
-			Chat:                   chat,
-			InputPrice:             price.input,
-			OutputPrice:            price.output,
-			FixedPrice:             price.fixed,
-			IsFixedPrice:           isFixedPriceQuota(m.QuotaType),
-			OriginalInputPrice:     price.origInput,
-			OriginalOutputPrice:    price.origOutput,
-			OriginalFixedPrice:     price.origFixed,
-			SupportedEndpointTypes: m.SupportedEndpointTypes,
-		}
+		row := catalogRow(m, md, vendorName, vendorByID[m.VendorID].Icon, modelType, chat, groupRatio, showOriginal)
 		if full {
 			row.Description = truncateDescription(m.Description)
 			row.Metadata = listMetadata(md)
@@ -350,16 +365,14 @@ func GetPricingVendors(c fuego.ContextNoBody) (dto.PricingVendorsData, error) {
 // scoped to that model here rather than in the client, which previously had to
 // download the 56KB global auto-group list and the 1800-key ratio map to render
 // a handful of chips.
-func GetPricingModelGroups(c fuego.ContextNoBody) (dto.PricingModelGroupsData, error) {
-	modelName := dto.GinCtx(c).Query("model")
-	pricing, ok := model.GetPricingByModelName(modelName)
-	if !ok {
-		return dto.PricingModelGroupsData{}, fuego.NotFoundError{Title: "model not found"}
-	}
-
+// modelGroups resolves one model's servable groups, the ratios for just those
+// groups, and the auto chain restricted to them. Shared by the groups route and
+// the per-model detail so the two cannot disagree.
+func modelGroups(c fuego.ContextNoBody, pricing model.Pricing) ([]string, map[string]float64, []string) {
 	all := ratio_setting.GetGroupRatioCopy()
 	groupRatio := make(map[string]float64, len(pricing.EnableGroup))
-	if common.StringsContains(pricing.EnableGroup, "all") {
+	servesAll := common.StringsContains(pricing.EnableGroup, "all")
+	if servesAll {
 		groupRatio = all
 	} else {
 		for _, g := range pricing.EnableGroup {
@@ -385,7 +398,6 @@ func GetPricingModelGroups(c fuego.ContextNoBody) (dto.PricingModelGroupsData, e
 	for _, g := range pricing.EnableGroup {
 		enabled[g] = struct{}{}
 	}
-	servesAll := common.StringsContains(pricing.EnableGroup, "all")
 	chain := make([]string, 0, 4)
 	for _, g := range service.GetUserAutoGroup(userGroup) {
 		if _, ok := enabled[g]; ok || servesAll {
@@ -405,11 +417,63 @@ func GetPricingModelGroups(c fuego.ContextNoBody) (dto.PricingModelGroupsData, e
 		}
 		return ri < rj
 	})
+	return pricing.EnableGroup, groupRatio, chain
+}
 
+// GetPricingModelGroups returns the group panel for ONE model. Everything is
+// scoped to that model here rather than in the client, which previously had to
+// download the 56KB global auto-group list and the 1800-key ratio map to render
+// a handful of chips.
+func GetPricingModelGroups(c fuego.ContextNoBody) (dto.PricingModelGroupsData, error) {
+	pricing, ok := model.GetPricingByModelName(dto.GinCtx(c).Query("model"))
+	if !ok {
+		return dto.PricingModelGroupsData{}, fuego.NotFoundError{Title: "model not found"}
+	}
+	groups, groupRatio, chain := modelGroups(c, pricing)
 	return dto.PricingModelGroupsData{
-		EnableGroups: pricing.EnableGroup,
+		EnableGroups: groups,
 		GroupRatio:   groupRatio,
 		AutoChain:    chain,
+	}, nil
+}
+
+// GetPricingCatalogModel returns ONE model as a catalog row plus the fields that
+// only matter once a model is chosen. Unlike the list this is reachable by name
+// even when every channel is offline, so a detail page still renders for a model
+// nothing can currently route.
+func GetPricingCatalogModel(c fuego.ContextNoBody) (dto.PricingCatalogDetail, error) {
+	pricing, ok := model.GetPricingByModelName(dto.GinCtx(c).Query("model"))
+	if !ok {
+		return dto.PricingCatalogDetail{}, fuego.NotFoundError{Title: "model not found"}
+	}
+
+	groups, groupRatio, chain := modelGroups(c, pricing)
+	md := parseCatalogMetadata(pricing.Metadata)
+	modelType, chat := catalogModality(pricing, md)
+	vendorByID := vendorsByID()
+	row := catalogRow(
+		pricing, md,
+		catalogVendorName(vendorByID, pricing.VendorID),
+		vendorByID[pricing.VendorID].Icon,
+		modelType, chat, groupRatio,
+		operation_setting.ShowOriginalPriceEnabled,
+	)
+
+	return dto.PricingCatalogDetail{
+		PricingCatalogModel: row,
+		EnableGroups:        groups,
+		GroupRatio:          groupRatio,
+		AutoChain:           chain,
+		ModelRatio:          pricing.ModelRatio,
+		CompletionRatio:     pricing.CompletionRatio,
+		CacheRatio:          pricing.CacheRatio,
+		CreateCacheRatio:    pricing.CreateCacheRatio,
+		GridPricing:         pricing.GridPricing,
+		GridMinRatio:        minGroupRatio(pricing.EnableGroup, groupRatio),
+		IsTiered:            pricing.BillingMode == "tiered_expr" && pricing.BillingExpr != "",
+		CreatedTime:         pricing.CreatedTime,
+		BillingExpr:         pricing.BillingExpr,
+		Description:         pricing.Description,
 	}, nil
 }
 

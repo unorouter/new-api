@@ -89,6 +89,35 @@ type PricingCatalogModel struct {
 	SupportedEndpointTypes []constant.EndpointType `json:"supported_endpoint_types" validate:"required"`
 }
 
+// PricingCatalogDetail is one model's full record: the catalog row plus the
+// fields that only matter once a specific model is chosen. Embeds the row so a
+// caller reads the same field names as the list it came from, rather than a
+// second shape for the same model.
+type PricingCatalogDetail struct {
+	PricingCatalogModel
+	// The groups this model is served by, and the ratios for those groups only.
+	EnableGroups []string           `json:"enable_groups" validate:"required"`
+	GroupRatio   map[string]float64 `json:"group_ratio" validate:"required"`
+	// The auto-routing chain restricted to this model's groups, cheapest first.
+	AutoChain []string `json:"auto_chain" validate:"required"`
+	// Raw ratios behind the display prices, for the pricing breakdown.
+	ModelRatio       float64  `json:"model_ratio"`
+	CompletionRatio  float64  `json:"completion_ratio"`
+	CacheRatio       *float64 `json:"cache_ratio,omitempty"`
+	CreateCacheRatio *float64 `json:"create_cache_ratio,omitempty"`
+	// Per-tier pricing rows, when the model bills on a grid rather than a flat
+	// rate. GridMinRatio is the cheapest group ratio the tiers are multiplied by.
+	GridPricing  interface{} `json:"grid_pricing,omitempty"`
+	GridMinRatio float64     `json:"grid_min_ratio"`
+	// True when the model bills through a tiered billing expression, which has no
+	// single per-token price to display.
+	IsTiered    bool   `json:"is_tiered"`
+	CreatedTime int64  `json:"created_time,omitempty"`
+	BillingExpr string `json:"billing_expr,omitempty"`
+	// Full text, not the list's truncated blurb.
+	Description string `json:"description,omitempty"`
+}
+
 // PricingCatalogData is pre-sorted: free models first, then by name. Callers
 // render it as-is; re-sorting client-side is what let three copies of this
 // ordering drift apart.

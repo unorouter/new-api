@@ -51,6 +51,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Get(publicPricing, "/pricing/catalog", controller.GetPricingCatalog, dto.CatalogFullQuery(), dto.CatalogVendorQuery())
 		dto.Get(publicPricing, "/pricing/vendors", controller.GetPricingVendors)
 		dto.Get(publicPricing, "/pricing/model-groups", controller.GetPricingModelGroups, dto.ModelQuery())
+		dto.Get(publicPricing, "/pricing/catalog/model", controller.GetPricingCatalogModel, dto.ModelQuery())
 
 		publicPerfMetrics := dto.NewRouter(engine, apiRouter.Group("", middleware.TryUserAuth()), "PerfMetrics", secPublic())
 		dto.GetP(publicPerfMetrics, "/perf-metrics/summary", controller.GetPerfMetricsSummary)
