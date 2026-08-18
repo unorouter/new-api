@@ -5348,6 +5348,8 @@
     "Stored for reference only. The scheduled probe no longer disables a channel for being slow, because a correct answer that took a while is not a fault.": "参考として保存されるのみです。定期プローブは応答が遅いことを理由にチャンネルを無効化しません。時間はかかっても正しい応答は障害ではないためです。",
     "Discord ID": "Discord ID",
     "Username or Discord ID": "ユーザー名または Discord ID",
-    "Invite real people. Creating extra accounts to refer yourself is not what this program is for, and self-referrals do not earn commission.": "実在するユーザーを招待してください。自分自身を紹介するために追加アカウントを作成することは、このプログラムの目的ではなく、自己紹介では報酬は発生しません。"
+    "Invite real people. Creating extra accounts to refer yourself is not what this program is for, and self-referrals do not earn commission.": "実在するユーザーを招待してください。自分自身を紹介するために追加アカウントを作成することは、このプログラムの目的ではなく、自己紹介では報酬は発生しません。",
+    "Free rate-limit window discount": "無料モデルのレート制限ウィンドウ短縮率",
+    "Percent off the wait between free-model requests (max 50). 0 disables it. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.": "無料モデルのリクエスト間隔を短縮する割合（最大50）。0で無効になります。サーバータグを着用している間はDiscordボットがこの値を設定し、タグを外すと解除します。ただし0より大きい値が上書きされることはないため、ここで設定した値はタグが外されるまで保持されます。"
   }
 }

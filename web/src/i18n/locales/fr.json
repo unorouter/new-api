@@ -5348,6 +5348,8 @@
     "Stored for reference only. The scheduled probe no longer disables a channel for being slow, because a correct answer that took a while is not a fault.": "Conservé à titre indicatif uniquement. La sonde planifiée ne désactive plus un canal pour sa lenteur, car une réponse correcte mais lente n'est pas un défaut.",
     "Discord ID": "ID Discord",
     "Username or Discord ID": "Nom d'utilisateur ou ID Discord",
-    "Invite real people. Creating extra accounts to refer yourself is not what this program is for, and self-referrals do not earn commission.": "Invitez de vraies personnes. Créer des comptes supplémentaires pour se parrainer soi-même n'est pas l'objectif de ce programme, et les auto-parrainages ne rapportent aucune commission."
+    "Invite real people. Creating extra accounts to refer yourself is not what this program is for, and self-referrals do not earn commission.": "Invitez de vraies personnes. Créer des comptes supplémentaires pour se parrainer soi-même n'est pas l'objectif de ce programme, et les auto-parrainages ne rapportent aucune commission.",
+    "Free rate-limit window discount": "Reduction de la fenetre de limitation gratuite",
+    "Percent off the wait between free-model requests (max 50). 0 disables it. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.": "Pourcentage retire du delai entre les requetes de modeles gratuits (max 50). 0 la desactive. Le bot Discord definit cette valeur tant que le tag du serveur est porte et l'efface lorsqu'il est retire, mais il n'ecrase jamais une valeur superieure a 0 : un montant defini ici subsiste jusqu'au retrait du tag."
   }
 }

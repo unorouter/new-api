@@ -5348,6 +5348,8 @@
     "Stored for reference only. The scheduled probe no longer disables a channel for being slow, because a correct answer that took a while is not a fault.": "仅作参考保留。定时探测不再因渠道响应慢而禁用它，因为耗时较长但结果正确并不算故障。",
     "Discord ID": "Discord ID",
     "Username or Discord ID": "用户名或 Discord ID",
-    "Invite real people. Creating extra accounts to refer yourself is not what this program is for, and self-referrals do not earn commission.": "请邀请真实用户。为了推荐自己而创建额外账户并非本计划的用途，自我推荐不会获得佣金。"
+    "Invite real people. Creating extra accounts to refer yourself is not what this program is for, and self-referrals do not earn commission.": "请邀请真实用户。为了推荐自己而创建额外账户并非本计划的用途，自我推荐不会获得佣金。",
+    "Free rate-limit window discount": "免费模型限流窗口折扣",
+    "Percent off the wait between free-model requests (max 50). 0 disables it. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.": "免费模型请求之间等待时间的缩短百分比（最大 50）。填 0 表示关闭。佩戴服务器标签期间由 Discord 机器人写入，取下标签时清除；但它不会覆盖大于 0 的值，因此在此设置的数值会一直保留到标签被取下。"
   }
 }
