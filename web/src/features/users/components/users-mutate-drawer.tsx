@@ -360,7 +360,7 @@ export function UsersMutateDrawer({
   const handleFreeRateLimitPctCommit = async () => {
     if (!currentRow) return
     const previous = parseFreeRateLimitWindowPct(currentRow.setting)
-    const next = Math.min(Math.max(Math.trunc(freeRateLimitPct) || 0, 0), 50)
+    const next = Math.min(Math.max(Math.trunc(freeRateLimitPct) || 0, 0), 100)
     if (next === previous) return
     setFreeRateLimitPct(next)
     setFreeRateLimitPctSaving(true)
@@ -751,14 +751,14 @@ export function UsersMutateDrawer({
                       <Label>{t('Free rate-limit window discount')}</Label>
                       <p className='text-muted-foreground text-xs sm:text-sm'>
                         {t(
-                          'Percent off the wait between free-model requests (max 50). 0 disables it. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.'
+                          'Percent off the wait between free-model requests. 0 disables it; 99 makes it nearly instant. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.'
                         )}
                       </p>
                     </div>
                     <Input
                       type='number'
                       min={0}
-                      max={50}
+                      max={100}
                       className='w-20 shrink-0'
                       value={freeRateLimitPct}
                       onChange={(e) =>

@@ -5344,6 +5344,6 @@
     "Username or Discord ID": "Username or Discord ID",
     "Invite real people. Creating extra accounts to refer yourself is not what this program is for, and self-referrals do not earn commission.": "Invite real people. Creating extra accounts to refer yourself is not what this program is for, and self-referrals do not earn commission.",
     "Free rate-limit window discount": "Free rate-limit window discount",
-    "Percent off the wait between free-model requests (max 50). 0 disables it. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.": "Percent off the wait between free-model requests (max 50). 0 disables it. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed."
+    "Percent off the wait between free-model requests. 0 disables it; 99 makes it nearly instant. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.": "Percent off the wait between free-model requests. 0 disables it; 99 makes it nearly instant. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed."
   }
 }

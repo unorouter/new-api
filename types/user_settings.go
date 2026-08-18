@@ -24,10 +24,10 @@ type UserSetting struct {
 	FreeRateLimitWindowPct           int      `json:"free_rate_limit_window_pct,omitempty"`           // 免费模型限流窗口缩短百分比（0 = 不缩短）
 }
 
-// MaxFreeRateLimitWindowPct is the largest window discount an account may hold.
-// Clamped rather than trusted so a bad write cannot shrink the window to nothing
-// and effectively remove the limit.
-const MaxFreeRateLimitWindowPct = 50
+// MaxFreeRateLimitWindowPct is a percentage, so 100 would zero the window and
+// remove the rate limit outright. The enforcement path floors the result at one
+// second, which is what actually keeps a 99 usable rather than unlimited.
+const MaxFreeRateLimitWindowPct = 100
 
 // ClampFreeRateLimitWindowPct keeps a discount inside the allowed band. Shared by
 // the admin write path and the request path so a value stored before the ceiling
