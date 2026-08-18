@@ -230,9 +230,13 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// ---- Subscription routes ----
 		subGroup := apiRouter.Group("/subscription", middleware.UserAuth())
 		sub := dto.NewRouter(engine, subGroup, "Subscription", secDashboard())
+		// The plan catalog is the same for everyone and is what the public pricing
+		// page renders, so it carries no user context and needs no session.
+		subPublic := dto.NewRouter(engine, apiRouter.Group("/subscription", middleware.TryUserAuth()), "Subscription", secPublic())
+		dto.Get(subPublic, "/plans", controller.GetSubscriptionPlans)
+
 		// Reads gated by `subscription:read` for OAuth agents; humans pass.
 		subRead := dto.NewRouter(engine, subGroup.Group("", middleware.RequireScope("subscription:read")), "Subscription", secDashboard())
-		dto.Get(subRead, "/plans", controller.GetSubscriptionPlans)
 		dto.Get(subRead, "/self", controller.GetSubscriptionSelf)
 		dto.GetP(subRead, "/orders/self", controller.GetUserSubscriptionOrders, dto.PageParams())
 		dto.PutB(sub, "/self/preference", controller.UpdateSubscriptionPreference)
