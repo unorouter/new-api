@@ -184,6 +184,23 @@ export async function setUserModerationExempt(
 }
 
 /**
+ * Set the free-model rate-limit window discount (percent off the wait).
+ * 0 disables it. The Discord bot writes this on server-tag wear, and treats any
+ * value above 0 as "active", so a value set here survives until the tag is removed.
+ */
+export async function setUserFreeRateLimitWindowPct(
+  id: number,
+  pct: number
+): Promise<ApiResponse<Partial<User>>> {
+  const res = await api.post('/api/user/manage', {
+    id,
+    action: 'set_free_rate_limit_window_pct',
+    value: pct,
+  })
+  return res.data
+}
+
+/**
  * Set the per-user usable groups (private routing-group grants)
  */
 export async function setUserUsableGroups(

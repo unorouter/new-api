@@ -83,6 +83,7 @@ import {
   getGroups,
   setUserBlockFree,
   setUserUnlimitedFree,
+  setUserFreeRateLimitWindowPct,
   setUserModerationExempt,
   setUserUsableGroups,
   getPermissionCatalog,
@@ -135,6 +136,17 @@ function parseModerationExempt(settingJson?: string): boolean {
   }
 }
 
+function parseFreeRateLimitWindowPct(settingJson?: string): number {
+  if (!settingJson) return 0
+  try {
+    const parsed = JSON.parse(settingJson)
+    const pct = Number(parsed.free_rate_limit_window_pct)
+    return Number.isFinite(pct) && pct > 0 ? pct : 0
+  } catch (_e) {
+    return 0
+  }
+}
+
 function parseUsableGroups(settingJson?: string): string[] {
   if (!settingJson) return []
   try {
@@ -162,6 +174,8 @@ export function UsersMutateDrawer({
   const [unlimitedFreeSaving, setUnlimitedFreeSaving] = useState(false)
   const [moderationExempt, setModerationExempt] = useState(false)
   const [moderationExemptSaving, setModerationExemptSaving] = useState(false)
+  const [freeRateLimitPct, setFreeRateLimitPct] = useState(0)
+  const [freeRateLimitPctSaving, setFreeRateLimitPctSaving] = useState(false)
   const [usableGroups, setUsableGroups] = useState<string[]>([])
   const [usableGroupsSaving, setUsableGroupsSaving] = useState(false)
 
@@ -196,6 +210,9 @@ export function UsersMutateDrawer({
           setBlockFree(parseBlockFree(result.data.setting))
           setUnlimitedFree(parseUnlimitedFree(result.data.setting))
           setModerationExempt(parseModerationExempt(result.data.setting))
+          setFreeRateLimitPct(
+            parseFreeRateLimitWindowPct(result.data.setting)
+          )
           setUsableGroups(parseUsableGroups(result.data.setting))
         }
       })
@@ -269,6 +286,7 @@ export function UsersMutateDrawer({
       setBlockFree(parseBlockFree(result.data.setting))
       setUnlimitedFree(parseUnlimitedFree(result.data.setting))
       setModerationExempt(parseModerationExempt(result.data.setting))
+      setFreeRateLimitPct(parseFreeRateLimitWindowPct(result.data.setting))
       setUsableGroups(parseUsableGroups(result.data.setting))
     }
     triggerRefresh()
@@ -334,6 +352,32 @@ export function UsersMutateDrawer({
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setModerationExemptSaving(false)
+    }
+  }
+
+  // Committed on blur/Enter rather than per keystroke: typing "25" would
+  // otherwise fire a save for "2" first.
+  const handleFreeRateLimitPctCommit = async () => {
+    if (!currentRow) return
+    const previous = parseFreeRateLimitWindowPct(currentRow.setting)
+    const next = Math.min(Math.max(Math.trunc(freeRateLimitPct) || 0, 0), 50)
+    if (next === previous) return
+    setFreeRateLimitPct(next)
+    setFreeRateLimitPctSaving(true)
+    try {
+      const result = await setUserFreeRateLimitWindowPct(currentRow.id, next)
+      if (result.success) {
+        toast.success(t('Setting saved'))
+        triggerRefresh()
+      } else {
+        setFreeRateLimitPct(previous)
+        toast.error(result.message || t(ERROR_MESSAGES.UPDATE_FAILED))
+      }
+    } catch (_error) {
+      setFreeRateLimitPct(previous)
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setFreeRateLimitPctSaving(false)
     }
   }
 
@@ -699,6 +743,35 @@ export function UsersMutateDrawer({
                       checked={moderationExempt}
                       onCheckedChange={handleModerationExemptChange}
                       disabled={moderationExemptSaving}
+                    />
+                  </div>
+
+                  <div className='flex items-start justify-between gap-3 rounded-lg border p-3 sm:items-center sm:p-4'>
+                    <div className='space-y-0.5'>
+                      <Label>{t('Free rate-limit window discount')}</Label>
+                      <p className='text-muted-foreground text-xs sm:text-sm'>
+                        {t(
+                          'Percent off the wait between free-model requests (max 50). 0 disables it. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.'
+                        )}
+                      </p>
+                    </div>
+                    <Input
+                      type='number'
+                      min={0}
+                      max={50}
+                      className='w-20 shrink-0'
+                      value={freeRateLimitPct}
+                      onChange={(e) =>
+                        setFreeRateLimitPct(Number(e.target.value))
+                      }
+                      onBlur={handleFreeRateLimitPctCommit}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          void handleFreeRateLimitPctCommit()
+                        }
+                      }}
+                      disabled={freeRateLimitPctSaving}
                     />
                   </div>
                 </SideDrawerSection>

@@ -21,6 +21,25 @@ type UserSetting struct {
 	UsableGroups                     []string `json:"usable_groups,omitempty"`                        // 该用户额外可用的分组（私有分组授权，按用户ID生效，叠加在全局可用分组之上）
 	UnlimitedFreeModels              bool     `json:"unlimited_free_models,omitempty"`                // 管理员授予：免除免费模型的按模型限流
 	ModerationExempt                 bool     `json:"moderation_exempt,omitempty"`                    // 管理员授予：免除图像/视频生成提示词审核
+	FreeRateLimitWindowPct           int      `json:"free_rate_limit_window_pct,omitempty"`           // 免费模型限流窗口缩短百分比（0 = 不缩短）
+}
+
+// MaxFreeRateLimitWindowPct is the largest window discount an account may hold.
+// Clamped rather than trusted so a bad write cannot shrink the window to nothing
+// and effectively remove the limit.
+const MaxFreeRateLimitWindowPct = 50
+
+// ClampFreeRateLimitWindowPct keeps a discount inside the allowed band. Shared by
+// the admin write path and the request path so a value stored before the ceiling
+// changed still enforces the current one.
+func ClampFreeRateLimitWindowPct(pct int) int {
+	if pct <= 0 {
+		return 0
+	}
+	if pct > MaxFreeRateLimitWindowPct {
+		return MaxFreeRateLimitWindowPct
+	}
+	return pct
 }
 
 var (
