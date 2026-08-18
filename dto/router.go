@@ -299,7 +299,7 @@ func ModelQuery() func(*fuego.BaseRoute) {
 
 // CatalogFullQuery adds the optional "full" catalog query parameter.
 func CatalogFullQuery() func(*fuego.BaseRoute) {
-	return fuego.OptionQuery("full", "Include description and metadata (browse/compare need them; the model picker does not)")
+	return fuego.OptionQueryBool("full", "Include description and metadata (browse/compare need them; the model picker does not)")
 }
 
 // CatalogVendorQuery adds the optional "vendor" catalog query parameter.

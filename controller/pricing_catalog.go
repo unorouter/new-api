@@ -538,9 +538,17 @@ func modelGroups(c fuego.ContextNoBody, pricing model.Pricing) ([]string, map[st
 // download the 56KB global auto-group list and the 1800-key ratio map to render
 // a handful of chips.
 func GetPricingModelGroups(c fuego.ContextNoBody) (dto.PricingModelGroupsData, error) {
+	// An unknown model is served by no groups, which these empty collections say
+	// exactly. A 404 would carry the same information as an error the caller has
+	// to catch and then translate back into this same empty shape.
+	empty := dto.PricingModelGroupsData{
+		EnableGroups: []string{},
+		GroupRatio:   map[string]float64{},
+		AutoChain:    []string{},
+	}
 	pricing, ok := model.GetPricingByModelName(dto.GinCtx(c).Query("model"))
 	if !ok {
-		return dto.PricingModelGroupsData{}, fuego.NotFoundError{Title: "model not found"}
+		return empty, nil
 	}
 	groups, groupRatio, chain := modelGroups(c, pricing)
 	return dto.PricingModelGroupsData{
