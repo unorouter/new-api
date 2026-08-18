@@ -202,3 +202,49 @@ func TestPerModelRateLimitRedisConcurrency(t *testing.T) {
 		assert.NotEmpty(t, w2.Header().Get("Retry-After"))
 	})
 }
+
+// Contract: the server-tag perk shortens the WAIT, and the clamp bounds it. A
+// discount that could reach 100 would silently remove the limit entirely.
+func TestDiscountedDuration(t *testing.T) {
+	cases := []struct {
+		name     string
+		duration int64
+		pct      int
+		want     int64
+	}{
+		{"no discount leaves the window untouched", 60, 0, 60},
+		{"25 percent turns a minute into 45s", 60, 25, 45},
+		{"applies to the long media windows too", 3600, 25, 2700},
+		{"negative pct is ignored", 60, -10, 60},
+		{"above the ceiling clamps to 50", 60, 90, 30},
+		{"never returns below one second", 1, 50, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, discountedDuration(tc.duration, tc.pct))
+		})
+	}
+}
+
+// Contract: a user holding the discount is told the window actually enforced.
+// Reporting the configured window would tell a 45s account to wait a full minute.
+func TestPerModelRateLimitAppliesUserDiscount(t *testing.T) {
+	require.NoError(t, setting.UpdateModelRequestRateLimitModelsByJSONString(`{"discount-model:free":[0,1]}`))
+	setting.ModelRequestRateLimitDurationMinutes = 1
+	prevRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = prevRedis })
+	require.NoError(t, i18n.Init())
+
+	discounted := types.UserSetting{FreeRateLimitWindowPct: 25}
+	c1, _ := newPerModelCtx(930001, common.RoleCommonUser, 0, discounted, "discount-model:free")
+	require.True(t, perModelRateLimit(c1))
+
+	c2, w2 := newPerModelCtx(930001, common.RoleCommonUser, 0, discounted, "discount-model:free")
+	require.False(t, perModelRateLimit(c2), "second request inside the window is still blocked")
+	assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+
+	ra, err := strconv.Atoi(w2.Header().Get("Retry-After"))
+	require.NoError(t, err)
+	assert.LessOrEqual(t, ra, 45, "Retry-After must reflect the shortened window, not the configured 60s")
+}

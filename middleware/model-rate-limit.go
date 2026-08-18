@@ -189,6 +189,21 @@ const (
 	inMemoryCleanupHorizon = 24 * time.Hour
 )
 
+// discountedDuration shortens a rate-limit window by pct percent, never below one
+// second. Out-of-band values are clamped, not rejected: this runs per request, so
+// a bad setting degrades to a sane window instead of failing the call.
+func discountedDuration(duration int64, pct int) int64 {
+	pct = types.ClampFreeRateLimitWindowPct(pct)
+	if pct == 0 || duration <= 0 {
+		return duration
+	}
+	discounted := duration * int64(100-pct) / 100
+	if discounted < 1 {
+		return 1
+	}
+	return discounted
+}
+
 // perModelRateLimit enforces a per-user, per-model success-count cap for the
 // configured `:free` models. Returns false when the request was blocked (already
 // aborted). Paid/small models (not in the map) return true unchanged. On allow it
@@ -201,7 +216,8 @@ func perModelRateLimit(c *gin.Context) bool {
 	// No role or balance bypass: infrastructure accounts (guest-token owner,
 	// autotest) get the grant instead, so every exemption is visible in the
 	// user's setting and revocable from the admin drawer.
-	if s, ok := common.GetContextKeyType[types.UserSetting](c, constant.ContextKeyUserSetting); ok && s.UnlimitedFreeModels {
+	userSetting, hasUserSetting := common.GetContextKeyType[types.UserSetting](c, constant.ContextKeyUserSetting)
+	if hasUserSetting && userSetting.UnlimitedFreeModels {
 		return true
 	}
 	var mr ModelRequest
@@ -217,6 +233,12 @@ func perModelRateLimit(c *gin.Context) bool {
 		windowMinutes = setting.ModelRequestRateLimitDurationMinutes
 	}
 	duration := int64(windowMinutes * 60)
+	// Per-user discount (the server-tag perk). Shortens the WAIT rather than
+	// raising the count, because most free models sit at 1 request per window
+	// and a percentage off 1 is still 1.
+	if hasUserSetting {
+		duration = discountedDuration(duration, userSetting.FreeRateLimitWindowPct)
+	}
 	userId := strconv.Itoa(c.GetInt("id"))
 
 	allowed := true
@@ -258,8 +280,14 @@ func perModelRateLimit(c *gin.Context) bool {
 		c.Header("X-RateLimit-Limit", strconv.Itoa(successMaxCount))
 		c.Header("X-RateLimit-Remaining", "0")
 		c.Header("X-RateLimit-Reset", strconv.FormatInt(time.Now().Unix()+retryAfter, 10))
-		msg := fmt.Sprintf("Too many requests. The free tier allows %v request(s) every %v min per account on %v - nothing is used up, retry in %vs. The paid %v has no per-minute limit.",
-			successMaxCount, windowMinutes, mr.Model, retryAfter, paidName)
+		// Report the window actually enforced, not the configured one: a
+		// discounted account limited to 45s would otherwise be told "every 1 min".
+		windowLabel := fmt.Sprintf("%v min", duration/60)
+		if duration%60 != 0 {
+			windowLabel = fmt.Sprintf("%vs", duration)
+		}
+		msg := fmt.Sprintf("Too many requests. The free tier allows %v request(s) every %v per account on %v - nothing is used up, retry in %vs. The paid %v has no per-minute limit.",
+			successMaxCount, windowLabel, mr.Model, retryAfter, paidName)
 		// Surface the rejection in the usage logs (aborting here skips the
 		// relay's own error logging entirely). DB guard keeps unit tests DB-free.
 		if model.DB != nil {

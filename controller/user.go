@@ -1287,6 +1287,20 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		model.RecordLog(user.Id, model.LogTypeManage,
 			fmt.Sprintf("admin (%v) set moderation-exempt to %v for user", adminName, req.Value == 1))
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
+	case "set_free_rate_limit_window_pct":
+		// Carries a real number, unlike the boolean grants above: the value is the
+		// percentage shaved off the free-model window.
+		pct := types.ClampFreeRateLimitWindowPct(req.Value)
+		s := user.GetSetting()
+		s.FreeRateLimitWindowPct = pct
+		user.SetSetting(s)
+		if err := user.Update(false); err != nil {
+			return dto.Fail[dto.ManageUserData](err.Error())
+		}
+		adminName := ginCtx.GetString("username")
+		model.RecordLog(user.Id, model.LogTypeManage,
+			fmt.Sprintf("admin (%v) set free-rate-limit-window-pct to %v for user", adminName, pct))
+		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 	case "set_usable_groups":
 		// Per-user usable-group grants (private routing groups). Keep only
 		// non-empty groups that exist in GroupRatio so we never store junk.
