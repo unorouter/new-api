@@ -169,7 +169,7 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
 		},
 	}
 
-	_, err := relaycommon.ApplyParamOverrideWithRelayInfo([]byte(`{"model":"gpt-4.1"}`), info)
+	_, err := relaycommon.ApplyParamOverrideWithRelayInfo([]byte(`{"model":"gpt-4.1"}`), info, nil)
 	require.NoError(t, err)
 	require.True(t, info.UseRuntimeHeadersOverride)
 	require.Equal(t, "Codex CLI", info.RuntimeHeadersOverride["originator"])

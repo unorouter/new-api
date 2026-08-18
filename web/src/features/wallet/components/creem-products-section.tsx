@@ -37,7 +37,6 @@ export function CreemProductsSection({
   loading,
 }: CreemProductsSectionProps) {
   const { t } = useTranslation()
-
   if (loading) {
     return (
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 md:grid-cols-3'>
@@ -48,13 +47,17 @@ export function CreemProductsSection({
     )
   }
 
-  if (!Array.isArray(products) || products.length === 0) {
+  const validProducts = Array.isArray(products)
+    ? products.filter((p) => p?.productId)
+    : []
+
+  if (validProducts.length === 0) {
     return null
   }
 
   return (
     <div className='grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 md:grid-cols-3'>
-      {products.map((product) => (
+      {validProducts.map((product) => (
         <Card
           key={product.productId}
           data-card-hover='false'

@@ -10,8 +10,8 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +26,15 @@ func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dt
 }
 
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) (any, error) {
+	// Anthropic removed assistant-message prefill from Claude 4.5/4.6, and
+	// the cloud deployments (Bedrock, Vertex) and their resellers reject it
+	// for every Claude model. Fold any trailing assistant turn into a user
+	// continuation so the request is accepted everywhere. Older Claude 3.x
+	// models on a hypothetical direct-Anthropic channel would lose prefill
+	// support, which is an acceptable tradeoff given prefill is a deprecated
+	// pattern that Anthropic now officially recommends against.
+	request.Messages, request.System = HandleUnsupportedAssistantPrefill(request.Messages, request.System)
+	relaycommon.EnsureDeepSeekReasoningContentClaude(request)
 	return request, nil
 }
 
@@ -96,11 +105,8 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
-	result, err := relayconvert.ConvertRequest(c, info, types.RelayFormatClaude, request)
-	if err != nil {
-		return nil, err
-	}
-	return result.Value, nil
+	// Trailing-assistant-prefill rewrite is handled inside RequestOpenAI2ClaudeMessage.
+	return RequestOpenAI2ClaudeMessage(c, *request)
 }
 
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
@@ -113,8 +119,11 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
-	// TODO implement me
-	return nil, errors.New("not implemented")
+	chatReq, err := service.ResponsesRequestToChatCompletionsRequest(&request)
+	if err != nil {
+		return nil, err
+	}
+	return a.ConvertOpenAIRequest(c, info, chatReq)
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
@@ -124,6 +133,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	info.FinalRequestRelayFormat = types.RelayFormatClaude
 	if info.IsStream {
+		if info.ForceUpstreamStream {
+			return ClaudeStreamToJsonHandler(c, resp, info)
+		}
 		return ClaudeStreamHandler(c, resp, info)
 	} else {
 		return ClaudeHandler(c, resp, info)

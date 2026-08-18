@@ -22,12 +22,13 @@ type OpenAIErrorWithStatusCode struct {
 
 type GeneralErrorResponse struct {
 	Error    json.RawMessage `json:"error"`
+	Errors   json.RawMessage `json:"errors"`
 	Message  string          `json:"message"`
 	Msg      string          `json:"msg"`
 	Err      string          `json:"err"`
 	ErrorMsg string          `json:"error_msg"`
 	Metadata json.RawMessage `json:"metadata,omitempty"`
-	Detail   string          `json:"detail,omitempty"`
+	Detail   json.RawMessage `json:"detail,omitempty"`
 	Header   struct {
 		Message string `json:"message"`
 	} `json:"header"`
@@ -68,6 +69,19 @@ func (e GeneralErrorResponse) ToMessage() string {
 			return string(e.Error)
 		}
 	}
+	// Error-array shape ({"errors":[{"message":...}]}), used by Runware among others.
+	if len(e.Errors) > 0 && kitutil.GetJsonType(e.Errors) == "array" {
+		var list []struct {
+			Message string `json:"message"`
+		}
+		if err := kitutil.Unmarshal(e.Errors, &list); err == nil {
+			for _, item := range list {
+				if item.Message != "" {
+					return item.Message
+				}
+			}
+		}
+	}
 	if e.Message != "" {
 		return e.Message
 	}
@@ -80,8 +94,19 @@ func (e GeneralErrorResponse) ToMessage() string {
 	if e.ErrorMsg != "" {
 		return e.ErrorMsg
 	}
-	if e.Detail != "" {
-		return e.Detail
+	if len(e.Detail) > 0 {
+		switch kitutil.GetJsonType(e.Detail) {
+		case "string":
+			var msg string
+			if err := kitutil.Unmarshal(e.Detail, &msg); err == nil && msg != "" {
+				return msg
+			}
+		default:
+			// FastAPI-style validation errors come back as an array or object.
+			// Return the raw JSON so the client sees what failed rather than a
+			// blank "bad response" message.
+			return string(e.Detail)
+		}
 	}
 	if e.Header.Message != "" {
 		return e.Header.Message

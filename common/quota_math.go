@@ -8,12 +8,18 @@ import (
 )
 
 // Quota conversions are centralized here so every billing path shares one
-// saturation + logging policy. Quota columns (user/token/log) are 32-bit
-// integers in the database, so an oversized product must clamp to the int32
-// range instead of wrapping around and turning a charge into a credit.
+// saturation + logging policy, so an oversized product clamps instead of
+// wrapping around and turning a charge into a credit.
+//
+// The bound is 2^53, not MaxInt32: every quota column in this fork is a 64-bit
+// integer, and the int32 ceiling silently rejected any top-up whose quota
+// exceeded it. At QuotaPerUnit=500000 that capped a purchase at $4294 on every
+// gateway, failing the webhook with a 500 after the buyer had already been
+// charged. 2^53 is the largest magnitude float64 still represents exactly,
+// which the conversions below rely on.
 const (
-	MaxQuota = math.MaxInt32
-	MinQuota = math.MinInt32
+	MaxQuota = 1 << 53
+	MinQuota = -(1 << 53)
 )
 
 // QuotaClampKind identifies why a quota conversion had to be saturated.

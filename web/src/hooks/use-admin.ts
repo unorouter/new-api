@@ -29,3 +29,13 @@ export function useIsAdmin(): boolean {
   const { user } = useAuthStore((state) => state.auth)
   return (user?.role ?? 0) >= ROLE.ADMIN
 }
+
+/**
+ * Check if the current user may view ALL users' data (logs, dashboard,
+ * username filter) - Moderators and above. Distinct from useIsAdmin, which
+ * gates write/management UI.
+ */
+export function useCanViewAllData(): boolean {
+  const { user } = useAuthStore((state) => state.auth)
+  return (user?.role ?? 0) >= ROLE.MOD
+}

@@ -26,24 +26,24 @@ func SecureVerificationRequired() gin.HandlerFunc {
 func RequireSecurityProof(c *gin.Context, requiredScope string, allowedMethods []string) bool {
 	identity, ok := GetSessionAuthIdentity(c)
 	if !ok {
-		securityProofError(c, "SECURITY_PROOF_INVALID", "安全验证状态无效")
+		securityProofError(c, "SECURITY_PROOF_INVALID", "Invalid security verification state")
 		return false
 	}
 	raw := strings.TrimSpace(c.GetHeader("X-Security-Proof"))
 	if raw == "" {
-		securityProofError(c, "SECURITY_PROOF_REQUIRED", "需要安全验证")
+		securityProofError(c, "SECURITY_PROOF_REQUIRED", "Security verification required")
 		return false
 	}
 	if _, err := service.VerifySecurityProof(raw, identity, requiredScope, allowedMethods); err != nil {
 		switch {
 		case errors.Is(err, service.ErrAuthTokenExpired):
-			securityProofError(c, "SECURITY_PROOF_EXPIRED", "安全验证已过期")
+			securityProofError(c, "SECURITY_PROOF_EXPIRED", "Security verification has expired")
 		case errors.Is(err, service.ErrProofScope):
-			securityProofError(c, "SECURITY_PROOF_SCOPE_MISMATCH", "安全验证范围不匹配")
+			securityProofError(c, "SECURITY_PROOF_SCOPE_MISMATCH", "Security verification scope mismatch")
 		case errors.Is(err, service.ErrProofMethod):
-			securityProofError(c, "SECURITY_PROOF_METHOD_MISMATCH", "安全验证方式不匹配")
+			securityProofError(c, "SECURITY_PROOF_METHOD_MISMATCH", "Security verification method mismatch")
 		default:
-			securityProofError(c, "SECURITY_PROOF_INVALID", "安全验证状态无效")
+			securityProofError(c, "SECURITY_PROOF_INVALID", "Invalid security verification state")
 		}
 		return false
 	}

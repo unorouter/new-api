@@ -53,9 +53,12 @@ export function useSidebarView(): ResolvedSidebarView {
 
   const rootNavGroups = useMemo<NavGroup[]>(() => {
     const role = userRole ?? ROLE.GUEST
-    const isAdmin = role >= ROLE.ADMIN
+    // Moderators (and up) may see the admin group; per-item requiredRole then
+    // narrows it to the read-only pages a mod is allowed (Users, Channel
+    // Diagnostics). Full admin items stay ROLE.ADMIN and are hidden for a mod.
+    const canSeeAdminGroup = role >= ROLE.MOD
     return configFilteredRoot
-      .filter((group) => (group.id === 'admin' ? isAdmin : true))
+      .filter((group) => (group.id === 'admin' ? canSeeAdminGroup : true))
       .map((group) => {
         const items = group.items.filter(
           (item) => item.requiredRole === undefined || role >= item.requiredRole

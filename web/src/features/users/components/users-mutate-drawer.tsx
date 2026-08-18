@@ -44,6 +44,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { MultiSelect } from '@/components/multi-select'
 import {
   Select,
   SelectContent,
@@ -61,6 +62,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
   ADMIN_PERMISSION_ACTIONS,
@@ -79,6 +81,11 @@ import {
   updateUser,
   getUser,
   getGroups,
+  setUserBlockFree,
+  setUserUnlimitedFree,
+  setUserFreeRateLimitWindowPct,
+  setUserModerationExempt,
+  setUserUsableGroups,
   getPermissionCatalog,
 } from '../api'
 import { BINDING_FIELDS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
@@ -99,6 +106,57 @@ type UsersMutateDrawerProps = {
   currentRow?: User
 }
 
+function parseBlockFree(settingJson?: string): boolean {
+  if (!settingJson) return false
+  try {
+    const parsed = JSON.parse(settingJson)
+    return parsed.block_free_when_no_quota === true
+  } catch (_e) {
+    return false
+  }
+}
+
+function parseUnlimitedFree(settingJson?: string): boolean {
+  if (!settingJson) return false
+  try {
+    const parsed = JSON.parse(settingJson)
+    return parsed.unlimited_free_models === true
+  } catch (_e) {
+    return false
+  }
+}
+
+function parseModerationExempt(settingJson?: string): boolean {
+  if (!settingJson) return false
+  try {
+    const parsed = JSON.parse(settingJson)
+    return parsed.moderation_exempt === true
+  } catch (_e) {
+    return false
+  }
+}
+
+function parseFreeRateLimitWindowPct(settingJson?: string): number {
+  if (!settingJson) return 0
+  try {
+    const parsed = JSON.parse(settingJson)
+    const pct = Number(parsed.free_rate_limit_window_pct)
+    return Number.isFinite(pct) && pct > 0 ? pct : 0
+  } catch (_e) {
+    return 0
+  }
+}
+
+function parseUsableGroups(settingJson?: string): string[] {
+  if (!settingJson) return []
+  try {
+    const parsed = JSON.parse(settingJson)
+    return Array.isArray(parsed.usable_groups) ? parsed.usable_groups : []
+  } catch (_e) {
+    return []
+  }
+}
+
 export function UsersMutateDrawer({
   open,
   onOpenChange,
@@ -110,6 +168,16 @@ export function UsersMutateDrawer({
   const currentUser = useAuthStore((s) => s.auth.user)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
+  const [blockFree, setBlockFree] = useState(false)
+  const [blockFreeSaving, setBlockFreeSaving] = useState(false)
+  const [unlimitedFree, setUnlimitedFree] = useState(false)
+  const [unlimitedFreeSaving, setUnlimitedFreeSaving] = useState(false)
+  const [moderationExempt, setModerationExempt] = useState(false)
+  const [moderationExemptSaving, setModerationExemptSaving] = useState(false)
+  const [freeRateLimitPct, setFreeRateLimitPct] = useState(0)
+  const [freeRateLimitPctSaving, setFreeRateLimitPctSaving] = useState(false)
+  const [usableGroups, setUsableGroups] = useState<string[]>([])
+  const [usableGroupsSaving, setUsableGroupsSaving] = useState(false)
 
   // Fetch groups
   const { data: groupsData } = useQuery({
@@ -139,6 +207,13 @@ export function UsersMutateDrawer({
       getUser(currentRow.id).then((result) => {
         if (result.success && result.data) {
           form.reset(transformUserToFormDefaults(result.data))
+          setBlockFree(parseBlockFree(result.data.setting))
+          setUnlimitedFree(parseUnlimitedFree(result.data.setting))
+          setModerationExempt(parseModerationExempt(result.data.setting))
+          setFreeRateLimitPct(
+            parseFreeRateLimitWindowPct(result.data.setting)
+          )
+          setUsableGroups(parseUsableGroups(result.data.setting))
         }
       })
     } else if (open && !isUpdate) {
@@ -154,6 +229,7 @@ export function UsersMutateDrawer({
   const currentQuotaRaw = form.watch('quota_dollars') || 0
   const selectedRole = form.watch('role')
   const canEditAdminPermissions = currentUser?.role === ROLE.SUPER_ADMIN
+  const canManageUsers = (currentUser?.role ?? ROLE.GUEST) >= ROLE.ADMIN
   const targetIsAdmin = (selectedRole ?? currentRow?.role ?? 0) >= ROLE.ADMIN
 
   const onSubmit = async (data: UserFormValues) => {
@@ -207,8 +283,124 @@ export function UsersMutateDrawer({
     const result = await getUser(currentRow.id)
     if (result.success && result.data) {
       form.reset(transformUserToFormDefaults(result.data))
+      setBlockFree(parseBlockFree(result.data.setting))
+      setUnlimitedFree(parseUnlimitedFree(result.data.setting))
+      setModerationExempt(parseModerationExempt(result.data.setting))
+      setFreeRateLimitPct(parseFreeRateLimitWindowPct(result.data.setting))
+      setUsableGroups(parseUsableGroups(result.data.setting))
     }
     triggerRefresh()
+  }
+
+  const handleBlockFreeChange = async (checked: boolean) => {
+    if (!currentRow) return
+    setBlockFree(checked)
+    setBlockFreeSaving(true)
+    try {
+      const result = await setUserBlockFree(currentRow.id, checked)
+      if (result.success) {
+        toast.success(t('Setting saved'))
+        triggerRefresh()
+      } else {
+        setBlockFree(!checked)
+        toast.error(result.message || t(ERROR_MESSAGES.UPDATE_FAILED))
+      }
+    } catch (_error) {
+      setBlockFree(!checked)
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setBlockFreeSaving(false)
+    }
+  }
+
+  const handleUnlimitedFreeChange = async (checked: boolean) => {
+    if (!currentRow) return
+    setUnlimitedFree(checked)
+    setUnlimitedFreeSaving(true)
+    try {
+      const result = await setUserUnlimitedFree(currentRow.id, checked)
+      if (result.success) {
+        toast.success(t('Setting saved'))
+        triggerRefresh()
+      } else {
+        setUnlimitedFree(!checked)
+        toast.error(result.message || t(ERROR_MESSAGES.UPDATE_FAILED))
+      }
+    } catch (_error) {
+      setUnlimitedFree(!checked)
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setUnlimitedFreeSaving(false)
+    }
+  }
+
+  const handleModerationExemptChange = async (checked: boolean) => {
+    if (!currentRow) return
+    setModerationExempt(checked)
+    setModerationExemptSaving(true)
+    try {
+      const result = await setUserModerationExempt(currentRow.id, checked)
+      if (result.success) {
+        toast.success(t('Setting saved'))
+        triggerRefresh()
+      } else {
+        setModerationExempt(!checked)
+        toast.error(result.message || t(ERROR_MESSAGES.UPDATE_FAILED))
+      }
+    } catch (_error) {
+      setModerationExempt(!checked)
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setModerationExemptSaving(false)
+    }
+  }
+
+  // Committed on blur/Enter rather than per keystroke: typing "25" would
+  // otherwise fire a save for "2" first.
+  const handleFreeRateLimitPctCommit = async () => {
+    if (!currentRow) return
+    const previous = parseFreeRateLimitWindowPct(currentRow.setting)
+    const next = Math.min(Math.max(Math.trunc(freeRateLimitPct) || 0, 0), 100)
+    if (next === previous) return
+    setFreeRateLimitPct(next)
+    setFreeRateLimitPctSaving(true)
+    try {
+      const result = await setUserFreeRateLimitWindowPct(currentRow.id, next)
+      if (result.success) {
+        toast.success(t('Setting saved'))
+        triggerRefresh()
+      } else {
+        setFreeRateLimitPct(previous)
+        toast.error(result.message || t(ERROR_MESSAGES.UPDATE_FAILED))
+      }
+    } catch (_error) {
+      setFreeRateLimitPct(previous)
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setFreeRateLimitPctSaving(false)
+    }
+  }
+
+  const handleUsableGroupsChange = async (next: string[]) => {
+    if (!currentRow) return
+    const prev = usableGroups
+    setUsableGroups(next)
+    setUsableGroupsSaving(true)
+    try {
+      const result = await setUserUsableGroups(currentRow.id, next)
+      if (result.success) {
+        toast.success(t('Setting saved'))
+        triggerRefresh()
+      } else {
+        setUsableGroups(prev)
+        toast.error(result.message || t(ERROR_MESSAGES.UPDATE_FAILED))
+      }
+    } catch (_error) {
+      setUsableGroups(prev)
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setUsableGroupsSaving(false)
+    }
   }
 
   return (
@@ -275,6 +467,7 @@ export function UsersMutateDrawer({
                         <Select
                           items={[
                             { value: '1', label: t('Common User') },
+                            { value: '5', label: t('Moderator') },
                             { value: '10', label: t('Admin') },
                           ]}
                           onValueChange={(value) =>
@@ -291,6 +484,9 @@ export function UsersMutateDrawer({
                             <SelectGroup>
                               <SelectItem value='1'>
                                 {t('Common User')}
+                              </SelectItem>
+                              <SelectItem value='5'>
+                                {t('Moderator')}
                               </SelectItem>
                               <SelectItem value='10'>{t('Admin')}</SelectItem>
                             </SelectGroup>
@@ -348,8 +544,8 @@ export function UsersMutateDrawer({
                 />
               </SideDrawerSection>
 
-              {/* Group & Quota Settings (Update only) */}
-              {isUpdate && (
+              {/* Group & Quota Settings (Update only; admin+ only) */}
+              {isUpdate && canManageUsers && (
                 <SideDrawerSection>
                   <h3 className='text-sm font-medium'>{t('Group & Quota')}</h3>
 
@@ -388,6 +584,25 @@ export function UsersMutateDrawer({
                       </FormItem>
                     )}
                   />
+
+                  <div className='space-y-2'>
+                    <Label>{t('Usable groups')}</Label>
+                    <MultiSelect
+                      options={groups.map((group) => ({
+                        label: group,
+                        value: group,
+                      }))}
+                      selected={usableGroups}
+                      onChange={handleUsableGroupsChange}
+                      placeholder={t('Grant extra groups (searchable)')}
+                      disabled={usableGroupsSaving}
+                    />
+                    <p className='text-muted-foreground text-xs'>
+                      {t(
+                        'Extra groups this user may target via the group override header, on top of their account group. Used for private/per-user channel access.'
+                      )}
+                    </p>
+                  </div>
 
                   <FormField
                     control={form.control}
@@ -447,6 +662,118 @@ export function UsersMutateDrawer({
                       </FormItem>
                     )}
                   />
+
+                  {isUpdate && (
+                    <FormField
+                      control={form.control}
+                      name='referral_commission_percent'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {t('Referral commission rate override (%)')}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type='number'
+                              min={0}
+                              max={100}
+                              step='0.01'
+                              placeholder={t('Leave empty to use global rate')}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Commission this user earns when people they invited top up. Empty uses the global rate; 0 disables commission for this user.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+
+                  <div className='flex items-start justify-between gap-3 rounded-lg border p-3 sm:items-center sm:p-4'>
+                    <div className='space-y-0.5'>
+                      <Label>
+                        {t('Block free models when balance is zero')}
+                      </Label>
+                      <p className='text-muted-foreground text-xs sm:text-sm'>
+                        {t(
+                          'When enabled, this user cannot call zero-cost models once their balance reaches zero. Cleared automatically when they top up.'
+                        )}
+                      </p>
+                    </div>
+                    <Switch
+                      className='shrink-0'
+                      checked={blockFree}
+                      onCheckedChange={handleBlockFreeChange}
+                      disabled={blockFreeSaving}
+                    />
+                  </div>
+
+                  <div className='flex items-start justify-between gap-3 rounded-lg border p-3 sm:items-center sm:p-4'>
+                    <div className='space-y-0.5'>
+                      <Label>{t('Unlimited free models')}</Label>
+                      <p className='text-muted-foreground text-xs sm:text-sm'>
+                        {t(
+                          'Exempts this user from the per-model free-model rate limits. Grant sparingly; free upstream quotas are shared.'
+                        )}
+                      </p>
+                    </div>
+                    <Switch
+                      className='shrink-0'
+                      checked={unlimitedFree}
+                      onCheckedChange={handleUnlimitedFreeChange}
+                      disabled={unlimitedFreeSaving}
+                    />
+                  </div>
+
+                  <div className='flex items-start justify-between gap-3 rounded-lg border p-3 sm:items-center sm:p-4'>
+                    <div className='space-y-0.5'>
+                      <Label>{t('Exempt from prompt moderation')}</Label>
+                      <p className='text-muted-foreground text-xs sm:text-sm'>
+                        {t(
+                          'Skips content moderation on this user\'s image and video generation prompts. Grant only to trusted accounts; the platform stays liable for what they generate.'
+                        )}
+                      </p>
+                    </div>
+                    <Switch
+                      className='shrink-0'
+                      checked={moderationExempt}
+                      onCheckedChange={handleModerationExemptChange}
+                      disabled={moderationExemptSaving}
+                    />
+                  </div>
+
+                  <div className='flex items-start justify-between gap-3 rounded-lg border p-3 sm:items-center sm:p-4'>
+                    <div className='space-y-0.5'>
+                      <Label>{t('Free rate-limit window discount')}</Label>
+                      <p className='text-muted-foreground text-xs sm:text-sm'>
+                        {t(
+                          'Percent off the wait between free-model requests. 0 disables it; 99 makes it nearly instant. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.'
+                        )}
+                      </p>
+                    </div>
+                    <Input
+                      type='number'
+                      min={0}
+                      max={100}
+                      className='w-20 shrink-0'
+                      value={freeRateLimitPct}
+                      onChange={(e) =>
+                        setFreeRateLimitPct(Number(e.target.value))
+                      }
+                      onBlur={handleFreeRateLimitPctCommit}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          void handleFreeRateLimitPctCommit()
+                        }
+                      }}
+                      disabled={freeRateLimitPctSaving}
+                    />
+                  </div>
                 </SideDrawerSection>
               )}
 

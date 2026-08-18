@@ -36,6 +36,9 @@ const OPERATIONS_SECTIONS = [
           DefaultCollapseSidebar: settings.DefaultCollapseSidebar,
           DemoSiteEnabled: settings.DemoSiteEnabled,
           SelfUseModeEnabled: settings.SelfUseModeEnabled,
+          'general_setting.force_upstream_streaming_enabled':
+            settings['general_setting.force_upstream_streaming_enabled'] ??
+            false,
         }}
       />
     ),
@@ -46,15 +49,47 @@ const OPERATIONS_SECTIONS = [
     build: (settings: OperationsSettings) => (
       <MonitoringSettingsSection
         defaultValues={{
+          ChannelDisableThreshold: settings.ChannelDisableThreshold,
           QuotaRemindThreshold: settings.QuotaRemindThreshold,
-          'perf_metrics_setting.enabled':
-            settings['perf_metrics_setting.enabled'] ?? true,
-          'perf_metrics_setting.flush_interval':
-            settings['perf_metrics_setting.flush_interval'] ?? 5,
-          'perf_metrics_setting.bucket_time':
-            settings['perf_metrics_setting.bucket_time'] ?? 'hour',
-          'perf_metrics_setting.retention_days':
-            settings['perf_metrics_setting.retention_days'] ?? 0,
+          AutomaticDisableChannelEnabled:
+            settings.AutomaticDisableChannelEnabled,
+          AutomaticEnableChannelEnabled: settings.AutomaticEnableChannelEnabled,
+          AutomaticDisableKeywords: settings.AutomaticDisableKeywords,
+          ChannelFaultKeywords: settings.ChannelFaultKeywords,
+          AutomaticDisableStatusCodes: settings.AutomaticDisableStatusCodes,
+          AutomaticRetryStatusCodes: settings.AutomaticRetryStatusCodes,
+          'monitor_setting.auto_test_channel_enabled':
+            settings['monitor_setting.auto_test_channel_enabled'],
+          'monitor_setting.auto_test_channel_minutes':
+            settings['monitor_setting.auto_test_channel_minutes'],
+          'monitor_setting.auto_test_disabled_channels_only':
+            settings['monitor_setting.auto_test_disabled_channels_only'],
+          'monitor_setting.channel_status_notify_enabled':
+            settings['monitor_setting.channel_status_notify_enabled'],
+          'monitor_setting.snapshot_model_status_enabled':
+            settings['monitor_setting.snapshot_model_status_enabled'] ?? true,
+          'monitor_setting.snapshot_model_status_retention_days':
+            settings[
+              'monitor_setting.snapshot_model_status_retention_days'
+            ] ?? 30,
+          'monitor_setting.disable_on_empty_response':
+            settings['monitor_setting.disable_on_empty_response'] ?? true,
+          'monitor_setting.empty_response_rate_threshold':
+            settings['monitor_setting.empty_response_rate_threshold'] ?? 0.5,
+          'monitor_setting.empty_response_min_samples':
+            settings['monitor_setting.empty_response_min_samples'] ?? 8,
+          'monitor_setting.empty_response_absolute_floor':
+            settings['monitor_setting.empty_response_absolute_floor'] ?? 5,
+          'monitor_setting.channel_failure_rate_threshold':
+            settings['monitor_setting.channel_failure_rate_threshold'] ?? 0.5,
+          'monitor_setting.channel_failure_min_samples':
+            settings['monitor_setting.channel_failure_min_samples'] ?? 10,
+          'monitor_setting.channel_failure_absolute_floor':
+            settings['monitor_setting.channel_failure_absolute_floor'] ?? 20,
+          'monitor_setting.channel_failure_dead_floor':
+            settings['monitor_setting.channel_failure_dead_floor'] ?? 5,
+          'monitor_setting.channel_failure_streak_floor':
+            settings['monitor_setting.channel_failure_streak_floor'] ?? 3,
         }}
       />
     ),

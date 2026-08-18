@@ -29,5 +29,13 @@ func ResponseText2Usage(c *gin.Context, responseText string, modeName string, pr
 }
 
 func ValidUsage(usage *dto.Usage) bool {
-	return usage != nil && (usage.PromptTokens != 0 || usage.CompletionTokens != 0)
+	return usage != nil && (!IsStubTokenCount(usage.PromptTokens) || !IsStubTokenCount(usage.CompletionTokens))
+}
+
+// Some reverse-engineered upstreams report a constant placeholder instead of a
+// real count, so a prompt is billed as one token however long it is. A chat
+// request always costs more than one token once the role and message framing
+// are counted, so treat 1 the same as 0: unreported, count it locally.
+func IsStubTokenCount(tokens int) bool {
+	return tokens <= 1
 }

@@ -698,8 +698,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
         const quota = row.getValue('quota') as number
         const other = parseLogOther(log.other)
-        return <LogCostDisplay quota={quota} other={other} />
-      },
+        return <LogCostDisplay quota={quota} other={other} />      },
     },
 
     {

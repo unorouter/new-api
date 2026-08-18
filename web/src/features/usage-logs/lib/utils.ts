@@ -203,11 +203,17 @@ export function buildApiParams(config: {
     ...(searchParams.model ? { model_name: String(searchParams.model) } : {}),
     ...(searchParams.token ? { token_name: String(searchParams.token) } : {}),
     ...(searchParams.group ? { group: String(searchParams.group) } : {}),
+    ...(searchParams.subscriptionPlan
+      ? { subscription_plan: String(searchParams.subscriptionPlan) }
+      : {}),
     ...(isAdmin && searchParams.channel
       ? { channel: Number(searchParams.channel) || 0 }
       : {}),
     ...(isAdmin && searchParams.username
       ? { username: String(searchParams.username) }
+      : {}),
+    ...(isAdmin && searchParams.discordId
+      ? { discord_id: String(searchParams.discordId) }
       : {}),
     ...(searchParams.requestId
       ? { request_id: String(searchParams.requestId) }
@@ -235,6 +241,9 @@ export function buildApiParams(config: {
           break
         case 'group':
           params.group = String(value)
+          break
+        case 'subscription_plan':
+          params.subscription_plan = String(value)
           break
         case 'channel':
           if (isAdmin) params.channel = Number(value) || 0

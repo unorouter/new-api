@@ -36,12 +36,14 @@ interface ChangePasswordDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   username: string
+  hasPassword?: boolean
 }
 
 export function ChangePasswordDialog({
   open,
   onOpenChange,
   username,
+  hasPassword = true,
 }: ChangePasswordDialogProps) {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
@@ -59,7 +61,7 @@ export function ChangePasswordDialog({
     e.preventDefault()
 
     // Validation
-    if (!formData.originalPassword) {
+    if (hasPassword && !formData.originalPassword) {
       toast.error(t('Please enter your current password'))
       return
     }
@@ -74,7 +76,7 @@ export function ChangePasswordDialog({
       return
     }
 
-    if (formData.originalPassword === formData.newPassword) {
+    if (hasPassword && formData.originalPassword === formData.newPassword) {
       toast.error(t('New password must be different from current password'))
       return
     }
@@ -115,10 +117,13 @@ export function ChangePasswordDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title={t('Change Password')}
+      title={hasPassword ? t('Change Password') : t('Set Password')}
       description={
         <>
-          {t('Update your password for account:')} <strong>{username}</strong>
+          {hasPassword
+            ? t('Update your password for account:')
+            : t('Set a password for account:')}{' '}
+          <strong>{username}</strong>
         </>
       }
       contentClassName='sm:max-w-md'
@@ -136,23 +141,31 @@ export function ChangePasswordDialog({
           </Button>
           <Button type='submit' form={formId} disabled={loading}>
             {loading && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-            {loading ? t('Changing...') : t('Change Password')}
+            {loading
+              ? hasPassword
+                ? t('Changing...')
+                : t('Setting...')
+              : hasPassword
+                ? t('Change Password')
+                : t('Set Password')}
           </Button>
         </>
       }
     >
       <form id={formId} onSubmit={handleSubmit} className='space-y-4'>
-        <div className='space-y-2'>
-          <Label htmlFor='currentPassword'>{t('Current Password')}</Label>
-          <PasswordInput
-            id='currentPassword'
-            value={formData.originalPassword}
-            onChange={(e) => handleChange('originalPassword', e.target.value)}
-            disabled={loading}
-            required
-            autoComplete='current-password'
-          />
-        </div>
+        {hasPassword && (
+          <div className='space-y-2'>
+            <Label htmlFor='currentPassword'>{t('Current Password')}</Label>
+            <PasswordInput
+              id='currentPassword'
+              value={formData.originalPassword}
+              onChange={(e) => handleChange('originalPassword', e.target.value)}
+              disabled={loading}
+              required
+              autoComplete='current-password'
+            />
+          </div>
+        )}
 
         <div className='space-y-2'>
           <Label htmlFor='newPassword'>{t('New Password')}</Label>

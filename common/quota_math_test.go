@@ -1,6 +1,7 @@
 package common
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -93,7 +94,7 @@ func TestQuotaFromFloatStrictReturnsTypedClampError(t *testing.T) {
 	assert.ErrorContains(t, err, "QuotaFromFloat")
 	assert.ErrorContains(t, err, "overflow")
 	assert.ErrorContains(t, err, "original=")
-	assert.ErrorContains(t, err, "clamped=2147483647")
+	assert.ErrorContains(t, err, fmt.Sprintf("clamped=%d", MaxQuota))
 }
 
 // TestQuotaRoundChecked verifies the rounding entry point reports clamps the

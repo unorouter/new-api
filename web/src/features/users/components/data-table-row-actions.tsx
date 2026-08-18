@@ -47,6 +47,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
 import {
@@ -131,11 +133,22 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     }
   }
 
+  const currentUserRole = useAuthStore((s) => s.auth.user?.role ?? ROLE.GUEST)
+  // A Moderator can view the Users table but performs no write actions; the
+  // backend already 403s these, this just hides the controls.
+  const canManage = currentUserRole >= ROLE.ADMIN
+
   const isDisabled = user.status === USER_STATUS.DISABLED
-  const isAdmin = user.role >= USER_ROLE.ADMIN
   const isRoot = user.role === USER_ROLE.ROOT
+  // Target-role driven so a Moderator(5) row offers both step-up and step-down.
+  const canPromote = user.role < USER_ROLE.ADMIN
+  const canDemote = user.role > USER_ROLE.USER && !isRoot
 
   if (isUserDeleted(user)) {
+    return null
+  }
+
+  if (!canManage) {
     return null
   }
 
@@ -180,7 +193,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
-        {isAdmin && !isRoot && (
+        {canDemote && (
           <DropdownMenuItem onClick={() => handleManage('demote')}>
             {t('Demote')}
             <DropdownMenuShortcut>
@@ -189,7 +202,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
-        {!isAdmin && (
+        {canPromote && (
           <DropdownMenuItem onClick={() => handleManage('promote')}>
             {t('Promote')}
             <DropdownMenuShortcut>

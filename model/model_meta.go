@@ -22,13 +22,20 @@ type BoundChannel struct {
 }
 
 type Model struct {
-	Id           int            `json:"id"`
-	ModelName    string         `json:"model_name" gorm:"size:128;not null;uniqueIndex:uk_model_name_delete_at,priority:1"`
-	Description  string         `json:"description,omitempty" gorm:"type:text"`
-	Icon         string         `json:"icon,omitempty" gorm:"type:varchar(128)"`
-	Tags         string         `json:"tags,omitempty" gorm:"type:varchar(255)"`
-	VendorID     int            `json:"vendor_id,omitempty" gorm:"index"`
-	Endpoints    string         `json:"endpoints,omitempty" gorm:"type:text"`
+	Id          int    `json:"id"`
+	ModelName   string `json:"model_name" gorm:"size:128;not null;uniqueIndex:uk_model_name_delete_at,priority:1"`
+	Description string `json:"description,omitempty" gorm:"type:text"`
+	Icon        string `json:"icon,omitempty" gorm:"type:varchar(128)"`
+	Tags        string `json:"tags,omitempty" gorm:"type:varchar(255)"`
+	VendorID    int    `json:"vendor_id,omitempty" gorm:"index"`
+	Endpoints   string `json:"endpoints,omitempty" gorm:"type:text"`
+	// Metadata holds per-model client hints as a JSON object (e.g.
+	// {"maxOutputTokens":8192,"isReasoning":true}). Opaque to new-api —
+	// populated by the sync, read by client UIs that need model-specific
+	// behavior (like bumping max_tokens for thinking models). Always
+	// serialized (no `omitempty`) so sync tools can feature-detect this
+	// column by checking for the field in the response.
+	Metadata     string         `json:"metadata" gorm:"type:text"`
 	Status       int            `json:"status" gorm:"default:1"`
 	SyncOfficial int            `json:"sync_official" gorm:"default:1"`
 	CreatedTime  int64          `json:"created_time" gorm:"bigint"`
@@ -42,6 +49,21 @@ type Model struct {
 
 	MatchedModels []string `json:"matched_models,omitempty" gorm:"-"`
 	MatchedCount  int      `json:"matched_count,omitempty" gorm:"-"`
+}
+
+type RankingModelVendor struct {
+	ModelName string
+	VendorID  int
+}
+
+// GetRankingModelVendors returns exact-name models that carry a vendor, used by
+// rankings to resolve vendors for models with no live channel (absent from pricing).
+func GetRankingModelVendors() []RankingModelVendor {
+	var rows []RankingModelVendor
+	_ = DB.Model(&Model{}).
+		Where("name_rule = ? AND vendor_id <> 0 AND status = 1", NameRuleExact).
+		Find(&rows).Error
+	return rows
 }
 
 func (mi *Model) Insert() error {
@@ -78,7 +100,7 @@ func (mi *Model) Update() error {
 	mi.UpdatedTime = common.GetTimestamp()
 	// 使用 Select 强制更新所有字段，包括零值
 	return DB.Model(&Model{}).Where("id = ?", mi.Id).
-		Select("model_name", "description", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "updated_time").
+		Select("model_name", "description", "icon", "tags", "vendor_id", "endpoints", "metadata", "status", "sync_official", "name_rule", "updated_time").
 		Updates(mi).Error
 }
 
@@ -219,6 +241,30 @@ func SearchModels(keyword string, vendor string, status string, syncOfficial str
 		return nil, 0, err
 	}
 	return models, total, nil
+}
+
+// DeleteOrphanedModels deletes models that are not bound to any channel
+func DeleteOrphanedModels() (int64, error) {
+	// Get all model names that are bound to at least one channel. Disabled
+	// abilities count as bound: an auto-disabled (rate-limited/recovering)
+	// channel still owns its models, and deleting them here would purge every
+	// rate-limited-preserved model on cleanup.
+	var boundModelNames []string
+	if err := DB.Table("abilities").
+		Select("DISTINCT model").
+		Pluck("model", &boundModelNames).Error; err != nil {
+		return 0, err
+	}
+
+	// Delete models not in the bound list
+	var result *gorm.DB
+	if len(boundModelNames) > 0 {
+		result = DB.Where("model_name NOT IN ?", boundModelNames).Delete(&Model{})
+	} else {
+		// If no models are bound, delete all
+		result = DB.Where("1 = 1").Delete(&Model{})
+	}
+	return result.RowsAffected, result.Error
 }
 
 // parseModelStatusFilter maps UI/API status values to the models.status column.

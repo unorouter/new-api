@@ -1,13 +1,11 @@
 package controller
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/system_setting"
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -42,19 +40,11 @@ func TestGetStatusReturnsEffectiveOIDCDisplayName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			settings.DisplayName = tt.displayName
-			response := httptest.NewRecorder()
-			context, _ := gin.CreateTestContext(response)
-			context.Request = httptest.NewRequest(http.MethodGet, "/api/status", nil)
 
-			GetStatus(context)
-
-			var payload struct {
-				Success bool           `json:"success"`
-				Data    map[string]any `json:"data"`
-			}
-			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &payload))
-			require.True(t, payload.Success)
-			assert.Equal(t, tt.want, payload.Data["oidc_display_name"])
+			resp, err := GetStatus(fuego.NewMockContext[any, any](nil, nil))
+			require.NoError(t, err)
+			require.True(t, resp.Success)
+			assert.Equal(t, tt.want, resp.Data.OidcDisplayName)
 		})
 	}
 }

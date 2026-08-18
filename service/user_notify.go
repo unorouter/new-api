@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/QuantumNous/new-api/types"
 )
 
 func NotifyRootUser(t string, subject string, content string) {
@@ -21,7 +22,11 @@ func NotifyRootUser(t string, subject string, content string) {
 	}
 }
 
-func NotifyUpstreamModelUpdateWatchers(subject string, content string) {
+// NotifyUpstreamModelUpdateWatchers broadcasts an upstream model update notification
+// to all admin users who opted in. The subject and content are rendered per-user in
+// their preferred language via the provided builder, so each recipient receives the
+// message localized to their own setting instead of the server default.
+func NotifyUpstreamModelUpdateWatchers(build func(lang string) (subject string, content string)) {
 	var users []model.User
 	if err := model.DB.
 		Select("id", "email", "role", "status", "setting").
@@ -31,13 +36,14 @@ func NotifyUpstreamModelUpdateWatchers(subject string, content string) {
 		return
 	}
 
-	notification := dto.NewNotify(dto.NotifyTypeChannelUpdate, subject, content, nil)
 	sentCount := 0
 	for _, user := range users {
 		userSetting := user.GetSetting()
 		if !userSetting.UpstreamModelUpdateNotifyEnabled {
 			continue
 		}
+		subject, content := build(userSetting.Language)
+		notification := dto.NewNotify(dto.NotifyTypeChannelUpdate, subject, content, nil)
 		if err := NotifyUser(user.Id, user.Email, userSetting, notification); err != nil {
 			common.SysLog(fmt.Sprintf("failed to notify user %d for upstream model update: %s", user.Id, err.Error()))
 			continue
@@ -47,10 +53,10 @@ func NotifyUpstreamModelUpdateWatchers(subject string, content string) {
 	common.SysLog(fmt.Sprintf("upstream model update notifications sent: %d", sentCount))
 }
 
-func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data dto.Notify) error {
+func NotifyUser(userId int, userEmail string, userSetting types.UserSetting, data dto.Notify) error {
 	notifyType := userSetting.NotifyType
 	if notifyType == "" {
-		notifyType = dto.NotifyTypeEmail
+		notifyType = types.NotifyTypeEmail
 	}
 
 	// Check notification limit
@@ -64,10 +70,12 @@ func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data 
 	}
 
 	switch notifyType {
-	case dto.NotifyTypeEmail:
-		// 优先使用设置中的通知邮箱，如果为空则使用用户的默认邮箱
+	case types.NotifyTypeEmail:
+		// 优先使用设置中的通知邮箱。
+		// 对于用户主动订阅类通知（如额度预警），必须显式设置通知邮箱才会发送，
+		// 避免向仅用于登录的绑定邮箱发送非必要通知。
 		emailToUse := userSetting.NotificationEmail
-		if emailToUse == "" {
+		if emailToUse == "" && data.Type != dto.NotifyTypeQuotaExceed {
 			emailToUse = userEmail
 		}
 		if emailToUse == "" {
@@ -75,7 +83,7 @@ func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data 
 			return nil
 		}
 		return sendEmailNotify(emailToUse, data)
-	case dto.NotifyTypeWebhook:
+	case types.NotifyTypeWebhook:
 		webhookURLStr := userSetting.WebhookUrl
 		if webhookURLStr == "" {
 			common.SysLog(fmt.Sprintf("user %d has no webhook url, skip sending webhook", userId))
@@ -85,14 +93,14 @@ func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data 
 		// 获取 webhook secret
 		webhookSecret := userSetting.WebhookSecret
 		return SendWebhookNotify(webhookURLStr, webhookSecret, data)
-	case dto.NotifyTypeBark:
+	case types.NotifyTypeBark:
 		barkURL := userSetting.BarkUrl
 		if barkURL == "" {
 			common.SysLog(fmt.Sprintf("user %d has no bark url, skip sending bark", userId))
 			return nil
 		}
 		return sendBarkNotify(barkURL, data)
-	case dto.NotifyTypeGotify:
+	case types.NotifyTypeGotify:
 		gotifyUrl := userSetting.GotifyUrl
 		gotifyToken := userSetting.GotifyToken
 		if gotifyUrl == "" || gotifyToken == "" {

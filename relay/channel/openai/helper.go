@@ -165,7 +165,9 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		if info.ShouldIncludeUsage && !containStreamUsage {
+		// PROD-ONLY (fork): only synthesize the choices-empty final usage chunk when the
+		// client EXPLICITLY asked for it; otherwise fragile clients crash on choices[0].
+		if info.ClientRequestedStreamUsage && info.ShouldIncludeUsage && !containStreamUsage {
 			response := helper.GenerateFinalUsageResponse(responseId, createAt, model, *usage)
 			response.SetSystemFingerprint(systemFingerprint)
 			helper.ObjectData(c, response)

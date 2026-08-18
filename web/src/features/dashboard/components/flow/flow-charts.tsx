@@ -258,7 +258,7 @@ export function FlowCharts(props: FlowChartsProps) {
   const chartInstanceRef = useRef<IVChart | null>(null)
   const user = useAuthStore((state) => state.auth.user)
   const isRoot = Boolean(user?.role && user.role >= ROLE.SUPER_ADMIN)
-  const isAdmin = Boolean(user?.role && user.role >= ROLE.ADMIN)
+  const isAdmin = Boolean(user?.role && user.role >= ROLE.MOD)
   let flowRole: FlowRole = 'user'
   if (isRoot) {
     flowRole = 'root'

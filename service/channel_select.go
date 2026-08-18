@@ -80,15 +80,17 @@ func (p *RetryParam) ResetRetryNextTry() {
 //
 //	Retry=3: GroupB, priority1 (startRetryIndex=2, priorityRetry=1)
 //	         分组B, 优先级1
-func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, error) {
+func CacheGetRandomSatisfiedChannel(param *RetryParam, skipIDs ...map[int]bool) (*model.Channel, string, error) {
 	var channel *model.Channel
 	var err error
 	selectGroup := param.TokenGroup
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
 
-	if param.TokenGroup == "auto" {
-		autoGroups := GetRequestAutoGroups(param.Ctx, userGroup)
-		if len(autoGroups) == 0 {
+	// A composite pinned group ("vip,discount") behaves like a scoped auto:
+	// iterate only the pinned groups, cheapest ratio first.
+	if param.TokenGroup == "auto" || IsCompositeTokenGroup(param.TokenGroup) {
+		autoGroups := GetTokenAutoGroups(param.Ctx, userGroup, param.TokenGroup)
+		if param.TokenGroup == "auto" && len(autoGroups) == 0 {
 			return nil, selectGroup, errors.New("auto groups is not enabled")
 		}
 
@@ -115,7 +117,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath)
+			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath, skipIDs...)
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
@@ -153,7 +155,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			break
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath)
+		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath, skipIDs...)
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}
