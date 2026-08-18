@@ -24,7 +24,7 @@ import {
 } from '@tanstack/react-router'
 import type { AxiosRequestConfig } from 'axios'
 import i18next from 'i18next'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 
 import { OAuthCallbackScreen } from '@/features/auth/components/oauth-callback-screen'
@@ -72,6 +72,7 @@ function OAuthCallback() {
     flow_token?: string
     error_code?: string
   }
+  const exchangeStartedRef = useRef(false)
   const callbackState = search.state ?? ''
   const isTelegramBindCallback =
     provider === 'telegram' &&
@@ -186,6 +187,9 @@ function OAuthCallback() {
       return
     }
 
+    if (exchangeStartedRef.current) return
+    exchangeStartedRef.current = true
+
     void (async () => {
       try {
         const config: OAuthRequestConfig = {
@@ -198,6 +202,18 @@ function OAuthCallback() {
           skipBusinessError: true,
         }
         const response = await api.get(`/api/oauth/${provider}`, config)
+        const responseData = response.data?.data as
+          | { redirect_url?: string }
+          | null
+          | undefined
+        if (
+          responseData &&
+          typeof responseData.redirect_url === 'string' &&
+          responseData.redirect_url.length > 0
+        ) {
+          window.location.replace(responseData.redirect_url)
+          return
+        }
         if (response.data?.success && isAuthBundle(response.data?.data)) {
           applyAuthBundle(response.data.data)
           safeNavigate(search.redirect)

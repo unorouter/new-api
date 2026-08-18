@@ -286,12 +286,22 @@ func migrateDB() error {
 		&SubscriptionPreConsumeRecord{},
 		&CustomOAuthProvider{},
 		&UserOAuthBinding{},
+		&ReferralCommission{},
+		&OAuthClient{},
+		&OAuthAuthnSession{},
+		&OAuthGrant{},
+		&OAuthToken{},
+		&ModelStatusPing{},
+		&ModelStatusComponent{},
+		&ModelStatusIncident{},
+		&ChannelDiagnostic{},
 		&PerfMetric{},
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},
 		&CasbinRule{},
 		&AuthzRole{},
+		&PushSubscription{},
 	)
 	if err != nil {
 		return err
@@ -311,7 +321,48 @@ func migrateDB() error {
 			return err
 		}
 	}
+	ensureSubscriptionPlanColumn("nowpayments_plan_id", "varchar(128) DEFAULT ''")
+	backfillModelStatusLastUp()
 	return nil
+}
+
+// backfillModelStatusLastUp seeds the last_up_at column (added Jul 2026) from
+// ping history so pre-existing components are not mis-hidden as week-dead
+// right after the deploy. Idempotent; touches only rows still at 0.
+func backfillModelStatusLastUp() {
+	var cnt int64
+	if err := DB.Model(&ModelStatusComponent{}).
+		Where("last_up_at = 0").Count(&cnt).Error; err != nil || cnt == 0 {
+		return
+	}
+	err := DB.Exec(`UPDATE model_status_components SET last_up_at = COALESCE((SELECT MAX(timestamp) FROM model_status_pings WHERE model_status_pings.model = model_status_components.model_name AND model_status_pings.up_channels > 0), 0) WHERE last_up_at = 0`).Error
+	if err != nil {
+		common.SysLog("model status last_up backfill failed: " + err.Error())
+	}
+}
+
+// ensureSubscriptionPlanColumn adds a column to subscription_plans if it is
+// missing. AutoMigrate has been observed to silently skip new optional
+// columns on long-lived prod tables; this is the belt-and-braces guard.
+func ensureSubscriptionPlanColumn(columnName, columnDDL string) {
+	tableName := "subscription_plans"
+	if !DB.Migrator().HasTable(tableName) {
+		return
+	}
+	if DB.Migrator().HasColumn(&SubscriptionPlan{}, columnName) {
+		return
+	}
+	quote := "`"
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		quote = `"`
+	}
+	sql := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s%s%s %s",
+		tableName, quote, columnName, quote, columnDDL)
+	if err := DB.Exec(sql).Error; err != nil {
+		common.SysLog(fmt.Sprintf("failed to add %s.%s: %v", tableName, columnName, err))
+	} else {
+		common.SysLog(fmt.Sprintf("added column %s.%s", tableName, columnName))
+	}
 }
 
 func migrateDBFast() error {
@@ -349,10 +400,20 @@ func migrateDBFast() error {
 		{&SubscriptionPreConsumeRecord{}, "SubscriptionPreConsumeRecord"},
 		{&CustomOAuthProvider{}, "CustomOAuthProvider"},
 		{&UserOAuthBinding{}, "UserOAuthBinding"},
+		{&ReferralCommission{}, "ReferralCommission"},
+		{&OAuthClient{}, "OAuthClient"},
+		{&OAuthAuthnSession{}, "OAuthAuthnSession"},
+		{&OAuthGrant{}, "OAuthGrant"},
+		{&OAuthToken{}, "OAuthToken"},
+		{&ModelStatusPing{}, "ModelStatusPing"},
+		{&ModelStatusComponent{}, "ModelStatusComponent"},
+		{&ModelStatusIncident{}, "ModelStatusIncident"},
+		{&ChannelDiagnostic{}, "ChannelDiagnostic"},
 		{&PerfMetric{}, "PerfMetric"},
 		{&SystemInstance{}, "SystemInstance"},
 		{&SystemTask{}, "SystemTask"},
 		{&SystemTaskLock{}, "SystemTaskLock"},
+		{&PushSubscription{}, "PushSubscription"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
@@ -718,7 +779,7 @@ func checkMySQLChineseSupport(db *gorm.DB) error {
 	var schemaCharset, schemaCollation string
 	err := db.Raw("SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = DATABASE()").Row().Scan(&schemaCharset, &schemaCollation)
 	if err != nil {
-		return fmt.Errorf("读取当前库默认字符集/排序规则失败 / Failed to read schema default charset/collation: %v", err)
+		return fmt.Errorf("Failed to read schema default charset/collation: %v", err)
 	}
 
 	toLower := func(s string) string { return strings.ToLower(s) }
@@ -750,8 +811,8 @@ func checkMySQLChineseSupport(db *gorm.DB) error {
 
 	// 1) 当前库默认值必须支持中文
 	if !isChineseCapable(schemaCharset, schemaCollation) {
-		return fmt.Errorf("当前库默认字符集/排序规则不支持中文：schema(%s/%s)。请将库设置为 utf8mb4/utf8/gbk/big5/gb18030 / Schema default charset/collation is not Chinese-capable: schema(%s/%s). Please set to utf8mb4/utf8/gbk/big5/gb18030",
-			schemaCharset, schemaCollation, schemaCharset, schemaCollation)
+		return fmt.Errorf("Schema default charset/collation is not Chinese-capable: schema(%s/%s). Please set the database to utf8mb4/utf8/gbk/big5/gb18030",
+			schemaCharset, schemaCollation)
 	}
 
 	// 2) 所有物理表的排序规则（隐含字符集）必须支持中文
@@ -761,7 +822,7 @@ func checkMySQLChineseSupport(db *gorm.DB) error {
 	}
 	var tables []tableInfo
 	if err := db.Raw("SELECT TABLE_NAME, TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'").Scan(&tables).Error; err != nil {
-		return fmt.Errorf("读取表排序规则失败 / Failed to read table collations: %v", err)
+		return fmt.Errorf("Failed to read table collations: %v", err)
 	}
 
 	var badTables []string
@@ -793,8 +854,8 @@ func checkMySQLChineseSupport(db *gorm.DB) error {
 			shown = shown[:maxShow]
 		}
 		return fmt.Errorf(
-			"存在不支持中文的表，请修复其排序规则/字符集。示例（最多展示 %d 项）：%v / Found tables not Chinese-capable. Please fix their collation/charset. Examples (showing up to %d): %v",
-			maxShow, shown, maxShow, shown,
+			"Found tables that are not Chinese-capable. Please fix their collation/charset. Examples (showing up to %d): %v",
+			maxShow, shown,
 		)
 	}
 	return nil

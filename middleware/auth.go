@@ -42,6 +42,47 @@ func validUserInfo(username string, role int) bool {
 	return true
 }
 
+// enforceRoleAndStatus validates that the user set on the gin context meets
+// the minimum role and is not disabled. Used by authHelper after the OAuth
+// bearer path populates the context; the legacy access-token/session path
+// keeps its inline checks for historical reasons.
+//
+// On failure the response is written, the request is aborted, and a non-nil
+// error is returned so the caller can bail immediately.
+func enforceRoleAndStatus(c *gin.Context, minRole int) error {
+	username, _ := c.Get("username")
+	role, _ := c.Get("role")
+
+	roleInt, ok := role.(int)
+	if !ok || !common.IsValidateRole(roleInt) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid),
+		})
+		c.Abort()
+		return errAuthInvalid
+	}
+	if roleInt < minRole {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
+		})
+		c.Abort()
+		return errAuthInvalid
+	}
+	if name, ok := username.(string); !ok || strings.TrimSpace(name) == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid),
+		})
+		c.Abort()
+		return errAuthInvalid
+	}
+	return nil
+}
+
+var errAuthInvalid = errors.New("auth: invalid user")
+
 func authHelper(c *gin.Context, minRole int) {
 	user, identity, useAccessToken, err := authenticateDashboardRequest(c)
 	if err != nil {
@@ -95,6 +136,12 @@ func UserAuth() func(c *gin.Context) {
 	}
 }
 
+func ModAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		authHelper(c, common.RoleModUser)
+	}
+}
+
 func AdminAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleAdminUser)
@@ -145,6 +192,27 @@ func authenticateDashboardRequest(c *gin.Context) (*model.UserBase, service.Auth
 		return nil, service.AuthIdentity{}, false, service.ErrAuthTokenInvalid
 	}
 	return user, identity, credentialKind == dashboardCredentialPAT, nil
+}
+
+// ResolveDashboardCredential returns the user behind the request's
+// Authorization header, or nil when it carries none that validates. It accepts
+// both credential kinds the dashboard issues: a login session token and a
+// personal access token.
+//
+// Exported for routes that must authenticate a caller themselves because they
+// cannot sit behind UserAuth, such as the OAuth bind flow, whose cross-domain
+// redirect drops the session cookie. Those routes must NOT re-implement this:
+// checking only model.ValidateAccessToken silently rejects every user without a
+// PAT, which is most of them.
+func ResolveDashboardCredential(c *gin.Context) (*model.UserBase, error) {
+	user, _, kind, err := classifyDashboardCredential(c)
+	if err != nil {
+		return nil, err
+	}
+	if kind == dashboardCredentialUnmatched {
+		return nil, nil
+	}
+	return user, nil
 }
 
 func classifyDashboardCredential(c *gin.Context) (*model.UserBase, service.AuthIdentity, dashboardCredentialKind, error) {
@@ -351,6 +419,16 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 
 func TokenAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		// OAuth 2.1 bearer JWT first. If the request carries a valid OAuth
+		// access token, the gin context is populated and we let it through;
+		// other branches still fall through to the legacy `sk-` path.
+		if matched, ok := tryOAuthBearerAuth(c); matched {
+			if !ok {
+				return
+			}
+			c.Next()
+			return
+		}
 		// 先检测是否为ws
 		if c.Request.Header.Get("Sec-WebSocket-Protocol") != "" {
 			// Sec-WebSocket-Protocol: realtime, openai-insecure-api-key.sk-xxx, openai-beta.realtime-v1
@@ -414,11 +492,21 @@ func TokenAuth() func(c *gin.Context) {
 			}
 		}
 		if err != nil {
-			if errors.Is(err, model.ErrDatabase) {
+			switch {
+			case errors.Is(err, model.ErrDatabase):
 				common.SysLog("TokenAuth ValidateUserToken database error: " + err.Error())
 				abortWithOpenAiMessage(c, http.StatusInternalServerError,
 					common.TranslateMessage(c, i18n.MsgDatabaseError))
-			} else {
+			case errors.Is(err, model.ErrTokenExhausted):
+				abortWithOpenAiMessage(c, http.StatusPaymentRequired,
+					common.TranslateMessage(c, i18n.MsgQuotaInsufficient))
+			case errors.Is(err, model.ErrTokenExpired):
+				abortWithOpenAiMessage(c, http.StatusUnauthorized,
+					common.TranslateMessage(c, i18n.MsgTokenExpired))
+			case errors.Is(err, model.ErrTokenDisabled):
+				abortWithOpenAiMessage(c, http.StatusUnauthorized,
+					common.TranslateMessage(c, i18n.MsgTokenStatusUnavailable))
+			default:
 				abortWithOpenAiMessage(c, http.StatusUnauthorized,
 					common.TranslateMessage(c, i18n.MsgTokenInvalid))
 			}
@@ -431,11 +519,11 @@ func TokenAuth() func(c *gin.Context) {
 			logger.LogDebug(c, "Token has IP restrictions, checking client IP %s", clientIp)
 			ip := net.ParseIP(clientIp)
 			if ip == nil {
-				abortWithOpenAiMessage(c, http.StatusForbidden, "无法解析客户端 IP 地址")
+				abortWithOpenAiMessage(c, http.StatusForbidden, "unable to parse client IP address")
 				return
 			}
 			if common.IsIpInCIDRList(ip, allowIps) == false {
-				abortWithOpenAiMessage(c, http.StatusForbidden, "您的 IP 不在令牌允许访问的列表中", types.ErrorCodeAccessDenied)
+				abortWithOpenAiMessage(c, http.StatusForbidden, "your IP is not in the token's allowed access list", types.ErrorCodeAccessDenied)
 				return
 			}
 			logger.LogDebug(c, "Client IP %s passed the token IP restrictions check", clientIp)
@@ -459,16 +547,19 @@ func TokenAuth() func(c *gin.Context) {
 		userGroup := userCache.Group
 		tokenGroup := token.Group
 		if tokenGroup != "" {
-			// check common.UserUsableGroups[userGroup]
-			if _, ok := service.GetUserUsableGroups(userGroup)[tokenGroup]; !ok {
-				abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("无权访问 %s 分组", tokenGroup))
-				return
-			}
-			// check group in common.GroupRatio
-			if !ratio_setting.ContainsGroupRatio(tokenGroup) {
-				if tokenGroup != "auto" {
-					abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("分组 %s 已被弃用", tokenGroup))
+			// A composite pinned group ("vip,discount") validates per element; the
+			// channel-select engine later resolves the concrete group per request.
+			for _, g := range service.ParseTokenGroups(tokenGroup) {
+				if !service.GroupInUserUsableGroups(userGroup, g) {
+					abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("No permission to access group %s", g))
 					return
+				}
+				// check group in common.GroupRatio
+				if !ratio_setting.ContainsGroupRatio(g) {
+					if g != "auto" {
+						abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("Group %s has been deprecated", g))
+						return
+					}
 				}
 			}
 			userGroup = tokenGroup
@@ -513,13 +604,16 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 			common.SetContextKey(c, constant.ContextKeyTokenAutoGroups, autoGroups)
 		}
 	}
+	if token.GroupMapping != "" {
+		common.SetContextKey(c, constant.ContextKeyTokenGroupMapping, token.GroupMapping)
+	}
 	if len(parts) > 1 {
 		if model.IsAdmin(token.UserId) {
 			c.Set("specific_channel_id", parts[1])
 		} else {
 			c.Header("specific_channel_version", "701e3ae1dc3f7975556d354e0675168d004891c8")
-			abortWithOpenAiMessage(c, http.StatusForbidden, "普通用户不支持指定渠道")
-			return fmt.Errorf("普通用户不支持指定渠道")
+			abortWithOpenAiMessage(c, http.StatusForbidden, "regular users cannot specify a channel")
+			return fmt.Errorf("regular users cannot specify a channel")
 		}
 	}
 	return nil

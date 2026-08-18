@@ -62,6 +62,7 @@ export const channelSchema = z.object({
   setting: z.string().nullish(),
   param_override: z.string().nullish(),
   header_override: z.string().nullish(),
+  workflow_templates: z.string().nullish(),
   remark: z.string().default(''),
   max_input_tokens: z.number().default(0),
   channel_info: channelInfoSchema.default({
@@ -269,7 +270,7 @@ export type ChannelSortOrder = 'asc' | 'desc'
 export interface GetChannelsParams {
   p?: number
   page_size?: number
-  status?: string // 'enabled', 'disabled', or empty for all
+  status?: string // 'enabled' | 'disabled' (any) | 'manual_disabled' | 'auto_disabled' | empty for all
   type?: number
   group?: string
   id_sort?: boolean
@@ -360,6 +361,7 @@ export interface ChannelFormData {
   setting?: string
   param_override?: string
   header_override?: string
+  workflow_templates?: string
   settings?: string
   other?: string
   // Multi-key specific

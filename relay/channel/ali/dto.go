@@ -90,7 +90,10 @@ type AliOutput struct {
 	Message      string       `json:"message,omitempty"`
 	Code         string       `json:"code,omitempty"`
 	Results      []TaskResult `json:"results,omitempty"`
-	Choices      []struct {
+	// Audio is populated by the sync TTS multimodal-generation path
+	// (output.audio.url is a short-lived .wav URL).
+	Audio   *AliAudioOutput `json:"audio,omitempty"`
+	Choices []struct {
 		FinishReason string `json:"finish_reason,omitempty"`
 		Message      struct {
 			Role             string            `json:"role,omitempty"`
@@ -98,6 +101,29 @@ type AliOutput struct {
 			ReasoningContent string            `json:"reasoning_content,omitempty"`
 		} `json:"message,omitempty"`
 	} `json:"choices,omitempty"`
+}
+
+type AliAudioOutput struct {
+	URL       string `json:"url,omitempty"`
+	Data      string `json:"data,omitempty"`
+	ExpiresAt int64  `json:"expires_at,omitempty"`
+	Id        string `json:"id,omitempty"`
+}
+
+// AliAudioRequest is the DashScope multimodal-generation TTS body.
+type AliAudioRequest struct {
+	Model      string              `json:"model"`
+	Input      AliAudioInput       `json:"input"`
+	Parameters *AliAudioParameters `json:"parameters,omitempty"`
+}
+
+type AliAudioInput struct {
+	Text  string `json:"text,omitempty"`
+	Voice string `json:"voice,omitempty"`
+}
+
+type AliAudioParameters struct {
+	Voice string `json:"voice,omitempty"`
 }
 
 func (o *AliOutput) ChoicesToOpenAIImageDate(c *gin.Context, responseFormat string) []dto.ImageData {

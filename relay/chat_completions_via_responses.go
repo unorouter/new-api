@@ -82,7 +82,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	}
 
 	if len(info.ParamOverride) > 0 {
-		chatJSON, err = relaycommon.ApplyParamOverrideWithRelayInfo(chatJSON, info)
+		chatJSON, err = relaycommon.ApplyParamOverrideWithRelayInfo(chatJSON, info, c.Writer.Header())
 		if err != nil {
 			return nil, newAPIErrorFromParamOverride(err)
 		}

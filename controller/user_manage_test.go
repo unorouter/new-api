@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service/authz"
 
@@ -50,14 +51,19 @@ func setupManageUserTestDB(t *testing.T) *gorm.DB {
 func performManageUserRequest(t *testing.T, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(func(c *gin.Context) {
+		c.Set("id", 9999)
+		c.Set("role", common.RoleRootUser)
+		c.Set("username", "root-operator")
+	})
+	userRouter := dto.NewRouter(nil, engine.Group("/api/user"), "User")
+	dto.PostB(userRouter, "/manage", ManageUser)
+
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/user/manage", strings.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("id", 9999)
-	c.Set("role", common.RoleRootUser)
-	c.Set("username", "root-operator")
-	ManageUser(c)
+	request := httptest.NewRequest(http.MethodPost, "/api/user/manage", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(recorder, request)
 	return recorder
 }
 
@@ -122,7 +128,7 @@ func TestManageUserDemoteAdvancesAuthVersionAndRevokesSessionsOnce(t *testing.T)
 
 	var updated model.User
 	require.NoError(t, db.First(&updated, user.Id).Error)
-	assert.Equal(t, common.RoleCommonUser, updated.Role)
+	assert.Equal(t, common.RoleModUser, updated.Role)
 	assert.EqualValues(t, 2, updated.AuthVersion)
 	var sessions []model.UserSession
 	require.NoError(t, db.Where("user_id = ?", user.Id).Order("sid asc").Find(&sessions).Error)

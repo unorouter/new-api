@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -217,7 +217,7 @@ func TestUpdateUserSettingOnlyUpdatesSetting(t *testing.T) {
 		"request_count": gorm.Expr("request_count + ?", 1),
 	}).Error)
 
-	require.NoError(t, UpdateUserSetting(user.Id, dto.UserSetting{Language: "zh"}))
+	require.NoError(t, UpdateUserSetting(user.Id, types.UserSetting{Language: "zh"}))
 
 	var got User
 	require.NoError(t, DB.First(&got, user.Id).Error)

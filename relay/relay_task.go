@@ -19,6 +19,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -157,6 +158,33 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	adaptor.Init(info)
 	if taskErr := adaptor.ValidateRequestAndSetAction(c, info); taskErr != nil {
 		return nil, taskErr
+	}
+
+	// Video-generation moderation (merchant-of-record content-safety requirement).
+	// Runs before pre-consume billing so a denied prompt is never charged. Suno (audio)
+	// is excluded; the prompt is read generically from the task request body and screened
+	// through OpenAI omni-moderation.
+	if setting.CreemModerationEnabled && !service.ModerationExempt(c) && platform != constant.TaskPlatformSuno {
+		var taskReq struct {
+			Prompt string `json:"prompt"`
+		}
+		_ = common.UnmarshalBodyReusable(c, &taskReq)
+		if modErr := service.AssertPromptAllowed(c.Request.Context(), service.ModerationSurfaceVideo, taskReq.Prompt); modErr != nil {
+			if errors.Is(modErr, service.ErrPromptDenied) {
+				reason := service.ModerationDenyReason(modErr)
+				other := map[string]interface{}{"error_type": "moderation_rejected", "surface": "video"}
+				if denyErr := new(service.ModerationDenyError); errors.As(modErr, &denyErr) {
+					other["moderation_category"] = denyErr.Category
+					other["moderation_score"] = denyErr.Score
+					other["moderation_threshold"] = denyErr.Threshold
+				}
+				model.RecordErrorLog(c, info.UserId, c.GetInt("channel_id"),
+					c.GetString("original_model"), c.GetString("token_name"), reason,
+					c.GetInt("token_id"), 0, false, c.GetString("group"), other)
+				return nil, service.TaskErrorWrapperLocal(errors.New(reason), "prompt_rejected", http.StatusBadRequest)
+			}
+			return nil, service.TaskErrorWrapperLocal(modErr, "moderation_unavailable", http.StatusServiceUnavailable)
+		}
 	}
 
 	// 2. 确定模型名称
@@ -501,6 +529,11 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 		"task_id":  task.TaskID,
 		"url":      task.GetResultURL(),
 	}
+	// 多输出任务（ComfyUI batch_size>1）暴露完整列表。GetResultURLs 返回的列表
+	// 长度 >=2 时才显式写入 result_urls 字段，避免在单输出场景造成无意义的冗余。
+	if urls := task.GetResultURLs(); len(urls) > 1 {
+		out["result_urls"] = urls
+	}
 	respBody, _ := common.Marshal(dto.TaskResponse[any]{
 		Code: "success",
 		Data: out,
@@ -562,6 +595,7 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		Status:     string(task.Status),
 		FailReason: task.FailReason,
 		ResultURL:  task.GetResultURL(),
+		ResultURLs: task.GetResultURLs(),
 		SubmitTime: task.SubmitTime,
 		StartTime:  task.StartTime,
 		FinishTime: task.FinishTime,

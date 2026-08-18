@@ -145,6 +145,10 @@ func StartSystemTaskRunner() {
 					if err := model.ExpireStaleSystemTaskLocks(common.GetTimestamp()); err != nil {
 						logger.LogWarn(context.Background(), fmt.Sprintf("system task stale lock cleanup failed: %v", err))
 					}
+					staleBefore := common.GetTimestamp() - int64((3 * systemTaskLockTTL).Seconds())
+					if err := model.ExpireOrphanedRunningSystemTasks(staleBefore); err != nil {
+						logger.LogWarn(context.Background(), fmt.Sprintf("system task orphan cleanup failed: %v", err))
+					}
 				}
 				if now.Sub(lastScheduler) >= systemTaskSchedulerInterval {
 					lastScheduler = now
@@ -323,10 +327,18 @@ func runWithLeaseHeartbeat(task *model.SystemTask, runnerID string, fn func(ctx 
 			case <-done:
 				return
 			case <-ticker.C:
-				if err := model.RenewSystemTaskLock(task.TaskID, runnerID, systemTaskLockUntil()); err != nil {
+				err := model.RenewSystemTaskLock(task.TaskID, runnerID, systemTaskLockUntil())
+				if err == nil {
+					continue
+				}
+				// Only a genuinely lost lock means another runner owns the task. A
+				// transient DB error must not abort an otherwise healthy run: the
+				// ticker fires well within the TTL, so a retry still lands in time.
+				if errors.Is(err, model.ErrSystemTaskLockLost) {
 					cancel()
 					return
 				}
+				logger.LogWarn(context.Background(), fmt.Sprintf("system task %s lease renew failed, will retry: %v", task.TaskID, err))
 			}
 		}
 	}()

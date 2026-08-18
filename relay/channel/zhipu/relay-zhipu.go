@@ -81,13 +81,17 @@ func requestOpenAI2Zhipu(request dto.GeneralOpenAIRequest) *ZhipuRequest {
 	messages := make([]ZhipuMessage, 0, len(request.Messages))
 	for _, message := range request.Messages {
 		if message.Role == "system" {
+			// GLM (Zhipu) rejects a leading `system` role and requires strict
+			// user/assistant alternation. Convert system into a user turn
+			// followed by an assistant acknowledgement so subsequent turns
+			// alternate correctly. Matches RisuAI / SillyTavern's GLM workaround.
 			messages = append(messages, ZhipuMessage{
-				Role:    "system",
+				Role:    "user",
 				Content: message.StringContent(),
 			})
 			messages = append(messages, ZhipuMessage{
-				Role:    "user",
-				Content: "Okay",
+				Role:    "assistant",
+				Content: "Understood.",
 			})
 		} else {
 			messages = append(messages, ZhipuMessage{

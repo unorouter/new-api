@@ -16,7 +16,7 @@ import (
 
 var (
 	ErrPasskeyNotFound         = errors.New("passkey credential not found")
-	ErrFriendlyPasskeyNotFound = errors.New("Passkey 验证失败，请重试或联系管理员")
+	ErrFriendlyPasskeyNotFound = errors.New("Passkey verification failed, please retry or contact the administrator")
 )
 
 type PasskeyCredential struct {
@@ -158,12 +158,44 @@ func GetPasskeyByCredentialID(credentialID []byte) (*PasskeyCredential, error) {
 	return &credential, nil
 }
 
+func UpsertPasskeyCredential(credential *PasskeyCredential) error {
+	if credential == nil {
+		common.SysLog("UpsertPasskeyCredential: nil credential provided")
+		return errors.New("failed to save passkey, please retry")
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		// 使用Unscoped()进行硬删除，避免唯一索引冲突
+		if err := tx.Unscoped().Where("user_id = ?", credential.UserID).Delete(&PasskeyCredential{}).Error; err != nil {
+			common.SysLog(fmt.Sprintf("UpsertPasskeyCredential: failed to delete existing credential for user %d: %v", credential.UserID, err))
+			return errors.New("failed to save passkey, please retry")
+		}
+		if err := tx.Create(credential).Error; err != nil {
+			common.SysLog(fmt.Sprintf("UpsertPasskeyCredential: failed to create credential for user %d: %v", credential.UserID, err))
+			return errors.New("failed to save passkey, please retry")
+		}
+		return nil
+	})
+}
+
+func DeletePasskeyByUserID(userID int) error {
+	if userID == 0 {
+		common.SysLog("DeletePasskeyByUserID: empty user ID")
+		return errors.New("failed to delete, please retry")
+	}
+	// 使用Unscoped()进行硬删除，避免唯一索引冲突
+	if err := DB.Unscoped().Where("user_id = ?", userID).Delete(&PasskeyCredential{}).Error; err != nil {
+		common.SysLog(fmt.Sprintf("DeletePasskeyByUserID: failed to delete passkey for user %d: %v", userID, err))
+		return errors.New("failed to delete, please retry")
+	}
+	return nil
+}
+
 // UpdatePasskeyAssertionState persists only fields produced by a successful
 // assertion. Registration identity (credential ID, public key, AAGUID,
 // transports and attestation metadata) is immutable on this path.
 func UpdatePasskeyAssertionState(userID int, credential *webauthn.Credential, lastUsedAt time.Time) error {
 	if userID <= 0 || credential == nil || len(credential.ID) == 0 || lastUsedAt.IsZero() {
-		return fmt.Errorf("Passkey 保存失败，请重试")
+		return fmt.Errorf("failed to save passkey, please retry")
 	}
 	credentialID := base64.StdEncoding.EncodeToString(credential.ID)
 	result := DB.Model(&PasskeyCredential{}).
@@ -189,11 +221,11 @@ func UpdatePasskeyAssertionState(userID int, credential *webauthn.Credential, la
 func upsertPasskeyCredentialWithTx(tx *gorm.DB, credential *PasskeyCredential) error {
 	if err := tx.Unscoped().Where("user_id = ?", credential.UserID).Delete(&PasskeyCredential{}).Error; err != nil {
 		common.SysLog(fmt.Sprintf("UpsertPasskeyCredential: failed to delete existing credential for user %d: %v", credential.UserID, err))
-		return fmt.Errorf("Passkey 保存失败，请重试")
+		return fmt.Errorf("failed to save passkey, please retry")
 	}
 	if err := tx.Create(credential).Error; err != nil {
 		common.SysLog(fmt.Sprintf("UpsertPasskeyCredential: failed to create credential for user %d: %v", credential.UserID, err))
-		return fmt.Errorf("Passkey 保存失败，请重试")
+		return fmt.Errorf("failed to save passkey, please retry")
 	}
 	return nil
 }
@@ -202,7 +234,7 @@ func upsertPasskeyCredentialWithTx(tx *gorm.DB, credential *PasskeyCredential) e
 // assertion sign-count updates must use UpdatePasskeyAssertionState.
 func UpsertPasskeyCredentialWithAuthVersion(credential *PasskeyCredential) error {
 	if credential == nil || credential.UserID <= 0 {
-		return fmt.Errorf("Passkey 保存失败，请重试")
+		return fmt.Errorf("failed to save passkey, please retry")
 	}
 	if err := DB.Transaction(func(tx *gorm.DB) error {
 		if _, err := IncrementUserAuthVersionWithTx(tx, credential.UserID); err != nil {
@@ -217,7 +249,7 @@ func UpsertPasskeyCredentialWithAuthVersion(credential *PasskeyCredential) error
 
 func DeletePasskeyByUserIDWithAuthVersion(userID int) error {
 	if userID == 0 {
-		return fmt.Errorf("删除失败，请重试")
+		return fmt.Errorf("failed to delete, please retry")
 	}
 	if err := DB.Transaction(func(tx *gorm.DB) error {
 		var credential PasskeyCredential

@@ -227,7 +227,7 @@ export const channelFormSchema = z
     tag: z.string().optional(),
     remark: z
       .string()
-      .max(255, 'Remark must be less than 255 characters')
+      .max(1024, 'Remark must be less than 1024 characters')
       .optional(),
     setting: z
       .string()
@@ -241,6 +241,7 @@ export const channelFormSchema = z
       .string()
       .optional()
       .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
+    workflow_templates: z.string().optional(),
     settings: z
       .string()
       .optional()
@@ -421,6 +422,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   setting: '',
   param_override: '',
   header_override: '',
+  workflow_templates: '',
   settings: '{}',
   other: '',
   multi_key_mode: 'single',
@@ -572,6 +574,7 @@ export function transformChannelToFormDefaults(
     setting: channel.setting || '',
     param_override: channel.param_override || '',
     header_override: channel.header_override || '',
+    workflow_templates: channel.workflow_templates || '',
     settings: channel.settings || '{}',
     other: channel.other || '',
     multi_key_mode: 'single',
@@ -803,6 +806,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     setting: buildSettingJSON(formData),
     param_override: formData.param_override || null,
     header_override: formData.header_override || null,
+    workflow_templates: null,
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
   }
@@ -850,6 +854,7 @@ export function transformFormDataToUpdatePayload(
     setting: buildSettingJSON(formData),
     param_override: formData.param_override || null,
     header_override: formData.header_override || null,
+    workflow_templates: null,
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
   }

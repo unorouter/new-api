@@ -81,6 +81,8 @@ export interface UserProfile {
   telegram_id?: string
   /** LinuxDO ID (OAuth) */
   linux_do_id?: string
+  /** Whether a local password is set (false for OAuth-only accounts) */
+  has_password?: boolean
 }
 
 /**
@@ -92,6 +94,8 @@ export type NotifyType = 'email' | 'webhook' | 'bark' | 'gotify'
  * Parsed user settings
  */
 export interface UserSettings {
+  /** Master switch for quota warnings, off unless explicitly enabled */
+  quota_warning_enabled?: boolean
   /** Notification type */
   notify_type?: NotifyType
   /** Quota warning threshold */
@@ -133,6 +137,7 @@ export interface UpdateUserRequest {
  * User settings update request
  */
 export interface UpdateUserSettingsRequest {
+  quota_warning_enabled?: boolean
   notify_type?: string
   quota_warning_threshold?: number
   webhook_url?: string

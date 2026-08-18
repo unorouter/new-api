@@ -16,7 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 )
 
 // midjourneyPollSummary is the result recorded on a midjourney_poll system task
@@ -43,7 +43,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 	}
 	summary.UnfinishedTasks = len(tasks)
 
-	logger.LogInfo(ctx, fmt.Sprintf("检测到未完成的任务数有: %v", len(tasks)))
+	logger.LogInfo(ctx, fmt.Sprintf("Detected unfinished tasks: %v", len(tasks)))
 	taskChannelM := make(map[int][]string)
 	taskM := make(map[string]*model.Midjourney)
 	nullTaskIds := make([]int, 0)
@@ -83,7 +83,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 		}
 		processedChannels++
 		summary.ChannelsScanned++
-		logger.LogInfo(ctx, fmt.Sprintf("渠道 #%d 未完成的任务有: %d", channelId, len(taskIds)))
+		logger.LogInfo(ctx, fmt.Sprintf("Channel #%d has unfinished tasks: %d", channelId, len(taskIds)))
 		if len(taskIds) == 0 {
 			continue
 		}
@@ -91,7 +91,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 		if err != nil {
 			logger.LogError(ctx, fmt.Sprintf("CacheGetChannel: %v", err))
 			err := model.MjBulkUpdate(taskIds, map[string]any{
-				"fail_reason": fmt.Sprintf("获取渠道信息失败，请联系管理员，渠道ID：%d", channelId),
+				"fail_reason": fmt.Sprintf("Failed to get channel information, please contact the administrator, channel ID: %d", channelId),
 				"status":      "FAILURE",
 				"progress":    "100%",
 			})
@@ -160,7 +160,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 			useTime := (time.Now().UnixNano() / int64(time.Millisecond)) - task.SubmitTime
 			// 如果时间超过一小时，且进度不是100%，则认为任务失败
 			if useTime > 3600000 && task.Progress != "100%" {
-				responseItem.FailReason = "上游任务超时（超过1小时）"
+				responseItem.FailReason = "Upstream task timed out (over 1 hour)"
 				responseItem.Status = "FAILURE"
 			}
 			if !checkMjTaskNeedUpdate(task, responseItem) {
@@ -192,7 +192,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 			if responseItem.VideoUrls != nil && len(responseItem.VideoUrls) > 0 {
 				videoUrlsStr, err := common.Marshal(responseItem.VideoUrls)
 				if err != nil {
-					logger.LogError(ctx, fmt.Sprintf("序列化 VideoUrls 失败: %v", err))
+					logger.LogError(ctx, fmt.Sprintf("Failed to serialize VideoUrls: %v", err))
 					task.VideoUrls = "[]" // 失败时设置为空数组
 				} else {
 					task.VideoUrls = string(videoUrlsStr)
@@ -203,7 +203,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 
 			shouldReturnQuota := false
 			if (task.Progress != "100%" && responseItem.FailReason != "") || (task.Progress == "100%" && task.Status == "FAILURE") {
-				logger.LogInfo(ctx, task.MjId+" 构建失败，"+task.FailReason)
+				logger.LogInfo(ctx, task.MjId+" build failed, "+task.FailReason)
 				task.Progress = "100%"
 				if task.Quota != 0 {
 					shouldReturnQuota = true
@@ -213,7 +213,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 			if err != nil {
 				logger.LogError(ctx, "UpdateMidjourneyTask task error: "+err.Error())
 			} else if won && shouldReturnQuota {
-				service.RefundMidjourneyQuota(ctx, task, "构图失败")
+				service.RefundMidjourneyQuota(ctx, task, "Composition failed")
 			}
 		}
 	}
@@ -278,15 +278,16 @@ func checkMjTaskNeedUpdate(oldTask *model.Midjourney, newTask dto.MidjourneyDto)
 	return false
 }
 
-func GetAllMidjourney(c *gin.Context) {
-	pageInfo := common.GetPageQuery(c)
+func GetAllMidjourney(c fuego.ContextWithParams[dto.GetAllMidjourneyParams]) (*dto.Response[dto.PageData[*model.Midjourney]], error) {
+	p, _ := dto.ParseParams[dto.GetAllMidjourneyParams](c)
+	pageInfo := dto.PageInfo(c)
 
 	// 解析其他查询参数
 	queryParams := model.TaskQueryParams{
-		ChannelID:      c.Query("channel_id"),
-		MjID:           c.Query("mj_id"),
-		StartTimestamp: c.Query("start_timestamp"),
-		EndTimestamp:   c.Query("end_timestamp"),
+		ChannelID:      p.ChannelID,
+		MjID:           p.MjID,
+		StartTimestamp: p.StartTimestamp,
+		EndTimestamp:   p.EndTimestamp,
 	}
 
 	items := model.GetAllTasks(pageInfo.GetStartIdx(), pageInfo.GetPageSize(), queryParams)
@@ -298,20 +299,19 @@ func GetAllMidjourney(c *gin.Context) {
 			items[i] = midjourney
 		}
 	}
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(items)
-	common.ApiSuccess(c, pageInfo)
+	return dto.OkPage(pageInfo, items, int(total))
 }
 
-func GetUserMidjourney(c *gin.Context) {
-	pageInfo := common.GetPageQuery(c)
+func GetUserMidjourney(c fuego.ContextWithParams[dto.GetUserMidjourneyParams]) (*dto.Response[dto.PageData[*model.Midjourney]], error) {
+	p, _ := dto.ParseParams[dto.GetUserMidjourneyParams](c)
+	pageInfo := dto.PageInfo(c)
 
-	userId := c.GetInt("id")
+	userId := dto.UserID(c)
 
 	queryParams := model.TaskQueryParams{
-		MjID:           c.Query("mj_id"),
-		StartTimestamp: c.Query("start_timestamp"),
-		EndTimestamp:   c.Query("end_timestamp"),
+		MjID:           p.MjID,
+		StartTimestamp: p.StartTimestamp,
+		EndTimestamp:   p.EndTimestamp,
 	}
 
 	items := model.GetAllUserTask(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), queryParams)
@@ -323,7 +323,5 @@ func GetUserMidjourney(c *gin.Context) {
 			items[i] = midjourney
 		}
 	}
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(items)
-	common.ApiSuccess(c, pageInfo)
+	return dto.OkPage(pageInfo, items, int(total))
 }

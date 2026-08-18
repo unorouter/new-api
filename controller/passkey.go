@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -16,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 	"github.com/go-webauthn/webauthn/protocol"
 	webauthnlib "github.com/go-webauthn/webauthn/webauthn"
 )
@@ -41,7 +43,7 @@ func parsePasskeyFinishRequest(c *gin.Context) (*passkeyFinishRequest, error) {
 		return nil, err
 	}
 	if request.FlowToken == "" || len(request.Credential) == 0 {
-		return nil, errors.New("Passkey 流程参数不完整")
+		return nil, errors.New("Incomplete Passkey flow parameters")
 	}
 	return &request, nil
 }
@@ -50,17 +52,14 @@ func PasskeyRegisterBegin(c *gin.Context) {
 	if !system_setting.GetPasskeySettings().Enabled {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "管理员未启用 Passkey 登录",
+			"message": "Passkey login has not been enabled by the administrator",
 		})
 		return
 	}
 
 	user, err := getAuthenticatedUser(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		c.JSON(http.StatusUnauthorized, dto.ApiResponse{Message: err.Error()})
 		return
 	}
 
@@ -98,7 +97,7 @@ func PasskeyRegisterBegin(c *gin.Context) {
 
 	identity, ok := middleware.GetSessionAuthIdentity(c)
 	if !ok {
-		common.ApiError(c, errors.New("当前认证方式不支持安全验证"))
+		common.ApiError(c, errors.New("The current authentication method does not support security verification"))
 		return
 	}
 	flowToken, expiresAt, err := passkeysvc.CreateSessionDataFlow(
@@ -113,14 +112,10 @@ func PasskeyRegisterBegin(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data": gin.H{
-			"options":    creation,
-			"flow_token": flowToken,
-			"expires_at": expiresAt,
-		},
+	c.JSON(http.StatusOK, dto.ApiResponse{
+		Success: true,
+		Message: "",
+		Data:    dto.PasskeyOptionsData{Options: creation, FlowToken: flowToken, ExpiresAt: expiresAt},
 	})
 }
 
@@ -128,17 +123,14 @@ func PasskeyRegisterFinish(c *gin.Context) {
 	if !system_setting.GetPasskeySettings().Enabled {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "管理员未启用 Passkey 登录",
+			"message": "Passkey login has not been enabled by the administrator",
 		})
 		return
 	}
 
 	user, err := getAuthenticatedUser(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		c.JSON(http.StatusUnauthorized, dto.ApiResponse{Message: err.Error()})
 		return
 	}
 	if !requirePasskeyRegistrationVerification(c, user.Id) {
@@ -173,7 +165,7 @@ func PasskeyRegisterFinish(c *gin.Context) {
 
 	identity, ok := middleware.GetSessionAuthIdentity(c)
 	if !ok {
-		common.ApiError(c, errors.New("当前认证方式不支持安全验证"))
+		common.ApiError(c, errors.New("The current authentication method does not support security verification"))
 		return
 	}
 	sessionData, _, err := passkeysvc.PopSessionDataFlow(
@@ -196,7 +188,7 @@ func PasskeyRegisterFinish(c *gin.Context) {
 
 	passkeyCredential := model.NewPasskeyCredentialFromWebAuthn(user.Id, credential)
 	if passkeyCredential == nil {
-		common.ApiErrorMsg(c, "无法创建 Passkey 凭证")
+		common.ApiErrorMsg(c, "Unable to create Passkey credential")
 		return
 	}
 
@@ -211,20 +203,13 @@ func PasskeyRegisterFinish(c *gin.Context) {
 	}
 
 	recordUserSecurityAudit(c, user.Id, "user.passkey_register", nil)
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Passkey 注册成功",
-		"data":    authRotationData(bundle),
-	})
+	c.JSON(http.StatusOK, dto.ApiResponse{Success: true, Message: "Passkey registration successful", Data: authRotationData(bundle)})
 }
 
 func PasskeyDelete(c *gin.Context) {
 	user, err := getAuthenticatedUser(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		c.JSON(http.StatusUnauthorized, dto.ApiResponse{Message: err.Error()})
 		return
 	}
 
@@ -234,7 +219,7 @@ func PasskeyDelete(c *gin.Context) {
 
 	identity, ok := middleware.GetSessionAuthIdentity(c)
 	if !ok {
-		common.ApiError(c, errors.New("当前认证方式不支持安全验证"))
+		common.ApiError(c, errors.New("The current authentication method does not support security verification"))
 		return
 	}
 	if err := model.DeletePasskeyByUserIDWithAuthVersion(user.Id); err != nil {
@@ -248,31 +233,22 @@ func PasskeyDelete(c *gin.Context) {
 	}
 
 	recordUserSecurityAudit(c, user.Id, "user.passkey_delete", nil)
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Passkey 已解绑",
-		"data":    authRotationData(bundle),
-	})
+	c.JSON(http.StatusOK, dto.ApiResponse{Success: true, Message: "Passkey has been unbound", Data: authRotationData(bundle)})
 }
 
 func PasskeyStatus(c *gin.Context) {
 	user, err := getAuthenticatedUser(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		c.JSON(http.StatusUnauthorized, dto.ApiResponse{Message: err.Error()})
 		return
 	}
 
 	credential, err := model.GetPasskeyByUserID(user.Id)
 	if errors.Is(err, model.ErrPasskeyNotFound) {
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "",
-			"data": gin.H{
-				"enabled": false,
-			},
+		c.JSON(http.StatusOK, dto.ApiResponse{
+			Success: true,
+			Message: "",
+			Data:    dto.PasskeyStatusData{Enabled: false},
 		})
 		return
 	}
@@ -281,15 +257,10 @@ func PasskeyStatus(c *gin.Context) {
 		return
 	}
 
-	data := gin.H{
-		"enabled":      true,
-		"last_used_at": credential.LastUsedAt,
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    data,
+	c.JSON(http.StatusOK, dto.ApiResponse{
+		Success: true,
+		Message: "",
+		Data:    dto.PasskeyStatusData{Enabled: true, LastUsedAt: credential.LastUsedAt},
 	})
 }
 
@@ -297,7 +268,7 @@ func PasskeyLoginBegin(c *gin.Context) {
 	if !system_setting.GetPasskeySettings().Enabled {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "管理员未启用 Passkey 登录",
+			"message": "Passkey login has not been enabled by the administrator",
 		})
 		return
 	}
@@ -326,14 +297,10 @@ func PasskeyLoginBegin(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data": gin.H{
-			"options":    assertion,
-			"flow_token": flowToken,
-			"expires_at": expiresAt,
-		},
+	c.JSON(http.StatusOK, dto.ApiResponse{
+		Success: true,
+		Message: "",
+		Data:    dto.PasskeyOptionsData{Options: assertion, FlowToken: flowToken, ExpiresAt: expiresAt},
 	})
 }
 
@@ -341,7 +308,7 @@ func PasskeyLoginFinish(c *gin.Context) {
 	if !system_setting.GetPasskeySettings().Enabled {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "管理员未启用 Passkey 登录",
+			"message": "Passkey login has not been enabled by the administrator",
 		})
 		return
 	}
@@ -378,17 +345,17 @@ func PasskeyLoginFinish(c *gin.Context) {
 		// 首先通过凭证ID查找用户
 		credential, err := model.GetPasskeyByCredentialID(rawID)
 		if err != nil {
-			return nil, fmt.Errorf("未找到 Passkey 凭证: %w", err)
+			return nil, fmt.Errorf("Passkey credential not found: %w", err)
 		}
 
 		// 通过凭证获取用户
 		user := &model.User{Id: credential.UserID}
 		if err := user.FillUserById(); err != nil {
-			return nil, fmt.Errorf("用户信息获取失败: %w", err)
+			return nil, fmt.Errorf("Failed to retrieve user information: %w", err)
 		}
 
 		if user.Status != common.UserStatusEnabled {
-			return nil, errors.New("该用户已被禁用")
+			return nil, errors.New("This user has been disabled")
 		}
 
 		if len(userHandle) > 0 {
@@ -397,7 +364,7 @@ func PasskeyLoginFinish(c *gin.Context) {
 				// 记录异常但继续验证，因为某些客户端可能使用非数字格式
 				common.SysLog(fmt.Sprintf("PasskeyLogin: userHandle parse error for credential, length: %d", len(userHandle)))
 			} else if userID != user.Id {
-				return nil, errors.New("用户句柄与凭证不匹配")
+				return nil, errors.New("User handle does not match the credential")
 			}
 		}
 
@@ -412,18 +379,18 @@ func PasskeyLoginFinish(c *gin.Context) {
 
 	userWrapper, ok := waUser.(*passkeysvc.WebAuthnUser)
 	if !ok {
-		common.ApiErrorMsg(c, "Passkey 登录状态异常")
+		common.ApiErrorMsg(c, "Abnormal Passkey login state")
 		return
 	}
 
 	modelUser := userWrapper.ModelUser()
 	if modelUser == nil {
-		common.ApiErrorMsg(c, "Passkey 登录状态异常")
+		common.ApiErrorMsg(c, "Abnormal Passkey login state")
 		return
 	}
 
 	if modelUser.Status != common.UserStatusEnabled {
-		common.ApiErrorMsg(c, "该用户已被禁用")
+		common.ApiErrorMsg(c, "This user has been disabled")
 		return
 	}
 
@@ -435,88 +402,69 @@ func PasskeyLoginFinish(c *gin.Context) {
 	setupLogin(modelUser, c)
 }
 
-func AdminResetPasskey(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func AdminResetPasskey(c fuego.ContextNoBody) (dto.MessageResponse, error) {
+	id, err := c.PathParamIntErr("id")
 	if err != nil {
-		common.ApiErrorMsg(c, "无效的用户 ID")
-		return
+		return dto.FailMsg("Invalid user ID")
 	}
 
 	user := &model.User{Id: id}
 	if err := user.FillUserById(); err != nil {
-		common.ApiError(c, err)
-		return
+		return dto.FailMsg(err.Error())
 	}
-	myRole := c.GetInt("role")
+	myRole := dto.UserRole(c)
 	if !canManageTargetRole(myRole, user.Role) {
-		common.ApiErrorMsg(c, "no permission")
-		return
+		return dto.FailMsg("No permission to access users of same or higher level")
 	}
 
 	if _, err := model.GetPasskeyByUserID(user.Id); err != nil {
 		if errors.Is(err, model.ErrPasskeyNotFound) {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "该用户尚未绑定 Passkey",
-			})
-			return
+			return dto.FailMsg("This user has not bound a Passkey")
 		}
-		common.ApiError(c, err)
-		return
+		return dto.FailMsg(err.Error())
 	}
 
 	if err := model.DeletePasskeyByUserIDWithAuthVersion(user.Id); err != nil {
-		common.ApiError(c, err)
-		return
+		return dto.FailMsg(err.Error())
 	}
 	if _, err := model.RevokeAllUserSessions(user.Id, "admin_passkey_reset"); err != nil {
-		common.ApiError(c, err)
-		return
+		return dto.FailMsg(err.Error())
 	}
 
-	recordManageAuditFor(c, user.Id, "user.reset_passkey", map[string]interface{}{
+	recordManageAuditFor(dto.GinCtx(c), user.Id, "user.reset_passkey", map[string]interface{}{
 		"username": user.Username,
 		"id":       user.Id,
 	})
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Passkey 已重置",
-	})
+	return dto.Msg("Passkey has been reset")
 }
 
 func PasskeyVerifyBegin(c *gin.Context) {
 	if !system_setting.GetPasskeySettings().Enabled {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "管理员未启用 Passkey 登录",
+			"message": "Passkey login has not been enabled by the administrator",
 		})
 		return
 	}
 
 	user, err := getAuthenticatedUser(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		c.JSON(http.StatusUnauthorized, dto.ApiResponse{Message: err.Error()})
 		return
 	}
 	var request passkeyVerifyBeginRequest
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
-		common.ApiError(c, errors.New("无效的 Passkey 验证请求"))
+		common.ApiError(c, errors.New("Invalid Passkey verification request"))
 		return
 	}
 	if !isAllowedSecurityProofScope(request.Scope) {
-		common.ApiError(c, errors.New("不支持的安全验证范围"))
+		common.ApiError(c, errors.New("Unsupported security verification scope"))
 		return
 	}
 
 	credential, err := model.GetPasskeyByUserID(user.Id)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "该用户尚未绑定 Passkey",
-		})
+		c.JSON(http.StatusOK, dto.ApiResponse{Message: "This user has not bound a Passkey"})
 		return
 	}
 
@@ -535,7 +483,7 @@ func PasskeyVerifyBegin(c *gin.Context) {
 
 	identity, ok := middleware.GetSessionAuthIdentity(c)
 	if !ok {
-		common.ApiError(c, errors.New("当前认证方式不支持安全验证"))
+		common.ApiError(c, errors.New("The current authentication method does not support security verification"))
 		return
 	}
 	flowToken, expiresAt, err := passkeysvc.CreateSessionDataFlow(
@@ -550,14 +498,10 @@ func PasskeyVerifyBegin(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data": gin.H{
-			"options":    assertion,
-			"flow_token": flowToken,
-			"expires_at": expiresAt,
-		},
+	c.JSON(http.StatusOK, dto.ApiResponse{
+		Success: true,
+		Message: "",
+		Data:    dto.PasskeyOptionsData{Options: assertion, FlowToken: flowToken, ExpiresAt: expiresAt},
 	})
 }
 
@@ -565,17 +509,14 @@ func PasskeyVerifyFinish(c *gin.Context) {
 	if !system_setting.GetPasskeySettings().Enabled {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "管理员未启用 Passkey 登录",
+			"message": "Passkey login has not been enabled by the administrator",
 		})
 		return
 	}
 
 	user, err := getAuthenticatedUser(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		c.JSON(http.StatusUnauthorized, dto.ApiResponse{Message: err.Error()})
 		return
 	}
 
@@ -598,16 +539,13 @@ func PasskeyVerifyFinish(c *gin.Context) {
 
 	credential, err := model.GetPasskeyByUserID(user.Id)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "该用户尚未绑定 Passkey",
-		})
+		c.JSON(http.StatusOK, dto.ApiResponse{Message: "This user has not bound a Passkey"})
 		return
 	}
 
 	identity, ok := middleware.GetSessionAuthIdentity(c)
 	if !ok {
-		common.ApiError(c, errors.New("当前认证方式不支持安全验证"))
+		common.ApiError(c, errors.New("The current authentication method does not support security verification"))
 		return
 	}
 	sessionData, scope, err := passkeysvc.PopSessionDataFlow(
@@ -641,7 +579,7 @@ func PasskeyVerifyFinish(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "Passkey 验证成功",
+		"message": "Passkey verification successful",
 		"data": gin.H{
 			"proof_token": proofToken,
 			"expires_at":  proofExpiresAt,
@@ -654,14 +592,14 @@ func PasskeyVerifyFinish(c *gin.Context) {
 func getAuthenticatedUser(c *gin.Context) (*model.User, error) {
 	id := c.GetInt("id")
 	if id == 0 {
-		return nil, errors.New("未登录")
+		return nil, errors.New("Not logged in")
 	}
 	user := &model.User{Id: id}
 	if err := user.FillUserById(); err != nil {
 		return nil, err
 	}
 	if user.Status != common.UserStatusEnabled {
-		return nil, errors.New("该用户已被禁用")
+		return nil, errors.New("This user has been disabled")
 	}
 	return user, nil
 }
@@ -693,7 +631,7 @@ func requirePasskeyDeleteVerification(c *gin.Context, userID int) bool {
 		if errors.Is(err, model.ErrPasskeyNotFound) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "该用户尚未绑定 Passkey",
+				"message": "This user has not bound a Passkey",
 			})
 			return false
 		}

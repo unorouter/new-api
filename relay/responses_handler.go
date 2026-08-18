@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+
+	"github.com/tidwall/sjson"
 
 	"github.com/gin-gonic/gin"
 )
@@ -71,6 +74,24 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 	}
 
+	// Image generation models may not be supported via /v1/responses on
+	// upstream proxies. Convert to /v1/chat/completions and convert the
+	// response back to Responses format.
+	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
+		!info.ChannelSetting.PassThroughBodyEnabled &&
+		shouldResponsesUseChatCompletions(info) {
+		adaptor := GetAdaptor(info.ApiType)
+		if adaptor != nil {
+			adaptor.Init(info)
+			usage, newApiErr := responsesViaChatCompletions(c, info, adaptor, request)
+			if newApiErr != nil {
+				return newApiErr
+			}
+			service.PostTextConsumeQuota(c, info, usage, nil)
+			return nil
+		}
+	}
+
 	adaptor := GetAdaptor(info.ApiType)
 	if adaptor == nil {
 		return types.NewError(fmt.Errorf("invalid api type: %d", info.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
@@ -82,7 +103,18 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 		}
-		requestBody = common.NewReplayableBodyReader(storage)
+		// Even in pass-through, the upstream must receive the model-mapped name, not
+		// the published alias. Rewrite only the top-level model field.
+		body, err := io.ReadAll(common.NewReplayableBodyReader(storage))
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
+		}
+		if info.IsModelMapped && info.UpstreamModelName != "" {
+			if mapped, mErr := sjson.SetBytes(body, "model", info.UpstreamModelName); mErr == nil {
+				body = mapped
+			}
+		}
+		requestBody = bytes.NewReader(body)
 	} else {
 		convertedRequest, err := adaptor.ConvertOpenAIResponsesRequest(c, info, *request)
 		if err != nil {
@@ -100,9 +132,9 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 
-		// apply param override
+		// apply param override (also emits x-newapi-dropped-params for stripped knobs)
 		if len(info.ParamOverride) > 0 {
-			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info, c.Writer.Header())
 			if err != nil {
 				return newAPIErrorFromParamOverride(err)
 			}

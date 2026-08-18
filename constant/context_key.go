@@ -11,15 +11,17 @@ const (
 	ContextKeyRequestStartTime ContextKey = "request_start_time"
 
 	/* token related keys */
-	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"
-	ContextKeyTokenKey               ContextKey = "token_key"
-	ContextKeyTokenId                ContextKey = "token_id"
-	ContextKeyTokenGroup             ContextKey = "token_group"
-	ContextKeyTokenSpecificChannelId ContextKey = "specific_channel_id"
-	ContextKeyTokenModelLimitEnabled ContextKey = "token_model_limit_enabled"
-	ContextKeyTokenModelLimit        ContextKey = "token_model_limit"
-	ContextKeyTokenCrossGroupRetry   ContextKey = "token_cross_group_retry"
-	ContextKeyTokenAutoGroups        ContextKey = "token_auto_groups"
+	ContextKeyTokenUnlimited           ContextKey = "token_unlimited_quota"
+	ContextKeyTokenKey                 ContextKey = "token_key"
+	ContextKeyTokenId                  ContextKey = "token_id"
+	ContextKeyTokenGroup               ContextKey = "token_group"
+	ContextKeyTokenSpecificChannelId   ContextKey = "specific_channel_id"
+	ContextKeyTokenModelLimitEnabled   ContextKey = "token_model_limit_enabled"
+	ContextKeyTokenModelLimit          ContextKey = "token_model_limit"
+	ContextKeyTokenCrossGroupRetry     ContextKey = "token_cross_group_retry"
+	ContextKeyTokenGroupMapping        ContextKey = "token_group_mapping"
+	ContextKeyTokenGroupMappingApplied ContextKey = "token_group_mapping_applied"
+	ContextKeyTokenAutoGroups          ContextKey = "token_auto_groups"
 
 	/* channel related keys */
 	ContextKeyChannelId                ContextKey = "channel_id"
@@ -38,20 +40,24 @@ const (
 	ContextKeyChannelIsMultiKey        ContextKey = "channel_is_multi_key"
 	ContextKeyChannelMultiKeyIndex     ContextKey = "channel_multi_key_index"
 	ContextKeyChannelKey               ContextKey = "channel_key"
+	ContextKeyChannelWorkflowTemplates ContextKey = "channel_workflow_templates"
 
 	ContextKeyAutoGroup           ContextKey = "auto_group"
 	ContextKeyAutoGroupIndex      ContextKey = "auto_group_index"
 	ContextKeyAutoGroupRetryIndex ContextKey = "auto_group_retry_index"
 
 	/* user related keys */
-	ContextKeyUserId      ContextKey = "id"
-	ContextKeyUserSetting ContextKey = "user_setting"
-	ContextKeyUserQuota   ContextKey = "user_quota"
-	ContextKeyUserStatus  ContextKey = "user_status"
-	ContextKeyUserEmail   ContextKey = "user_email"
-	ContextKeyUserGroup   ContextKey = "user_group"
-	ContextKeyUsingGroup  ContextKey = "group"
-	ContextKeyUserName    ContextKey = "username"
+	ContextKeyUserId        ContextKey = "id"
+	ContextKeyUserSetting   ContextKey = "user_setting"
+	ContextKeyUserQuota     ContextKey = "user_quota"
+	ContextKeyUserStatus    ContextKey = "user_status"
+	ContextKeyUserEmail     ContextKey = "user_email"
+	ContextKeyUserGroup     ContextKey = "user_group"
+	ContextKeyUsingGroup    ContextKey = "group"
+	ContextKeyUserName      ContextKey = "username"
+	ContextKeyUserCreatedAt ContextKey = "user_created_at"
+	ContextKeyUserUsedQuota ContextKey = "user_used_quota"
+	ContextKeyUserRole      ContextKey = "user_role"
 
 	ContextKeyLocalCountTokens ContextKey = "local_count_tokens"
 
@@ -67,6 +73,11 @@ const (
 	// ContextKeyLanguage stores the user's language preference for i18n
 	ContextKeyLanguage ContextKey = "language"
 	ContextKeyIsStream ContextKey = "is_stream"
+
+	/* request capability keys (set by distributor for capability-aware routing) */
+	ContextKeyRequestNeedsTools     ContextKey = "request_needs_tools"
+	ContextKeyRequestNeedsStreaming ContextKey = "request_needs_streaming"
+	ContextKeyRequestNeedsHTTP      ContextKey = "request_needs_http"
 
 	// ContextKeyAuditLogged marks that the current request has already recorded
 	// a manage/operation audit log inside the handler. When set, the admin-audit
