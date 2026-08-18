@@ -248,13 +248,21 @@ func oaiChatStreamToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo
 }
 
 // shouldResponsesUseChatCompletions returns true when a /v1/responses request
-// should be internally converted to /v1/chat/completions. Currently this
-// applies to image generation models whose upstream providers do not support
-// the Responses API for image generation.
+// should be internally converted to /v1/chat/completions. This applies to image
+// generation models whose upstream providers do not support the Responses API
+// for image generation, and to channels whose upstream serves chat completions
+// only. Such an upstream answers /v1/responses with a router-level 404 whose
+// body is plain text, so it parses into an error with an empty message that no
+// keyword or status rule can classify, and the request fails over across every
+// sibling collecting the same 404.
 func shouldResponsesUseChatCompletions(info *relaycommon.RelayInfo) bool {
 	modelToCheck := info.UpstreamModelName
 	if modelToCheck == "" {
 		modelToCheck = info.OriginModelName
 	}
-	return isImageGenerationModelForResponses(modelToCheck)
+	if isImageGenerationModelForResponses(modelToCheck) {
+		return true
+	}
+	caps := info.ChannelSetting.Capabilities
+	return caps != nil && caps.Responses != nil && !*caps.Responses
 }
