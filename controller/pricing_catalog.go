@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -217,6 +218,42 @@ func catalogVendorName(vendorByID map[int]model.PricingVendor, vendorID int) str
 	return "Unknown"
 }
 
+// The URL-safe form of a vendor name, matching the slug the model pages are
+// linked by ("Z.AI" -> "zai"). Lossy, so it identifies a vendor but never
+// reconstructs the name.
+func vendorSlug(name string) string {
+	var b strings.Builder
+	lastHyphen := true // leading hyphens are trimmed, so start as if one was written
+	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastHyphen = false
+		case unicode.IsSpace(r), r == '-':
+			if !lastHyphen {
+				b.WriteByte('-')
+				lastHyphen = true
+			}
+		}
+	}
+	return strings.TrimSuffix(b.String(), "-")
+}
+
+// Vendors are filtered by exact name or by slug, so a caller holding only a URL
+// segment does not have to fetch every vendor name to translate it back first.
+func vendorMatches(vendorName, filter string) bool {
+	if filter == "" {
+		return false
+	}
+	if vendorName == filter {
+		return true
+	}
+	// A name with no slug-safe characters (a CJK-only vendor) slugs to "", which
+	// must not match anything rather than matching every unslugabble vendor.
+	slug := vendorSlug(vendorName)
+	return slug != "" && slug == strings.ToLower(filter)
+}
+
 func vendorsByID() map[int]model.PricingVendor {
 	out := make(map[int]model.PricingVendor)
 	for _, v := range model.GetVendors() {
@@ -354,7 +391,7 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		md := parseCatalogMetadata(m.Metadata)
 		modelType, chat := catalogModality(m, md)
 		vendorName := catalogVendorName(vendorByID, m.VendorID)
-		if vendorFilter != "" && vendorName != vendorFilter {
+		if vendorFilter != "" && !vendorMatches(vendorName, vendorFilter) {
 			continue
 		}
 		row := catalogRow(m, md, vendorName, vendorByID[m.VendorID].Icon, modelType, chat, groupRatio, showOriginal, rel)
