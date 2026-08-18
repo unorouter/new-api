@@ -216,7 +216,10 @@ func TestDiscountedDuration(t *testing.T) {
 		{"25 percent turns a minute into 45s", 60, 25, 45},
 		{"applies to the long media windows too", 3600, 25, 2700},
 		{"negative pct is ignored", 60, -10, 60},
-		{"above the ceiling clamps to 50", 60, 90, 30},
+		{"90 percent leaves a tenth of the window", 60, 90, 6},
+		{"99 percent still leaves a full second", 60, 99, 1},
+		{"100 would zero the window, floored instead", 60, 100, 1},
+		{"above 100 clamps rather than inverting", 60, 150, 1},
 		{"never returns below one second", 1, 50, 1},
 	}
 	for _, tc := range cases {
