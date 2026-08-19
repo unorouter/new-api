@@ -1586,7 +1586,14 @@ func runModelStatusSnapshot() {
 	// NOT IN over the full ping table (no index can serve a negation); run
 	// per-minute it was a full scan of 17M+ rows every 60s and the biggest
 	// standing load on the DB.
-	if minuteIndex%60 == 0 {
+	//
+	// Gate on the MINUTE OF THE HOUR, not on minuteIndex%60. minuteIndex is an
+	// absolute minute count (unix/60), so minuteIndex%60==0 only lines up when
+	// that counter happens to divide by 60 AND the job runs in that exact
+	// minute -- in practice it almost never did, so the retention prune never
+	// ran and the table reached 30 days of rows against a 7-day policy
+	// (18.6M rows / 4.85GB, 2026-08-19).
+	if time.Unix(timestamp, 0).UTC().Minute() == 0 {
 		if len(modelNames) > 0 {
 			if err := model.DeleteModelStatusPingsNotIn(modelNames); err != nil {
 				common.SysLog("model status snapshot: orphan ping delete failed: " + err.Error())
