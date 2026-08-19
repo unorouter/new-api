@@ -75,7 +75,11 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		oauthCritical := dto.NewRouter(engine, apiRouter.Group("", middleware.CORS(), middleware.CriticalRateLimit()), "OAuth", secPublic())
 		dto.GetP(oauthCritical, "/oauth/state", controller.GenerateOAuthCode)
 		dto.PostB(oauthCritical, "/oauth/exchange", controller.ExchangeOAuthCode)
-		dto.GetP(oauthCritical, "/oauth/email/bind", controller.EmailBind)
+		// Binding an email to the CURRENT account, so it needs the caller
+		// identified. The handler's own fallback only accepts a system access
+		// token, which a browser session never carries.
+		oauthEmailBind := dto.NewRouter(engine, apiRouter.Group("", middleware.CORS(), middleware.UserAuth(), middleware.CriticalRateLimit()), "OAuth", secDashboard())
+		dto.GetP(oauthEmailBind, "/oauth/email/bind", controller.EmailBind)
 		oauthCritical.GinGet("/oauth/wechat", controller.WeChatAuth, option.Query("code", "WeChat auth code"), dto.GinResp[dto.ApiResponse]())
 		dto.GetP(oauthCritical, "/oauth/wechat/bind", controller.WeChatBind)
 		oauthCritical.GinGet("/oauth/telegram/login", controller.TelegramLogin, dto.GinResp[dto.ApiResponse]())
