@@ -147,8 +147,13 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.GetP(self, "/aff/invitees", controller.GetInvitedUsers, dto.PageParams())
 		dto.GetP(self, "/aff/commissions", controller.GetReferralCommissions, dto.PageParams())
 
+		// Payment methods and their minimums are operator settings, identical for
+		// every caller, and the public pricing page renders them before anyone
+		// logs in. Reads no user context, so it needs no session.
+		publicTopUp := dto.NewRouter(engine, userGroup.Group("", middleware.TryUserAuth()), "TopUp", secPublic())
+		dto.Get(publicTopUp, "/topup/info", controller.GetTopUpInfo)
+
 		selfTopUp := self.WithTag("TopUp")
-		dto.Get(selfTopUp, "/topup/info", controller.GetTopUpInfo)
 		dto.GetP(selfTopUp, "/topup/self", controller.GetUserTopUps, dto.PageParams())
 		dto.PostB(selfTopUp, "/amount", controller.RequestAmount)
 		dto.PostB(selfTopUp, "/stripe/amount", controller.RequestStripeAmount)
