@@ -418,7 +418,13 @@ func syncImageEndpoint(types []constant.EndpointType) string {
 // imageParamsFor completes the sync's schema-derived flags with what only the
 // gateway knows (which endpoint routes the model) and the defaults a form starts
 // from, so a client reads fields instead of re-deriving them per model.
-func imageParamsFor(m model.Pricing, md dto.ModelMetadata) *dto.ImageParams {
+func imageParamsFor(modelType string, m model.Pricing, md dto.ModelMetadata) *dto.ImageParams {
+	// Endpoint alone is not enough: a text model serving openai-compatible chat
+	// matches the same endpoint an image model routes through, and would come back
+	// advertising generation controls it has no use for.
+	if modelType != "image" {
+		return nil
+	}
 	endpoint := syncImageEndpoint(m.SupportedEndpointTypes)
 	if endpoint == "" {
 		return nil
@@ -510,7 +516,7 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 			// A caller that asked for image models is rendering a generation form,
 			// which is the only surface these flags drive.
 			if typeFilter == "image" {
-				row.Metadata.ImageParams = imageParamsFor(m, md)
+				row.Metadata.ImageParams = imageParamsFor(modelType, m, md)
 			}
 		}
 		out = append(out, row)
@@ -701,7 +707,7 @@ func GetPricingCatalogModel(c fuego.ContextNoBody) (dto.PricingCatalogDetail, er
 	row.Metadata = md
 	// The send paths resolve a model through THIS route and read the endpoint off
 	// it, so the gateway-derived half has to be here too, not only on the list.
-	row.Metadata.ImageParams = imageParamsFor(pricing, md)
+	row.Metadata.ImageParams = imageParamsFor(modelType, pricing, md)
 
 	return dto.PricingCatalogDetail{
 		PricingCatalogModel: row,
