@@ -411,6 +411,8 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	// them: the image UI routes through image-generation/openai/gemini, so an
 	// aihorde-only row is a model it can list but never call.
 	endpointFilter := splitCSV(dto.GinCtx(c).Query("endpoint"))
+	// Modality, for a picker that only submits one kind of generation.
+	typeFilter := dto.GinCtx(c).Query("type")
 
 	showOriginal := operation_setting.ShowOriginalPriceEnabled
 	rel := catalogReliability()
@@ -423,6 +425,9 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 			continue
 		}
 		if len(endpointFilter) > 0 && !servesAnyEndpoint(m.SupportedEndpointTypes, endpointFilter) {
+			continue
+		}
+		if typeFilter != "" && modelType != typeFilter {
 			continue
 		}
 		row := catalogRow(m, md, vendorName, vendorByID[m.VendorID].Icon, modelType, chat, groupRatio, showOriginal, rel)
@@ -439,7 +444,7 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		// picker scoped to an endpoint reads the same way. The name tiebreak is
 		// load-bearing either way: most models share a release date with another,
 		// and date alone leaves those in slice order.
-		if vendorFilter != "" || len(endpointFilter) > 0 {
+		if vendorFilter != "" || len(endpointFilter) > 0 || typeFilter != "" {
 			if out[i].ReleaseTs != out[j].ReleaseTs {
 				return out[i].ReleaseTs > out[j].ReleaseTs
 			}
