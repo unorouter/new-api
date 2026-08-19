@@ -1479,11 +1479,7 @@ func EmailBind(c fuego.ContextWithParams[dto.EmailBindParams]) (dto.MessageRespo
 	}
 	id := ginCtx.GetInt("id")
 	if id == 0 {
-		user, err := model.ValidateAccessToken(ginCtx.Request.Header.Get("Authorization"))
-		if err != nil || user == nil {
-			return dto.FailMsg("Not logged in")
-		}
-		id = user.Id
+		return dto.FailMsg("Not logged in")
 	}
 	user := model.User{
 		Id: id,
