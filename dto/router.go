@@ -307,6 +307,11 @@ func CatalogVendorQuery() func(*fuego.BaseRoute) {
 	return fuego.OptionQuery("vendor", "Only models served by this vendor, newest first (the vendor page)")
 }
 
+// CatalogTypeQuery adds the optional "type" catalog query parameter.
+func CatalogTypeQuery() func(*fuego.BaseRoute) {
+	return fuego.OptionQuery("type", "Only models of this modality (text, image, video, audio, embedding), newest first")
+}
+
 // CatalogEndpointQuery adds the optional "endpoint" catalog query parameter.
 func CatalogEndpointQuery() func(*fuego.BaseRoute) {
 	return fuego.OptionQuery("endpoint", "Comma-separated endpoint types; keeps only models served by one of them, newest first")
