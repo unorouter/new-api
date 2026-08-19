@@ -239,6 +239,30 @@ func vendorSlug(name string) string {
 	return strings.TrimSuffix(b.String(), "-")
 }
 
+func splitCSV(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	out := make([]string, 0, 4)
+	for _, part := range strings.Split(raw, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func servesAnyEndpoint(types []constant.EndpointType, want []string) bool {
+	for _, t := range types {
+		for _, w := range want {
+			if string(t) == w {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Vendors are filtered by exact name or by slug, so a caller holding only a URL
 // segment does not have to fetch every vendor name to translate it back first.
 func vendorMatches(vendorName, filter string) bool {
@@ -383,6 +407,10 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	if vendorFilter != "" {
 		full = true
 	}
+	// Comma-separated endpoint types, for a picker that can only submit to some of
+	// them: the image UI routes through image-generation/openai/gemini, so an
+	// aihorde-only row is a model it can list but never call.
+	endpointFilter := splitCSV(dto.GinCtx(c).Query("endpoint"))
 
 	showOriginal := operation_setting.ShowOriginalPriceEnabled
 	rel := catalogReliability()
@@ -392,6 +420,9 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		modelType, chat := catalogModality(m, md)
 		vendorName := catalogVendorName(vendorByID, m.VendorID)
 		if vendorFilter != "" && !vendorMatches(vendorName, vendorFilter) {
+			continue
+		}
+		if len(endpointFilter) > 0 && !servesAnyEndpoint(m.SupportedEndpointTypes, endpointFilter) {
 			continue
 		}
 		row := catalogRow(m, md, vendorName, vendorByID[m.VendorID].Icon, modelType, chat, groupRatio, showOriginal, rel)
@@ -404,10 +435,11 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 
 	collator := newCatalogCollator()
 	sort.SliceStable(out, func(i, j int) bool {
-		// One vendor's page is a release timeline, so it reads newest first. The
-		// name tiebreak is load-bearing either way: most models share a release
-		// date with another, and date alone leaves those in slice order.
-		if vendorFilter != "" {
+		// One vendor's page is a release timeline, so it reads newest first. A
+		// picker scoped to an endpoint reads the same way. The name tiebreak is
+		// load-bearing either way: most models share a release date with another,
+		// and date alone leaves those in slice order.
+		if vendorFilter != "" || len(endpointFilter) > 0 {
 			if out[i].ReleaseTs != out[j].ReleaseTs {
 				return out[i].ReleaseTs > out[j].ReleaseTs
 			}
