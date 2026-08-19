@@ -876,11 +876,18 @@ func applyOperations(jsonData []byte, operations []ParamOperation, conditionCont
 		switch op.Mode {
 		case "delete":
 			for _, path := range opPaths {
+				// The audit drives x-newapi-dropped-params, which the frontend
+				// shows as "X not supported and was ignored". Recording a delete
+				// whose path was absent told users their own request carried a
+				// param they never set.
+				existed := gjson.GetBytes(result, path).Exists()
 				result, err = deleteValue(result, path)
 				if err != nil {
 					break
 				}
-				auditRecorder.recordOperation("delete", path, "", "", nil)
+				if existed {
+					auditRecorder.recordOperation("delete", path, "", "", nil)
+				}
 			}
 		case "set":
 			for _, path := range opPaths {
