@@ -110,4 +110,21 @@ type ImageParams struct {
 	OutputFormatChoices []string `json:"outputFormatChoices,omitempty"`
 	QualityChoices      []string `json:"qualityChoices,omitempty"`
 	BackgroundChoices   []string `json:"backgroundChoices,omitempty"`
+
+	// Derived by the gateway, which owns the endpoint types: the endpoint a
+	// synchronous image request routes to. Empty when the model serves none of
+	// them (an aihorde row is an async task), which is what makes it
+	// unsubmittable from an image form.
+	Endpoint     string `json:"endpoint,omitempty"`
+	SupportsSize bool   `json:"supportsSize"`
+	// Where a form starts. Steps/cfg come from the model's own schema when it
+	// states them.
+	DefaultWidth   int      `json:"defaultWidth"`
+	DefaultHeight  int      `json:"defaultHeight"`
+	DefaultSteps   int      `json:"defaultSteps"`
+	DefaultCfg     *float64 `json:"defaultCfg,omitempty"`
+	DefaultSampler string   `json:"defaultSampler"`
+	// References the model accepts, already defaulted for rows whose schema is
+	// unresolved but which route to a generation endpoint.
+	SupportsReferences bool `json:"supportsReferences"`
 }

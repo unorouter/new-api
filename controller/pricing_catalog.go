@@ -395,6 +395,65 @@ func optionalFloat(v float64, ok bool) *float64 {
 	return &v
 }
 
+// Image endpoints a synchronous generation can route to, in the order a model is
+// tried. aihorde is deliberately absent: it is an async task adaptor, so a row
+// serving only it can be listed but never submitted from a form.
+var syncImageEndpoints = []constant.EndpointType{
+	constant.EndpointTypeImageGeneration,
+	constant.EndpointTypeOpenAI,
+	constant.EndpointTypeGemini,
+}
+
+func syncImageEndpoint(types []constant.EndpointType) string {
+	for _, want := range syncImageEndpoints {
+		for _, got := range types {
+			if got == want {
+				return string(want)
+			}
+		}
+	}
+	return ""
+}
+
+// imageParamsFor completes the sync's schema-derived flags with what only the
+// gateway knows (which endpoint routes the model) and the defaults a form starts
+// from, so a client reads fields instead of re-deriving them per model.
+func imageParamsFor(m model.Pricing, md dto.ModelMetadata) *dto.ImageParams {
+	endpoint := syncImageEndpoint(m.SupportedEndpointTypes)
+	if endpoint == "" {
+		return nil
+	}
+	p := dto.ImageParams{}
+	if md.ImageParams != nil {
+		p = *md.ImageParams
+	}
+	p.Endpoint = endpoint
+	p.SupportsSize = endpoint == string(constant.EndpointTypeImageGeneration)
+	p.DefaultWidth = 1024
+	p.DefaultHeight = 1024
+	p.DefaultSampler = "Default"
+
+	p.DefaultSteps = 20
+	if md.ImageParams != nil && md.ImageParams.Steps != nil && md.ImageParams.Steps.Default != nil {
+		p.DefaultSteps = int(*md.ImageParams.Steps.Default)
+	}
+	if md.ImageParams != nil && md.ImageParams.Cfg != nil {
+		p.DefaultCfg = md.ImageParams.Cfg.Default
+	}
+
+	// An unresolved schema says nothing about references, so a generation endpoint
+	// still allows the one image the relay accepts. A RESOLVED zero is authoritative:
+	// an SDXL checkpoint takes none, and offering an uploader would only fail.
+	if md.ImageParams == nil {
+		p.MaxReferenceImages = md.MaxImageInputs
+		if p.MaxReferenceImages == 0 && p.SupportsSize {
+			p.MaxReferenceImages = 1
+		}
+	}
+	p.SupportsReferences = p.MaxReferenceImages >= 1
+	return &p
+}
+
 func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	pricing, groupRatio := visiblePricing(c)
 	vendorByID := vendorsByID()
@@ -451,7 +510,7 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 			// A caller that asked for image models is rendering a generation form,
 			// which is the only surface these flags drive.
 			if typeFilter == "image" {
-				row.Metadata.ImageParams = md.ImageParams
+				row.Metadata.ImageParams = imageParamsFor(m, md)
 			}
 		}
 		out = append(out, row)
