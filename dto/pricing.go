@@ -126,7 +126,9 @@ type PricingCatalogDetail struct {
 	IsTiered    bool   `json:"is_tiered"`
 	CreatedTime int64  `json:"created_time,omitempty"`
 	BillingExpr string `json:"billing_expr,omitempty"`
-	// Full text, not the list's truncated blurb.
+	// Full text, not the list's truncated blurb. Deliberately SHADOWS the embedded
+	// row's field: the outer one wins on marshal, so deleting this as a duplicate
+	// would silently serve every detail page the 200-character blurb.
 	Description string `json:"description,omitempty"`
 }
 
@@ -146,7 +148,7 @@ type PricingCatalogData struct {
 	// flagship rather than whatever sorts first. Empty when none qualifies.
 	FirstFreeModel string `json:"first_free_model,omitempty"`
 	// Totals over the same group-filtered list the rows come from. Derived here
-	// so a caller that wants four numbers does not download 341 rows to count
+	// so a caller that wants four numbers does not download every row to count
 	// them, and so the counts cannot disagree with the list.
 	Counts PricingCatalogCounts `json:"counts"`
 	// Endpoint path/method per endpoint type, for the detail panel that prints a

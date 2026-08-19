@@ -205,10 +205,6 @@ func catalogModality(m model.Pricing, md dto.ModelMetadata) (modelType string, c
 	return "text", len(md.OutputModalities) > 0
 }
 
-// GetPricingCatalog returns the model-picker list: enough to list, group, search
-// and badge every model, without the group maps and ratio fields that make
-// /pricing an order of magnitude larger. Pre-sorted (free first, then by name)
-// so callers do not each re-derive the same ordering.
 // Every catalog surface must see the SAME models: what a caller may route is a
 // property of their group, so the filter belongs with the fetch rather than at
 // each call site. Group ratios come back too, since prices need them.
@@ -371,17 +367,51 @@ func catalogReliability() reliability {
 	return out
 }
 
+// catalogCtx is the per-request state every row needs. Passed as one value so a
+// row builder cannot be called with its arguments transposed.
+type catalogCtx struct {
+	vendorByID   map[int]model.PricingVendor
+	groupRatio   map[string]float64
+	showOriginal bool
+	rel          reliability
+}
+
+func newCatalogCtx(groupRatio map[string]float64) catalogCtx {
+	return catalogCtx{
+		vendorByID:   vendorsByID(),
+		groupRatio:   groupRatio,
+		showOriginal: operation_setting.ShowOriginalPriceEnabled,
+		rel:          catalogReliability(),
+	}
+}
+
+// derived is the per-model facts three handlers each used to compute inline.
+type derived struct {
+	md         dto.ModelMetadata
+	modelType  string
+	chat       bool
+	vendorName string
+}
+
+func (ctx catalogCtx) derive(m model.Pricing) derived {
+	md := parseCatalogMetadata(m.Metadata)
+	modelType, chat := catalogModality(m, md)
+	return derived{
+		md:         md,
+		modelType:  modelType,
+		chat:       chat,
+		vendorName: catalogVendorName(ctx.vendorByID, m.VendorID),
+	}
+}
+
 func catalogRow(
 	m model.Pricing,
-	md dto.ModelMetadata,
-	vendorName string,
-	icon string,
-	modelType string,
-	chat bool,
-	groupRatio map[string]float64,
-	showOriginal bool,
-	rel reliability,
+	d derived,
+	ctx catalogCtx,
 ) dto.PricingCatalogModel {
+	md, modelType, chat, vendorName := d.md, d.modelType, d.chat, d.vendorName
+	icon := ctx.vendorByID[m.VendorID].Icon
+	groupRatio, showOriginal, rel := ctx.groupRatio, ctx.showOriginal, ctx.rel
 	price := catalogPricing(m, groupRatio, showOriginal)
 	uptime, hasUptime := rel.uptime[m.ModelName]
 	success, hasSuccess := rel.success[m.ModelName]
@@ -485,7 +515,6 @@ func imageParamsFor(modelType string, m model.Pricing, md dto.ModelMetadata) *dt
 
 func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	pricing, groupRatio := visiblePricing(c)
-	vendorByID := vendorsByID()
 
 	// The picker needs a name, a badge and a price; the browse page also filters
 	// on metadata and renders a blurb. Off by default so the chat path is not
@@ -494,7 +523,7 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	// a == "true" check silently answered those with the lean payload.
 	full, _ := strconv.ParseBool(dto.GinCtx(c).Query("full"))
 	// A vendor page shows one vendor's models, so it filters here rather than
-	// downloading all 341 rows to keep 12. Implies `full`: the cards render a
+	// downloading the whole catalog to keep a dozen. Implies `full`: the cards render a
 	// blurb and capability chips.
 	vendorFilter := dto.GinCtx(c).Query("vendor")
 	if vendorFilter != "" {
@@ -516,13 +545,11 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		}
 	}
 
-	showOriginal := operation_setting.ShowOriginalPriceEnabled
-	rel := catalogReliability()
+	ctx := newCatalogCtx(groupRatio)
 	out := make([]dto.PricingCatalogModel, 0, len(pricing))
 	for _, m := range pricing {
-		md := parseCatalogMetadata(m.Metadata)
-		modelType, chat := catalogModality(m, md)
-		vendorName := catalogVendorName(vendorByID, m.VendorID)
+		d := ctx.derive(m)
+		md, modelType, vendorName := d.md, d.modelType, d.vendorName
 		if vendorFilter != "" && !vendorMatches(vendorName, vendorFilter) {
 			continue
 		}
@@ -532,7 +559,7 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		if typeFilter != "" && modelType != typeFilter {
 			continue
 		}
-		row := catalogRow(m, md, vendorName, vendorByID[m.VendorID].Icon, modelType, chat, groupRatio, showOriginal, rel)
+		row := catalogRow(m, d, ctx)
 		if full {
 			row.Description = truncateDescription(m.Description)
 			listMd := listMetadata(md)
@@ -584,15 +611,16 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 // third of the catalog's size.
 func GetPricingVendors(c fuego.ContextNoBody) (dto.PricingVendorsData, error) {
 	pricing, groupRatio := visiblePricing(c)
-	vendorByID := vendorsByID()
+	// No reliability: this route carries no prices or uptime, so building the full
+	// catalog context would run two aggregate queries it never reads.
+	ctx := catalogCtx{vendorByID: vendorsByID(), groupRatio: groupRatio}
 
 	out := make([]dto.PricingVendorModel, 0, len(pricing))
 	seen := make(map[string]struct{}, len(pricing))
-	names := make([]string, 0, len(vendorByID))
+	names := make([]string, 0, len(ctx.vendorByID))
 	for _, m := range pricing {
-		md := parseCatalogMetadata(m.Metadata)
-		_, chat := catalogModality(m, md)
-		vendorName := catalogVendorName(vendorByID, m.VendorID)
+		d := ctx.derive(m)
+		vendorName := d.vendorName
 		if _, ok := seen[vendorName]; !ok {
 			seen[vendorName] = struct{}{}
 			names = append(names, vendorName)
@@ -604,10 +632,10 @@ func GetPricingVendors(c fuego.ContextNoBody) (dto.PricingVendorsData, error) {
 		out = append(out, dto.PricingVendorModel{
 			ModelName: m.ModelName,
 			Vendor:    vendorName,
-			Chat:      chat,
+			Chat:      d.chat,
 			IsFree:    modelIsFree(m, groupRatio),
 			Tag:       tag,
-			ReleaseTs: md.ReleaseTs,
+			ReleaseTs: d.md.ReleaseTs,
 		})
 	}
 
@@ -619,10 +647,6 @@ func GetPricingVendors(c fuego.ContextNoBody) (dto.PricingVendorsData, error) {
 	return dto.PricingVendorsData{VendorNames: names, ModelVendors: out}, nil
 }
 
-// GetPricingModelGroups returns the group panel for ONE model. Everything is
-// scoped to that model here rather than in the client, which previously had to
-// download the 56KB global auto-group list and the 1800-key ratio map to render
-// a handful of chips.
 // modelGroups resolves one model's servable groups, the ratios for just those
 // groups, and the auto chain restricted to them. Shared by the groups route and
 // the per-model detail so the two cannot disagree.
@@ -704,17 +728,10 @@ func GetPricingCatalogModel(c fuego.ContextNoBody) (dto.PricingCatalogDetail, er
 	}
 
 	groups, groupRatio, chain := modelGroups(c, pricing)
-	md := parseCatalogMetadata(pricing.Metadata)
-	modelType, chat := catalogModality(pricing, md)
-	vendorByID := vendorsByID()
-	row := catalogRow(
-		pricing, md,
-		catalogVendorName(vendorByID, pricing.VendorID),
-		vendorByID[pricing.VendorID].Icon,
-		modelType, chat, groupRatio,
-		operation_setting.ShowOriginalPriceEnabled,
-		catalogReliability(),
-	)
+	ctx := newCatalogCtx(groupRatio)
+	d := ctx.derive(pricing)
+	md, modelType := d.md, d.modelType
+	row := catalogRow(pricing, d, ctx)
 
 	// The list keeps only what a card renders; a caller that asked for ONE model
 	// wants all of it.
@@ -744,8 +761,8 @@ func GetPricingCatalogModel(c fuego.ContextNoBody) (dto.PricingCatalogDetail, er
 // Vendors counts only vendors that actually serve a model, not every configured
 // one: it is quoted as "N+ providers", and an empty vendor is not a provider.
 // GetPricingCounts is the homepage stat row: four numbers. Counted straight off
-// the filtered pricing list, so it never builds the 341 rows a caller would
-// otherwise download 137KB of to sum. Same group filter as the catalog, so the
+// the filtered pricing list, so it never builds the rows a caller would
+// otherwise download the whole catalog to sum. Same group filter as the catalog, so the
 // totals always describe the same set of models the list would return.
 func GetPricingCounts(c fuego.ContextNoBody) (dto.PricingCatalogCounts, error) {
 	pricing, groupRatio := visiblePricing(c)
