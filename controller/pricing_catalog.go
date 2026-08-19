@@ -85,6 +85,9 @@ func truncateDescription(s string) string {
 func listMetadata(md dto.ModelMetadata) dto.ModelMetadata {
 	md.SupportedParameters = nil
 	md.DefaultParameters = nil
+	// 80KB across the catalog, mostly 75-entry sampler lists, and only an image
+	// FORM reads it. Restored below when the caller asked for image models.
+	md.ImageParams = nil
 	return md
 }
 
@@ -434,6 +437,11 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		if full {
 			row.Description = truncateDescription(m.Description)
 			row.Metadata = listMetadata(md)
+			// A caller that asked for image models is rendering a generation form,
+			// which is the only surface these flags drive.
+			if typeFilter == "image" {
+				row.Metadata.ImageParams = md.ImageParams
+			}
 		}
 		out = append(out, row)
 	}
