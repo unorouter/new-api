@@ -21,6 +21,11 @@ type ModelMetadata struct {
 	// fall back to their own limit rather than treating 0 as "none allowed".
 	MaxImageInputs int `json:"maxImageInputs,omitempty"`
 
+	// Which generation controls an image model accepts, resolved by the sync
+	// from the provider's own schema. Absent means unresolved, which is distinct
+	// from a spec stating every control is off.
+	ImageParams *ImageParams `json:"imageParams,omitempty"`
+
 	// What the model emits. Every synced model carries this, and it is the
 	// authority for model type: a name or tag heuristic guesses at what this
 	// states outright.
@@ -69,4 +74,40 @@ type ModelMetadata struct {
 	// (the provider states no default), hence the pointer.
 	DefaultParameters map[string]*float64 `json:"defaultParameters,omitempty"`
 	ReasoningEfforts  []string            `json:"reasoningEfforts,omitempty"`
+}
+
+// ImageParamRange is the slider bounds and default for one numeric generation
+// parameter, as published by the provider.
+type ImageParamRange struct {
+	Min     *float64 `json:"min,omitempty"`
+	Max     *float64 `json:"max,omitempty"`
+	Default *float64 `json:"default,omitempty"`
+}
+
+// ImageParams says which controls an image model accepts. A parameter absent
+// from the provider's schema is rejected upstream, so rendering a control for it
+// could only ever produce a failed generation.
+type ImageParams struct {
+	SupportsNegativePrompt bool `json:"supportsNegativePrompt"`
+	SupportsCfg            bool `json:"supportsCfg"`
+	SupportsSteps          bool `json:"supportsSteps"`
+	SupportsSampler        bool `json:"supportsSampler"`
+	SupportsLoraChain      bool `json:"supportsLoraChain"`
+	SupportsSeed           bool `json:"supportsSeed"`
+	SupportsStrength       bool `json:"supportsStrength"`
+	SupportsHiresFix       bool `json:"supportsHiresFix"`
+	SupportsAdetailer      bool `json:"supportsAdetailer"`
+	// Accepted "<sampler> <schedule>" strings; the provider folds both into one field.
+	Samplers []string         `json:"samplers,omitempty"`
+	Steps    *ImageParamRange `json:"steps,omitempty"`
+	Cfg      *ImageParamRange `json:"cfg,omitempty"`
+	// 0 means the model takes no reference images at all, which is distinct from
+	// taking an init image for img2img.
+	MaxReferenceImages int  `json:"maxReferenceImages"`
+	SupportsSeedImage  bool `json:"supportsSeedImage"`
+	SupportsMaskImage  bool `json:"supportsMaskImage"`
+	// Provider-scoped enums, so the offered choices are the accepted ones.
+	OutputFormatChoices []string `json:"outputFormatChoices,omitempty"`
+	QualityChoices      []string `json:"qualityChoices,omitempty"`
+	BackgroundChoices   []string `json:"backgroundChoices,omitempty"`
 }
