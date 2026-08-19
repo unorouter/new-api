@@ -307,6 +307,11 @@ func CatalogVendorQuery() func(*fuego.BaseRoute) {
 	return fuego.OptionQuery("vendor", "Only models served by this vendor, newest first (the vendor page)")
 }
 
+// CatalogEndpointQuery adds the optional "endpoint" catalog query parameter.
+func CatalogEndpointQuery() func(*fuego.BaseRoute) {
+	return fuego.OptionQuery("endpoint", "Comma-separated endpoint types; keeps only models served by one of them, newest first")
+}
+
 // GinGet registers a raw gin handler GET route.
 func (r *Router) GinGet(path string, handler gin.HandlerFunc, opts ...func(*fuego.BaseRoute)) {
 	if r.engine == nil {
