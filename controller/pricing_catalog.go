@@ -699,6 +699,9 @@ func GetPricingCatalogModel(c fuego.ContextNoBody) (dto.PricingCatalogDetail, er
 	// The list strips parameter lists and provider defaults and truncates the
 	// blurb; a caller that asked for ONE model wants all of it.
 	row.Metadata = md
+	// The send paths resolve a model through THIS route and read the endpoint off
+	// it, so the gateway-derived half has to be here too, not only on the list.
+	row.Metadata.ImageParams = imageParamsFor(pricing, md)
 
 	return dto.PricingCatalogDetail{
 		PricingCatalogModel: row,
