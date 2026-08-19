@@ -298,6 +298,7 @@ func vendorsByID() map[int]model.PricingVendor {
 type reliability struct {
 	uptime  map[string]float64
 	success map[string]float64
+	latency map[string]float64
 }
 
 // Both inputs are aggregate queries, and the catalog is a hot path, so the
@@ -323,6 +324,7 @@ func catalogReliability() reliability {
 	out := reliability{
 		uptime:  map[string]float64{},
 		success: map[string]float64{},
+		latency: map[string]float64{},
 	}
 	// A reliability lookup must never fail the catalog: the prices are the
 	// payload, these two are decoration, so an error leaves them absent (null)
@@ -340,6 +342,11 @@ func catalogReliability() reliability {
 	if summary, err := perfmetrics.QuerySummaryAll(24, activeGroups); err == nil {
 		for _, row := range summary.Models {
 			out.success[row.ModelName] = row.SuccessRate
+			// A zero here means no timed request in the window, not an instant
+			// model, so it stays absent and renders as unmeasured.
+			if row.AvgLatencyMs > 0 {
+				out.latency[row.ModelName] = float64(row.AvgLatencyMs)
+			}
 		}
 	}
 
@@ -364,6 +371,7 @@ func catalogRow(
 	price := catalogPricing(m, groupRatio, showOriginal)
 	uptime, hasUptime := rel.uptime[m.ModelName]
 	success, hasSuccess := rel.success[m.ModelName]
+	latency, hasLatency := rel.latency[m.ModelName]
 	return dto.PricingCatalogModel{
 		ModelName:              m.ModelName,
 		Vendor:                 vendorName,
@@ -385,6 +393,7 @@ func catalogRow(
 		SupportedEndpointTypes: m.SupportedEndpointTypes,
 		Uptime24h:              optionalFloat(uptime, hasUptime),
 		SuccessRate:            optionalFloat(success, hasSuccess),
+		AvgLatencyMs:           optionalFloat(latency, hasLatency),
 	}
 }
 
