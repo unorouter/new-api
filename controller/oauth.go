@@ -359,6 +359,26 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider, pendingFlow *model
 	})
 }
 
+// backfillOAuthEmail adopts the provider's email for an account that has none.
+// The address is only captured at signup, so an account created before that (or
+// by a provider that withheld it) can never recover a password. An existing
+// address is never overwritten, and a collision is skipped rather than failing
+// the login, since the user came here to sign in, not to bind an email.
+func backfillOAuthEmail(user *model.User, oauthUser *oauth.OAuthUser) {
+	if user.Id == 0 || user.Email != "" || oauthUser.Email == "" {
+		return
+	}
+	email := model.NormalizeEmail(oauthUser.Email)
+	if email == "" || model.EnsureEmailAvailable(email, user.Id) != nil {
+		return
+	}
+	if err := user.UpdateEmail(email); err != nil {
+		common.SysError(fmt.Sprintf("[OAuth] failed to backfill email for user %d: %s", user.Id, err.Error()))
+		return
+	}
+	user.Email = email
+}
+
 // findOrCreateOAuthUser finds existing user or creates new user
 func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, affiliateCode string) (*model.User, error) {
 	user := &model.User{}
@@ -373,6 +393,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		if user.Id == 0 {
 			return nil, &types.OAuthUserDeletedError{}
 		}
+		backfillOAuthEmail(user, oauthUser)
 		return user, nil
 	}
 
@@ -391,6 +412,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 					common.SysError(fmt.Sprintf("[OAuth] Failed to migrate user %d: %s", user.Id, err.Error()))
 					// Continue with login even if migration fails
 				}
+				backfillOAuthEmail(user, oauthUser)
 				return user, nil
 			}
 		}

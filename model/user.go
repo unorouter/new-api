@@ -1274,6 +1274,13 @@ func (user *User) UpdateGitHubId(newGitHubId string) error {
 	return DB.Model(user).Update("github_id", newGitHubId).Error
 }
 
+func (user *User) UpdateEmail(newEmail string) error {
+	if user.Id == 0 {
+		return errors.New("user id is empty")
+	}
+	return DB.Model(user).Update("email", newEmail).Error
+}
+
 func (user *User) FillUserByDiscordId() error {
 	if user.DiscordId == "" {
 		return errors.New("discord id is empty")
@@ -1333,6 +1340,40 @@ func GetUniqueUserByEmail(email string) (*User, error) {
 	}
 }
 
+// GetUniqueUserForPasswordReset resolves the recipient of a reset mail. It
+// prefers the email column, then falls back to an account whose USERNAME is this
+// address and that has no email of its own. Registration does not populate the
+// email column unless verification is on, so most accounts hold their address
+// only as a username and would otherwise have no way back into the account.
+//
+// The fallback is deliberately confined to reset delivery and never writes: a
+// username is unverified, so adopting it as the account's email would let anyone
+// register someone else's address and claim it. Accounts that DO have an email
+// are excluded, so a username can never divert mail away from a real address.
+func GetUniqueUserForPasswordReset(email string) (*User, error) {
+	user, err := GetUniqueUserByEmail(email)
+	if err == nil || !errors.Is(err, ErrEmailNotFound) {
+		return user, err
+	}
+	normalized := NormalizeEmail(email)
+	if normalized == "" {
+		return nil, ErrEmailNotFound
+	}
+	var users []User
+	if err := DB.Where("LOWER(username) = ? AND (email IS NULL OR email = ?)", normalized, "").
+		Limit(2).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	switch len(users) {
+	case 0:
+		return nil, ErrEmailNotFound
+	case 1:
+		return &users[0], nil
+	default:
+		return nil, ErrEmailAmbiguous
+	}
+}
+
 func IsWeChatIdAlreadyTaken(wechatId string) bool {
 	return DB.Unscoped().Where("wechat_id = ?", wechatId).Find(&User{}).RowsAffected == 1
 }
@@ -1357,7 +1398,9 @@ func ResetUserPasswordByEmail(email string, password string) error {
 	if email == "" || password == "" {
 		return errors.New("email address or password is empty")
 	}
-	user, err := GetUniqueUserByEmail(email)
+	// Must resolve the recipient the same way the reset mail did, or an account
+	// that holds its address only as a username gets a link that always fails.
+	user, err := GetUniqueUserForPasswordReset(email)
 	if err != nil {
 		return err
 	}

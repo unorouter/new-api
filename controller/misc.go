@@ -257,10 +257,16 @@ func SendPasswordResetEmail(c fuego.ContextWithParams[dto.EmailParams]) (dto.Mes
 	}
 	// Never reveal whether the address is registered: send silently when it is,
 	// stay quiet otherwise, and only log genuine lookup failures.
-	if _, err := model.GetUniqueUserByEmail(p.Email); err == nil {
+	if _, err := model.GetUniqueUserForPasswordReset(p.Email); err == nil {
 		code := common.GenerateVerificationCode(0)
 		common.RegisterVerificationCodeWithKey(p.Email, code, common.PasswordResetPurpose)
-		link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", system_setting.ServerAddress, url.QueryEscape(p.Email), url.QueryEscape(code))
+		// The bundled UI serves the confirm page at /user/reset; a separate
+		// frontend owns its own route, so the path follows the base.
+		resetPath := "/user/reset"
+		if system_setting.FrontendAddress != "" {
+			resetPath = "/reset"
+		}
+		link := fmt.Sprintf("%s%s?email=%s&token=%s", system_setting.UserLinkBase(), resetPath, url.QueryEscape(p.Email), url.QueryEscape(code))
 		subject := fmt.Sprintf("%v Password Reset", common.SystemName)
 		content := fmt.Sprintf("<p>Hello, you are performing %v password reset.</p><p>Click <a href='%v'>here</a> to reset your password.</p><p>If the link cannot be opened, please copy the following URL into your browser: %v</p><p>The reset link is valid for %v minutes. If this was not initiated by you, please ignore this email.</p>", common.SystemName, link, link, common.VerificationValidMinutes)
 		if err := common.SendEmail(subject, p.Email, content); err != nil {
