@@ -416,6 +416,17 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	endpointFilter := splitCSV(dto.GinCtx(c).Query("endpoint"))
 	// Modality, for a picker that only submits one kind of generation.
 	typeFilter := dto.GinCtx(c).Query("type")
+	// aihorde is an async TASK adaptor (submit then poll), not a sync generation
+	// endpoint, so an aihorde-only row is one an image form can list but never
+	// submit to. Which endpoints those are is a gateway fact, so asking for image
+	// models implies it rather than making every caller restate the list.
+	if typeFilter == "image" && len(endpointFilter) == 0 {
+		endpointFilter = []string{
+			string(constant.EndpointTypeImageGeneration),
+			string(constant.EndpointTypeOpenAI),
+			string(constant.EndpointTypeGemini),
+		}
+	}
 
 	showOriginal := operation_setting.ShowOriginalPriceEnabled
 	rel := catalogReliability()
