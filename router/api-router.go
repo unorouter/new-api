@@ -47,7 +47,6 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 
 		publicPricing := dto.NewRouter(engine, apiRouter.Group("", middleware.TryUserAuth()), "Pricing", secPublic())
 		dto.Get(publicPricing, "/pricing", controller.GetPricing)
-		dto.Get(publicPricing, "/pricing/model", controller.GetPricingModel, dto.ModelQuery())
 		dto.Get(publicPricing, "/pricing/catalog", controller.GetPricingCatalog, dto.CatalogFullQuery(), dto.CatalogVendorQuery(), dto.CatalogEndpointQuery(), dto.CatalogTypeQuery())
 		dto.Get(publicPricing, "/pricing/vendors", controller.GetPricingVendors)
 		dto.Get(publicPricing, "/pricing/counts", controller.GetPricingCounts)

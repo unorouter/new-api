@@ -189,6 +189,13 @@ func cachedUptimeSince(cache *uptimeCacheEntry, ttl time.Duration, modelNames []
 	return val, nil
 }
 
+// cachedUptimes24 is the 24h window alone, for callers that would otherwise pay
+// for a 30-day aggregate they discard. The returned map is the CACHED one, shared
+// with every other caller: read it, never write to it.
+func cachedUptimes24(modelNames []string) (map[string]float64, error) {
+	return cachedUptimeSince(&uptime24hCache, 5*time.Minute, modelNames, time.Now().Unix()-24*60*60)
+}
+
 func cachedUptimes(modelNames []string) (map[string]float64, map[string]float64, error) {
 	now := time.Now().Unix()
 	u24, err := cachedUptimeSince(&uptime24hCache, 5*time.Minute, modelNames, now-24*60*60)
