@@ -298,7 +298,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	if emptyResponse && !streamingStarted {
 		return usage, types.NewOpenAIError(
 			fmt.Errorf("upstream streamed an empty response (no content/tool calls)"),
-			types.ErrorCodeChannelEmptyResponse, http.StatusBadGateway,
+			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable,
 			emptyResponseDisableOption(info)...)
 	}
 
@@ -310,7 +310,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	if emptyResponse {
 		return usage, types.NewOpenAIError(
 			fmt.Errorf("upstream streamed an empty response (no content/tool calls)"),
-			types.ErrorCodeChannelEmptyResponse, http.StatusBadGateway,
+			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable,
 			types.ErrOptionWithSkipRetry())
 	}
 
@@ -471,7 +471,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		!openAIResponseHasOutput(&simpleResponse) {
 		return nil, types.NewOpenAIError(
 			fmt.Errorf("upstream returned an empty response (no choices/content)"),
-			types.ErrorCodeChannelEmptyResponse, http.StatusBadGateway,
+			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable,
 			emptyResponseDisableOption(info)...)
 	}
 
