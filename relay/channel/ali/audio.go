@@ -61,7 +61,7 @@ func aliTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 	if aliResp.Output.Audio == nil || aliResp.Output.Audio.URL == "" {
 		return types.NewOpenAIError(
 			fmt.Errorf("dashscope tts returned no audio url"),
-			types.ErrorCodeChannelEmptyResponse, http.StatusBadGateway), nil
+			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable), nil
 	}
 
 	audioResp, err := service.DoDownloadRequest(aliResp.Output.Audio.URL)
