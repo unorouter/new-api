@@ -4,7 +4,10 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The slugs below are what the model pages are linked by, so this asserts
@@ -60,4 +63,25 @@ func TestServesAnyEndpoint(t *testing.T) {
 	assert.False(t, servesAnyEndpoint(horde, want))
 	assert.False(t, servesAnyEndpoint(nil, want))
 	assert.False(t, servesAnyEndpoint(img, nil), "no filter means the caller skips this check")
+}
+
+// A text model serving openai-compatible chat matches the same endpoint an image
+// model routes through, so endpoint alone would advertise generation controls on
+// every chat model.
+func TestImageParamsForRequiresImageModality(t *testing.T) {
+	openaiEndpoints := []constant.EndpointType{constant.EndpointTypeOpenAI}
+	chat := model.Pricing{SupportedEndpointTypes: openaiEndpoints}
+
+	assert.Nil(t, imageParamsFor("text", chat, dto.ModelMetadata{}),
+		"a text model must carry no image params")
+	assert.Nil(t, imageParamsFor("embedding", chat, dto.ModelMetadata{}))
+
+	p := imageParamsFor("image", chat, dto.ModelMetadata{})
+	require.NotNil(t, p, "an image model on a sync endpoint resolves")
+	assert.Equal(t, "openai", p.Endpoint)
+	assert.False(t, p.SupportsSize, "only image-generation takes a size")
+
+	// aihorde is an async task adaptor: listable, never submittable from a form.
+	horde := model.Pricing{SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeAIHorde}}
+	assert.Nil(t, imageParamsFor("image", horde, dto.ModelMetadata{}))
 }
