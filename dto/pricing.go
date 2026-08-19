@@ -38,10 +38,9 @@ type PricingModel struct {
 }
 
 // PricingCatalogModel is the row a model PICKER needs: enough to list, group,
-// search and badge a model, and nothing else. Deliberately carries no
-// enable_groups, ratios or metadata blob - a caller that needs those for one
-// model fetches /pricing/model, which is ~3KB, rather than making every caller
-// pay for all of them.
+// search and badge a model, and nothing else. Carries no enable_groups or ratios,
+// and no metadata unless the caller asks for it: those belong to a caller that
+// has chosen ONE model, and /pricing/catalog/model serves that in ~4KB.
 type PricingCatalogModel struct {
 	ModelName string `json:"model_name"`
 	Vendor    string `json:"vendor"`
@@ -77,8 +76,10 @@ type PricingCatalogModel struct {
 
 	Description string `json:"description,omitempty"`
 	// The sync's hint blob, parsed. Vanilla /pricing still publishes it as a
-	// JSON string; only this route hands callers a typed object.
-	Metadata ModelMetadata `json:"metadata"`
+	// JSON string; only this route hands callers a typed object. A pointer so the
+	// picker list, which asks for no metadata, omits the key instead of shipping
+	// an empty object on every row.
+	Metadata *ModelMetadata `json:"metadata,omitempty"`
 	// Whether the model can serve a chat completion. Upstream types every
 	// embedding model as text, so a type check alone leaks models that 400 on
 	// /chat/completions.

@@ -3,6 +3,7 @@ package controller
 import (
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -79,16 +80,32 @@ func truncateDescription(s string) string {
 	return cut + "..."
 }
 
-// A list caller filters and sorts; it does not send a request. Parameter lists
-// and provider defaults only matter once a specific model is chosen, and those
-// callers fetch that model on its own.
+// A list caller filters, sorts and renders a card; it does not send a request or
+// draw a capability sheet. This is an ALLOWLIST rather than a deny list: metadata
+// grows every time the sync learns a new field, and a deny list silently ships
+// each one to 300 rows until somebody notices.
+//
+// The set is exactly what the browse, compare, filter and vendor-card surfaces
+// read. Everything else (per-capability chips, tokenizer, lifecycle dates) is a
+// detail-page concern, and the detail route returns the blob untouched.
 func listMetadata(md dto.ModelMetadata) dto.ModelMetadata {
-	md.SupportedParameters = nil
-	md.DefaultParameters = nil
-	// 80KB across the catalog, mostly 75-entry sampler lists, and only an image
-	// FORM reads it. Restored below when the caller asked for image models.
-	md.ImageParams = nil
-	return md
+	return dto.ModelMetadata{
+		ReleaseTs:              md.ReleaseTs,
+		ContextWindow:          md.ContextWindow,
+		MaxInputTokens:         md.MaxInputTokens,
+		MaxOutputTokens:        md.MaxOutputTokens,
+		InputModalities:        md.InputModalities,
+		OutputModalities:       md.OutputModalities,
+		Series:                 md.Series,
+		Categories:             md.Categories,
+		Quantization:           md.Quantization,
+		DeprecationDate:        md.DeprecationDate,
+		IsReasoning:            md.IsReasoning,
+		SupportsTools:          md.SupportsTools,
+		SupportsVision:         md.SupportsVision,
+		SupportsCache:          md.SupportsCache,
+		SupportedParametersAll: md.SupportedParametersAll,
+	}
 }
 
 // A model bills per call (a flat ModelPrice) rather than per token for these
@@ -197,17 +214,7 @@ func catalogModality(m model.Pricing, md dto.ModelMetadata) (modelType string, c
 // each call site. Group ratios come back too, since prices need them.
 func visiblePricing(c fuego.ContextNoBody) ([]model.Pricing, map[string]float64) {
 	groupRatio := ratio_setting.GetGroupRatioCopy()
-	var group string
-	if userId, exists := dto.GinCtx(c).Get("id"); exists {
-		if user, err := model.GetUserCache(userId.(int)); err == nil {
-			group = user.Group
-			for g := range groupRatio {
-				if ratio, ok := ratio_setting.GetGroupGroupRatio(group, g); ok {
-					groupRatio[g] = ratio
-				}
-			}
-		}
-	}
+	group := applyUserGroupRatio(c, groupRatio)
 	usableGroup := service.GetUserUsableGroups(group)
 	return filterPricingByUsableGroups(model.GetPricing(), usableGroup), groupRatio
 }
@@ -301,42 +308,31 @@ type reliability struct {
 	latency map[string]float64
 }
 
-// Both inputs are aggregate queries, and the catalog is a hot path, so the
-// result is cached rather than recomputed per request. The window matches what
-// the status and perf pages already report (24h).
+// Uptime is cached by cachedUptimes24 already; only the perf summary needs one
+// here, since QuerySummaryAll has no cache of its own and the catalog is a hot
+// path. Same 24h window the status and perf pages report.
 var (
-	reliabilityMu    sync.Mutex
-	reliabilityAt    time.Time
-	reliabilityValue reliability
+	perfSummaryMu    sync.Mutex
+	perfSummaryAt    time.Time
+	perfSummaryValue reliability
 )
 
-const reliabilityTTL = 5 * time.Minute
+const perfSummaryTTL = 5 * time.Minute
 
-func catalogReliability() reliability {
-	reliabilityMu.Lock()
-	if !reliabilityAt.IsZero() && time.Since(reliabilityAt) < reliabilityTTL {
-		v := reliabilityValue
-		reliabilityMu.Unlock()
+// success + latency from one aggregate query, cached together because they come
+// from the same row.
+func cachedPerfSummary() reliability {
+	perfSummaryMu.Lock()
+	if !perfSummaryAt.IsZero() && time.Since(perfSummaryAt) < perfSummaryTTL {
+		v := perfSummaryValue
+		perfSummaryMu.Unlock()
 		return v
 	}
-	reliabilityMu.Unlock()
+	perfSummaryMu.Unlock()
 
 	out := reliability{
-		uptime:  map[string]float64{},
 		success: map[string]float64{},
 		latency: map[string]float64{},
-	}
-	// A reliability lookup must never fail the catalog: the prices are the
-	// payload, these two are decoration, so an error leaves them absent (null)
-	// rather than 500ing the model list.
-	if comps, err := model.GetAllPublicModelStatusComponents(); err == nil {
-		names := make([]string, 0, len(comps))
-		for _, comp := range comps {
-			names = append(names, comp.ModelName)
-		}
-		if u24, _, err := cachedUptimes(names); err == nil {
-			out.uptime = u24
-		}
 	}
 	activeGroups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto")
 	if summary, err := perfmetrics.QuerySummaryAll(24, activeGroups); err == nil {
@@ -350,10 +346,28 @@ func catalogReliability() reliability {
 		}
 	}
 
-	reliabilityMu.Lock()
-	reliabilityAt = time.Now()
-	reliabilityValue = out
-	reliabilityMu.Unlock()
+	perfSummaryMu.Lock()
+	perfSummaryAt = time.Now()
+	perfSummaryValue = out
+	perfSummaryMu.Unlock()
+	return out
+}
+
+func catalogReliability() reliability {
+	out := cachedPerfSummary()
+	out.uptime = map[string]float64{}
+	// A reliability lookup must never fail the catalog: the prices are the
+	// payload, these are decoration, so an error leaves them absent (null)
+	// rather than 500ing the model list.
+	if comps, err := model.GetAllPublicModelStatusComponents(); err == nil {
+		names := make([]string, 0, len(comps))
+		for _, comp := range comps {
+			names = append(names, comp.ModelName)
+		}
+		if u24, err := cachedUptimes24(names); err == nil {
+			out.uptime = u24
+		}
+	}
 	return out
 }
 
@@ -476,7 +490,9 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	// The picker needs a name, a badge and a price; the browse page also filters
 	// on metadata and renders a blurb. Off by default so the chat path is not
 	// paying for the browse page's fields.
-	full := dto.GinCtx(c).Query("full") == "true"
+	// The spec declares a boolean, so a generated client may legitimately send "1";
+	// a == "true" check silently answered those with the lean payload.
+	full, _ := strconv.ParseBool(dto.GinCtx(c).Query("full"))
 	// A vendor page shows one vendor's models, so it filters here rather than
 	// downloading all 341 rows to keep 12. Implies `full`: the cards render a
 	// blurb and capability chips.
@@ -495,10 +511,8 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	// submit to. Which endpoints those are is a gateway fact, so asking for image
 	// models implies it rather than making every caller restate the list.
 	if typeFilter == "image" && len(endpointFilter) == 0 {
-		endpointFilter = []string{
-			string(constant.EndpointTypeImageGeneration),
-			string(constant.EndpointTypeOpenAI),
-			string(constant.EndpointTypeGemini),
+		for _, ep := range syncImageEndpoints {
+			endpointFilter = append(endpointFilter, string(ep))
 		}
 	}
 
@@ -521,12 +535,13 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 		row := catalogRow(m, md, vendorName, vendorByID[m.VendorID].Icon, modelType, chat, groupRatio, showOriginal, rel)
 		if full {
 			row.Description = truncateDescription(m.Description)
-			row.Metadata = listMetadata(md)
+			listMd := listMetadata(md)
 			// A caller that asked for image models is rendering a generation form,
 			// which is the only surface these flags drive.
 			if typeFilter == "image" {
-				row.Metadata.ImageParams = imageParamsFor(modelType, m, md)
+				listMd.ImageParams = imageParamsFor(modelType, m, md)
 			}
+			row.Metadata = &listMd
 		}
 		out = append(out, row)
 	}
@@ -625,17 +640,7 @@ func modelGroups(c fuego.ContextNoBody, pricing model.Pricing) ([]string, map[st
 		}
 	}
 
-	var userGroup string
-	if userId, exists := dto.GinCtx(c).Get("id"); exists {
-		if user, err := model.GetUserCache(userId.(int)); err == nil {
-			userGroup = user.Group
-			for g := range groupRatio {
-				if ratio, ok := ratio_setting.GetGroupGroupRatio(userGroup, g); ok {
-					groupRatio[g] = ratio
-				}
-			}
-		}
-	}
+	userGroup := applyUserGroupRatio(c, groupRatio)
 
 	enabled := make(map[string]struct{}, len(pricing.EnableGroup))
 	for _, g := range pricing.EnableGroup {
@@ -711,12 +716,12 @@ func GetPricingCatalogModel(c fuego.ContextNoBody) (dto.PricingCatalogDetail, er
 		catalogReliability(),
 	)
 
-	// The list strips parameter lists and provider defaults and truncates the
-	// blurb; a caller that asked for ONE model wants all of it.
-	row.Metadata = md
-	// The send paths resolve a model through THIS route and read the endpoint off
-	// it, so the gateway-derived half has to be here too, not only on the list.
-	row.Metadata.ImageParams = imageParamsFor(modelType, pricing, md)
+	// The list keeps only what a card renders; a caller that asked for ONE model
+	// wants all of it.
+	md.ImageParams = imageParamsFor(modelType, pricing, md)
+	// The send paths resolve a model through THIS route and read the routing
+	// endpoint off it, so the gateway-derived half has to be here too.
+	row.Metadata = &md
 
 	return dto.PricingCatalogDetail{
 		PricingCatalogModel: row,
@@ -746,31 +751,36 @@ func GetPricingCounts(c fuego.ContextNoBody) (dto.PricingCatalogCounts, error) {
 	pricing, groupRatio := visiblePricing(c)
 	vendorByID := vendorsByID()
 
-	counts := dto.PricingCatalogCounts{Models: len(pricing)}
-	vendors := make(map[string]struct{}, len(pricing))
-	for _, m := range pricing {
-		if modelIsFree(m, groupRatio) {
-			counts.Free++
+	return countModels(len(pricing), func(yield func(bool, string)) {
+		for _, m := range pricing {
+			yield(modelIsFree(m, groupRatio), catalogVendorName(vendorByID, m.VendorID))
 		}
-		vendors[catalogVendorName(vendorByID, m.VendorID)] = struct{}{}
-	}
-	counts.Paid = counts.Models - counts.Free
-	counts.Vendors = len(vendors)
-	return counts, nil
+	}), nil
 }
 
-func catalogCounts(models []dto.PricingCatalogModel) dto.PricingCatalogCounts {
-	counts := dto.PricingCatalogCounts{Models: len(models)}
-	vendors := make(map[string]struct{}, len(models))
-	for _, m := range models {
-		if m.IsFree {
+// countModels is the ONE counting rule, over the two facts it needs. Both callers
+// reach it: the list already holds built rows, while /counts walks the pricing
+// slice directly rather than building 300 rows it would immediately discard.
+func countModels(total int, each func(yield func(isFree bool, vendor string))) dto.PricingCatalogCounts {
+	counts := dto.PricingCatalogCounts{Models: total}
+	vendors := make(map[string]struct{}, total)
+	each(func(isFree bool, vendor string) {
+		if isFree {
 			counts.Free++
 		}
-		vendors[m.Vendor] = struct{}{}
-	}
+		vendors[vendor] = struct{}{}
+	})
 	counts.Paid = counts.Models - counts.Free
 	counts.Vendors = len(vendors)
 	return counts
+}
+
+func catalogCounts(models []dto.PricingCatalogModel) dto.PricingCatalogCounts {
+	return countModels(len(models), func(yield func(bool, string)) {
+		for _, m := range models {
+			yield(m.IsFree, m.Vendor)
+		}
+	})
 }
 
 // Newest first, name as tiebreak: most models share a release date with another,

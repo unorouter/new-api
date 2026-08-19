@@ -10,6 +10,27 @@ import (
 	"github.com/go-fuego/fuego"
 )
 
+// applyUserGroupRatio overlays the caller's per-group ratio overrides onto a
+// group-ratio map and returns the group they belong to. Anonymous callers get the
+// public ratios and an empty group, which is what every pricing surface then
+// filters by.
+func applyUserGroupRatio(c fuego.ContextNoBody, groupRatio map[string]float64) string {
+	userId, exists := dto.GinCtx(c).Get("id")
+	if !exists {
+		return ""
+	}
+	user, err := model.GetUserCache(userId.(int))
+	if err != nil {
+		return ""
+	}
+	for g := range groupRatio {
+		if ratio, ok := ratio_setting.GetGroupGroupRatio(user.Group, g); ok {
+			groupRatio[g] = ratio
+		}
+	}
+	return user.Group
+}
+
 func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string]string) []model.Pricing {
 	if len(pricing) == 0 {
 		return pricing
@@ -36,27 +57,9 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 
 func GetPricing(c fuego.ContextNoBody) (dto.PricingData, error) {
 	pricing := model.GetPricing()
-	userId, exists := dto.GinCtx(c).Get("id")
-	usableGroup := map[string]string{}
-	groupRatio := map[string]float64{}
-	for s, f := range ratio_setting.GetGroupRatioCopy() {
-		groupRatio[s] = f
-	}
-	var group string
-	if exists {
-		user, err := model.GetUserCache(userId.(int))
-		if err == nil {
-			group = user.Group
-			for g := range groupRatio {
-				ratio, ok := ratio_setting.GetGroupGroupRatio(group, g)
-				if ok {
-					groupRatio[g] = ratio
-				}
-			}
-		}
-	}
-
-	usableGroup = service.GetUserUsableGroups(group)
+	groupRatio := ratio_setting.GetGroupRatioCopy()
+	group := applyUserGroupRatio(c, groupRatio)
+	usableGroup := service.GetUserUsableGroups(group)
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		if _, ok := usableGroup[group]; !ok {
@@ -75,53 +78,6 @@ func GetPricing(c fuego.ContextNoBody) (dto.PricingData, error) {
 		SupportedEndpoint: toEndpointInfoMap(model.GetSupportedEndpointMap()),
 		AutoGroups:        service.GetUserAutoGroup(group),
 		ShowOriginalPrice: showOriginalPrice,
-	}, nil
-}
-
-// GetPricingModel returns ONE model's pricing by name, always - even when every
-// channel is disabled or deleted. The model-detail page must render a known model
-// regardless of routability, so this applies NO usable-group filter (unlike
-// GetPricing). Group ratios are the full public set so the detail page can still
-// show group pricing for a dark model. 404s only when the name is unknown to both
-// the pricing cache and the models table.
-func GetPricingModel(c fuego.ContextNoBody) (dto.PricingData, error) {
-	modelName := dto.GinCtx(c).Query("model")
-	pricing, ok := model.GetPricingByModelName(modelName)
-	if !ok {
-		return dto.PricingData{Success: false}, fuego.NotFoundError{Title: "model not found"}
-	}
-
-	// Only the groups THIS model is served by. The full copy is every group the
-	// gateway knows (1600+ with per-channel routing groups), which dwarfs the
-	// model itself and is useless to a single-model caller.
-	all := ratio_setting.GetGroupRatioCopy()
-	groupRatio := make(map[string]float64, len(pricing.EnableGroup))
-	if common.StringsContains(pricing.EnableGroup, "all") {
-		groupRatio = all
-	} else {
-		for _, g := range pricing.EnableGroup {
-			if f, ok := all[g]; ok {
-				groupRatio[g] = f
-			}
-		}
-	}
-	if userId, exists := dto.GinCtx(c).Get("id"); exists {
-		if user, err := model.GetUserCache(userId.(int)); err == nil {
-			for g := range groupRatio {
-				if ratio, ok := ratio_setting.GetGroupGroupRatio(user.Group, g); ok {
-					groupRatio[g] = ratio
-				}
-			}
-		}
-	}
-
-	return dto.PricingData{
-		Success:           true,
-		Data:              toPricingModels([]model.Pricing{pricing}, groupRatio),
-		Vendors:           toPricingVendors(model.GetVendors()),
-		GroupRatio:        groupRatio,
-		SupportedEndpoint: toEndpointInfoMap(model.GetSupportedEndpointMap()),
-		ShowOriginalPrice: operation_setting.ShowOriginalPriceEnabled,
 	}, nil
 }
 

@@ -85,3 +85,42 @@ func TestImageParamsForRequiresImageModality(t *testing.T) {
 	horde := model.Pricing{SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeAIHorde}}
 	assert.Nil(t, imageParamsFor("image", horde, dto.ModelMetadata{}))
 }
+
+// The browse payload is an allowlist, so a NEW metadata field must not reach 300
+// rows by default. This pins the set to what the browse, compare, filter and
+// vendor-card surfaces actually read; adding a field here means a client needs it
+// on the LIST, not just on the detail page.
+func TestListMetadataIsAnAllowlist(t *testing.T) {
+	// Every field populated, so anything not explicitly kept shows up as dropped.
+	full := dto.ModelMetadata{
+		ReleaseTs: 1, ContextWindow: 2, MaxInputTokens: 3, MaxOutputTokens: 4,
+		InputModalities: []string{"text"}, OutputModalities: []string{"text"},
+		Series: "s", Categories: []string{"c"}, Quantization: "fp8",
+		DeprecationDate: "2026-01-01", IsReasoning: true, SupportsTools: true,
+		SupportsVision: true, SupportsCache: true,
+		SupportedParametersAll: []string{"temperature"},
+		// Detail-only below: chips, lifecycle and send-path fields.
+		Tokenizer: "gpt", HuggingFaceID: "org/model", KnowledgeCutoff: "2025-01",
+		Mode: "chat", ReleaseDate: "2026-01-01", SupportsPdf: true,
+		SupportsWebSearch: true, SupportsComputerUse: true,
+		SupportedParameters: []string{"temperature"},
+		ImageParams:         &dto.ImageParams{},
+	}
+
+	got := listMetadata(full)
+
+	assert.Equal(t, int64(1), got.ReleaseTs, "browse sorts on this")
+	assert.Equal(t, 4, got.MaxOutputTokens, "compare renders this")
+	assert.Equal(t, "fp8", got.Quantization, "compare renders this")
+	assert.True(t, got.SupportsCache, "compare renders this")
+	assert.Equal(t, []string{"temperature"}, got.SupportedParametersAll, "the filter sidebar reads this")
+
+	assert.Empty(t, got.Tokenizer, "detail-only")
+	assert.Empty(t, got.HuggingFaceID, "detail-only")
+	assert.Empty(t, got.KnowledgeCutoff, "detail-only")
+	assert.Empty(t, got.ReleaseDate, "releaseTs carries the sort key")
+	assert.False(t, got.SupportsPdf, "detail-only chip")
+	assert.False(t, got.SupportsComputerUse, "detail-only chip")
+	assert.Empty(t, got.SupportedParameters, "send path fetches the model itself")
+	assert.Nil(t, got.ImageParams, "restored only when the caller asked for images")
+}
