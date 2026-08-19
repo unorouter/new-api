@@ -83,7 +83,10 @@ func GetSubscriptionPlans(c fuego.ContextNoBody) (*dto.Response[[]SubscriptionPl
 		return dto.Ok([]SubscriptionPlanDTO{})
 	}
 	var plans []model.SubscriptionPlan
-	if err := model.DB.Where("enabled = ?", true).Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
+	// Price ascending before id: operators leave sort_order at 0, so id order
+	// would present the tiers in whatever sequence they were created rather than
+	// cheapest first, which is the order the pricing page reads top to bottom.
+	if err := model.DB.Where("enabled = ?", true).Order("sort_order desc, price_amount asc, id desc").Find(&plans).Error; err != nil {
 		return dto.Fail[[]SubscriptionPlanDTO](err.Error())
 	}
 	result := make([]SubscriptionPlanDTO, 0, len(plans))
