@@ -221,6 +221,18 @@ func TestIsCredentialFault(t *testing.T) {
 		types.ErrorCodeBadResponse, http.StatusBadGateway)), "502 is transient")
 
 	assert.False(t, IsCredentialFault(nil), "nil error is not a credential fault")
+
+	// A stalled or empty upstream carries a 429 so the reason survives Cloudflare
+	// and the chat frontends that discard 5xx bodies. It is still capacity, so it
+	// must stay rate-gated rather than parking a shard that serves most requests.
+	for _, code := range []types.ErrorCode{
+		types.ErrorCodeChannelResponseTimeExceeded,
+		types.ErrorCodeChannelEmptyResponse,
+		"channel:stream_timeout_no_response",
+	} {
+		assert.False(t, IsCredentialFault(types.NewOpenAIError(errors.New("upstream saturated"),
+			code, http.StatusTooManyRequests)), string(code)+" 429 is capacity, not a dead credential")
+	}
 }
 
 // Request-side / transient upstream faults must never auto-ban the channel, even

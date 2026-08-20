@@ -177,6 +177,26 @@ func RecordEmptyResponseFailure(channelId int) bool {
 	return float64(empties)/float64(total) >= m.EmptyResponseRateThreshold
 }
 
+// transientCapacityCodes are channel:* faults that report a saturated or stalled
+// upstream, not a dead credential. They carry a 429 so the reason survives
+// Cloudflare and the chat frontends that discard 5xx bodies, which would
+// otherwise read as a spent quota here and disable the channel on first sight.
+// They stay rate-gated: a shard that stalls one request while serving the rest
+// must not be pulled.
+var transientCapacityCodes = map[types.ErrorCode]struct{}{
+	types.ErrorCodeChannelResponseTimeExceeded: {},
+	types.ErrorCodeChannelEmptyResponse:        {},
+	"channel:stream_timeout_no_response":       {},
+}
+
+func isTransientCapacityCode(err *types.NewAPIError) bool {
+	if err == nil {
+		return false
+	}
+	_, exists := transientCapacityCodes[err.GetErrorCode()]
+	return exists
+}
+
 // IsCredentialFault reports whether an error means the channel's credential is
 // dead rather than the upstream having a bad moment. These bypass the failure-rate
 // window and disable on first sight: waiting out a window on a revoked key only
@@ -191,6 +211,9 @@ func IsCredentialFault(err *types.NewAPIError) bool {
 	// A 429 is normally capacity and must stay rate-gated, but a drained wallet or
 	// spent free quota is reclassified to a channel:* code upstream of here and
 	// cannot clear on its own, so it parks immediately like any dead credential.
+	if isTransientCapacityCode(err) {
+		return false
+	}
 	return (err.StatusCode == http.StatusForbidden || err.StatusCode == http.StatusTooManyRequests) &&
 		types.IsChannelError(err)
 }
