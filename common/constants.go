@@ -178,6 +178,12 @@ var PreConsumedQuota = 500
 
 var RetryTimes = 0
 
+// MaxTotalRelayAttempts caps how many channels one request may be tried against
+// in total. RetryTimes is per-group once cross-group auto-retry resets the
+// counter on each group switch, so without this the ceiling scales with the
+// number of auto-groups serving the model rather than with RetryTimes.
+var MaxTotalRelayAttempts = 6
+
 //var RootUserEmail = ""
 
 var IsMasterNode bool
