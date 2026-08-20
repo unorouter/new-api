@@ -295,10 +295,13 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// Case (b): the opener chunks were buffered (streamingStarted stayed false), so
 	// nothing was flushed and the response is uncommitted. Return a retryable error -
 	// no [DONE], no skip-retry - so the outer loop fails over to another channel.
+	// 429, not 5xx: chat frontends replace any 5xx body with their own generic text,
+	// so the reason never reaches the reader. 429 is rendered verbatim by those
+	// clients and by Cloudflare, and it points at the correct action (retry).
 	if emptyResponse && !streamingStarted {
 		return usage, types.NewOpenAIError(
 			fmt.Errorf("the upstream provider returned an empty reply. The request has already been failed over to any other provider serving this model; retrying usually clears it"),
-			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable,
+			types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests,
 			emptyResponseDisableOption(info)...)
 	}
 
@@ -471,7 +474,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		!openAIResponseHasOutput(&simpleResponse) {
 		return nil, types.NewOpenAIError(
 			fmt.Errorf("upstream returned an empty response (no choices/content)"),
-			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable,
+			types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests,
 			emptyResponseDisableOption(info)...)
 	}
 

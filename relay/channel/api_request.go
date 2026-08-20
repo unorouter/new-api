@@ -539,16 +539,23 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		// awaiting response headers`, which tells a user nothing and leaks the route.
 		// The cause is already logged above for admins, so the returned message says
 		// what happened in plain terms instead.
-		// 503 rather than 504: Cloudflare treats 502/504 from an origin as the origin
-		// having failed and serves its OWN error page, so the body never reaches the
-		// caller and they see "Bad gateway Error code 502" with no idea which provider
-		// or why. 503 passes through intact, which is why the empty-response paths were
-		// moved off 502 already. The real meaning stays in the error CODE, and failover
-		// is decided by IsChannelError before any status check, so routing is unchanged.
+		// 429 rather than 5xx: chat frontends (JanitorAI and similar) replace the body
+		// of ANY 5xx with their own generic string, so the reason never reaches the
+		// person reading the chat and they see an opaque proxy error. 429 is the one
+		// status whose upstream text those clients render verbatim, and it is honest
+		// here: a provider that accepts the connection and then stalls on the first
+		// byte is saturated, and retrying is the correct action. Cloudflare also
+		// forwards 429 bodies untouched, unlike 502/504 which it replaces with its own
+		// error page.
+		// The real meaning stays in the error CODE, and failover is decided by
+		// IsChannelError before any status check, so routing is unchanged. 429 is in
+		// AutomaticDisableStatusCodes by design: the failure-rate guard in
+		// RecordChannelFailure still gates whether a channel is actually pulled, and
+		// the scheduled probe re-enables it once the upstream recovers.
 		if types.IsUpstreamTimeoutError(err) && !errors.Is(c.Request.Context().Err(), context.Canceled) {
 			return nil, types.NewOpenAIError(
-				errors.New("the upstream provider did not respond in time. This usually clears on a retry, and the request has already been failed over to any other provider serving this model"),
-				types.ErrorCodeChannelResponseTimeExceeded, http.StatusServiceUnavailable)
+				errors.New("the upstream provider is saturated and did not respond in time. Please retry: the request has already been failed over to any other provider serving this model"),
+				types.ErrorCodeChannelResponseTimeExceeded, http.StatusTooManyRequests)
 		}
 		// Preserve the underlying cause (timeout, EOF, connection refused, etc.) so admins
 		// can see it in the error log panel. MaskSensitiveInfo (applied downstream) still
