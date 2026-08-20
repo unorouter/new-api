@@ -339,7 +339,21 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// just failed wastes the only failover attempt, since the disable it triggered is
 	// dispatched asynchronously and has usually not landed in abilities yet.
 	triedChannels := make(map[int]bool)
+	// RetryTimes alone does not bound the loop. Cross-group auto-retry resets the
+	// counter to zero on every group switch, so the real ceiling is RetryTimes PER
+	// GROUP: with the auto-group list this turned a RetryTimes of 1 into one attempt
+	// against each of ~28 groups, and a request that failed everywhere spent over
+	// four minutes walking the chain before the caller saw anything. Chat frontends
+	// give up long before that and render their own opaque error, so the useful
+	// answer (this model is unavailable right now) never arrives. Count attempts
+	// here, where no group switch can reset it.
+	attempts := 0
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
+		if attempts >= maxTotalRelayAttempts() {
+			logger.LogError(c, fmt.Sprintf("relay attempt ceiling reached (%d attempts across groups), giving up", attempts))
+			break
+		}
+		attempts++
 		relayInfo.RetryIndex = retryParam.GetRetry()
 		channel, channelErr := getChannel(c, relayInfo, retryParam, triedChannels)
 		if channelErr != nil {
@@ -535,6 +549,19 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, newAPIError
 	}
 	return channel, nil
+}
+
+// maxTotalRelayAttempts caps how many channels one client request may be tried
+// against in total, across every auto-group. It exists because RetryTimes is
+// per-group once cross-group retry resets the counter, so the effective ceiling
+// scales with the number of auto-groups rather than with the configured value.
+const defaultMaxTotalRelayAttempts = 6
+
+func maxTotalRelayAttempts() int {
+	if n := common.GetEnvOrDefault("MAX_TOTAL_RELAY_ATTEMPTS", defaultMaxTotalRelayAttempts); n > 0 {
+		return n
+	}
+	return defaultMaxTotalRelayAttempts
 }
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
