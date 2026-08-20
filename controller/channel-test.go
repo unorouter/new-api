@@ -268,10 +268,20 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		testModel = ratio_setting.WithCompactModelSuffix(testModel)
 	}
 
-	// PROD-ONLY (fork): bound the probe's time-to-first-byte independently of the shared
-	// relay client so one hanging upstream cannot starve the sequential test loop. Surfaces
-	// as context.DeadlineExceeded, which doRequest reclassifies as a channel timeout.
-	probeCtx, cancel := context.WithTimeout(ctx, channelProbeTimeout)
+	// PROD-ONLY (fork): bound the probe independently of the shared relay client so
+	// one hanging upstream cannot starve the test loop. Surfaces as
+	// context.DeadlineExceeded, which doRequest reclassifies as a channel timeout.
+	//
+	// A non-streaming probe has no partial output to wait for, so the whole call is
+	// effectively time-to-first-byte and the shorter deadline applies. A streaming
+	// probe legitimately spends minutes generating AFTER headers arrive, so it keeps
+	// the long ceiling; the shared client's ResponseHeaderTimeout still caps its
+	// first byte.
+	probeTimeout := channelProbeHeaderTimeout
+	if isStream {
+		probeTimeout = channelProbeTimeout
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	c.Request = httptest.NewRequestWithContext(probeCtx, http.MethodPost, requestPath, nil)
 
@@ -1113,6 +1123,14 @@ type channelTestSummary struct {
 // working channel; the pool keeps a long ceiling affordable because a slow probe
 // costs its own wall-clock rather than every other channel's turn.
 const channelProbeTimeout = 5 * time.Minute
+
+// channelProbeHeaderTimeout bounds the wait for the FIRST BYTE, which is a
+// different question from how long generation takes. A wedged upstream accepts
+// the connection and then never writes, so it consumes the whole
+// channelProbeTimeout while looking merely slow. Healthy shards answer in single
+// digit seconds even for reasoning models, since slow tokens are not slow
+// headers, so a minute here only ever cuts short something already dead.
+const channelProbeHeaderTimeout = 45 * time.Second
 
 // channelTestConcurrency resolves the probe-pool width. The env override keeps
 // the deployment able to widen the pool without an admin round-trip; otherwise

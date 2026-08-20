@@ -297,7 +297,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// no [DONE], no skip-retry - so the outer loop fails over to another channel.
 	if emptyResponse && !streamingStarted {
 		return usage, types.NewOpenAIError(
-			fmt.Errorf("upstream streamed an empty response (no content/tool calls)"),
+			fmt.Errorf("the upstream provider returned an empty reply. The request has already been failed over to any other provider serving this model; retrying usually clears it"),
 			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable,
 			emptyResponseDisableOption(info)...)
 	}
@@ -309,7 +309,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// (guarded on Written()). The error still runs processChannelError to disable.
 	if emptyResponse {
 		return usage, types.NewOpenAIError(
-			fmt.Errorf("upstream streamed an empty response (no content/tool calls)"),
+			fmt.Errorf("the upstream provider returned an empty reply after the response had already started, so it could not be retried automatically. Send the message again"),
 			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable,
 			types.ErrOptionWithSkipRetry())
 	}

@@ -59,7 +59,7 @@ func channelFailureStreakKey(channelId int) string {
 // bumpWindowCounter increments a fixed-window Redis counter, arming the TTL on the
 // first hit so the count self-expires, and returns the new value. Falls back to an
 // in-process fixed window when Redis is unavailable.
-func bumpWindowCounter(key string, fallback *sync.Map, channelId int) int {
+func bumpWindowCounter(key string, fallback *sync.Map, id any) int {
 	if common.RedisEnabled {
 		ctx := context.Background()
 		n, err := common.RDB.Incr(ctx, key).Result()
@@ -73,19 +73,19 @@ func bumpWindowCounter(key string, fallback *sync.Map, channelId int) int {
 	}
 	now := time.Now()
 	next := emptyResponseWindow{count: 1, start: now}
-	if v, ok := fallback.Load(channelId); ok {
+	if v, ok := fallback.Load(id); ok {
 		prev := v.(emptyResponseWindow)
 		if now.Sub(prev.start) < emptyResponseCounterTTL {
 			next = emptyResponseWindow{count: prev.count + 1, start: prev.start}
 		}
 	}
-	fallback.Store(channelId, next)
+	fallback.Store(id, next)
 	return next.count
 }
 
 // readWindowCounter returns the current value of a fixed-window counter without
 // mutating it (Redis GET, or the live in-process window).
-func readWindowCounter(key string, fallback *sync.Map, channelId int) int {
+func readWindowCounter(key string, fallback *sync.Map, id any) int {
 	if common.RedisEnabled {
 		ctx := context.Background()
 		n, err := common.RDB.Get(ctx, key).Int()
@@ -94,7 +94,7 @@ func readWindowCounter(key string, fallback *sync.Map, channelId int) int {
 		}
 		return 0 // redis.Nil (no key) or parse error -> treat as empty window
 	}
-	if v, ok := fallback.Load(channelId); ok {
+	if v, ok := fallback.Load(id); ok {
 		w := v.(emptyResponseWindow)
 		if time.Since(w.start) < emptyResponseCounterTTL {
 			return w.count
@@ -159,7 +159,12 @@ func RecordEmptyResponseFailure(channelId int) bool {
 	if floor <= 0 {
 		floor = 5
 	}
-	if empties >= floor {
+	// The floor is the DEAD-channel signal, so it only applies while the channel has
+	// answered nothing. Applied unconditionally it pulls a busy channel for its
+	// ordinary share of empties: a slow upstream returns a few every window no
+	// matter how much it is serving, and at a floor of 3-5 that is minutes of
+	// traffic, not a fault. Once there are successes the rate below decides.
+	if empties >= floor && successes == 0 {
 		return true
 	}
 	if m.EmptyResponseMinSamples <= 0 || m.EmptyResponseRateThreshold <= 0 {
@@ -203,13 +208,22 @@ func RecordChannelFailure(channelId int) bool {
 	m := operation_setting.GetMonitorSetting()
 	// An unbroken run of failures is the cheapest strong signal that the upstream is
 	// down, and it is independent of the window counts - a trickle spread thin never
-	// reaches a count floor. Checked first so the rate gate cannot mask it.
+	// reaches a count floor.
+	//
+	// It is NOT evidence on a channel that is still serving. Concurrency makes a
+	// "streak" only mean N failures landed with no success BETWEEN them, which a
+	// slow upstream produces constantly: a minute-long GLM completion overlaps
+	// several others, so three timeouts in flight together read as a run while the
+	// channel answers everything else. That pulled 308 working glm channels and
+	// left 3 to carry the load. Once the window holds real successes the rate gate
+	// below is the honest measure, so the streak only decides when there is nothing
+	// to compare against.
 	streak := bumpFailureStreak(channelId)
 	streakFloor := m.ChannelFailureStreakFloor
 	if streakFloor <= 0 {
 		streakFloor = 3
 	}
-	if streak >= streakFloor {
+	if streak >= streakFloor && successes == 0 {
 		return true
 	}
 	// A channel with no successes at all has nothing to compute a rate against, so a
