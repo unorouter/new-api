@@ -1,6 +1,7 @@
 package operation_setting
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -84,8 +85,8 @@ func TestGetMonitorSettingNormalizesChannelTestConcurrency(t *testing.T) {
 
 func TestValidateChannelTestConcurrency(t *testing.T) {
 	require.NoError(t, ValidateChannelTestConcurrency("1"))
-	require.NoError(t, ValidateChannelTestConcurrency("32"))
+	require.NoError(t, ValidateChannelTestConcurrency(strconv.Itoa(MaxChannelTestConcurrency)))
 	assert.Error(t, ValidateChannelTestConcurrency("0"))
-	assert.Error(t, ValidateChannelTestConcurrency("33"))
+	assert.Error(t, ValidateChannelTestConcurrency(strconv.Itoa(MaxChannelTestConcurrency+1)))
 	assert.Error(t, ValidateChannelTestConcurrency("1.5"))
 }
