@@ -17,10 +17,6 @@ type ModelMetadata struct {
 	ContextWindow   int `json:"contextWindow,omitempty"`
 	MaxInputTokens  int `json:"maxInputTokens,omitempty"`
 	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
-	// Cap on reference images per request. Absent on most models; consumers
-	// fall back to their own limit rather than treating 0 as "none allowed".
-	MaxImageInputs int `json:"maxImageInputs,omitempty"`
-
 	// Which generation controls an image model accepts, resolved by the sync
 	// from the provider's own schema. Absent means unresolved, which is distinct
 	// from a spec stating every control is off.
