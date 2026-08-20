@@ -54,7 +54,13 @@ const (
 
 	ChannelTestConcurrencyOptionKey = "monitor_setting.channel_test_concurrency"
 	DefaultChannelTestConcurrency   = 1
-	MaxChannelTestConcurrency       = 32
+	// The probe pool has to clear the whole disabled backlog inside one system-task
+	// lease. At a ~10s average probe (a fraction of channels burn the full first-byte
+	// timeout), a four-figure backlog against a 32-worker ceiling takes hours, the
+	// lease lapses mid-run, and the channels past the abort point are never retried.
+	// Probes spread across ~180 distinct upstreams, so a wide pool is a handful of
+	// concurrent requests per host rather than a burst at any one of them.
+	MaxChannelTestConcurrency = 128
 )
 
 // 默认配置
