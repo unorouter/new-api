@@ -248,13 +248,22 @@ func oaiChatStreamToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo
 }
 
 // shouldResponsesUseChatCompletions returns true when a /v1/responses request
-// should be internally converted to /v1/chat/completions. This applies to image
-// generation models whose upstream providers do not support the Responses API
-// for image generation, and to channels whose upstream serves chat completions
-// only. Such an upstream answers /v1/responses with a router-level 404 whose
-// body is plain text, so it parses into an error with an empty message that no
-// keyword or status rule can classify, and the request fails over across every
-// sibling collecting the same 404.
+// should be internally converted to /v1/chat/completions.
+//
+// Converting is the DEFAULT because most upstreams behind an OpenAI-shaped
+// channel serve chat completions only. Such an upstream answers /v1/responses
+// with a router-level 404 whose body is plain text, so it parses into an error
+// with an empty message that no keyword or status rule can classify, and the
+// request fails over across every sibling collecting the same 404.
+//
+// The opposite default was tried and does not hold: it required marking every
+// chat-only channel, and the sync rebuilds channel settings from scratch on each
+// run, so those marks were wiped and the 404s came back. Far fewer channels
+// serve Responses natively than do not, so the burden belongs on them.
+//
+// A channel opts out with capabilities.responses=true, and channel types that
+// are Responses-native by definition (Codex, and relays that proxy the whole
+// OpenAI surface) never convert.
 func shouldResponsesUseChatCompletions(info *relaycommon.RelayInfo) bool {
 	modelToCheck := info.UpstreamModelName
 	if modelToCheck == "" {
@@ -263,6 +272,20 @@ func shouldResponsesUseChatCompletions(info *relaycommon.RelayInfo) bool {
 	if isImageGenerationModelForResponses(modelToCheck) {
 		return true
 	}
-	caps := info.ChannelSetting.Capabilities
-	return caps != nil && caps.Responses != nil && !*caps.Responses
+	if caps := info.ChannelSetting.Capabilities; caps != nil && caps.Responses != nil {
+		return !*caps.Responses
+	}
+	return !channelTypeServesResponses(info.ChannelType)
+}
+
+// channelTypeServesResponses reports whether a channel type speaks the Responses
+// API natively, so an unmarked channel of that type is left alone. Derived from
+// GetEndpointTypesByChannelType, which is the same declaration the catalog uses.
+func channelTypeServesResponses(channelType int) bool {
+	for _, ep := range common.GetEndpointTypesByChannelType(channelType, "") {
+		if ep == types.EndpointTypeOpenAIResponse {
+			return true
+		}
+	}
+	return false
 }
