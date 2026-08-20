@@ -534,8 +534,15 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		logger.LogError(c, "do request failed: "+err.Error())
 		// PROD-ONLY (fork): an upstream first-byte/header timeout is a channel fault
 		// (fail over + disable via the channel:-prefixed code), NOT a client hangup.
+		//
+		// The Go error reads `Post "https://host/v1/chat/completions": http2: timeout
+		// awaiting response headers`, which tells a user nothing and leaks the route.
+		// The cause is already logged above for admins, so the returned message says
+		// what happened in plain terms instead.
 		if types.IsUpstreamTimeoutError(err) && !errors.Is(c.Request.Context().Err(), context.Canceled) {
-			return nil, types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusGatewayTimeout)
+			return nil, types.NewOpenAIError(
+				errors.New("the upstream provider did not respond in time. This usually clears on a retry, and the request has already been failed over to any other provider serving this model"),
+				types.ErrorCodeChannelResponseTimeExceeded, http.StatusGatewayTimeout)
 		}
 		// Preserve the underlying cause (timeout, EOF, connection refused, etc.) so admins
 		// can see it in the error log panel. MaskSensitiveInfo (applied downstream) still

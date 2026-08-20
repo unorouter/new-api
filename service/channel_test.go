@@ -176,6 +176,16 @@ func TestRecordChannelFailureRate(t *testing.T) {
 		assert.True(t, feedConsecutive(3), "3 consecutive 502s with no success -> disable")
 	})
 
+	// The incident this guards: a slow upstream runs several minute-long requests at
+	// once, so timeouts land back-to-back with no success BETWEEN them and read as a
+	// run even though the channel is serving everything else. Disabling on that
+	// pulled 308 working glm channels and left 3 carrying the load.
+	t.Run("a serving channel survives a concurrent timeout run", func(t *testing.T) {
+		reset()
+		feedSuccess(20)
+		assert.False(t, feedConsecutive(5), "streak on a channel with successes -> keep, rate decides")
+	})
+
 	t.Run("a success breaks the streak", func(t *testing.T) {
 		reset()
 		require.False(t, feedConsecutive(2), "2 consecutive -> keep")
