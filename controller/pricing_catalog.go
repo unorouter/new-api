@@ -500,15 +500,9 @@ func imageParamsFor(modelType string, m model.Pricing, md dto.ModelMetadata) *dt
 		p.DefaultCfg = md.ImageParams.Cfg.Default
 	}
 
-	// An unresolved schema says nothing about references, so a generation endpoint
-	// still allows the one image the relay accepts. A RESOLVED zero is authoritative:
-	// an SDXL checkpoint takes none, and offering an uploader would only fail.
-	if md.ImageParams == nil {
-		p.MaxReferenceImages = md.MaxImageInputs
-		if p.MaxReferenceImages == 0 && p.SupportsSize {
-			p.MaxReferenceImages = 1
-		}
-	}
+	// The provider schema is the only authority: a guessed limit either hides an
+	// uploader the model accepts or offers one it rejects, and both cost a
+	// generation to discover. No schema means no reference images are claimed.
 	p.SupportsReferences = p.MaxReferenceImages >= 1
 	return &p
 }

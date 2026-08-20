@@ -127,8 +127,7 @@ func TestCatalogPricing(t *testing.T) {
 func TestModelMetadataCoversSyncedKeys(t *testing.T) {
 	// The 37 keys observed across all live models.
 	raw := `{"releaseTs":1764010580000,"releaseDate":"2025-11-24","contextWindow":200000,
-	"maxInputTokens":200000,"maxOutputTokens":64000,"maxImageInputs":6,
-	"outputModalities":["text"],"inputModalities":["text","image"],"mode":"chat",
+	"maxInputTokens":200000,"maxOutputTokens":64000,"outputModalities":["text"],"inputModalities":["text","image"],"mode":"chat",
 	"series":"claude","categories":["reasoning"],"tokenizer":"claude",
 	"knowledgeCutoff":"2025-03","deprecationDate":"2027-01-01","expirationDate":"2027-06-01",
 	"huggingFaceId":"org/model","quantization":"fp8","isModerated":true,
@@ -145,7 +144,6 @@ func TestModelMetadataCoversSyncedKeys(t *testing.T) {
 
 	assert.Equal(t, int64(1764010580000), md.ReleaseTs)
 	assert.Equal(t, 200000, md.ContextWindow)
-	assert.Equal(t, 6, md.MaxImageInputs)
 	assert.Equal(t, []string{"text"}, md.OutputModalities)
 	assert.Equal(t, "chat", md.Mode)
 	assert.Equal(t, "claude", md.Series)
