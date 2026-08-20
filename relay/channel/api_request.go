@@ -539,10 +539,16 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		// awaiting response headers`, which tells a user nothing and leaks the route.
 		// The cause is already logged above for admins, so the returned message says
 		// what happened in plain terms instead.
+		// 503 rather than 504: Cloudflare treats 502/504 from an origin as the origin
+		// having failed and serves its OWN error page, so the body never reaches the
+		// caller and they see "Bad gateway Error code 502" with no idea which provider
+		// or why. 503 passes through intact, which is why the empty-response paths were
+		// moved off 502 already. The real meaning stays in the error CODE, and failover
+		// is decided by IsChannelError before any status check, so routing is unchanged.
 		if types.IsUpstreamTimeoutError(err) && !errors.Is(c.Request.Context().Err(), context.Canceled) {
 			return nil, types.NewOpenAIError(
 				errors.New("the upstream provider did not respond in time. This usually clears on a retry, and the request has already been failed over to any other provider serving this model"),
-				types.ErrorCodeChannelResponseTimeExceeded, http.StatusGatewayTimeout)
+				types.ErrorCodeChannelResponseTimeExceeded, http.StatusServiceUnavailable)
 		}
 		// Preserve the underlying cause (timeout, EOF, connection refused, etc.) so admins
 		// can see it in the error log panel. MaskSensitiveInfo (applied downstream) still

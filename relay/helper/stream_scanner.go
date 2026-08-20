@@ -312,10 +312,12 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	// If the stream ended abnormally and no tokens were ever sent to the client,
 	// return a retriable channel error so the retry loop can try another channel.
 	if info.StreamStatus.IsRetriable() && info.ReceivedResponseCount == 0 {
+		// 503, not 502: Cloudflare replaces a 502 body with its own error page, so the
+		// caller loses the reason entirely. The channel: code carries the real meaning.
 		return types.NewErrorWithStatusCode(
-			fmt.Errorf("stream failed without response: %s", info.StreamStatus.Summary()),
+			fmt.Errorf("the upstream provider closed the stream before sending anything: %s", info.StreamStatus.Summary()),
 			"channel:stream_timeout_no_response",
-			http.StatusBadGateway,
+			http.StatusServiceUnavailable,
 		)
 	}
 
