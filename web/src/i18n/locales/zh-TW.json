@@ -5423,6 +5423,8 @@
     "Username or Discord ID": "使用者名稱或 Discord ID",
     "Invite real people. Creating extra accounts to refer yourself is not what this program is for, and self-referrals do not earn commission.": "請邀請真實使用者。為了推薦自己而建立額外帳號並非本計畫的用途，自我推薦不會獲得佣金。",
     "Free rate-limit window discount": "免費模型限流視窗折扣",
-    "Percent off the wait between free-model requests. 0 disables it; 99 makes it nearly instant. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.": "免費模型請求之間等待時間的縮短百分比。填 0 表示關閉，填 99 則幾乎無需等待。佩戴伺服器標籤期間由 Discord 機器人寫入，取下標籤時清除；但它不會覆蓋大於 0 的值，因此在此設定的數值會一直保留到標籤被取下。"
+    "Percent off the wait between free-model requests. 0 disables it; 99 makes it nearly instant. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.": "免費模型請求之間等待時間的縮短百分比。填 0 表示關閉，填 99 則幾乎無需等待。佩戴伺服器標籤期間由 Discord 機器人寫入，取下標籤時清除；但它不會覆蓋大於 0 的值，因此在此設定的數值會一直保留到標籤被取下。",
+    "Free model speed-up (%)": "免費模型加速（%）",
+    "Percent off the wait between free model requests while subscribed. 0 disables it, 100 removes the wait. Shares one value with the Discord server tag perk, so the higher of the two applies.": "訂閱期間免費模型請求之間等待時間的縮短百分比。填 0 表示關閉，填 100 表示無需等待。與 Discord 伺服器標籤特權共用同一個值，取兩者中較大的一個。"
   }
 }

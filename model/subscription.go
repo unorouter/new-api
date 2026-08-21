@@ -179,6 +179,11 @@ type SubscriptionPlan struct {
 	// Downgrade user group on expiry (empty = revert to the group held before purchase)
 	DowngradeGroup string `json:"downgrade_group" gorm:"type:varchar(64);default:''"`
 
+	// Percent shaved off the free-model rate-limit window while subscribed
+	// (0 = none, 100 = no wait). Shares one field on the user with the Discord
+	// server-tag perk, so the higher of the two applies.
+	FreeRateLimitWindowPct int `json:"free_rate_limit_window_pct" gorm:"type:int;default:0"`
+
 	// Total quota (amount in quota units, 0 = unlimited)
 	TotalAmount int64 `json:"total_amount" gorm:"type:bigint;not null;default:0"`
 
@@ -1424,6 +1429,40 @@ type SubscriptionPreConsumeResult struct {
 	AmountTotal        int64
 	AmountUsedBefore   int64
 	AmountUsedAfter    int64
+}
+
+// ActiveSubscriberPerkTier is a user holding an active subscription, paired with
+// the best discount among the plans they hold.
+type ActiveSubscriberPerkTier struct {
+	UserId int `gorm:"column:user_id"`
+	Pct    int `gorm:"column:pct"`
+}
+
+// ActiveSubscribersForPerk lists users with an active subscription and the
+// highest free-model discount their plans grant, so holding two plans gives the
+// better of the two.
+//
+// Bounded by `startedSince` seconds so the routine tick only looks at recent
+// activations. Pass 0 to sweep every active subscriber, which is what a one-off
+// backfill wants.
+func ActiveSubscribersForPerk(limit int, startedSince int64) []ActiveSubscriberPerkTier {
+	if limit <= 0 {
+		limit = 200
+	}
+	now := GetDBTimestamp()
+	q := DB.Model(&UserSubscription{}).
+		Select("user_subscriptions.user_id AS user_id, MAX(subscription_plans.free_rate_limit_window_pct) AS pct").
+		Joins("JOIN subscription_plans ON subscription_plans.id = user_subscriptions.plan_id").
+		Where("user_subscriptions.status = ? AND (user_subscriptions.end_time = 0 OR user_subscriptions.end_time > ?)", "active", now).
+		Where("subscription_plans.free_rate_limit_window_pct > 0")
+	if startedSince > 0 {
+		q = q.Where("user_subscriptions.start_time >= ?", now-startedSince)
+	}
+	var rows []ActiveSubscriberPerkTier
+	if err := q.Group("user_subscriptions.user_id").Limit(limit).Scan(&rows).Error; err != nil {
+		return nil
+	}
+	return rows
 }
 
 // UsersWithLapsedSubscriptionPerk lists users holding a free-model rate limit
