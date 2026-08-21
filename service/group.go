@@ -1,6 +1,7 @@
 package service
 
 import (
+	"math/rand"
 	"sort"
 	"strings"
 
@@ -112,6 +113,50 @@ func FilterUserTokenAutoGroups(userGroup string, groups []string) []string {
 	return filtered
 }
 
+// shuffleFreeAutoGroups randomizes the order of the zero-ratio (free) groups and
+// leaves every paid group where it is. The Auto list is a fixed order, so without
+// this the first few groups serving a model take all the traffic and get throttled
+// while identical later ones stay idle, unreachable behind the total attempt cap.
+// Paid groups keep their order because that order encodes price preference.
+//
+// The order is drawn once per request and reused: ContextKeyAutoGroupIndex is a
+// position into the returned slice and retries re-resolve the list, so reshuffling
+// per call would make a retry read its index against a different order, re-trying
+// groups it already tried and skipping others entirely.
+func shuffleFreeAutoGroups(c *gin.Context, userGroup string, groups []string) []string {
+	freeIndexes := make([]int, 0, len(groups))
+	for i, group := range groups {
+		if GetUserGroupRatio(userGroup, group) == 0 {
+			freeIndexes = append(freeIndexes, i)
+		}
+	}
+	if len(freeIndexes) < 2 {
+		return groups
+	}
+	var order []int
+	if c != nil {
+		if cached, ok := common.GetContextKey(c, constant.ContextKeyResolvedAutoGroups); ok {
+			if previous, ok := cached.([]int); ok && len(previous) == len(freeIndexes) {
+				order = previous
+			}
+		}
+	}
+	if order == nil {
+		order = make([]int, len(freeIndexes))
+		copy(order, freeIndexes)
+		rand.Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
+		if c != nil {
+			common.SetContextKey(c, constant.ContextKeyResolvedAutoGroups, order)
+		}
+	}
+	shuffled := make([]string, len(groups))
+	copy(shuffled, groups)
+	for i, target := range order {
+		shuffled[freeIndexes[i]] = groups[target]
+	}
+	return shuffled
+}
+
 // GetRequestAutoGroups resolves the ordered Auto groups for the current token.
 // The absence of the context value means that the token inherits the complete
 // global Auto list; a present (even empty) value is an explicit token snapshot.
@@ -121,13 +166,15 @@ func GetRequestAutoGroups(c *gin.Context, userGroup string) []string {
 	}
 	value, ok := common.GetContextKey(c, constant.ContextKeyTokenAutoGroups)
 	if !ok {
-		return GetUserAutoGroup(userGroup)
+		return shuffleFreeAutoGroups(c, userGroup, GetUserAutoGroup(userGroup))
 	}
 	groups, ok := value.([]string)
 	if !ok {
 		return []string{}
 	}
-	return FilterUserTokenAutoGroups(userGroup, groups)
+	// Shuffle before the per-token cap, or the cap would keep the same head of the
+	// fixed list every time and the shuffle would only reorder those few.
+	return FilterUserTokenAutoGroups(userGroup, shuffleFreeAutoGroups(c, userGroup, groups))
 }
 
 // GetGroupsEnabledModels 按 groups 顺序获取各分组启用的模型并去重
