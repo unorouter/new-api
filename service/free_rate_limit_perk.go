@@ -59,6 +59,48 @@ func tagDiscountFor(ctx context.Context, userId int) int {
 	return types.ClampFreeRateLimitWindowPct(status.Pct)
 }
 
+// GrantSubscriptionRateLimitPerk raises a user's discount to what their plan
+// grants. Never lowers it: the server tag may already be worth more, and the two
+// share this field.
+func GrantSubscriptionRateLimitPerk(userId int, planPct int) {
+	pct := types.ClampFreeRateLimitWindowPct(planPct)
+	if pct == 0 {
+		return
+	}
+	ctx := context.Background()
+	user, err := model.GetUserById(userId, false)
+	if err != nil || user == nil {
+		return
+	}
+	setting := user.GetSetting()
+	if setting.FreeRateLimitWindowPct >= pct {
+		return
+	}
+	setting.FreeRateLimitWindowPct = pct
+	user.SetSetting(setting)
+	if err := user.Update(false); err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("failed to grant rate-limit perk for user %d: %v", userId, err))
+		return
+	}
+	logger.LogInfo(ctx, fmt.Sprintf("subscription active for user %d, rate-limit discount now %d", userId, pct))
+}
+
+// BackfillSubscriptionRateLimitPerks grants the perk to everyone already holding
+// an active subscription. The discount is newer than the subscriptions, so
+// without this pass existing subscribers would wait for a renewal to get what
+// the pricing page already promises them.
+func BackfillSubscriptionRateLimitPerks() {
+	subs := model.ActiveSubscribersForPerk(subscriptionBackfillBatchSize, 0)
+	if len(subs) == 0 {
+		return
+	}
+	for _, sub := range subs {
+		GrantSubscriptionRateLimitPerk(sub.UserId, sub.Pct)
+	}
+	logger.LogInfo(context.Background(),
+		fmt.Sprintf("subscription rate-limit perk backfill checked %d active subscribers", len(subs)))
+}
+
 // ClearSubscriptionRateLimitPerk drops a user back to whatever their server tag
 // alone earns them. Called when a subscription expires.
 func ClearSubscriptionRateLimitPerk(userId int) {
