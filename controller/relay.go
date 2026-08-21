@@ -704,6 +704,13 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		}
 		service.AppendChannelAffinityAdminInfo(c, adminInfo)
 		other["admin_info"] = adminInfo
+		// A generic upstream 400 names no field, so without this the log says only
+		// that the request was rejected: which knob did it, and whether the
+		// channel's param_override even ran, both had to be guessed at. Scalars
+		// and shapes only, never message content.
+		if shape := relaycommon.DescribeRequestShape(c); len(shape) > 0 {
+			other["request_shape"] = shape
+		}
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {
 			startTime = time.Now()
