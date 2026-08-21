@@ -340,7 +340,7 @@ func RequestEpay(c fuego.ContextWithBody[dto.EpayRequest]) (*dto.Response[dto.Ep
 	}
 
 	callBackAddress := service.GetCallbackAddress()
-	returnUrl, _ := url.Parse(paymentReturnPath("/usage-logs"))
+	returnUrl, _ := url.Parse(paymentReturnPath(dto.GinCtx(c), "/usage-logs"))
 	notifyUrl, _ := url.Parse(callBackAddress + "/api/user/epay/notify")
 	tradeNo := fmt.Sprintf("%s%d", common.GetRandomString(6), time.Now().Unix())
 	tradeNo = fmt.Sprintf("USR%dNO%s", id, tradeNo)

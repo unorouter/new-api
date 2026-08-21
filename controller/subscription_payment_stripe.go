@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"log"
 	"net/http"
 	"strings"
@@ -86,7 +87,7 @@ func SubscriptionRequestStripePay(c fuego.ContextWithBody[dto.SubscriptionStripe
 	reference := fmt.Sprintf("sub-stripe-ref-%d-%d-%s", user.Id, time.Now().UnixMilli(), randstr.String(4))
 	referenceId := "sub_ref_" + common.Sha1([]byte(reference))
 
-	payLink, err := genStripeSubscriptionLink(referenceId, user.StripeCustomer, user.Email, plan.StripePriceId)
+	payLink, err := genStripeSubscriptionLink(ginCtx, referenceId, user.StripeCustomer, user.Email, plan.StripePriceId)
 	if err != nil {
 		log.Println("failed to get Stripe Checkout payment link", err)
 		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "payment.start_failed"))
@@ -109,13 +110,13 @@ func SubscriptionRequestStripePay(c fuego.ContextWithBody[dto.SubscriptionStripe
 	return dto.Ok(dto.StripePayLinkData{PayLink: payLink})
 }
 
-func genStripeSubscriptionLink(referenceId string, customerId string, email string, priceId string) (string, error) {
+func genStripeSubscriptionLink(c *gin.Context, referenceId string, customerId string, email string, priceId string) (string, error) {
 	stripe.Key = setting.StripeApiSecret
 
 	params := &stripe.CheckoutSessionParams{
 		ClientReferenceID: stripe.String(referenceId),
-		SuccessURL:        stripe.String(paymentReturnPath("/wallet")),
-		CancelURL:         stripe.String(paymentReturnPath("/wallet")),
+		SuccessURL:        stripe.String(paymentReturnPath(c, "/wallet")),
+		CancelURL:         stripe.String(paymentReturnPath(c, "/wallet")),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
 				Price:    stripe.String(priceId),

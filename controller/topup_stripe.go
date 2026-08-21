@@ -97,7 +97,7 @@ func RequestStripePay(c fuego.ContextWithBody[dto.StripePayRequest]) (*dto.Respo
 	reference := fmt.Sprintf("new-api-ref-%d-%d-%s", user.Id, time.Now().UnixMilli(), randstr.String(4))
 	referenceId := "ref_" + common.Sha1([]byte(reference))
 
-	payLink, err := genStripeLink(referenceId, user.StripeCustomer, user.Email, req.Amount, req.SuccessURL, req.CancelURL)
+	payLink, err := genStripeLink(ginCtx, referenceId, user.StripeCustomer, user.Email, req.Amount, req.SuccessURL, req.CancelURL)
 	if err != nil {
 		log.Println("failed to get Stripe Checkout payment link", err)
 		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "payment.start_failed"))
@@ -333,7 +333,7 @@ func sessionExpired(ctx context.Context, event stripe.Event) {
 }
 
 // genStripeLink generates a Stripe Checkout session URL for payment.
-func genStripeLink(referenceId string, customerId string, email string, amount int64, successURL string, cancelURL string) (string, error) {
+func genStripeLink(c *gin.Context, referenceId string, customerId string, email string, amount int64, successURL string, cancelURL string) (string, error) {
 	if !strings.HasPrefix(setting.StripeApiSecret, "sk_") && !strings.HasPrefix(setting.StripeApiSecret, "rk_") {
 		return "", fmt.Errorf("invalid Stripe API key")
 	}
@@ -342,10 +342,10 @@ func genStripeLink(referenceId string, customerId string, email string, amount i
 
 	// Use custom URLs if provided, otherwise use defaults
 	if successURL == "" {
-		successURL = paymentReturnPath("/usage-logs")
+		successURL = paymentReturnPath(c, "/usage-logs")
 	}
 	if cancelURL == "" {
-		cancelURL = paymentReturnPath("/wallet")
+		cancelURL = paymentReturnPath(c, "/wallet")
 	}
 
 	params := &stripe.CheckoutSessionParams{

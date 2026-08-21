@@ -64,7 +64,7 @@ func SubscriptionRequestDeloPayPay(c fuego.ContextWithBody[dto.SubscriptionDeloP
 
 	// The buyer covers the processing fee here too; the order still records the
 	// plan price, which is what grants the subscription.
-	payLink, _, err := createDeloPayPayment(referenceId, applyDeloPayFeeSurcharge(plan.PriceAmount), plan.Title, paymentReturnPath("/console/subscription"), deloPayCustomerFor(user))
+	payLink, _, err := createDeloPayPayment(referenceId, applyDeloPayFeeSurcharge(plan.PriceAmount), plan.Title, paymentReturnPath(ginCtx, "/console/subscription"), deloPayCustomerFor(user))
 	if err != nil {
 		log.Println("failed to get DeloPay subscription payment link:", err)
 		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, "payment.start_failed"))
