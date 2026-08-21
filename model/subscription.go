@@ -1426,6 +1426,46 @@ type SubscriptionPreConsumeResult struct {
 	AmountUsedAfter    int64
 }
 
+// UsersWithLapsedSubscriptionPerk lists users holding a free-model rate limit
+// discount whose subscription lapsed inside the last `since` seconds and who
+// have no active one left. The discount lives on the user, not the subscription
+// row, so expiring the row does not revoke it.
+//
+// Scoped to RECENT expiries on purpose. Selecting every user who holds a
+// discount without a subscription would match every server-tag wearer forever
+// (147 of them today), and each one costs a lookup against the bot to conclude
+// nothing changed.
+//
+// Matched on the raw setting JSON so it works on SQLite, MySQL and PostgreSQL
+// alike: the field is only present when non-zero (omitempty).
+func UsersWithLapsedSubscriptionPerk(limit int, since int64) []int {
+	if limit <= 0 {
+		limit = 200
+	}
+	now := GetDBTimestamp()
+	var ids []int
+	err := DB.Model(&User{}).
+		Where("setting LIKE ?", "%free_rate_limit_window_pct%").
+		Where("EXISTS (?)",
+			DB.Model(&UserSubscription{}).
+				Select("1").
+				Where("user_subscriptions.user_id = users.id").
+				Where("status = ? AND updated_at >= ?", "expired", now-since),
+		).
+		Where("NOT EXISTS (?)",
+			DB.Model(&UserSubscription{}).
+				Select("1").
+				Where("user_subscriptions.user_id = users.id").
+				Where("status = ? AND (end_time = 0 OR end_time > ?)", "active", now),
+		).
+		Limit(limit).
+		Pluck("id", &ids).Error
+	if err != nil {
+		return nil
+	}
+	return ids
+}
+
 // ExpireDueSubscriptions marks expired subscriptions and handles group downgrade.
 func ExpireDueSubscriptions(limit int) (int, error) {
 	if limit <= 0 {
