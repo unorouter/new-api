@@ -220,6 +220,12 @@ func perModelRateLimit(c *gin.Context) bool {
 	if hasUserSetting && userSetting.UnlimitedFreeModels {
 		return true
 	}
+	// A full 100% window discount is no wait at all. Handled here rather than in
+	// discountedDuration, which floors at one second and so could never express it.
+	if hasUserSetting &&
+		types.ClampFreeRateLimitWindowPct(userSetting.FreeRateLimitWindowPct) >= types.MaxFreeRateLimitWindowPct {
+		return true
+	}
 	var mr ModelRequest
 	if err := common.UnmarshalBodyReusable(c, &mr); err != nil || mr.Model == "" {
 		return true
