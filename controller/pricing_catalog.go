@@ -573,18 +573,14 @@ func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 
 	collator := newCatalogCollator()
 	sort.SliceStable(out, func(i, j int) bool {
-		// One vendor's page is a release timeline, so it reads newest first. A
-		// picker scoped to an endpoint reads the same way. The name tiebreak is
-		// load-bearing either way: most models share a release date with another,
-		// and date alone leaves those in slice order.
-		if vendorFilter != "" || len(endpointFilter) > 0 || typeFilter != "" {
-			if out[i].ReleaseTs != out[j].ReleaseTs {
-				return out[i].ReleaseTs > out[j].ReleaseTs
-			}
-			return collator.CompareString(out[i].ModelName, out[j].ModelName) < 0
-		}
-		if out[i].IsFree != out[j].IsFree {
-			return out[i].IsFree
+		// Newest first everywhere. A catalog is a release timeline whether it is
+		// scoped to one vendor or not, and the unscoped list is what a model picker
+		// opens on: sorting it by name buried this year's releases under years of
+		// alphabetically-early ones. The name tiebreak is load-bearing, since most
+		// models share a release date with another and date alone would leave those
+		// in slice order.
+		if out[i].ReleaseTs != out[j].ReleaseTs {
+			return out[i].ReleaseTs > out[j].ReleaseTs
 		}
 		return collator.CompareString(out[i].ModelName, out[j].ModelName) < 0
 	})
