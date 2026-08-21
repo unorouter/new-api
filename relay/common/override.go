@@ -900,6 +900,12 @@ func applyOperations(jsonData []byte, operations []ParamOperation, conditionCont
 				}
 				auditRecorder.recordOperation("set", path, "", "", op.Value)
 			}
+		case "strip_images":
+			var stripped bool
+			result, stripped = stripImageParts(result)
+			if stripped {
+				auditRecorder.recordOperation("delete", "image", "", "", nil)
+			}
 		case "move":
 			opFrom := processNegativeIndex(result, op.From)
 			opTo := processNegativeIndex(result, op.To)
@@ -1766,6 +1772,61 @@ func collectWildcardPaths(node interface{}, segments []string, prefix []string) 
 	default:
 		return nil
 	}
+}
+
+// stripImageParts removes image parts from every message, leaving the text.
+// A channel whose upstream is text-only otherwise fails the whole request when
+// an image arrives, and the user cannot tell that one attachment cost them the
+// reply: iOS inserts stickers and Memoji as PNG attachments, so a message that
+// reads as plain text carries an image the model was never going to see.
+//
+// A delete operation cannot express this. sjson paths address a fixed index,
+// and a query path returns "cannot delete value from a complex path", so the
+// parts have to be filtered here rather than named in config.
+func stripImageParts(data []byte) ([]byte, bool) {
+	messages := gjson.GetBytes(data, "messages")
+	if !messages.IsArray() {
+		return data, false
+	}
+	result := data
+	stripped := false
+	messages.ForEach(func(mi, message gjson.Result) bool {
+		content := message.Get("content")
+		if !content.IsArray() {
+			return true
+		}
+		kept := make([]string, 0, len(content.Array()))
+		dropped := false
+		content.ForEach(func(_, part gjson.Result) bool {
+			switch part.Get("type").String() {
+			case "image_url", "image", "input_image":
+				dropped = true
+			default:
+				kept = append(kept, part.Raw)
+			}
+			return true
+		})
+		if !dropped {
+			return true
+		}
+		// An empty content array is rejected by strict upstreams, so a message
+		// that was only an image keeps a placeholder rather than vanishing.
+		if len(kept) == 0 {
+			kept = append(kept, `{"type":"text","text":"[image omitted]"}`)
+		}
+		next, err := sjson.SetRawBytes(
+			result,
+			fmt.Sprintf("messages.%d.content", mi.Int()),
+			[]byte("["+strings.Join(kept, ",")+"]"),
+		)
+		if err != nil {
+			return true
+		}
+		result = next
+		stripped = true
+		return true
+	})
+	return result, stripped
 }
 
 func deleteValue(data []byte, path string) ([]byte, error) {
