@@ -55,3 +55,24 @@ func TestRequestShapeCountsImageParts(t *testing.T) {
 	assert.Equal(t, 1, shape["image_parts"])
 	assert.NotContains(t, common.MapToJsonStr(shape), "base64")
 }
+
+// Agent conversations run to hundreds of turns, and the error log is the
+// largest table in the database: the tail answers the structural questions
+// without writing kilobytes per row.
+func TestRequestShapeTruncatesLongRoleLists(t *testing.T) {
+	body := `{"messages":[`
+	for i := 0; i < 200; i++ {
+		if i > 0 {
+			body += ","
+		}
+		body += `{"role":"assistant","content":"x"},{"role":"tool","content":"y"}`
+	}
+	body += `]}`
+
+	shape := shapeFor(t, body)
+	require.NotNil(t, shape)
+	assert.Equal(t, 400, shape["message_count"])
+	assert.Nil(t, shape["roles"], "full list must not be written")
+	assert.Len(t, shape["roles_tail"], shapeRoleTailLen)
+	assert.Less(t, len(common.MapToJsonStr(shape)), 400, "row stays small")
+}

@@ -29,6 +29,10 @@ var shapeScalarParams = []string{
 
 // Fields whose presence matters but whose contents do not, and which are large
 // or private enough that logging them would be wrong.
+// How many trailing roles to keep. The structural rejections this exists for
+// are all visible at the end of the conversation.
+const shapeRoleTailLen = 8
+
 var shapePresenceOnly = []string{
 	"stop",
 	"logit_bias",
@@ -94,7 +98,16 @@ func DescribeRequestShape(c *gin.Context) map[string]interface{} {
 			}
 			return true
 		})
-		shape["roles"] = roles
+		// Only the tail is kept. Agent conversations reach several hundred turns,
+		// and writing every role wrote kilobytes into each error row of the
+		// largest table in the database to answer a question the last few
+		// messages already answer: a trailing assistant prefill, or two same-role
+		// turns a strict upstream refuses.
+		if len(roles) > shapeRoleTailLen {
+			shape["roles_tail"] = roles[len(roles)-shapeRoleTailLen:]
+		} else {
+			shape["roles"] = roles
+		}
 		shape["message_count"] = len(roles)
 		if imageParts > 0 {
 			shape["image_parts"] = imageParts
