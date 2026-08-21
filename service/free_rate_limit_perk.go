@@ -77,8 +77,10 @@ func GrantSubscriptionRateLimitPerk(userId int, planPct int) {
 		return
 	}
 	setting.FreeRateLimitWindowPct = pct
-	user.SetSetting(setting)
-	if err := user.Update(false); err != nil {
+	// Targets the setting column directly: user.Update goes through
+	// Updates(struct), which GORM makes skip zero-valued fields, so a user whose
+	// other columns are zero silently keeps the old setting.
+	if err := model.UpdateUserSetting(userId, setting); err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("failed to grant rate-limit perk for user %d: %v", userId, err))
 		return
 	}
@@ -118,8 +120,7 @@ func ClearSubscriptionRateLimitPerk(userId int) {
 		return
 	}
 	setting.FreeRateLimitWindowPct = next
-	user.SetSetting(setting)
-	if err := user.Update(false); err != nil {
+	if err := model.UpdateUserSetting(userId, setting); err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("failed to clear rate-limit perk for user %d: %v", userId, err))
 		return
 	}
