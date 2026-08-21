@@ -18,6 +18,9 @@ const (
 	subscriptionResetTickInterval = 1 * time.Minute
 	subscriptionResetBatchSize    = 300
 	subscriptionCleanupInterval   = 30 * time.Minute
+	// Generous next to the 1-minute tick so a missed pass (restart, failover)
+	// still catches the expiry, while staying far short of "every wearer".
+	subscriptionPerkLookback = 15 * time.Minute
 )
 
 var (
@@ -86,6 +89,16 @@ func runSubscriptionQuotaResetOnce() {
 		if _, err := model.CleanupSubscriptionPreConsumeRecords(7 * 24 * 3600); err == nil {
 			subscriptionCleanupLast.Store(time.Now().Unix())
 		}
+	}
+	// The discount lives on the user, not the subscription row, so expiring the
+	// row does not revoke it. Scoped to subscriptions that lapsed since the last
+	// few ticks: an unscoped sweep would re-ask the bot about every server-tag
+	// wearer on every pass and conclude nothing changed each time.
+	for _, userId := range model.UsersWithLapsedSubscriptionPerk(
+		subscriptionResetBatchSize,
+		int64(subscriptionPerkLookback/time.Second),
+	) {
+		ClearSubscriptionRateLimitPerk(userId)
 	}
 	if common.DebugEnabled && (totalReset > 0 || totalExpired > 0) {
 		logger.LogDebug(ctx, "subscription maintenance: reset_count=%d, expired_count=%d", totalReset, totalExpired)
