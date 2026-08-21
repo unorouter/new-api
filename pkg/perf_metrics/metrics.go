@@ -185,6 +185,7 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 		models = append(models, ModelSummary{
 			ModelName:          name,
 			AvgLatencyMs:       avgLatency,
+			AvgTtftMs:          avg(total.ttftSumMs, total.ttftCount),
 			SuccessRate:        math.Round(successRate*100) / 100,
 			AvgTps:             math.Round(avgTps*100) / 100,
 			RecentSuccessRates: recentSuccessRates(modelBuckets[name], 3),
