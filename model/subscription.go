@@ -1453,6 +1453,10 @@ func ActiveSubscribersForPerk(limit int, startedSince int64) []ActiveSubscriberP
 	q := DB.Model(&UserSubscription{}).
 		Select("user_subscriptions.user_id AS user_id, MAX(subscription_plans.free_rate_limit_window_pct) AS pct").
 		Joins("JOIN subscription_plans ON subscription_plans.id = user_subscriptions.plan_id").
+		// Deleted accounts keep their subscription rows, and the grant then fails
+		// silently because the user cannot be loaded. Excluded here so the sweep
+		// count means what it says.
+		Joins("JOIN users ON users.id = user_subscriptions.user_id AND users.deleted_at IS NULL").
 		Where("user_subscriptions.status = ? AND (user_subscriptions.end_time = 0 OR user_subscriptions.end_time > ?)", "active", now).
 		Where("subscription_plans.free_rate_limit_window_pct > 0")
 	if startedSince > 0 {
