@@ -334,10 +334,14 @@ func cachedPerfSummary() reliability {
 	if summary, err := perfmetrics.QuerySummaryAll(24, activeGroups); err == nil {
 		for _, row := range summary.Models {
 			out.success[row.ModelName] = row.SuccessRate
-			// A zero here means no timed request in the window, not an instant
-			// model, so it stays absent and renders as unmeasured.
-			if row.AvgLatencyMs > 0 {
-				out.latency[row.ModelName] = float64(row.AvgLatencyMs)
+			// Time to first token, not total request duration: the catalog compares
+			// models for responsiveness, and total duration mostly measures how long
+			// an answer was rather than how long the wait was. A verbose model looked
+			// slower than a terse one on the same upstream.
+			// A zero means no timed request in the window (or none of them streamed),
+			// not an instant model, so it stays absent and renders as unmeasured.
+			if row.AvgTtftMs > 0 {
+				out.latency[row.ModelName] = float64(row.AvgTtftMs)
 			}
 		}
 	}
