@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"io"
 	"log"
 	"net/http"
@@ -138,7 +139,7 @@ func SubscriptionRequestNowPaymentsPay(c fuego.ContextWithBody[dto.SubscriptionN
 		}
 	}
 
-	npPlanId, err := getOrCreateNowPaymentsPlan(plan)
+	npPlanId, err := getOrCreateNowPaymentsPlan(ginCtx, plan)
 	if err != nil {
 		log.Println("failed to create NowPayments subscription plan:", err)
 		return dto.Fail[dto.NowPaymentsPayData](common.TranslateMessage(ginCtx, "payment.start_failed"))
@@ -171,7 +172,7 @@ func SubscriptionRequestNowPaymentsPay(c fuego.ContextWithBody[dto.SubscriptionN
 
 // getOrCreateNowPaymentsPlan returns the NowPayments-side plan id for a given
 // local plan, creating it lazily via API if needed and caching on the row.
-func getOrCreateNowPaymentsPlan(plan *model.SubscriptionPlan) (string, error) {
+func getOrCreateNowPaymentsPlan(c *gin.Context, plan *model.SubscriptionPlan) (string, error) {
 	if plan.NowPaymentsPlanId != "" {
 		return plan.NowPaymentsPlanId, nil
 	}
@@ -187,9 +188,9 @@ func getOrCreateNowPaymentsPlan(plan *model.SubscriptionPlan) (string, error) {
 		Amount:           plan.PriceAmount,
 		Currency:         "usd",
 		IpnCallbackURL:   service.GetCallbackAddress() + "/api/nowpayments/webhook",
-		SuccessURL:       paymentReturnPath("/console/subscription"),
-		CancelURL:        paymentReturnPath("/console/subscription"),
-		PartiallyPaidURL: paymentReturnPath("/console/subscription"),
+		SuccessURL:       paymentReturnPath(c, "/console/subscription"),
+		CancelURL:        paymentReturnPath(c, "/console/subscription"),
+		PartiallyPaidURL: paymentReturnPath(c, "/console/subscription"),
 	}
 
 	jsonData, err := common.Marshal(body)

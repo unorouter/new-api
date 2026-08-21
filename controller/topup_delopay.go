@@ -96,7 +96,7 @@ func RequestDeloPayPay(c fuego.ContextWithBody[dto.DeloPayPayRequest]) (*dto.Res
 	reference := fmt.Sprintf("delopay-ref-%d-%d-%s", user.Id, time.Now().UnixMilli(), randstr.String(4))
 	referenceId := DeloPayTopUpRefPrefix + common.Sha1([]byte(reference))
 
-	payLink, paymentId, err := createDeloPayPayment(referenceId, billedMoney, fmt.Sprintf("new-api topup %d units", req.Amount), paymentReturnPath("/console/log"), deloPayCustomerFor(user))
+	payLink, paymentId, err := createDeloPayPayment(referenceId, billedMoney, fmt.Sprintf("new-api topup %d units", req.Amount), paymentReturnPath(ginCtx, "/console/log"), deloPayCustomerFor(user))
 	if err != nil {
 		log.Println("failed to get DeloPay payment link:", err)
 		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, "payment.start_failed"))

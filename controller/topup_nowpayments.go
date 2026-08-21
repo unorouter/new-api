@@ -123,7 +123,7 @@ func RequestNowPaymentsPay(c fuego.ContextWithBody[dto.NowPaymentsPayRequest]) (
 	reference := fmt.Sprintf("nowpayments-ref-%d-%d-%s", user.Id, time.Now().UnixMilli(), randstr.String(4))
 	referenceId := NowPaymentsTopUpRefPrefix + common.Sha1([]byte(reference))
 
-	payLink, err := genNowPaymentsInvoice(referenceId, invoicePrice, req.SuccessURL, req.CancelURL, fmt.Sprintf("new-api topup %d units", req.Amount))
+	payLink, err := genNowPaymentsInvoice(ginCtx, referenceId, invoicePrice, req.SuccessURL, req.CancelURL, fmt.Sprintf("new-api topup %d units", req.Amount))
 	if err != nil {
 		log.Println("failed to get NowPayments payment link:", err)
 		return dto.Fail[dto.NowPaymentsPayData](common.TranslateMessage(ginCtx, "payment.start_failed"))
@@ -146,16 +146,16 @@ func RequestNowPaymentsPay(c fuego.ContextWithBody[dto.NowPaymentsPayRequest]) (
 	return dto.Ok(dto.NowPaymentsPayData{PayLink: payLink})
 }
 
-func genNowPaymentsInvoice(referenceId string, payMoney float64, successURL, cancelURL, description string) (string, error) {
+func genNowPaymentsInvoice(c *gin.Context, referenceId string, payMoney float64, successURL, cancelURL, description string) (string, error) {
 	if setting.NowPaymentsApiKey == "" {
 		return "", errors.New("NowPayments API key is not configured")
 	}
 
 	if successURL == "" {
-		successURL = paymentReturnPath("/console/log")
+		successURL = paymentReturnPath(c, "/console/log")
 	}
 	if cancelURL == "" {
-		cancelURL = paymentReturnPath("/console/topup")
+		cancelURL = paymentReturnPath(c, "/console/topup")
 	}
 
 	body := dto.NowPaymentsInvoiceRequest{
