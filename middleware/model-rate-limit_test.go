@@ -251,3 +251,31 @@ func TestPerModelRateLimitAppliesUserDiscount(t *testing.T) {
 	require.NoError(t, err)
 	assert.LessOrEqual(t, ra, 45, "Retry-After must reflect the shortened window, not the configured 60s")
 }
+
+// Contract: 100 percent means no wait, not a one-second window. The floor in
+// discountedDuration cannot express "unlimited", so the bypass lives in the
+// enforcement path and must survive a second request inside the window.
+func TestPerModelRateLimitFullDiscountBypasses(t *testing.T) {
+	require.NoError(t, setting.UpdateModelRequestRateLimitModelsByJSONString(`{"full-discount:free":[0,1]}`))
+	setting.ModelRequestRateLimitDurationMinutes = 1
+	prevRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = prevRedis })
+	require.NoError(t, i18n.Init())
+
+	full := types.UserSetting{FreeRateLimitWindowPct: 100}
+	c1, _ := newPerModelCtx(940001, common.RoleCommonUser, 0, full, "full-discount:free")
+	require.True(t, perModelRateLimit(c1))
+	settlePerModelRequest(c1)
+
+	c2, _ := newPerModelCtx(940001, common.RoleCommonUser, 0, full, "full-discount:free")
+	assert.True(t, perModelRateLimit(c2), "100 percent must not be throttled inside the window")
+
+	// A partial discount still throttles, so the bypass is not swallowing everyone.
+	partial := types.UserSetting{FreeRateLimitWindowPct: 50}
+	c3, _ := newPerModelCtx(940002, common.RoleCommonUser, 0, partial, "full-discount:free")
+	require.True(t, perModelRateLimit(c3))
+	settlePerModelRequest(c3)
+	c4, _ := newPerModelCtx(940002, common.RoleCommonUser, 0, partial, "full-discount:free")
+	assert.False(t, perModelRateLimit(c4), "a partial discount must still enforce the window")
+}
