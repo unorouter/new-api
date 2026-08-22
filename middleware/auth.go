@@ -418,6 +418,27 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 	}
 }
 
+// OptionalTokenAuth runs TokenAuth only when the request carries a credential.
+// A caller with no key reaches the handler unauthenticated (user id 0), which
+// is how /v1/models answers anonymously the way other aggregators do; a caller
+// WITH a key is validated exactly as before, so a revoked or malformed one is
+// still rejected rather than silently downgraded to the public list.
+func OptionalTokenAuth() func(c *gin.Context) {
+	authed := TokenAuth()
+	return func(c *gin.Context) {
+		hasCredential := c.Request.Header.Get("Authorization") != "" ||
+			c.Request.Header.Get("x-api-key") != "" ||
+			c.Request.Header.Get("x-goog-api-key") != "" ||
+			c.Request.Header.Get("Sec-WebSocket-Protocol") != "" ||
+			c.Query("key") != ""
+		if !hasCredential {
+			c.Next()
+			return
+		}
+		authed(c)
+	}
+}
+
 func TokenAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		// OAuth 2.1 bearer JWT first. If the request carries a valid OAuth
