@@ -2,6 +2,7 @@ package common
 
 import (
 	"io"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/gin-gonic/gin"
@@ -114,4 +115,70 @@ func DescribeRequestShape(c *gin.Context) map[string]interface{} {
 		}
 	}
 	return shape
+}
+
+// ExtractPromptText concatenates the inbound request's prompt text so an error
+// log can record how large the request was. A failed request never reaches the
+// usage accounting, so without this its size is unknown and a 200-token prompt
+// is indistinguishable from a 200k one in the logs.
+//
+// Returns the raw text; the caller counts it with the model-aware tokenizer,
+// since this package cannot import service.
+func ExtractPromptText(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return ""
+	}
+	body, err := io.ReadAll(common.NewReplayableBodyReader(storage))
+	if err != nil || len(body) == 0 || !gjson.ValidBytes(body) {
+		return ""
+	}
+
+	var b strings.Builder
+	appendText := func(v gjson.Result) {
+		if s := v.String(); s != "" {
+			b.WriteString(s)
+			b.WriteByte('\n')
+		}
+	}
+	// Anthropic keeps the system prompt beside messages rather than inside them,
+	// and on an RP request it is often the largest single part.
+	if sys := gjson.GetBytes(body, "system"); sys.Exists() {
+		if sys.IsArray() {
+			sys.ForEach(func(_, p gjson.Result) bool {
+				appendText(p.Get("text"))
+				return true
+			})
+		} else {
+			appendText(sys)
+		}
+	}
+	for _, key := range []string{"messages", "input", "contents"} {
+		gjson.GetBytes(body, key).ForEach(func(_, m gjson.Result) bool {
+			content := m.Get("content")
+			if !content.Exists() {
+				content = m.Get("parts")
+			}
+			switch {
+			case content.IsArray():
+				content.ForEach(func(_, p gjson.Result) bool {
+					appendText(p.Get("text"))
+					return true
+				})
+			case content.Exists():
+				appendText(content)
+			default:
+				appendText(m)
+			}
+			return true
+		})
+	}
+	// Plain-string prompt (legacy completions, embeddings).
+	if b.Len() == 0 {
+		appendText(gjson.GetBytes(body, "prompt"))
+	}
+	return b.String()
 }

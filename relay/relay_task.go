@@ -180,7 +180,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 				}
 				model.RecordErrorLog(c, info.UserId, c.GetInt("channel_id"),
 					c.GetString("original_model"), c.GetString("token_name"), reason,
-					c.GetInt("token_id"), 0, false, c.GetString("group"), other)
+					c.GetInt("token_id"), 0, false, c.GetString("group"), 0, other)
 				return nil, service.TaskErrorWrapperLocal(errors.New(reason), "prompt_rejected", http.StatusBadRequest)
 			}
 			return nil, service.TaskErrorWrapperLocal(modErr, "moderation_unavailable", http.StatusServiceUnavailable)
