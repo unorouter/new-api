@@ -306,7 +306,7 @@ func perModelRateLimit(c *gin.Context) bool {
 			}
 			model.RecordErrorLog(c, c.GetInt("id"), channelId, mr.Model,
 				c.GetString("token_name"), msg, c.GetInt("token_id"), 0, false,
-				group, map[string]interface{}{
+				group, 0, map[string]interface{}{
 					"status_code": http.StatusTooManyRequests,
 					"retry_after": retryAfter,
 				})

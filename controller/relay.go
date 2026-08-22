@@ -121,7 +121,8 @@ func moderationGateError(c *gin.Context, relayInfo *relaycommon.RelayInfo, surfa
 		}
 		model.RecordErrorLog(c, relayInfo.UserId, c.GetInt("channel_id"),
 			c.GetString("original_model"), c.GetString("token_name"), reason,
-			c.GetInt("token_id"), 0, false, c.GetString("group"), other)
+			c.GetInt("token_id"), 0, false, c.GetString("group"),
+			service.CountTextToken(relaycommon.ExtractPromptText(c), c.GetString("original_model")), other)
 		return types.NewErrorWithStatusCode(errors.New(reason), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 	}
 	return types.NewErrorWithStatusCode(modErr, types.ErrorCodeBadResponse, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
@@ -716,7 +717,15 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			startTime = time.Now()
 		}
 		useTimeSeconds := int(time.Since(startTime).Seconds())
-		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+		// Size of the request that failed. Without it the log cannot tell a
+		// 200-token prompt from a 200k one, which is the first thing worth knowing
+		// about a timeout or a context-length rejection. Counted with the
+		// model-aware tokenizer, so it matches what the model would have seen.
+		// Only the INPUT: a failed request produced no completion, and quota stays
+		// zero, so nothing here reaches billing or the tokens-served total (both
+		// are scoped to consume logs).
+		promptTokens := service.CountTextToken(relaycommon.ExtractPromptText(c), modelName)
+		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, promptTokens, other)
 	}
 
 }

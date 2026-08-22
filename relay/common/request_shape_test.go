@@ -76,3 +76,40 @@ func TestRequestShapeTruncatesLongRoleLists(t *testing.T) {
 	assert.Len(t, shape["roles_tail"], shapeRoleTailLen)
 	assert.Less(t, len(common.MapToJsonStr(shape)), 400, "row stays small")
 }
+
+func promptTextFor(t *testing.T, body string) string {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/v1/messages", bytes.NewBufferString(body))
+	return ExtractPromptText(c)
+}
+
+// A failed request never reaches usage accounting, so the error log is the only
+// place its size can be recorded. Every request shape we relay must yield text,
+// or the count silently reads zero for that vendor.
+func TestExtractPromptTextCoversEveryRequestShape(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{"openai chat", `{"messages":[{"role":"user","content":"hello world"}]}`, []string{"hello world"}},
+		{"openai multipart", `{"messages":[{"role":"user","content":[{"type":"text","text":"part one"}]}]}`, []string{"part one"}},
+		// Anthropic keeps system beside messages; on an RP request it is often the
+		// largest single part, so missing it would undercount the most.
+		{"anthropic system", `{"system":"you are a bot","messages":[{"role":"user","content":"hi"}]}`, []string{"you are a bot", "hi"}},
+		{"anthropic system blocks", `{"system":[{"type":"text","text":"block sys"}],"messages":[]}`, []string{"block sys"}},
+		{"gemini contents", `{"contents":[{"parts":[{"text":"gemini prompt"}]}]}`, []string{"gemini prompt"}},
+		{"responses input", `{"input":[{"role":"user","content":"responses text"}]}`, []string{"responses text"}},
+		{"legacy prompt", `{"prompt":"legacy text"}`, []string{"legacy text"}},
+	}
+	for _, tc := range cases {
+		got := promptTextFor(t, tc.body)
+		for _, w := range tc.want {
+			assert.Contains(t, got, w, "%s", tc.name)
+		}
+	}
+	assert.Empty(t, promptTextFor(t, `not json at all`))
+	assert.Empty(t, ExtractPromptText(nil))
+}
