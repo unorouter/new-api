@@ -118,6 +118,10 @@ export interface UserSettings {
   accept_unset_model_ratio_model?: boolean
   /** Record IP log */
   record_ip_log?: boolean
+  /** Seconds to wait for the first token per provider (0 = use global) */
+  max_first_token_seconds?: number
+  /** Seconds to spend across the whole failover chain (0 = no limit) */
+  max_chain_first_token_seconds?: number
   /** Receive upstream model update notifications (admin only) */
   upstream_model_update_notify_enabled?: boolean
   /** Preferred interface/API response language */
@@ -150,6 +154,15 @@ export interface UpdateUserSettingsRequest {
   accept_unset_model_ratio_model?: boolean
   record_ip_log?: boolean
   upstream_model_update_notify_enabled?: boolean
+}
+
+/**
+ * First-token timeout preferences. Both bound only the wait for the model's
+ * FIRST token, never a reply already streaming. 0 disables a limit.
+ */
+export interface TimeoutPreferenceRequest {
+  max_first_token_seconds: number
+  max_chain_first_token_seconds: number
 }
 
 /**

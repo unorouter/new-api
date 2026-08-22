@@ -25,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
@@ -348,6 +349,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if attempts >= common.MaxTotalRelayAttempts {
 			logger.LogError(c, fmt.Sprintf("relay attempt ceiling reached (%d attempts across groups), giving up", attempts))
 			break
+		}
+		// Opt-in per-user ceiling on how long the whole chain may spend hunting for
+		// a first byte. Checked before starting another attempt rather than
+		// interrupting one in flight: an attempt that already has headers is
+		// streaming a real answer and must be left alone.
+		if chainWait := hosttypes.ClampFirstTokenSeconds(relayInfo.UserSetting.MaxChainFirstTokenSeconds); chainWait > 0 && attempts > 0 {
+			elapsed := time.Since(common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime))
+			if elapsed >= time.Duration(chainWait)*time.Second {
+				logger.LogError(c, fmt.Sprintf("relay chain first-token budget reached (%s of %ds after %d attempts), giving up", elapsed.Truncate(time.Millisecond), chainWait, attempts))
+				break
+			}
 		}
 		attempts++
 		relayInfo.RetryIndex = retryParam.GetRetry()

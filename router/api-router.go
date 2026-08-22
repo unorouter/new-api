@@ -135,6 +135,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Get(selfModels, "/models", controller.GetUserModels)
 		selfCriticalUser := dto.NewRouter(engine, selfGroup.Group("", middleware.CriticalRateLimit()), "User", secDashboard())
 		dto.Put(selfCriticalUser, "/self", controller.UpdateSelf)
+		dto.PutB(self, "/self/timeout", controller.UpdateTimeoutPreference)
 		dto.Delete(self, "/self", controller.DeleteSelf)
 		dto.Get(self, "/token", controller.GenerateAccessToken)
 		self.GinGet("/passkey", controller.PasskeyStatus, dto.GinResp[dto.Response[dto.PasskeyStatusData]]())

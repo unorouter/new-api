@@ -25,6 +25,7 @@ import type {
   UserProfile,
   UpdateUserRequest,
   UpdateUserSettingsRequest,
+  TimeoutPreferenceRequest,
   DeleteAccountRequest,
   CheckinStatusResponse,
   CheckinResponse,
@@ -61,6 +62,18 @@ export async function updateUserSettings(
   data: UpdateUserSettingsRequest
 ): Promise<ApiResponse> {
   const res = await api.put('/api/user/setting', data)
+  return res.data
+}
+
+/**
+ * Update the caller's opt-in first-token timeouts. Separate from
+ * updateUserSettings because that endpoint rebuilds the notification block and
+ * knows nothing about these fields.
+ */
+export async function updateTimeoutPreference(
+  data: TimeoutPreferenceRequest
+): Promise<ApiResponse> {
+  const res = await api.put('/api/user/self/timeout', data)
   return res.data
 }
 

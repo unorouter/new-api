@@ -1651,13 +1651,16 @@ func UpdateUserSetting(c fuego.ContextWithBody[dto.UpdateUserSettingRequest]) (d
 		RecordIpLog:                      req.RecordIpLog,
 		// Not part of this request DTO; rebuilding the struct without them
 		// silently wiped admin grants and UI prefs on every notify-settings save.
-		SidebarModules:       existingSettings.SidebarModules,
-		BillingPreference:    existingSettings.BillingPreference,
-		Language:             existingSettings.Language,
-		BlockFreeWhenNoQuota: existingSettings.BlockFreeWhenNoQuota,
-		UsableGroups:         existingSettings.UsableGroups,
-		UnlimitedFreeModels:  existingSettings.UnlimitedFreeModels,
-		ModerationExempt:     existingSettings.ModerationExempt,
+		SidebarModules:            existingSettings.SidebarModules,
+		BillingPreference:         existingSettings.BillingPreference,
+		Language:                  existingSettings.Language,
+		BlockFreeWhenNoQuota:      existingSettings.BlockFreeWhenNoQuota,
+		UsableGroups:              existingSettings.UsableGroups,
+		UnlimitedFreeModels:       existingSettings.UnlimitedFreeModels,
+		ModerationExempt:          existingSettings.ModerationExempt,
+		FreeRateLimitWindowPct:    existingSettings.FreeRateLimitWindowPct,
+		MaxFirstTokenSeconds:      existingSettings.MaxFirstTokenSeconds,
+		MaxChainFirstTokenSeconds: existingSettings.MaxChainFirstTokenSeconds,
 	}
 
 	if req.QuotaWarningType == types.NotifyTypeWebhook {
@@ -1691,4 +1694,43 @@ func UpdateUserSetting(c fuego.ContextWithBody[dto.UpdateUserSettingRequest]) (d
 	}
 
 	return dto.Msg(common.TranslateMessage(ginCtx, "setting.saved"))
+}
+
+// UpdateTimeoutPreference stores the caller's opt-in first-token limits. Both
+// bound only the wait for the upstream's FIRST byte, never a reply already
+// streaming, so a long generation is unaffected by either. Zero disables.
+//
+// Read-modify-write on the stored settings rather than rebuilding the struct:
+// UserSetting carries admin grants and UI prefs this request knows nothing
+// about, and reconstructing it would silently clear them.
+func UpdateTimeoutPreference(c fuego.ContextWithBody[dto.TimeoutPreferenceRequest]) (*dto.Response[dto.TimeoutPreferenceData], error) {
+	ginCtx := dto.GinCtx(c)
+	req, err := c.Body()
+	if err != nil {
+		return dto.Fail[dto.TimeoutPreferenceData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+	}
+
+	perAttempt := types.ClampFirstTokenSeconds(req.MaxFirstTokenSeconds)
+	chain := types.ClampFirstTokenSeconds(req.MaxChainFirstTokenSeconds)
+	// A chain budget under the per-attempt one would cut the first attempt short
+	// of its own allowance, which reads as the per-attempt value being ignored.
+	if chain > 0 && perAttempt > 0 && chain < perAttempt {
+		chain = perAttempt
+	}
+
+	user, err := model.GetUserById(dto.UserID(c), true)
+	if err != nil {
+		return dto.Fail[dto.TimeoutPreferenceData](err.Error())
+	}
+	current := user.GetSetting()
+	current.MaxFirstTokenSeconds = perAttempt
+	current.MaxChainFirstTokenSeconds = chain
+	if err := model.UpdateUserSetting(user.Id, current); err != nil {
+		return dto.Fail[dto.TimeoutPreferenceData](common.TranslateMessage(ginCtx, "common.update_failed"))
+	}
+
+	return dto.Ok(dto.TimeoutPreferenceData{
+		MaxFirstTokenSeconds:      perAttempt,
+		MaxChainFirstTokenSeconds: chain,
+	})
 }

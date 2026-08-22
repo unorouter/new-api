@@ -5405,6 +5405,10 @@
     "Free rate-limit window discount": "Сокращение окна лимита бесплатных моделей",
     "Percent off the wait between free-model requests. 0 disables it; 99 makes it nearly instant. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.": "Процент, на который сокращается ожидание между запросами к бесплатным моделям. Значение 0 отключает скидку, 99 делает ожидание почти мгновенным. Discord-бот задаёт её, пока надет тег сервера, и снимает при удалении тега, но никогда не перезаписывает значение больше 0, поэтому заданная здесь величина сохраняется до снятия тега.",
     "Free model speed-up (%)": "Ускорение бесплатных моделей (%)",
-    "Percent off the wait between free model requests while subscribed. 0 disables it, 100 removes the wait. Shares one value with the Discord server tag perk, so the higher of the two applies.": "Процент, на который сокращается ожидание между запросами к бесплатным моделям во время подписки. 0 отключает, 100 убирает ожидание. Значение общее с бонусом за тег Discord, применяется большее из двух."
+    "Percent off the wait between free model requests while subscribed. 0 disables it, 100 removes the wait. Shares one value with the Discord server tag perk, so the higher of the two applies.": "Процент, на который сокращается ожидание между запросами к бесплатным моделям во время подписки. 0 отключает, 100 убирает ожидание. Значение общее с бонусом за тег Discord, применяется большее из двух.",
+    "Response timeouts": "Тайм-ауты ответа",
+    "Limits only the wait for the first token. A reply that has started streaming is never cut off.": "Ограничивает только ожидание первого токена. Начавшийся ответ никогда не обрывается.",
+    "Per provider (seconds, 0 = off)": "На провайдера (секунды, 0 = выключено)",
+    "Whole chain (seconds, 0 = off)": "Вся цепочка (секунды, 0 = выключено)"
   }
 }

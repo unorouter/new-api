@@ -29,7 +29,7 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ROLE } from "@/lib/roles";
 
-import { updateUserSettings } from "../../api";
+import { updateTimeoutPreference, updateUserSettings } from "../../api";
 import {
   DEFAULT_QUOTA_WARNING_THRESHOLD,
   NOTIFICATION_METHODS,
@@ -84,6 +84,9 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
     upstream_model_update_notify_enabled: false,
   });
 
+  const [firstTokenSeconds, setFirstTokenSeconds] = useState(0);
+  const [chainSeconds, setChainSeconds] = useState(0);
+
   // Update form field helper
   const updateField = useCallback(
     <K extends keyof UserSettings>(field: K, value: UserSettings[K]) => {
@@ -113,6 +116,8 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
         upstream_model_update_notify_enabled:
           parsed.upstream_model_update_notify_enabled || false,
       });
+      setFirstTokenSeconds(parsed.max_first_token_seconds ?? 0);
+      setChainSeconds(parsed.max_chain_first_token_seconds ?? 0);
     }
   }, [profile]);
 
@@ -120,6 +125,18 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
     try {
       setLoading(true);
       const response = await updateUserSettings(settings);
+      if (response.success) {
+        // Stored by a different endpoint, so a failure here must not be
+        // reported as a successful save of the notification block.
+        const timeoutRes = await updateTimeoutPreference({
+          max_first_token_seconds: firstTokenSeconds,
+          max_chain_first_token_seconds: chainSeconds,
+        });
+        if (!timeoutRes.success) {
+          toast.error(timeoutRes.message || t("Failed to update settings"));
+          return;
+        }
+      }
 
       if (response.success) {
         toast.success(t("Settings updated successfully"));
@@ -425,6 +442,48 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
             checked={settings.record_ip_log}
             onCheckedChange={(checked) => updateField("record_ip_log", checked)}
           />
+        </div>
+
+        {/* First-token timeouts */}
+        <div className="space-y-3 rounded-lg border p-3 sm:p-4">
+          <div className="space-y-0.5">
+            <Label>{t("Response timeouts")}</Label>
+            <p className="text-muted-foreground text-xs sm:text-sm">
+              {t(
+                "Limits only the wait for the first token. A reply that has started streaming is never cut off."
+              )}
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label htmlFor="firstTokenSeconds" className="text-xs">
+                {t("Per provider (seconds, 0 = off)")}
+              </Label>
+              <Input
+                id="firstTokenSeconds"
+                type="number"
+                min={0}
+                max={600}
+                value={firstTokenSeconds}
+                onChange={(e) =>
+                  setFirstTokenSeconds(Number(e.target.value) || 0)
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="chainSeconds" className="text-xs">
+                {t("Whole chain (seconds, 0 = off)")}
+              </Label>
+              <Input
+                id="chainSeconds"
+                type="number"
+                min={0}
+                max={600}
+                value={chainSeconds}
+                onChange={(e) => setChainSeconds(Number(e.target.value) || 0)}
+              />
+            </div>
+          </div>
         </div>
       </div>
 

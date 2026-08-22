@@ -22,6 +22,41 @@ type UserSetting struct {
 	UnlimitedFreeModels              bool     `json:"unlimited_free_models,omitempty"`                // 管理员授予：免除免费模型的按模型限流
 	ModerationExempt                 bool     `json:"moderation_exempt,omitempty"`                    // 管理员授予：免除图像/视频生成提示词审核
 	FreeRateLimitWindowPct           int      `json:"free_rate_limit_window_pct,omitempty"`           // 免费模型限流窗口缩短百分比（0 = 不缩短）
+	MaxFirstTokenSeconds             int      `json:"max_first_token_seconds,omitempty"`              // 单次尝试等待首字节的上限，秒（0 = 使用全局值）
+	MaxChainFirstTokenSeconds        int      `json:"max_chain_first_token_seconds,omitempty"`        // 整条重试链等待首字节的总上限，秒（0 = 不限制）
+}
+
+// First-token limits bound only the wait for the upstream's FIRST BYTE, never a
+// generation already in progress: a slow reply is slow because it is long (past
+// measurement: replies over 90s averaged 2,033 output tokens against 928 for
+// fast ones), so cutting on total duration would kill working requests. Once
+// headers arrive, StreamingTimeout governs the rest.
+//
+// Both are opt-in. Zero means "no per-user limit", which leaves the global
+// RESPONSE_HEADER_TIMEOUT as the only ceiling, exactly as before.
+const (
+	// MinFirstTokenSeconds keeps a value from being tightened into uselessness:
+	// under this, ordinary healthy channels would be cut off mid-handshake.
+	MinFirstTokenSeconds = 5
+	// MaxFirstTokenSecondsLimit is above any first-byte wait the global ceiling
+	// would allow, so the effective deadline is always the smaller of the two.
+	MaxFirstTokenSecondsLimit = 600
+)
+
+// ClampFirstTokenSeconds normalizes a stored per-user first-token limit. Shared
+// by the write path and the request path so a value saved before the band
+// changed still enforces the current one.
+func ClampFirstTokenSeconds(seconds int) int {
+	if seconds <= 0 {
+		return 0
+	}
+	if seconds < MinFirstTokenSeconds {
+		return MinFirstTokenSeconds
+	}
+	if seconds > MaxFirstTokenSecondsLimit {
+		return MaxFirstTokenSecondsLimit
+	}
+	return seconds
 }
 
 // MaxFreeRateLimitWindowPct is a percentage, so 100 would zero the window and

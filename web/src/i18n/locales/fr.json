@@ -5405,6 +5405,10 @@
     "Free rate-limit window discount": "Reduction de la fenetre de limitation gratuite",
     "Percent off the wait between free-model requests. 0 disables it; 99 makes it nearly instant. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.": "Pourcentage retire du delai entre les requetes de modeles gratuits. 0 la desactive ; 99 la rend quasi instantanee. Le bot Discord definit cette valeur tant que le tag du serveur est porte et l'efface lorsqu'il est retire, mais il n'ecrase jamais une valeur superieure a 0 : un montant defini ici subsiste jusqu'au retrait du tag.",
     "Free model speed-up (%)": "Acceleration des modeles gratuits (%)",
-    "Percent off the wait between free model requests while subscribed. 0 disables it, 100 removes the wait. Shares one value with the Discord server tag perk, so the higher of the two applies.": "Pourcentage retire du delai entre les requetes de modeles gratuits pendant l'abonnement. 0 la desactive, 100 supprime l'attente. Cette valeur est partagee avec l'avantage du tag Discord : la plus elevee des deux s'applique."
+    "Percent off the wait between free model requests while subscribed. 0 disables it, 100 removes the wait. Shares one value with the Discord server tag perk, so the higher of the two applies.": "Pourcentage retire du delai entre les requetes de modeles gratuits pendant l'abonnement. 0 la desactive, 100 supprime l'attente. Cette valeur est partagee avec l'avantage du tag Discord : la plus elevee des deux s'applique.",
+    "Response timeouts": "Délais de réponse",
+    "Limits only the wait for the first token. A reply that has started streaming is never cut off.": "Limite uniquement l'attente du premier token. Une réponse déjà en cours de diffusion n'est jamais interrompue.",
+    "Per provider (seconds, 0 = off)": "Par fournisseur (secondes, 0 = désactivé)",
+    "Whole chain (seconds, 0 = off)": "Chaîne entière (secondes, 0 = désactivé)"
   }
 }
