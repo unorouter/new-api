@@ -126,10 +126,13 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 	router.Use(middleware.StatsMiddleware())
 
 	// ---- Models routes ----
+	// Readable without a key, as other aggregators serve it: an anonymous
+	// caller gets the default group's enabled models, a key gets exactly the
+	// models that key may call (group + per-token allowlist).
 	// `models:read` is required for OAuth agents; humans (sk-/session) pass.
 	modelsRouter := router.Group("/v1/models")
 	modelsRouter.Use(middleware.RouteTag("relay"))
-	modelsRouter.Use(middleware.TokenAuth())
+	modelsRouter.Use(middleware.OptionalTokenAuth())
 	modelsRouter.Use(middleware.RequireScope("models:read"))
 	models := dto.NewRouter(engine, modelsRouter, "Relay", secToken())
 	{

@@ -189,10 +189,21 @@ type modelListGroups struct {
 	ownerGroups []string
 }
 
+const defaultModelListGroup = "default"
+
 func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 	tokenGroup := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
 	userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 	if userGroup == "" && (tokenGroup == "" || tokenGroup == "auto" || service.IsCompositeTokenGroup(tokenGroup)) {
+		// No credential at all: /v1/models is readable without a token, so an
+		// anonymous caller is answered with the default group rather than a
+		// user lookup that cannot succeed for id 0.
+		if c.GetInt("id") == 0 {
+			return modelListGroups{
+				userGroup:   defaultModelListGroup,
+				ownerGroups: []string{defaultModelListGroup},
+			}, nil
+		}
 		var err error
 		userGroup, err = model.GetUserGroup(c.GetInt("id"), false)
 		if err != nil {
