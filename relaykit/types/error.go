@@ -569,6 +569,18 @@ var upstreamModerationMarkers = []string{
 	"unsafe or sensitive content",
 	// AWS Bedrock / reseller guardrail rejections ("Blocked by guardrail policy")
 	"guardrail",
+	// Measured against 6 months of production 403s: these are the wordings real
+	// upstreams use to refuse ONE prompt. The channel is healthy and the next
+	// request succeeds, so none of them may auto-ban it.
+	"safe guard policy",
+	"usage guidelines",
+	"usage policy",
+	"内容审计",
+	"违反使用规定",
+	"风险规则",
+	// Not moderation but the same shape: a size/step ceiling refusing one
+	// oversized image request on an otherwise working channel.
+	"due to heavy demand",
 }
 
 // PROD-ONLY (fork): IsUpstreamModerationError reports whether an upstream 400/422
@@ -579,11 +591,42 @@ func IsUpstreamModerationError(err *NewAPIError) bool {
 	if err == nil || err.errorType == ErrorTypeNewAPIError {
 		return false
 	}
-	if err.StatusCode != http.StatusBadRequest && err.StatusCode != http.StatusUnprocessableEntity {
+	// 403 included: several upstreams return their content refusal as Forbidden
+	// rather than 400, and 403 is in the auto-disable ranges, so without this a
+	// healthy channel is banned for one bad prompt.
+	if err.StatusCode != http.StatusBadRequest &&
+		err.StatusCode != http.StatusUnprocessableEntity &&
+		err.StatusCode != http.StatusForbidden {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
 	for _, marker := range upstreamModerationMarkers {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// selfEchoMarkers are OUR OWN gateway's error strings coming back through a relay
+// chain: an upstream that itself runs new-api rejects our request and quotes its
+// local message. The channel is fine, so banning it would let one banned user
+// walk the whole pool down.
+var selfEchoMarkers = []string{
+	"user has been banned",
+	"用户已被封禁",
+	"this channel has been disabled",
+	"this model is busy right now",
+}
+
+// IsSelfEchoedError reports whether an upstream error is our own gateway's text
+// reflected back, which says nothing about the channel's health.
+func IsSelfEchoedError(err *NewAPIError) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, marker := range selfEchoMarkers {
 		if strings.Contains(msg, marker) {
 			return true
 		}
