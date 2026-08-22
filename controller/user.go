@@ -690,6 +690,21 @@ func GetSelf(c fuego.ContextNoBody) (*dto.Response[dto.UserSelfData], error) {
 		HasPassword:               hasPassword,
 	}
 
+	// Hand back a fresh token once the current one is past half its life. The
+	// session slides on use, but the JWT expiry is fixed at issuance, so without
+	// this a long-lived client is logged out mid-request on a live session.
+	if ginCtx := dto.GinCtx(c); ginCtx != nil && ginCtx.GetBool("use_access_token") {
+		if identity, ok := middleware.GetSessionAuthIdentity(ginCtx); ok {
+			if raw, found := middleware.AuthorizationToken(ginCtx.GetHeader("Authorization")); found &&
+				service.AccessTokenPastHalfLife(raw) {
+				if token, expiresAt, err := service.IssueAccessToken(identity); err == nil {
+					data.AccessToken = token
+					data.AccessExpiresAt = expiresAt
+				}
+			}
+		}
+	}
+
 	return dto.Ok(data)
 }
 

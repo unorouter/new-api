@@ -124,4 +124,9 @@ type UserSelfData struct {
 	Permissions               any     `json:"permissions"`
 	// False for OAuth-only accounts that never set a local password.
 	HasPassword bool `json:"has_password"`
+	// Set only when the current access token is past halfway through its life,
+	// so a client that keeps polling /self never reaches the hard expiry. Empty
+	// otherwise, and absent for callers that authenticate with an API key.
+	AccessToken     string `json:"access_token,omitempty"`
+	AccessExpiresAt int64  `json:"access_expires_at,omitempty"`
 }
