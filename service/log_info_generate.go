@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -48,6 +49,50 @@ func attachQuotaSaturation(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, o
 	attachQuotaSaturationToOther(other, clamp)
 	logger.LogWarn(ctx, fmt.Sprintf("quota saturation on consume log: op=%s kind=%s original=%g clamped=%d user=%d model=%s",
 		clamp.Op, clamp.Kind, clamp.Original, clamp.Clamped, relayInfo.UserId, relayInfo.OriginModelName))
+}
+
+// AppendClientAttribution records which tool made the request. Clients identify
+// themselves with the headers OpenRouter established (HTTP-Referer + X-Title),
+// which is why agents and harnesses already send them; a plain User-Agent is the
+// fallback for everything else. All three are self-reported and trivially
+// spoofed, so this is usage attribution, never authorization.
+func AppendClientAttribution(ctx *gin.Context, other map[string]interface{}) {
+	if other == nil || ctx == nil || ctx.Request == nil {
+		return
+	}
+	h := ctx.Request.Header
+	// X-OpenRouter-Title is the newer alias; a client may send either.
+	title := firstNonEmptyHeader(h, "X-Title", "X-OpenRouter-Title")
+	referer := firstNonEmptyHeader(h, "HTTP-Referer", "Referer")
+	ua := ctx.Request.UserAgent()
+	if title != "" {
+		other["client_title"] = truncateAttribution(title)
+	}
+	if referer != "" {
+		other["client_referer"] = truncateAttribution(referer)
+	}
+	if ua != "" {
+		other["client_user_agent"] = truncateAttribution(ua)
+	}
+}
+
+func firstNonEmptyHeader(h http.Header, names ...string) string {
+	for _, name := range names {
+		if v := strings.TrimSpace(h.Get(name)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// Bounded because these are attacker-controlled strings landing in every row of
+// the largest table in the database.
+func truncateAttribution(v string) string {
+	const max = 128
+	if len(v) > max {
+		return v[:max]
+	}
+	return v
 }
 
 func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
@@ -110,6 +155,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
+	AppendClientAttribution(ctx, other)
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
 	appendBillingInfo(relayInfo, other)

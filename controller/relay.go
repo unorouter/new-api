@@ -712,6 +712,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		if shape := relaycommon.DescribeRequestShape(c); len(shape) > 0 {
 			other["request_shape"] = shape
 		}
+		service.AppendClientAttribution(c, other)
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {
 			startTime = time.Now()
