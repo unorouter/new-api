@@ -130,6 +130,11 @@ func ValidateLoginSession(identity AuthIdentity) (*model.UserSession, *model.Use
 	if user.Status != common.UserStatusEnabled || user.AuthVersion != identity.UserAuthVersion {
 		return nil, nil, ErrLoginSessionRevoked
 	}
+	// Slide the window on use. The session is valid here, so a renewal failure
+	// must not fail the request: the caller keeps the remaining original TTL.
+	if err := model.RenewUserSession(session.SID, LoginSessionTTL); err != nil {
+		common.SysLog("failed to renew login session: " + err.Error())
+	}
 	return session, user, nil
 }
 

@@ -216,7 +216,7 @@ func ResolveDashboardCredential(c *gin.Context) (*model.UserBase, error) {
 }
 
 func classifyDashboardCredential(c *gin.Context) (*model.UserBase, service.AuthIdentity, dashboardCredentialKind, error) {
-	raw, ok := authorizationToken(c.GetHeader("Authorization"))
+	raw, ok := AuthorizationToken(c.GetHeader("Authorization"))
 	if !ok {
 		return nil, service.AuthIdentity{}, dashboardCredentialUnmatched, nil
 	}
@@ -245,7 +245,8 @@ func classifyDashboardCredential(c *gin.Context) (*model.UserBase, service.AuthI
 	return user, service.AuthIdentity{UserID: user.Id, UserAuthVersion: user.AuthVersion}, dashboardCredentialPAT, nil
 }
 
-func authorizationToken(header string) (string, bool) {
+// AuthorizationToken extracts a bearer credential from an Authorization header.
+func AuthorizationToken(header string) (string, bool) {
 	header = strings.TrimSpace(header)
 	if header == "" {
 		return "", false
@@ -315,7 +316,7 @@ func WssAuth(c *gin.Context) {
 // Used for endpoints that need to be accessible from both the dashboard and API clients.
 func TokenOrUserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		raw, ok := authorizationToken(c.GetHeader("Authorization"))
+		raw, ok := AuthorizationToken(c.GetHeader("Authorization"))
 		if ok {
 			identity, internal, err := service.ParseDashboardAccessToken(raw)
 			if !internal {

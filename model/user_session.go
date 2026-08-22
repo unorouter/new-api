@@ -23,6 +23,10 @@ const (
 	userSessionRevokeBatchSize  = 500
 	userSessionCleanupScanLimit = 1000
 	userSessionCleanupBatchSize = 500
+
+	// How stale last_active_at must be before a request renews the session.
+	// One write per hour per active session rather than one per request.
+	sessionRenewInterval = time.Hour
 )
 
 var (
@@ -204,6 +208,42 @@ func GetUserSessionBySID(sid string) (*UserSession, error) {
 		return nil, err
 	}
 	return &session, nil
+}
+
+// RenewUserSession slides expires_at forward from now for a session still in
+// use. Without it the window is absolute from login, so someone active every
+// day is still cut off mid-request once the original 30 days elapse.
+//
+// Throttled by sessionRenewInterval rather than run per request: this writes
+// the database and republishes the cache entry, and the deny tombstone is what
+// makes revocation immediate, so a renewal must re-read authoritative state
+// instead of extending a snapshot that may already be revoked.
+func RenewUserSession(sid string, ttl time.Duration) error {
+	if sid == "" {
+		return ErrUserSessionInvalid
+	}
+	now := time.Now()
+	expiresAt := now.Add(ttl).Unix()
+	cacheDeadline := userSessionCacheDeadline()
+	result := DB.Model(&UserSession{}).
+		Where("sid = ? AND status = ? AND revoked_at = 0 AND expires_at > ? AND last_active_at <= ?",
+			sid, UserSessionStatusActive, now.Unix(), now.Add(-sessionRenewInterval).Unix()).
+		Updates(map[string]any{"expires_at": expiresAt, "last_active_at": now.Unix()})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil
+	}
+	session, err := GetUserSessionBySID(sid)
+	if err != nil {
+		return err
+	}
+	if err := writeUserSessionCache(session.cacheEntry(), cacheDeadline); err != nil &&
+		!errors.Is(err, errUserSessionCacheObservationStale) {
+		return err
+	}
+	return nil
 }
 
 // GetUserSessionCached validates cached state first and falls back to the

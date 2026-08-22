@@ -99,6 +99,19 @@ func ParseAccessToken(raw string) (AuthIdentity, error) {
 	}, nil
 }
 
+// AccessTokenPastHalfLife reports whether a verified access token has spent
+// more than half its lifetime, which is when it is worth handing the caller a
+// replacement. Renewing on every request would rewrite the cookie constantly;
+// waiting for actual expiry is too late, since the request that discovers it
+// has already failed.
+func AccessTokenPastHalfLife(raw string) bool {
+	claims, err := parseAuthClaims(raw, accessTokenUse, authSigningKey(accessTokenUse))
+	if err != nil || claims.ExpiresAt == nil {
+		return false
+	}
+	return time.Until(claims.ExpiresAt.Time) < AccessTokenTTL/2
+}
+
 // ParseDashboardAccessToken distinguishes new-api dashboard JWTs from opaque
 // credentials. A token carrying the dashboard issuer, audience and a known
 // token use is always treated as internal, even when its signature, lifetime
