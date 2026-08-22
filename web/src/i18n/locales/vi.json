@@ -5405,6 +5405,10 @@
     "Free rate-limit window discount": "Giảm cửa sổ giới hạn tốc độ miễn phí",
     "Percent off the wait between free-model requests. 0 disables it; 99 makes it nearly instant. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.": "Phần trăm giảm thời gian chờ giữa các yêu cầu mô hình miễn phí. Giá trị 0 tắt tính năng này; 99 khiến gần như tức thì. Bot Discord đặt giá trị này khi thẻ máy chủ được đeo và xoá khi gỡ thẻ, nhưng không bao giờ ghi đè giá trị lớn hơn 0, nên số đặt ở đây vẫn giữ cho đến khi gỡ thẻ.",
     "Free model speed-up (%)": "Tăng tốc mô hình miễn phí (%)",
-    "Percent off the wait between free model requests while subscribed. 0 disables it, 100 removes the wait. Shares one value with the Discord server tag perk, so the higher of the two applies.": "Phần trăm giảm thời gian chờ giữa các yêu cầu mô hình miễn phí khi đang đăng ký. 0 để tắt, 100 để bỏ hoàn toàn thời gian chờ. Dùng chung giá trị với ưu đãi thẻ máy chủ Discord, giá trị lớn hơn sẽ được áp dụng."
+    "Percent off the wait between free model requests while subscribed. 0 disables it, 100 removes the wait. Shares one value with the Discord server tag perk, so the higher of the two applies.": "Phần trăm giảm thời gian chờ giữa các yêu cầu mô hình miễn phí khi đang đăng ký. 0 để tắt, 100 để bỏ hoàn toàn thời gian chờ. Dùng chung giá trị với ưu đãi thẻ máy chủ Discord, giá trị lớn hơn sẽ được áp dụng.",
+    "Response timeouts": "Thời gian chờ phản hồi",
+    "Limits only the wait for the first token. A reply that has started streaming is never cut off.": "Chỉ giới hạn thời gian chờ token đầu tiên. Câu trả lời đã bắt đầu truyền sẽ không bao giờ bị cắt.",
+    "Per provider (seconds, 0 = off)": "Mỗi nhà cung cấp (giây, 0 = tắt)",
+    "Whole chain (seconds, 0 = off)": "Toàn bộ chuỗi (giây, 0 = tắt)"
   }
 }

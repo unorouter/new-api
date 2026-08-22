@@ -5405,6 +5405,10 @@
     "Free rate-limit window discount": "無料モデルのレート制限ウィンドウ短縮率",
     "Percent off the wait between free-model requests. 0 disables it; 99 makes it nearly instant. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.": "無料モデルのリクエスト間隔を短縮する割合。0で無効、99でほぼ即時になります。サーバータグを着用している間はDiscordボットがこの値を設定し、タグを外すと解除します。ただし0より大きい値が上書きされることはないため、ここで設定した値はタグが外されるまで保持されます。",
     "Free model speed-up (%)": "無料モデルの高速化（%）",
-    "Percent off the wait between free model requests while subscribed. 0 disables it, 100 removes the wait. Shares one value with the Discord server tag perk, so the higher of the two applies.": "購読中に無料モデルのリクエスト間隔を短縮する割合。0で無効、100で待ち時間なし。Discordサーバータグの特典と同じ値を共有するため、大きい方が適用されます。"
+    "Percent off the wait between free model requests while subscribed. 0 disables it, 100 removes the wait. Shares one value with the Discord server tag perk, so the higher of the two applies.": "購読中に無料モデルのリクエスト間隔を短縮する割合。0で無効、100で待ち時間なし。Discordサーバータグの特典と同じ値を共有するため、大きい方が適用されます。",
+    "Response timeouts": "応答タイムアウト",
+    "Limits only the wait for the first token. A reply that has started streaming is never cut off.": "最初のトークンを待つ時間だけを制限します。ストリーミングが始まった返信は途中で打ち切られません。",
+    "Per provider (seconds, 0 = off)": "プロバイダーごと（秒、0 = 無効）",
+    "Whole chain (seconds, 0 = off)": "リトライ全体（秒、0 = 無効）"
   }
 }

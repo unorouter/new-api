@@ -12,6 +12,7 @@ import (
 	"time"
 
 	common2 "github.com/QuantumNous/new-api/common"
+	constant2 "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
@@ -19,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
@@ -487,6 +489,38 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 
+// firstTokenDeadline returns how long this attempt may wait for the upstream's
+// first byte, or 0 when the user set no limit. Two opt-in per-user limits narrow
+// it: a per-attempt cap and what remains of a whole-chain cap. The tighter one
+// wins, and neither can loosen the global RESPONSE_HEADER_TIMEOUT, which still
+// applies underneath via the transport.
+//
+// Only the first byte is bounded. The returned deadline must be released the
+// moment headers arrive, or it would abort a generation already streaming.
+func firstTokenDeadline(c *gin.Context, info *common.RelayInfo) time.Duration {
+	if info == nil {
+		return 0
+	}
+	perAttempt := hosttypes.ClampFirstTokenSeconds(info.UserSetting.MaxFirstTokenSeconds)
+	chain := hosttypes.ClampFirstTokenSeconds(info.UserSetting.MaxChainFirstTokenSeconds)
+
+	deadline := time.Duration(perAttempt) * time.Second
+	if chain > 0 {
+		// The chain cap covers every attempt, so this one only gets what earlier
+		// attempts left. A chain already spent yields a tiny positive budget
+		// rather than zero: zero reads as "no limit" and would wait the full
+		// global ceiling, the opposite of what the setting asked for.
+		remaining := time.Duration(chain)*time.Second - time.Since(common2.GetContextKeyTime(c, constant2.ContextKeyRequestStartTime))
+		if remaining < time.Second {
+			remaining = time.Second
+		}
+		if deadline == 0 || remaining < deadline {
+			deadline = remaining
+		}
+	}
+	return deadline
+}
+
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
@@ -529,6 +563,32 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	// A per-user first-token limit is armed with a timer over a cancellable
+	// context rather than context.WithTimeout. The request context governs the
+	// response BODY too, and this function returns that body unread for the
+	// caller to stream, so a deadline still counting down here would truncate a
+	// long generation mid-stream. The timer is stopped as soon as Do returns,
+	// which confines the limit to the first byte. The context is deliberately
+	// NOT cancelled on success: cancelling it would close the very body being
+	// returned. It is cancelled only on the error path, where there is no body.
+	var stopFirstTokenTimer func()
+	if wait := firstTokenDeadline(c, info); wait > 0 {
+		headerCtx, cancelHeader := context.WithCancel(req.Context())
+		timer := time.AfterFunc(wait, cancelHeader)
+		stopFirstTokenTimer = func() {
+			timer.Stop()
+		}
+		defer func() {
+			// Reached only when Do failed or panicked: a returned body has already
+			// disarmed the timer and left this nil.
+			if stopFirstTokenTimer != nil {
+				timer.Stop()
+				cancelHeader()
+			}
+		}()
+		req = req.WithContext(headerCtx)
+	}
+
 	resp, err := relayClient.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
@@ -564,6 +624,13 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 	if resp == nil {
 		return nil, errors.New("resp is nil")
+	}
+	// Headers are in, so the first-token limit has been met. Disarm it here and
+	// leave the context live: the body below is returned unread and streams under
+	// StreamingTimeout from this point on.
+	if stopFirstTokenTimer != nil {
+		stopFirstTokenTimer()
+		stopFirstTokenTimer = nil
 	}
 	if common2.DebugEnabled {
 		policy := service.NormalizeHTTPTransportPolicy(info.ChannelSetting)

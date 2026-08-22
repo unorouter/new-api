@@ -130,3 +130,17 @@ type UserSelfData struct {
 	AccessToken     string `json:"access_token,omitempty"`
 	AccessExpiresAt int64  `json:"access_expires_at,omitempty"`
 }
+
+// TimeoutPreferenceData is the response data for PUT /api/user/self/timeout.
+type TimeoutPreferenceData struct {
+	MaxFirstTokenSeconds      int `json:"max_first_token_seconds"`
+	MaxChainFirstTokenSeconds int `json:"max_chain_first_token_seconds"`
+}
+
+// TimeoutPreferenceRequest is the request body for PUT /api/user/self/timeout.
+// Zero disables a limit, so both fields are plain ints rather than pointers:
+// "absent" and "off" are the same state here.
+type TimeoutPreferenceRequest struct {
+	MaxFirstTokenSeconds      int `json:"max_first_token_seconds"`
+	MaxChainFirstTokenSeconds int `json:"max_chain_first_token_seconds"`
+}

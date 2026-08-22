@@ -5405,6 +5405,10 @@
     "Free rate-limit window discount": "免费模型限流窗口折扣",
     "Percent off the wait between free-model requests. 0 disables it; 99 makes it nearly instant. The Discord bot sets this while the server tag is worn and clears it when the tag comes off, but it never overwrites a value above 0 - so an amount set here survives until the tag is removed.": "免费模型请求之间等待时间的缩短百分比。填 0 表示关闭，填 99 则几乎无需等待。佩戴服务器标签期间由 Discord 机器人写入，取下标签时清除；但它不会覆盖大于 0 的值，因此在此设置的数值会一直保留到标签被取下。",
     "Free model speed-up (%)": "免费模型加速（%）",
-    "Percent off the wait between free model requests while subscribed. 0 disables it, 100 removes the wait. Shares one value with the Discord server tag perk, so the higher of the two applies.": "订阅期间免费模型请求之间等待时间的缩短百分比。填 0 表示关闭，填 100 表示无需等待。与 Discord 服务器标签特权共用同一个值，取两者中较大的一个。"
+    "Percent off the wait between free model requests while subscribed. 0 disables it, 100 removes the wait. Shares one value with the Discord server tag perk, so the higher of the two applies.": "订阅期间免费模型请求之间等待时间的缩短百分比。填 0 表示关闭，填 100 表示无需等待。与 Discord 服务器标签特权共用同一个值，取两者中较大的一个。",
+    "Response timeouts": "响应超时",
+    "Limits only the wait for the first token. A reply that has started streaming is never cut off.": "仅限制等待首个 token 的时间。已开始输出的回复不会被中断。",
+    "Per provider (seconds, 0 = off)": "每个服务商（秒，0 = 关闭）",
+    "Whole chain (seconds, 0 = off)": "整条重试链（秒，0 = 关闭）"
   }
 }
