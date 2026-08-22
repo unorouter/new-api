@@ -54,8 +54,14 @@ func attachQuotaSaturation(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, o
 // AppendClientAttribution records which tool made the request. Clients identify
 // themselves with the headers OpenRouter established (HTTP-Referer + X-Title),
 // which is why agents and harnesses already send them; a plain User-Agent is the
-// fallback for everything else. All three are self-reported and trivially
+// fallback for everything else. All of it is self-reported and trivially
 // spoofed, so this is usage attribution, never authorization.
+//
+// Origin is the exception worth capturing separately: a browser-hosted frontend
+// calling this gateway cross-origin MUST send it, page script cannot forge or
+// suppress it (forbidden header name), and it names the platform even though
+// every such client sends a plain browser User-Agent that names nothing. It is
+// absent on native and server-side callers, which identify via User-Agent.
 func AppendClientAttribution(ctx *gin.Context, other map[string]interface{}) {
 	if other == nil || ctx == nil || ctx.Request == nil {
 		return
@@ -73,6 +79,11 @@ func AppendClientAttribution(ctx *gin.Context, other map[string]interface{}) {
 	}
 	if ua != "" {
 		other["client_user_agent"] = truncateAttribution(ua)
+	}
+	// Normalized (lowercased host, default port dropped) so the same platform
+	// groups as one value instead of several spellings.
+	if origin, err := common.NormalizeOrigin(h.Get("Origin")); err == nil {
+		other["client_origin"] = truncateAttribution(origin)
 	}
 }
 

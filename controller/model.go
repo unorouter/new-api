@@ -196,12 +196,13 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 	userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 	if userGroup == "" && (tokenGroup == "" || tokenGroup == "auto" || service.IsCompositeTokenGroup(tokenGroup)) {
 		// No credential at all: /v1/models is readable without a token, so an
-		// anonymous caller is answered with the default group rather than a
-		// user lookup that cannot succeed for id 0.
+		// anonymous caller is answered as the default group. The group name is
+		// expanded the same way an "auto" token is, because abilities are keyed
+		// by per-channel group and asking for "default" itself matches nothing.
 		if c.GetInt("id") == 0 {
 			return modelListGroups{
 				userGroup:   defaultModelListGroup,
-				ownerGroups: []string{defaultModelListGroup},
+				ownerGroups: service.GetRequestAutoGroups(c, defaultModelListGroup),
 			}, nil
 		}
 		var err error
