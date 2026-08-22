@@ -48,3 +48,52 @@ func TestForbiddenDisableMap(t *testing.T) {
 		assert.False(t, ShouldDisableChannel(mk403(msg)), "must NOT disable: %s", name)
 	}
 }
+
+func mk(code int, msg string) *types.NewAPIError {
+	return types.NewOpenAIError(errors.New(msg), types.ErrorCodeBadResponseStatusCode, code)
+}
+
+// Every shape below is a real production message from the 30-day error map.
+func TestModerationNeverDisablesRegardlessOfStatus(t *testing.T) {
+	common.AutomaticDisableChannelEnabled = true
+	if err := operation_setting.AutomaticDisableStatusCodesFromString("400-406,410,422,429,500,502-504,520-521,523-530"); err != nil {
+		t.Fatal(err)
+	}
+	moderation := []struct {
+		code int
+		msg  string
+	}{
+		{500, "sensitive words detected"},
+		{500, "sensitive_words_detected"},
+		{500, "request blocked by Google Gemini (PROHIBITED_CONTENT): content is prohibited"},
+		{500, `{"code":"cyber_policy","message":"This content was flagged for possible"}`},
+		{503, "Content moderation is temporarily unavailable."},
+		{502, "Upstream error from AtlasCloud: Input data may contain inappropriate content."},
+		{502, "Upstream error from Alibaba: Output data may contain inappropriate content."},
+		{502, "Invalid prompt: your prompt was flagged as potentially violating our usage policy"},
+		{429, "Output data may contain inappropriate content."},
+		{429, "内容审计命中风险规则，请调整输入后重试"},
+		{429, "The model output could not be generated. This output contains sensitive"},
+		{400, "Input data may contain inappropriate content."},
+		{403, `{"code":"permission-denied","error":"Content violates usage guidelines."}`},
+	}
+	for _, c := range moderation {
+		assert.False(t, ShouldDisableChannel(mk(c.code, c.msg)),
+			"moderation must not disable: [%d] %s", c.code, c.msg)
+	}
+	// The transient/dead codes this fix must NOT have neutered.
+	stillDisable := []struct {
+		code int
+		msg  string
+	}{
+		{504, `Post "https://x.com/v1": http: timeout awaiting response headers`},
+		{502, "upstream streamed an empty response (no content/tool calls)"},
+		{403, "预扣费额度失败, 用户剩余额度: $0.40"},
+		{403, "无权访问 vip_1_azure 分组"},
+		{500, "Internal server error"},
+	}
+	for _, c := range stillDisable {
+		assert.True(t, ShouldDisableChannel(mk(c.code, c.msg)),
+			"should still disable: [%d] %s", c.code, c.msg)
+	}
+}
