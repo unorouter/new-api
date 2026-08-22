@@ -581,22 +581,32 @@ var upstreamModerationMarkers = []string{
 	// Not moderation but the same shape: a size/step ceiling refusing one
 	// oversized image request on an otherwise working channel.
 	"due to heavy demand",
+	// Underscore variant: some relays emit the code, not the prose.
+	"sensitive_words_detected",
+	// Google returns its safety block inside a 500 rather than a 400.
+	"prohibited_content",
+	// Reseller wording for a security/policy flag on the prompt.
+	"cyber_policy",
+	// The upstream's moderator itself is down. Not a channel fault, and it
+	// recovers on its own, so the lane must stay in rotation.
+	"content moderation is temporarily unavailable",
+	// The completion, not the prompt, tripped the filter.
+	"output contains sensitive",
+	"系统检测到输入或生成内容可能包含不安全或敏感内容",
 }
 
-// PROD-ONLY (fork): IsUpstreamModerationError reports whether an upstream 400/422
-// is that upstream's content-moderation reject. Used to failover to a sibling
-// channel AND to spare the channel from auto-disable (request-caused, not a
-// channel fault).
+// PROD-ONLY (fork): IsUpstreamModerationError reports whether an upstream error is
+// that upstream's content-moderation reject. Used to failover to a sibling channel
+// AND to spare the channel from auto-disable (request-caused, not a channel fault).
+//
+// Deliberately NOT scoped by status code. Upstreams return the same refusal under
+// 400, 403, 429, 500, 502 and 503 (measured across 30 days of production: 158
+// errors on 15 channels arrived under a code the old 400/422/403 scoping rejected),
+// and every one of those is in the auto-disable ranges, so the scoping banned
+// healthy channels for one bad prompt. The markers are specific enough to stand on
+// their own; the status code carries no extra signal here.
 func IsUpstreamModerationError(err *NewAPIError) bool {
 	if err == nil || err.errorType == ErrorTypeNewAPIError {
-		return false
-	}
-	// 403 included: several upstreams return their content refusal as Forbidden
-	// rather than 400, and 403 is in the auto-disable ranges, so without this a
-	// healthy channel is banned for one bad prompt.
-	if err.StatusCode != http.StatusBadRequest &&
-		err.StatusCode != http.StatusUnprocessableEntity &&
-		err.StatusCode != http.StatusForbidden {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
