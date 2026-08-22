@@ -351,11 +351,19 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	//     fails over to a less strict sibling;
 	//   - transient upstream 400 ("degraded", "retry later", "try again"): capacity
 	//     blip, fails over to a sibling and the channel recovers on its own.
+	//   - our own gateway's text echoed back by an upstream that runs new-api: it
+	//     describes OUR state (banned user, busy model), never the channel's.
 	if types.IsDeterministicUpstreamError(err) ||
 		types.IsUpstreamModerationError(err) ||
+		types.IsSelfEchoedError(err) ||
 		types.IsTransientUpstream400(err) {
 		return false
 	}
+	// A 403 reaching here is a channel-side fault in ~90% of production cases (a
+	// drained upstream wallet, a group the key cannot access, an expired trial, a
+	// plan that does not cover the model), and none of those clear on their own.
+	// ShouldDisableByStatusCode already returns true for it; the caller's
+	// failure-RATE guard is what keeps a one-off refusal from pulling a busy lane.
 	if operation_setting.ShouldDisableByStatusCode(err.StatusCode) {
 		return true
 	}
