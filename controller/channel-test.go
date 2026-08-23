@@ -1605,13 +1605,15 @@ func runModelStatusSnapshot() {
 	// per-minute it was a full scan of 17M+ rows every 60s and the biggest
 	// standing load on the DB.
 	//
-	// Gate on the MINUTE OF THE HOUR, not on minuteIndex%60. minuteIndex is an
-	// absolute minute count (unix/60), so minuteIndex%60==0 only lines up when
-	// that counter happens to divide by 60 AND the job runs in that exact
-	// minute -- in practice it almost never did, so the retention prune never
-	// ran and the table reached 30 days of rows against a 7-day policy
-	// (18.6M rows / 4.85GB, 2026-08-19).
-	if time.Unix(timestamp, 0).UTC().Minute() == 0 {
+	// Gate on the minute this run STARTED, not on `timestamp`, and not on
+	// minuteIndex%60. Two ways to get this wrong, both shipped once:
+	// minuteIndex is an absolute minute count (unix/60), so minuteIndex%60==0
+	// almost never coincides with a run; and `timestamp` is the PREVIOUS minute
+	// (the one being recorded) while sleepUntilNextMinute wakes at HH:MM:00.5,
+	// so at 02:00:00.5 it reads 01:59 and Minute() is 59, never 0. Both left the
+	// retention prune dead: 30 days of rows against a 7-day policy (18.6M rows
+	// / 4.85GB, 2026-08-19), then still 2.0M stale rows after the first fix.
+	if time.Now().UTC().Minute() == 0 {
 		if len(modelNames) > 0 {
 			if err := model.DeleteModelStatusPingsNotIn(modelNames); err != nil {
 				common.SysLog("model status snapshot: orphan ping delete failed: " + err.Error())
