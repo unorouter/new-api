@@ -1735,6 +1735,30 @@ var reasoningProbeKeywords = []string{
 	"minimax-m", "kimi-k2", "gpt-oss", "magistral", "ernie-x", "hunyuan-t", "seed-thinking",
 }
 
+// PROD-ONLY (fork): modelIsReasoning reports whether the synced catalog marks
+// this model as reasoning. The keyword list below can only recognize families
+// somebody already added to it, so a new reasoning model (stealth/ox-alpha,
+// every Claude 4.x) probes with the 16-token budget, spends all of it on
+// chain-of-thought, returns empty content and is auto-disabled forever by its
+// own recovery probe. The sync writes isReasoning for exactly this purpose.
+// Reads the 1-minute-cached pricing snapshot, so this costs no query per probe.
+func modelIsReasoning(modelName string) bool {
+	if modelName == "" || model.DB == nil {
+		return false
+	}
+	for _, p := range model.GetPricingWithOffline() {
+		if p.ModelName != modelName || p.Metadata == "" {
+			continue
+		}
+		var md dto.ModelMetadata
+		if err := common.UnmarshalJsonStr(p.Metadata, &md); err != nil {
+			return false
+		}
+		return md.IsReasoning
+	}
+	return false
+}
+
 // PROD-ONLY (fork): reasoningProbeMaxTokens returns a probe max_tokens generous
 // enough for a default-reasoning model to emit visible content after its CoT.
 // Mirrors the gemini branch (3000). Non-reasoning models keep the cheap 16.
@@ -1744,6 +1768,11 @@ func reasoningProbeMaxTokens(modelName string, fallback uint) uint {
 		if strings.Contains(name, kw) {
 			return 3000
 		}
+	}
+	// Catalog metadata second: the keyword list stays the cheap path and still
+	// covers models the sync never priced.
+	if modelIsReasoning(modelName) {
+		return 3000
 	}
 	return fallback
 }
