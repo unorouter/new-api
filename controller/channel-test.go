@@ -1746,18 +1746,36 @@ func modelIsReasoning(modelName string) bool {
 	if modelName == "" || model.DB == nil {
 		return false
 	}
-	for _, p := range model.GetPricingWithOffline() {
-		if p.ModelName != modelName || p.Metadata == "" {
-			continue
+	if v, ok := reasoningMetaCache.Load(modelName); ok {
+		if e := v.(reasoningMetaEntry); time.Since(e.at) < time.Minute*5 {
+			return e.reasoning
 		}
-		var md dto.ModelMetadata
-		if err := common.UnmarshalJsonStr(p.Metadata, &md); err != nil {
-			return false
-		}
-		return md.IsReasoning
 	}
-	return false
+	// Read the models table directly rather than the pricing snapshot: pricing is
+	// built from abilities, and a model whose every channel is disabled is
+	// exactly the case this lookup exists to rescue.
+	var meta struct{ Metadata string }
+	err := model.DB.Table("models").Select("metadata").
+		Where("model_name = ?", modelName).Limit(1).Scan(&meta).Error
+	reasoning := false
+	if err == nil && meta.Metadata != "" {
+		var md dto.ModelMetadata
+		if common.UnmarshalJsonStr(meta.Metadata, &md) == nil {
+			reasoning = md.IsReasoning
+		}
+	}
+	reasoningMetaCache.Store(modelName, reasoningMetaEntry{reasoning: reasoning, at: time.Now()})
+	return reasoning
 }
+
+// Probes run per channel on a schedule, so the same few model names repeat
+// constantly. Short-lived so a re-synced flag lands without a restart.
+type reasoningMetaEntry struct {
+	reasoning bool
+	at        time.Time
+}
+
+var reasoningMetaCache sync.Map
 
 // PROD-ONLY (fork): reasoningProbeMaxTokens returns a probe max_tokens generous
 // enough for a default-reasoning model to emit visible content after its CoT.
