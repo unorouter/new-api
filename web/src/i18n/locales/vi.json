@@ -5409,6 +5409,7 @@
     "Response timeouts": "Thời gian chờ phản hồi",
     "Limits only the wait for the first token. A reply that has started streaming is never cut off.": "Chỉ giới hạn thời gian chờ token đầu tiên. Câu trả lời đã bắt đầu truyền sẽ không bao giờ bị cắt.",
     "Per provider (seconds, 0 = off)": "Mỗi nhà cung cấp (giây, 0 = tắt)",
-    "Whole chain (seconds, 0 = off)": "Toàn bộ chuỗi (giây, 0 = tắt)"
+    "Whole chain (seconds, 0 = off)": "Toàn bộ chuỗi (giây, 0 = tắt)",
+    "Client": "Ứng dụng"
   }
 }

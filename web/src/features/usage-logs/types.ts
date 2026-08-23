@@ -164,6 +164,12 @@ export interface LogOtherData {
   login_method?: string
   user_agent?: string
   request_path?: string
+  // Which tool made the request, self-reported via the headers OpenRouter
+  // established. Distinct from user_agent above, which is a login audit field.
+  client_title?: string
+  client_origin?: string
+  client_referer?: string
+  client_user_agent?: string
   request_conversion?: string[]
   ws?: boolean
   audio?: boolean
