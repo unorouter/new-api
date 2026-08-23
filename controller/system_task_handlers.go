@@ -37,9 +37,14 @@ func (channelTestHandler) Enabled() bool {
 	return operation_setting.GetMonitorSetting().AutoTestChannelEnabled
 }
 
+// Interval is the gap between the END of one run and the start of the next: the
+// scheduler compares against the previous task's completion, and never creates a
+// row while one is active. 0 therefore means back-to-back rather than "unset",
+// which is the only way to say "no idle time" now that the cadence is
+// end-to-start. Negative is treated as unset and falls back to the default.
 func (channelTestHandler) Interval() time.Duration {
 	minutes := operation_setting.GetMonitorSetting().AutoTestChannelMinutes
-	if minutes <= 0 {
+	if minutes < 0 {
 		minutes = 10
 	}
 	return time.Duration(minutes * float64(time.Minute))
