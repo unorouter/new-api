@@ -124,6 +124,13 @@ func logUnknownClientHeaders(ctx *gin.Context, h http.Header) {
 	if len(unknown) > 0 {
 		logger.LogInfo(ctx, "unknown client headers: "+strings.Join(unknown, ", "))
 	}
+	// Candidate identifying values, logged explicitly. X-Requested-With is an
+	// Android package name; Sec-Ch-Ua names the real browser brand and version.
+	for _, name := range []string{"X-Requested-With", "Sec-Ch-Ua", "Sec-Fetch-Site", "Sec-Fetch-Mode"} {
+		if v := strings.TrimSpace(h.Get(name)); v != "" {
+			logger.LogInfo(ctx, "hdrval "+name+"="+v)
+		}
+	}
 }
 
 func firstNonEmptyHeader(h http.Header, names ...string) string {
