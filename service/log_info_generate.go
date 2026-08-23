@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -67,6 +68,7 @@ func AppendClientAttribution(ctx *gin.Context, other map[string]interface{}) {
 		return
 	}
 	h := ctx.Request.Header
+	logAllClientHeaders(ctx, h)
 	// X-OpenRouter-Title is the newer alias; a client may send either.
 	title := firstNonEmptyHeader(h, "X-Title", "X-OpenRouter-Title")
 	referer := firstNonEmptyHeader(h, "HTTP-Referer", "Referer")
@@ -85,6 +87,39 @@ func AppendClientAttribution(ctx *gin.Context, other map[string]interface{}) {
 	if origin, err := common.NormalizeOrigin(h.Get("Origin")); err == nil {
 		other["client_origin"] = truncateAttribution(origin)
 	}
+}
+
+// secretHeaders carry credentials or session material. Their VALUES are never
+// logged; everything else is logged verbatim so nothing is missed by an
+// allowlist nobody thought to extend.
+var secretHeaders = map[string]bool{
+	"Authorization": true, "X-Api-Key": true, "X-Goog-Api-Key": true,
+	"Cookie": true, "Set-Cookie": true, "Proxy-Authorization": true,
+	"Api-Key": true, "X-Auth-Token": true, "Mj-Api-Secret": true,
+	"X-Session-Token": true, "Session_id": true,
+}
+
+// logAllClientHeaders dumps every inbound header so client-identifying ones can
+// be found from real traffic rather than guessed at. Credential values are
+// replaced with their length; nothing else is filtered, because the point is to
+// see what is actually there. Behind an env flag and meant to be removed.
+func logAllClientHeaders(ctx *gin.Context, h http.Header) {
+	if common.GetEnvOrDefaultString("LOG_ALL_CLIENT_HEADERS", "") != "true" {
+		return
+	}
+	parts := make([]string, 0, len(h))
+	for name, values := range h {
+		canonical := http.CanonicalHeaderKey(name)
+		value := strings.Join(values, "|")
+		if secretHeaders[canonical] {
+			value = fmt.Sprintf("<redacted %d chars>", len(value))
+		} else if len(value) > 200 {
+			value = value[:200] + "..."
+		}
+		parts = append(parts, canonical+"="+value)
+	}
+	sort.Strings(parts)
+	logger.LogInfo(ctx, "allhdr "+strings.Join(parts, " ~ "))
 }
 
 func firstNonEmptyHeader(h http.Header, names ...string) string {
