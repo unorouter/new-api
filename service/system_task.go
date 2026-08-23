@@ -135,6 +135,11 @@ func StartSystemTaskRunner() {
 
 			var lastScheduler time.Time
 			var lastStaleLockCleanup time.Time
+			// forceScheduler makes the next pass run the scheduler regardless of the
+			// throttle. Set when a task FINISHES: a scheduled type is due the moment
+			// its previous run ended, and making it wait out the throttle first is
+			// pure idle time.
+			forceScheduler := false
 			runPass := func() {
 				// The scheduler/stale-lock pass is throttled independently of the
 				// claim pass: wakeups (e.g. a manual log cleanup) should claim
@@ -150,7 +155,8 @@ func StartSystemTaskRunner() {
 						logger.LogWarn(context.Background(), fmt.Sprintf("system task orphan cleanup failed: %v", err))
 					}
 				}
-				if now.Sub(lastScheduler) >= systemTaskSchedulerInterval {
+				if forceScheduler || now.Sub(lastScheduler) >= systemTaskSchedulerInterval {
+					forceScheduler = false
 					lastScheduler = now
 					runSystemTaskScheduler()
 				}
@@ -162,6 +168,10 @@ func StartSystemTaskRunner() {
 				select {
 				case <-ticker.C:
 				case <-systemTaskWakeup:
+					// A wakeup means something changed (a task finished, or one was
+					// enqueued), so the scheduler runs on this pass rather than
+					// waiting out its throttle.
+					forceScheduler = true
 				}
 				runPass()
 			}
@@ -256,6 +266,11 @@ func runSystemTaskClaimPass(runnerID string) {
 			runWithLeaseHeartbeat(dispatchTask, runnerID, func(ctx context.Context) {
 				dispatchHandler.Run(ctx, dispatchTask, runnerID)
 			})
+			// A scheduled task is only due once the previous run FINISHED, so the
+			// moment one ends is the moment the next may be created. Without this
+			// the runner waits out its idle ticker first, which idled the channel
+			// probe for 60-90s between every 105s run.
+			notifySystemTaskRunner()
 		})
 	}
 }
