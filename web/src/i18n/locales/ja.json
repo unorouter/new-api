@@ -5409,6 +5409,7 @@
     "Response timeouts": "応答タイムアウト",
     "Limits only the wait for the first token. A reply that has started streaming is never cut off.": "最初のトークンを待つ時間だけを制限します。ストリーミングが始まった返信は途中で打ち切られません。",
     "Per provider (seconds, 0 = off)": "プロバイダーごと（秒、0 = 無効）",
-    "Whole chain (seconds, 0 = off)": "リトライ全体（秒、0 = 無効）"
+    "Whole chain (seconds, 0 = off)": "リトライ全体（秒、0 = 無効）",
+    "Client": "クライアント"
   }
 }

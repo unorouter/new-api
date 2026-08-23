@@ -46,6 +46,7 @@ import {
   formatModelName,
   getTieredBillingSummary,
   hasAnyCacheTokens,
+  getClientAttribution,
   parseLogOther,
   isViolationFeeLog,
   renderAuditContent,
@@ -617,6 +618,31 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         )
       },
       meta: { mobileTitle: true },
+    },
+    {
+      id: 'client',
+      header: t('Client'),
+      cell: ({ row }) => {
+        const log = row.original
+        if (!isDisplayableLogType(log.type)) return null
+
+        const client = getClientAttribution(parseLogOther(log.other))
+        // Blank when the caller sent nothing identifying. Showing a bare
+        // browser User-Agent here would read as a real app name.
+        if (!client) return null
+
+        return (
+          <div className='flex w-fit flex-col gap-0.5 text-xs leading-tight'>
+            <span className='truncate font-medium'>{client.label}</span>
+            {client.detail && (
+              <span className='text-muted-foreground truncate'>
+                {client.detail}
+              </span>
+            )}
+          </div>
+        )
+      },
+      meta: { label: t('Client') },
     },
     {
       accessorKey: 'is_stream',
