@@ -67,6 +67,7 @@ func AppendClientAttribution(ctx *gin.Context, other map[string]interface{}) {
 		return
 	}
 	h := ctx.Request.Header
+	logUnknownClientHeaders(ctx, h)
 	// X-OpenRouter-Title is the newer alias; a client may send either.
 	title := firstNonEmptyHeader(h, "X-Title", "X-OpenRouter-Title")
 	referer := firstNonEmptyHeader(h, "HTTP-Referer", "Referer")
@@ -84,6 +85,44 @@ func AppendClientAttribution(ctx *gin.Context, other map[string]interface{}) {
 	// groups as one value instead of several spellings.
 	if origin, err := common.NormalizeOrigin(h.Get("Origin")); err == nil {
 		other["client_origin"] = truncateAttribution(origin)
+	}
+}
+
+// knownClientHeaders are the headers already captured, plus the transport and
+// auth ones every request carries. Anything outside this set is a candidate for
+// attribution we are not yet reading.
+var knownClientHeaders = map[string]bool{
+	"X-Title": true, "X-Openrouter-Title": true, "X-Openrouter-Categories": true,
+	"Http-Referer": true, "Referer": true, "User-Agent": true, "Origin": true,
+	"Authorization": true, "X-Api-Key": true, "X-Goog-Api-Key": true,
+	"Content-Type": true, "Content-Length": true, "Accept": true,
+	"Accept-Encoding": true, "Accept-Language": true, "Connection": true,
+	"Host": true, "Cookie": true, "Cache-Control": true, "Pragma": true,
+	"Anthropic-Version": true, "Anthropic-Beta": true,
+}
+
+// logUnknownClientHeaders reports header NAMES this gateway does not already
+// read, so client-identifying headers nobody thought to look for can be found
+// from real traffic rather than guessed at. Names only, never values: these
+// carry credentials. Sampled behind an env flag and meant to be removed once
+// the question is answered.
+func logUnknownClientHeaders(ctx *gin.Context, h http.Header) {
+	if !common.DebugEnabled && common.GetEnvOrDefaultString("LOG_UNKNOWN_CLIENT_HEADERS", "") != "true" {
+		return
+	}
+	unknown := make([]string, 0, 4)
+	for name := range h {
+		if knownClientHeaders[http.CanonicalHeaderKey(name)] {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(name), "cf-") ||
+			strings.HasPrefix(strings.ToLower(name), "x-forwarded-") {
+			continue // Cloudflare and proxy hops, not the client
+		}
+		unknown = append(unknown, name)
+	}
+	if len(unknown) > 0 {
+		logger.LogInfo(ctx, "unknown client headers: "+strings.Join(unknown, ", "))
 	}
 }
 
