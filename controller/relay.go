@@ -592,6 +592,11 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if types.IsSharedFilterModerationError(openaiErr) {
 		return false
 	}
+	// An out-of-range parameter value is in the request body every sibling gets,
+	// so the chain reproduces the same rejection on each channel.
+	if types.IsInvalidParamError(openaiErr) {
+		return false
+	}
 	// PROD-ONLY (fork): force failover for per-channel 400s that a sibling can
 	// still serve - moderation is per-upstream (one channel's content-policy reject
 	// passes on a laxer sibling), and a capacity/degradation 400 (NVIDIA DEGRADED,
