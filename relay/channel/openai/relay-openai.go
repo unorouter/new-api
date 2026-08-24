@@ -141,6 +141,30 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 	return helper.ObjectData(c, lastStreamResponse)
 }
 
+// SendPendingThinkClose closes a `<think>` block left open when the stream died
+// during reasoning (budget exhausted before any answer text). The closing tag is
+// normally emitted on the reasoning-to-content transition, so a reasoning-only
+// stream never sends it, and tag-stripping clients (JanitorAI, SillyTavern)
+// cannot strip an unterminated block: the raw chain of thought renders as the
+// bot's reply.
+func SendPendingThinkClose(c *gin.Context, info *relaycommon.RelayInfo, responseId string, createAt int64) {
+	if !info.ChannelSetting.ThinkingToContent ||
+		!info.ThinkingContentInfo.HasSentThinkingContent ||
+		info.ThinkingContentInfo.SendLastThinkingContent {
+		return
+	}
+	response := dto.ChatCompletionsStreamResponse{
+		Id:      responseId,
+		Object:  "chat.completion.chunk",
+		Created: createAt,
+		Model:   info.UpstreamModelName,
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{}},
+	}
+	response.Choices[0].Delta.SetContentString("\n</think>\n")
+	info.ThinkingContentInfo.SendLastThinkingContent = true
+	_ = helper.ObjectData(c, &response)
+}
+
 func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	if resp == nil || resp.Body == nil {
 		logger.LogError(c, "invalid response or response body")
@@ -267,6 +291,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		if shouldSendLastResp {
 			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 		}
+		SendPendingThinkClose(c, info, responseId, createAt)
 	}
 
 	if !containStreamUsage {
