@@ -557,6 +557,80 @@ var transientUpstream400Markers = []string{
 	"upstream request failed",
 }
 
+// invalidSamplerValueMarkers are upstream rejections of a SAMPLER VALUE the
+// caller sent: temperature/top_p outside the accepted range (JanitorAI defaults
+// temperature to 1.1 and several upstreams cap it at 1.0, one accepts only
+// exactly 1). The value rides in the body every sibling receives, so the chain
+// reproduces the same rejection.
+//
+// Measured over the full log history: 1,855 requests hit one of these and only
+// 38 (2%) ever succeeded on any sibling, so failover is ~98% waste. Wordings are
+// taken from the corpus rather than invented, and the same fault appears in
+// English and Chinese from one upstream family.
+//
+// Deliberately EXCLUDED, because a sibling really can serve them:
+//   - unsupported FIELD ("Unknown name top_k", "property 'top_k' is
+//     unsupported", "Penalty is not enabled") - another upstream accepts it;
+//   - max_tokens ceilings, which are per-model (4096 / 8192 / 32768 / 384000 all
+//     appear in the corpus), so a roomier sibling answers fine.
+var invalidSamplerValueMarkers = []string{
+	// "The temperature parameter is illegal.：限制数值范围[0,1]" and the
+	// "temperature参数非法" / "限制小数点[2]位" variants of the same upstream.
+	"parameter is illegal",
+	"参数非法",
+	"限制数值范围",
+	"限制小数点",
+	// "invalid temperature: only 1 is allowed for this model"
+	"invalid temperature",
+	// "field temperature invalid" / "field Temperature invalid, should be in [0.0, 1.0]"
+	"field temperature invalid",
+	// "'temperature' must be in the range [0.0 and 1.0]"
+	"'temperature' must be in the range",
+	// "'$.x.y.temperature' value must be less or equal than 1;"
+	"temperature' value must be less",
+	// "top_p must be in (0, 1], got 0.0. (parameter=top_p, value=0.0)"
+	"top_p must be in",
+	// "Validation: Top_k must be null, -1, or greater than or equal to 1"
+	"top_k must be null",
+	// "'/top_k' must be <= 50"
+	"'/top_k' must be",
+}
+
+// temperatureRangeMarkers pair with a temperature mention to catch the
+// structured validators (FastAPI/pydantic) that name the field and the bound in
+// separate fragments: `{"type":"less_than_equal","loc":["body","temperature"],
+// "msg":"Input should be less than or equal to 1"}`.
+var temperatureRangeMarkers = []string{
+	"less than or equal",
+	"less_than_equal",
+	"greater than or equal",
+	"greater_than_equal",
+}
+
+// IsInvalidParamError reports an upstream refusal caused by a sampler VALUE the
+// client sent, which no sibling channel can accept either.
+func IsInvalidParamError(err *NewAPIError) bool {
+	if err == nil || err.errorType == ErrorTypeNewAPIError {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, marker := range invalidSamplerValueMarkers {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	// A bound complaint only counts when it names a sampler field: the same
+	// wording carries per-model max_tokens ceilings, which DO differ per sibling.
+	if strings.Contains(msg, "temperature") || strings.Contains(msg, "top_p") {
+		for _, marker := range temperatureRangeMarkers {
+			if strings.Contains(msg, marker) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 var upstreamModerationMarkers = []string{
 	"inappropriate content",
 	"datainspectionfailed",
@@ -710,6 +784,11 @@ func IsTransientUpstream400(err *NewAPIError) bool {
 		return false
 	}
 	if err.StatusCode != http.StatusBadRequest {
+		return false
+	}
+	// A named-parameter fault is permanent even when the upstream wraps it in
+	// reseller boilerplate that matches a transient marker.
+	if IsInvalidParamError(err) {
 		return false
 	}
 	msg := strings.ToLower(err.Error())

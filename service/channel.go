@@ -356,6 +356,7 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	if types.IsDeterministicUpstreamError(err) ||
 		types.IsUpstreamModerationError(err) ||
 		types.IsSharedFilterModerationError(err) ||
+		types.IsInvalidParamError(err) ||
 		types.IsSelfEchoedError(err) ||
 		types.IsTransientUpstream400(err) {
 		return false
