@@ -632,21 +632,32 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         if (!client) return null
 
         return (
-          <div className='flex max-w-52 flex-col gap-0.5 text-xs leading-tight'>
-            <span className='truncate font-medium' title={client.label}>
-              {client.label}
-            </span>
-            {client.detail && (
-              <span
-                className='text-muted-foreground truncate'
-                title={client.detail}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <div className='flex max-w-[160px] flex-col gap-0.5 text-xs leading-tight' />
+                }
               >
-                {client.detail}
-              </span>
-            )}
-          </div>
+                <span className='truncate font-medium'>{client.label}</span>
+                {client.detail && (
+                  <span className='text-muted-foreground truncate'>
+                    {client.detail}
+                  </span>
+                )}
+              </TooltipTrigger>
+              <TooltipContent className='max-w-sm break-all'>
+                <div className='font-medium'>{client.label}</div>
+                {client.detail && (
+                  <div className='text-muted-foreground'>{client.detail}</div>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         )
       },
+      size: 160,
+      maxSize: 180,
       meta: { label: t('Client') },
     },
     {
