@@ -586,6 +586,12 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if _, ok := c.Get("specific_channel_id"); ok {
 		return false
 	}
+	// A moderation verdict from a filter every sibling shares (those shards all
+	// front the same z.ai endpoint) repeats identically on failover, so the chain
+	// only delays the refusal the user needs to see.
+	if types.IsSharedFilterModerationError(openaiErr) {
+		return false
+	}
 	// PROD-ONLY (fork): force failover for per-channel 400s that a sibling can
 	// still serve - moderation is per-upstream (one channel's content-policy reject
 	// passes on a laxer sibling), and a capacity/degradation 400 (NVIDIA DEGRADED,

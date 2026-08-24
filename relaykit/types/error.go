@@ -578,9 +578,6 @@ var upstreamModerationMarkers = []string{
 	"内容审计",
 	"违反使用规定",
 	"风险规则",
-	// shared-filter closes the stream with an empty body and states the verdict in
-	// last_error; the shard proxy surfaces it as this.
-	"shared-filter moderation",
 	// Not moderation but the same shape: a size/step ceiling refusing one
 	// oversized image request on an otherwise working channel.
 	"due to heavy demand",
@@ -614,6 +611,32 @@ func IsUpstreamModerationError(err *NewAPIError) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	for _, marker := range upstreamModerationMarkers {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// sharedFilterModerationMarkers are moderation rejects from an upstream filter
+// that EVERY sibling channel shares (all those shards front the same z.ai
+// guest endpoint), so failing over re-runs the identical verdict: a real user
+// burned 4 shards and 19 seconds on one refusal. Unlike the per-upstream
+// markers above, these must stop the chain and reach the user directly. Still
+// no channel fault: the request caused it, the lane is healthy.
+var sharedFilterModerationMarkers = []string{
+	// The chatglm shard proxy's tag for z.ai's last_error intervene verdict.
+	"shared-filter moderation",
+}
+
+// IsSharedFilterModerationError reports an upstream moderation reject that every
+// sibling would repeat, so retrying is pure waste.
+func IsSharedFilterModerationError(err *NewAPIError) bool {
+	if err == nil || err.errorType == ErrorTypeNewAPIError {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, marker := range sharedFilterModerationMarkers {
 		if strings.Contains(msg, marker) {
 			return true
 		}
