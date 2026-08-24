@@ -139,6 +139,22 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 	return err
 }
 
+// Whether an already-committed response is an OpenAI-format SSE stream, the one
+// shape a bare {"error":{...}} chunk is valid in. Claude and Responses streams
+// name every event, so an unnamed chunk would be a protocol violation there, and
+// a committed NON-stream response has no frame to append to at all.
+func isCommittedSSE(c *gin.Context, relayFormat types.RelayFormat) bool {
+	if relayFormat != types.RelayFormatOpenAI {
+		return false
+	}
+	// A stream that already sent [DONE] is closed; appending past it is the same
+	// corruption the JSON write was skipped to avoid.
+	if helper.StreamDoneSent(c) {
+		return false
+	}
+	return strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream")
+}
+
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	requestId := c.GetString(common.RequestIdKey)
@@ -163,11 +179,19 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	defer func() {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
-			// Response already streamed to the client (e.g. an empty-stream fault
-			// detected after the SSE + [DONE] were sent): the channel-disable side
-			// effect already ran via processChannelError, but writing a JSON error
-			// now would corrupt the committed stream. Skip the client write.
+			// Response already streamed to the client. A JSON body would corrupt the
+			// committed stream, so it stays skipped, but returning nothing ends the
+			// SSE with no [DONE] and no error and every client then reports only that
+			// the stream stopped ("response ended without a finish reason") while the
+			// real cause lives in our logs alone. An error event IS legal mid-SSE, so
+			// send the masked one; masked because this path reaches the user, where
+			// the uncommitted path below can afford the raw text.
 			if c.Writer.Written() {
+				if isCommittedSSE(c, relayFormat) {
+					newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.MaskSensitiveErrorWithStatusCode(), requestId))
+					_ = helper.ObjectData(c, gin.H{"error": newAPIError.ToOpenAIError()})
+					helper.Done(c)
+				}
 				return
 			}
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))

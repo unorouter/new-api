@@ -133,7 +133,29 @@ func ObjectData(c *gin.Context, object interface{}) error {
 	return StringData(c, string(jsonData))
 }
 
+const doneSentKey = "uno_stream_done_sent"
+
+// Whether [DONE] already closed this stream, so a late error must not append to
+// it.
+func StreamDoneSent(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	sent, ok := c.Get(doneSentKey)
+	return ok && sent == true
+}
+
+// Idempotent: a stream that already terminated must not get a second [DONE], and
+// the error path in controller/relay.go can fire after the success path already
+// closed the stream.
 func Done(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	if sent, ok := c.Get(doneSentKey); ok && sent == true {
+		return
+	}
+	c.Set(doneSentKey, true)
 	_ = StringData(c, "[DONE]")
 }
 
