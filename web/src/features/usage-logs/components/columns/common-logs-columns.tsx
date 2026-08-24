@@ -632,10 +632,15 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         if (!client) return null
 
         return (
-          <div className='flex w-fit flex-col gap-0.5 text-xs leading-tight'>
-            <span className='truncate font-medium'>{client.label}</span>
+          <div className='flex max-w-52 flex-col gap-0.5 text-xs leading-tight'>
+            <span className='truncate font-medium' title={client.label}>
+              {client.label}
+            </span>
             {client.detail && (
-              <span className='text-muted-foreground truncate'>
+              <span
+                className='text-muted-foreground truncate'
+                title={client.detail}
+              >
                 {client.detail}
               </span>
             )}
