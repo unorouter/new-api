@@ -305,6 +305,7 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 		response = helper.GenerateStopResponse(id, createAt, info.UpstreamModelName, finishReason)
 		response.Usage = usage
 	}
+	openai.SendPendingThinkClose(c, info, id, createAt)
 	handleErr := handleFinalStream(c, info, response)
 	if handleErr != nil {
 		common.SysLog("send final response failed: " + handleErr.Error())

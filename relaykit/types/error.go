@@ -578,6 +578,9 @@ var upstreamModerationMarkers = []string{
 	"内容审计",
 	"违反使用规定",
 	"风险规则",
+	// shared-filter closes the stream with an empty body and states the verdict in
+	// last_error; the shard proxy surfaces it as this.
+	"shared-filter moderation",
 	// Not moderation but the same shape: a size/step ceiling refusing one
 	// oversized image request on an otherwise working channel.
 	"due to heavy demand",
