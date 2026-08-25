@@ -46,3 +46,28 @@ func TestApplyOutputLimitClampsCompletionTokens(t *testing.T) {
 	applyOutputLimit(65536, req)
 	assert.Equal(t, uint(65536), *req.MaxCompletionTokens)
 }
+
+// A request that omits max_tokens still gets one, because Anthropic requires the
+// field. One number shared by the whole family was the wrong answer: it
+// truncated every model allowing more than 8192 and overshot the one allowing
+// 4096, and truncation surfaces as finish_reason=length with no error at all.
+func TestResolveDefaultMaxTokens(t *testing.T) {
+	pinned := map[string]int{"default": 8192, "claude-pinned": 16384}
+	cases := []struct {
+		name         string
+		model        string
+		publishedCap int
+		want         int
+	}{
+		{"published cap beats the shared fallback", "claude-fable-5", 128000, 128000},
+		{"a smaller published cap is honored", "claude-haiku", 4096, 4096},
+		{"an entry naming the model outranks the cap", "claude-pinned", 128000, 16384},
+		{"no metadata falls back to the shared value", "claude-unknown", 0, 8192},
+		{"implausible metadata cannot become the default", "claude-odd", 1, 8192},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, resolveDefaultMaxTokens(tc.model, pinned, tc.publishedCap))
+		})
+	}
+}
