@@ -32,11 +32,18 @@ func TestForbiddenDisableMap(t *testing.T) {
 		"workers free":            "AiError: Model @cf/moonshotai/kimi-k2.6 is not available on the Workers Free plan",
 	}
 	neverDisable := map[string]string{
-		"cn content audit":  "内容审计命中风险规则，请调整输入后重试",
-		"safe guard":        "This request was blocked by safe guard policy.",
-		"usage policy":      "Your request was rejected because it violates our usage policy.",
-		"usage guidelines":  `{"code":"permission-denied","error":"Content violates usage guidelines."}`,
-		"image size limit":  `{"message": "Due to heavy demand, for requests over 844x844 or over 50 steps"}`,
+		"cn content audit": "内容审计命中风险规则，请调整输入后重试",
+		"safe guard":       "This request was blocked by safe guard policy.",
+		"usage policy":     "Your request was rejected because it violates our usage policy.",
+		"usage guidelines": `{"code":"permission-denied","error":"Content violates usage guidelines."}`,
+		"image size limit": `{"message": "Due to heavy demand, for requests over 844x844 or over 50 steps"}`,
+	}
+	// An upstream running new-api quotes OUR wording back, and the same sentence
+	// means either "one of our end users is banned there" (channel healthy) or
+	// "our account is banned there" (channel dead). Nothing in the text tells them
+	// apart, so this layer flags it and the caller's failure-RATE guard decides:
+	// a channel still serving others survives on its successes.
+	rateGuardDecides := map[string]string{
 		"our banned user":   "User has been banned (request id: X)",
 		"our disabled chan": "This channel has been disabled (request id: X)",
 		"our model busy":    "This model is busy right now (free providers hit their rate limit).",
@@ -46,6 +53,10 @@ func TestForbiddenDisableMap(t *testing.T) {
 	}
 	for name, msg := range neverDisable {
 		assert.False(t, ShouldDisableChannel(mk403(msg)), "must NOT disable: %s", name)
+	}
+	for name, msg := range rateGuardDecides {
+		assert.True(t, ShouldDisableChannel(mk403(msg)),
+			"must reach the rate guard rather than being excluded here: %s", name)
 	}
 }
 
