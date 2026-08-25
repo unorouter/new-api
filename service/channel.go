@@ -347,8 +347,10 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	// normalize into alwaysSkipRetryCodes:
 	//   - deterministic upstream 400/415/422/451: request-side fault, fails the same
 	//     on every channel;
+	//   - a sampler value no upstream accepts: same body, same rejection everywhere;
 	//   - per-upstream content moderation (400/422): caused by the client's prompt,
-	//     fails over to a less strict sibling;
+	//     fails over to a less strict sibling. 597 of the 616 channels emitting one
+	//     are serving successful traffic, so this must never pull a lane;
 	//   - transient upstream 400 ("degraded", "retry later", "try again"): capacity
 	//     blip, fails over to a sibling and the channel recovers on its own.
 	if types.IsDeterministicUpstreamError(err) ||
