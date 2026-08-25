@@ -718,31 +718,6 @@ func IsSharedFilterModerationError(err *NewAPIError) bool {
 	return false
 }
 
-// selfEchoMarkers are OUR OWN gateway's error strings coming back through a relay
-// chain: an upstream that itself runs new-api rejects our request and quotes its
-// local message. The channel is fine, so banning it would let one banned user
-// walk the whole pool down.
-var selfEchoMarkers = []string{
-	"user has been banned",
-	"用户已被封禁",
-	"this channel has been disabled",
-	"this model is busy right now",
-}
-
-// IsSelfEchoedError reports whether an upstream error is our own gateway's text
-// reflected back, which says nothing about the channel's health.
-func IsSelfEchoedError(err *NewAPIError) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	for _, marker := range selfEchoMarkers {
-		if strings.Contains(msg, marker) {
-			return true
-		}
-	}
-	return false
-}
 
 // IsDeterministicUpstreamError reports whether the error is an upstream-origin
 // request-side fault (see deterministicUpstreamStatusCodes). These must never

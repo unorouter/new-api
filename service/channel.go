@@ -351,16 +351,22 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	//     fails over to a less strict sibling;
 	//   - transient upstream 400 ("degraded", "retry later", "try again"): capacity
 	//     blip, fails over to a sibling and the channel recovers on its own.
-	//   - our own gateway's text echoed back by an upstream that runs new-api: it
-	//     describes OUR state (banned user, busy model), never the channel's.
 	if types.IsDeterministicUpstreamError(err) ||
 		types.IsUpstreamModerationError(err) ||
 		types.IsSharedFilterModerationError(err) ||
 		types.IsInvalidParamError(err) ||
-		types.IsSelfEchoedError(err) ||
 		types.IsTransientUpstream400(err) {
 		return false
 	}
+	// "User has been banned" from an upstream that runs new-api is ambiguous, and
+	// the wording is identical either way: it means one END USER of ours tripped
+	// their rules (channel healthy - banning it would let a single banned user walk
+	// the whole pool down), or OUR ACCOUNT there is banned (channel permanently
+	// dead). Only behaviour separates them, so fall through to the caller's
+	// failure-RATE guard instead of returning false here: a channel still serving
+	// others keeps its successes and survives the rate gate, while a dead account
+	// trips the zero-success floor. Excluding it outright left 3 cent channels
+	// enabled on 4,289 errors and zero successes.
 	// A 403 reaching here is a channel-side fault in ~90% of production cases (a
 	// drained upstream wallet, a group the key cannot access, an expired trial, a
 	// plan that does not cover the model), and none of those clear on their own.
