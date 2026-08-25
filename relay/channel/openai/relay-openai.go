@@ -49,6 +49,25 @@ func openAIResponseHasOutput(resp *dto.OpenAITextResponse) bool {
 	return false
 }
 
+// streamHadOutput is the streaming twin of openAIResponseHasOutput: reasoning
+// counts as the answer only when the turn actually completed (Qwen-style models
+// whose reasoning IS the reply). A stream that ends mid-reasoning - on a length
+// ceiling, or with no finish_reason at all because the upstream just stopped -
+// rendered blank to the reader, so it is an empty response no matter how many
+// reasoning tokens it burned.
+func streamHadOutput(stats *StreamOutputStats, toolCount int) bool {
+	if toolCount > 0 {
+		return true
+	}
+	if stats == nil {
+		return false
+	}
+	if strings.TrimSpace(stats.Content.String()) != "" {
+		return true
+	}
+	return stats.ReasoningChars > 0 && stats.FinishReason == constant.FinishReasonStop
+}
+
 func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {
 	if data == "" {
 		return nil
@@ -179,6 +198,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var systemFingerprint string
 	var containStreamUsage bool
 	var responseTextBuilder strings.Builder
+	var outputStats StreamOutputStats
 	var toolCount int
 	var usage = &dto.Usage{}
 	var lastStreamData string
@@ -245,7 +265,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 			lastStreamData = data
 			collectStreamFunctionCallNames(data, seenStreamToolCalls, &streamFunctionCallNames)
-			if err := processTokenData(info.RelayMode, data, &responseTextBuilder, &toolCount); err != nil {
+			if err := processTokenData(info.RelayMode, data, &responseTextBuilder, &toolCount, &outputStats); err != nil {
 				logger.LogError(c, "error processing stream token data: "+err.Error())
 				sr.Error(err)
 			}
@@ -312,9 +332,13 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// bytes are already on the wire, so we can't fail over; (b) the upstream accepted
 	// the request and sent ZERO usable data (a silent free-tier reseller under load).
 	// In case (b) nothing real was flushed, so we can still fail over to a sibling.
+	//
+	// Judged on outputStats, NOT responseTextBuilder: the builder also holds
+	// reasoning because it feeds billing, so testing it for emptiness only ever
+	// caught shape (b) and was blind to every reasoning-only stream.
 	emptyResponse := info.RelayFormat == types.RelayFormatOpenAI &&
 		operation_setting.GetMonitorSetting().DisableOnEmptyResponse &&
-		strings.TrimSpace(responseTextBuilder.String()) == "" && toolCount == 0 &&
+		!streamHadOutput(&outputStats, toolCount) &&
 		!streamFinishedOnContentFilter(lastStreamData)
 
 	// Case (b): the opener chunks were buffered (streamingStarted stayed false), so

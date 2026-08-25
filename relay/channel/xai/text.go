@@ -60,7 +60,7 @@ func xAIStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		}
 
 		openaiResponse := streamResponseXAI2OpenAI(xAIResp, usage)
-		_ = openai.ProcessStreamResponse(*openaiResponse, &responseTextBuilder, &toolCount)
+		_ = openai.ProcessStreamResponse(*openaiResponse, &responseTextBuilder, &toolCount, nil)
 		if err := helper.ObjectData(c, openaiResponse); err != nil {
 			common.SysLog(err.Error())
 			sr.Error(err)
