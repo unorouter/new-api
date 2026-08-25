@@ -58,7 +58,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	adaptor.Init(info)
 
 	if request.MaxTokens == nil || *request.MaxTokens == 0 {
-		defaultMaxTokens := uint(model_setting.GetClaudeSettings().GetDefaultMaxTokens(request.Model))
+		defaultMaxTokens := uint(claudeDefaultMaxTokens(info.OriginModelName, request.Model))
 		request.MaxTokens = &defaultMaxTokens
 	}
 

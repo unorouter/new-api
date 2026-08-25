@@ -176,6 +176,19 @@ func buildModelLimitsMap(pricings []Pricing) {
 	modelLimitsLock.Unlock()
 }
 
+// GetCachedModelLimits is GetModelLimits without the cache warm, for callers
+// already holding a warmed cache (the relay clamps every request before it
+// needs this) or running where no database exists. Returns zero values rather
+// than opening a query.
+func GetCachedModelLimits(modelName string) ModelLimits {
+	if modelName == "" {
+		return ModelLimits{}
+	}
+	modelLimitsLock.RLock()
+	defer modelLimitsLock.RUnlock()
+	return modelLimitsMap[modelName]
+}
+
 // GetModelLimits returns the cached context window + output cap for a model.
 // Zero values when absent (caller omits them from the response).
 func GetModelLimits(modelName string) ModelLimits {

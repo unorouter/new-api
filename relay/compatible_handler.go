@@ -43,6 +43,43 @@ func clampMaxTokensToModelLimit(modelName string, request *dto.GeneralOpenAIRequ
 	applyOutputLimit(model.GetModelLimits(modelName).MaxOutputTokens, request)
 }
 
+// The value to stamp on a request that carries no max_tokens of its own.
+//
+// A single configured number cannot describe a family spanning 4k to 128k of
+// output: Claude's flat 8192 truncated 45 of the 51 Claude models that allow
+// 64k or more, and overshot the one that allows 4096. Truncation ends a reply
+// with finish_reason=length and no error at all, so it reads as the model
+// stopping early rather than as a limit being hit.
+//
+// Prefers the model's own published cap, which is the same number the clamp
+// above already trims TO, so the default and the ceiling stop contradicting
+// each other. `configured` stays the answer for a model whose metadata is
+// missing or too small to believe.
+// Claude's setting map holds both per-model entries and a shared fallback. An
+// entry naming this model is an operator decision about this model, so it
+// outranks the published cap; the shared fallback is not, so the cap wins over
+// it. `publishedCap` is passed in rather than looked up so the precedence is
+// testable without a pricing cache.
+func resolveDefaultMaxTokens(requestModelName string, pinned map[string]int, publishedCap int) int {
+	if entry, ok := pinned[requestModelName]; ok {
+		return entry
+	}
+	if publishedCap >= minCredibleOutputLimit {
+		return publishedCap
+	}
+	return pinned["default"]
+}
+
+// Reads the cache without warming it: the clamp above already warmed it earlier
+// in the same request, and a default must never be the thing that opens a query.
+func claudeDefaultMaxTokens(originModelName, requestModelName string) int {
+	return resolveDefaultMaxTokens(
+		requestModelName,
+		model_setting.GetClaudeSettings().DefaultMaxTokens,
+		model.GetCachedModelLimits(originModelName).MaxOutputTokens,
+	)
+}
+
 func applyOutputLimit(limit int, request *dto.GeneralOpenAIRequest) {
 	if limit < minCredibleOutputLimit {
 		return
@@ -78,6 +115,15 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	}
 
 	clampMaxTokensToModelLimit(info.OriginModelName, request)
+
+	// Anthropic requires max_tokens, so the conversion downstream fills in a
+	// default when the client sent none. Setting it here means that default is
+	// the model's own cap rather than one number shared by the whole family.
+	if info.ApiType == constant.APITypeAnthropic &&
+		(request.MaxTokens == nil || *request.MaxTokens == 0) {
+		defaultMaxTokens := uint(claudeDefaultMaxTokens(info.OriginModelName, request.Model))
+		request.MaxTokens = &defaultMaxTokens
+	}
 
 	// 强制上游流式：客户端发送 stream=false 且请求合格时，将 stream 改写为 true 让上游走 SSE，
 	// 响应层会把 SSE 聚合成一次性 JSON 返回给客户端。用来规避上游 reseller 网关对长响应的 30s header timeout。
