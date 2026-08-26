@@ -285,6 +285,10 @@ func writeDashboardAuthError(c *gin.Context, err error) {
 		return
 	}
 	if errors.Is(err, service.ErrAuthTokenInvalid) {
+		// A rejected credential is the loudest signal we get that someone is
+		// probing with something they should not have. Previously this returned
+		// 401 and left no trace outside the edge log.
+		recordSecurityDenial(c, auditActionAuthRejected, "AUTH_UNAUTHORIZED", nil)
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_UNAUTHORIZED", "message": common.TranslateMessage(c, i18n.MsgAuthAccessTokenInvalid)})
 		return
 	}
@@ -300,6 +304,13 @@ func RequirePermission(permission authz.Permission) func(c *gin.Context) {
 			c.Next()
 			return
 		}
+		// Privilege escalation attempt: the caller authenticated but reached for
+		// something their role does not grant. Records which permission was
+		// wanted, so a credential probing beyond its owner's normal scope is
+		// visible rather than just a 403.
+		recordSecurityDenial(c, auditActionPermissionDenied, "INSUFFICIENT_PRIVILEGE", map[string]interface{}{
+			"permission": permission.Resource + ":" + permission.Action,
+		})
 		c.JSON(http.StatusForbidden, gin.H{
 			"success": false,
 			"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),

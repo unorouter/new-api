@@ -51,6 +51,9 @@ func RequireSecurityProof(c *gin.Context, requiredScope string, allowedMethods [
 }
 
 func securityProofError(c *gin.Context, code, message string) {
+	// Single choke point for every proof refusal, so auditing here catches the
+	// channel-key probing that preceded the 2026-08-26 key theft by 42 minutes.
+	recordSecurityDenial(c, auditActionProofRejected, code, nil)
 	c.JSON(http.StatusForbidden, gin.H{
 		"success": false,
 		"message": message,
