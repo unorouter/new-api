@@ -64,6 +64,18 @@ spec:
       backup.velero.io/backup-volumes-excludes: pgdata,scratch-data,shm
   imageName: ghcr.io/cloudnative-pg/postgresql:15-standard-bookworm
   instances: 3
+  # Surfaces the new-api audit trail (logs.ip, admin actions, key reveals, 2FA churn) as
+  # Prometheus series so the security alerts in infra rules-security.yaml can fire. Added
+  # after the 2026-08-26 takeover, which was fully recorded in `logs` and alerted on by
+  # nothing. Queries live in infra/monitoring/extras/cnpg-security-queries.yaml; they are
+  # all bounded by created_at so they use idx_created_at_type instead of scanning 9M rows.
+  monitoring:
+    enablePodMonitor: true
+    customQueriesConfigMap:
+      - name: cnpg-default-monitoring
+        key: queries
+      - name: cnpg-newapi-security
+        key: queries
   resources:
     requests:
       memory: 1Gi
