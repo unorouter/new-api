@@ -17,6 +17,19 @@ type LogStatData struct {
 	TPM   int   `json:"tpm"`
 }
 
+// LogByRequestData is the data field for GET /api/log/by-request. It carries no
+// user identity: the caller proves nothing beyond holding a full request_id, so
+// the row is reduced to what that id already implies about its own request.
+type LogByRequestData struct {
+	Channel          string `json:"channel"`
+	Quota            int    `json:"quota"`
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	UseTime          int    `json:"use_time"`
+	ModelName        string `json:"model_name"`
+	Group            string `json:"group"`
+}
+
 // SetupData is the data field for GET /api/setup.
 type SetupData struct {
 	Status       bool   `json:"status"`
