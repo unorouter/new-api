@@ -11,14 +11,16 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
+	relaydto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -151,12 +153,13 @@ func TestCopyChannelRejectsInvalidLegacyProxySettings(t *testing.T) {
 	}
 	require.NoError(t, db.Create(origin).Error)
 
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	channelRouter := dto.NewRouter(nil, engine.Group("/api/channel"), "Channel")
+	dto.PostP(channelRouter, "/copy/:id", CopyChannel)
 	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", origin.Id)}}
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/copy", nil)
-
-	CopyChannel(ctx)
+	request := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/channel/copy/%d", origin.Id), nil)
+	engine.ServeHTTP(recorder, request)
 
 	assert.Contains(t, recorder.Body.String(), "invalid channel settings")
 	var channelCount int64
@@ -174,12 +177,13 @@ func TestDeleteChannelResetsProxyCacheWhenPreReadFails(t *testing.T) {
 	beforeDelete, err := service.GetHttpClientWithProxy(proxyURL)
 	require.NoError(t, err)
 
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	channelRouter := dto.NewRouter(nil, engine.Group("/api/channel"), "Channel")
+	dto.Delete(channelRouter, "/:id", DeleteChannel)
 	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Params = gin.Params{{Key: "id", Value: "999999"}}
-	ctx.Request = httptest.NewRequest(http.MethodDelete, "/api/channel/999999", nil)
-
-	DeleteChannel(ctx)
+	request := httptest.NewRequest(http.MethodDelete, "/api/channel/999999", nil)
+	engine.ServeHTTP(recorder, request)
 
 	assert.Contains(t, recorder.Body.String(), `"success":true`)
 	afterDelete, err := service.GetHttpClientWithProxy(proxyURL)
@@ -195,12 +199,14 @@ func TestDeleteChannelBatchReportsAndAuditsActualDeletedCount(t *testing.T) {
 
 	requestBody, err := common.Marshal(ChannelBatch{Ids: []int{channel.Id, 999999}})
 	require.NoError(t, err)
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	channelRouter := dto.NewRouter(nil, engine.Group("/api/channel"), "Channel")
+	dto.PostB(channelRouter, "/batch", DeleteChannelBatch)
 	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodDelete, "/api/channel/batch", bytes.NewReader(requestBody))
-	ctx.Request.Header.Set("Content-Type", "application/json")
-
-	DeleteChannelBatch(ctx)
+	request := httptest.NewRequest(http.MethodPost, "/api/channel/batch", bytes.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(recorder, request)
 
 	var response struct {
 		Success bool  `json:"success"`
@@ -240,7 +246,7 @@ func TestSettleTestQuotaUsesTieredBilling(t *testing.T) {
 	quota, result := settleTestQuota(info, types.PriceData{
 		ModelRatio:      1,
 		CompletionRatio: 2,
-	}, &dto.Usage{
+	}, &relaydto.Usage{
 		PromptTokens: 1000,
 	})
 
@@ -263,8 +269,8 @@ func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {
 	priceData := types.PriceData{
 		GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
 	}
-	usage := &dto.Usage{
-		PromptTokensDetails: dto.InputTokenDetails{
+	usage := &relaydto.Usage{
+		PromptTokensDetails: relaydto.InputTokenDetails{
 			CachedTokens: 12,
 		},
 	}
@@ -294,6 +300,70 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, 2, userID)
+}
+
+func TestChannelTestIntervalMinutesSpreadsAcrossWindow(t *testing.T) {
+	// max <= min degrades to the fixed interval
+	assert.Equal(t, 15, channelTestIntervalMinutes(1, 15, 0))
+	assert.Equal(t, 15, channelTestIntervalMinutes(1, 15, 15))
+
+	// every result sits inside [min,max] and is stable for a given id
+	seen := map[int]int{}
+	for id := 1; id <= 200; id++ {
+		got := channelTestIntervalMinutes(id, 10, 15)
+		assert.GreaterOrEqual(t, got, 10)
+		assert.LessOrEqual(t, got, 15)
+		assert.Equal(t, got, channelTestIntervalMinutes(id, 10, 15), "must not vary per call")
+		seen[got]++
+	}
+
+	// the point of the window: siblings must not all land on one value
+	assert.Greater(t, len(seen), 1, "ids collapsed onto a single interval")
+}
+
+func TestSelectChannelsForAutomaticTestHonorsPerChannelInterval(t *testing.T) {
+	now := common.GetTimestamp()
+	withInterval := func(minutes int, testTime int64) *model.Channel {
+		channel := &model.Channel{Status: common.ChannelStatusAutoDisabled, TestTime: testTime}
+		channel.SetSetting(relaydto.ChannelSettings{AutoTestIntervalMinutes: minutes})
+		return channel
+	}
+
+	cases := []struct {
+		name    string
+		channel *model.Channel
+		want    bool
+	}{
+		{
+			name:    "no interval set is always due",
+			channel: &model.Channel{Status: common.ChannelStatusAutoDisabled, TestTime: now},
+			want:    true,
+		},
+		{
+			name:    "never tested is due even with an interval",
+			channel: withInterval(180, 0),
+			want:    true,
+		},
+		{
+			name:    "tested inside the interval is skipped",
+			channel: withInterval(180, now-60*60),
+			want:    false,
+		},
+		{
+			name:    "tested past the interval is due again",
+			channel: withInterval(180, now-181*60),
+			want:    true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, channelDueForScheduledTest(tc.channel))
+
+			selected := selectChannelsForAutomaticTest([]*model.Channel{tc.channel}, "")
+			assert.Equal(t, tc.want, len(selected) == 1)
+		})
+	}
 }
 
 func TestSelectChannelsForAutomaticTestPassiveRecoveryOnlyUsesAutoDisabled(t *testing.T) {
@@ -453,13 +523,9 @@ func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {
 	existing, err := model.CreateSystemTask(model.SystemTaskTypeChannelTest, nil, nil)
 	require.NoError(t, err)
 
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/test", nil)
+	_, err = TestAllChannels(fuego.NewMockContext[any, any](nil, nil))
 
-	TestAllChannels(ctx)
-
-	require.Equal(t, http.StatusConflict, recorder.Code)
-	require.Contains(t, recorder.Body.String(), existing.TaskID)
-	require.Contains(t, recorder.Body.String(), "已有通道测试任务正在运行或等待中")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "already running or pending")
+	require.NotEmpty(t, existing.TaskID)
 }

@@ -66,3 +66,61 @@ export function formatTimestamp(ts: number): string {
   if (!ts) return '-'
   return dayjs(ts * 1000).format('YYYY-MM-DD HH:mm:ss')
 }
+
+/**
+ * Number of times the plan's quota resets across its full validity window.
+ * Returns 0 if the plan does not reset, or the math does not make sense.
+ *
+ * Uses integer-day approximations (365 days/year, 30 days/month) to avoid
+ * fractional-period rounding artifacts in the displayed estimate.
+ */
+export function getResetPeriodsCount(plan: Partial<SubscriptionPlan>): number {
+  const period = plan?.quota_reset_period || 'never'
+  if (period === 'never') return 0
+
+  const durationUnit = plan?.duration_unit || 'month'
+  const durationValue = Number(plan?.duration_value ?? 1)
+  if (!Number.isFinite(durationValue) || durationValue <= 0) return 0
+
+  let durationSeconds = 0
+  switch (durationUnit) {
+    case 'year':
+      durationSeconds = durationValue * 365 * 86400
+      break
+    case 'month':
+      durationSeconds = durationValue * 30 * 86400
+      break
+    case 'day':
+      durationSeconds = durationValue * 86400
+      break
+    case 'hour':
+      durationSeconds = durationValue * 3600
+      break
+    case 'custom':
+      durationSeconds = Number(plan?.custom_seconds || 0)
+      break
+    default:
+      return 0
+  }
+
+  let resetSeconds = 0
+  switch (period) {
+    case 'daily':
+      resetSeconds = 86400
+      break
+    case 'weekly':
+      resetSeconds = 7 * 86400
+      break
+    case 'monthly':
+      resetSeconds = 30 * 86400
+      break
+    case 'custom':
+      resetSeconds = Number(plan?.quota_reset_custom_seconds || 0)
+      break
+    default:
+      return 0
+  }
+
+  if (resetSeconds <= 0 || durationSeconds <= 0) return 0
+  return Math.floor(durationSeconds / resetSeconds)
+}

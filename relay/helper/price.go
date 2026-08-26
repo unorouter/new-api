@@ -21,15 +21,13 @@ import (
 func modelPriceNotConfiguredError(modelName string, userId int) error {
 	if model.IsAdmin(userId) {
 		return fmt.Errorf(
-			"模型 %s 的价格未配置。请前往「系统设置 → 运营设置」开启自用模式，或在「系统设置 → 分组与模型定价设置」中为该模型配置价格；"+
-				"Model %s price not configured. Go to System Settings → Operation Settings to enable self-use mode, or configure the model price in System Settings → Group & Model Pricing.",
-			modelName, modelName,
+			"Model %s price not configured. Go to System Settings -> Operation Settings to enable self-use mode, or configure the model price in System Settings -> Group & Model Pricing.",
+			modelName,
 		)
 	}
 	return fmt.Errorf(
-		"模型 %s 的价格尚未由管理员配置，暂时无法使用，请联系站点管理员开启该模型；"+
-			"Model %s has not been priced by the administrator yet. Please contact the site administrator to enable this model.",
-		modelName, modelName,
+		"Model %s has not been priced by the administrator yet. Please contact the site administrator to enable this model.",
+		modelName,
 	)
 }
 
@@ -131,19 +129,21 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 
 	// check if free model pre-consume is disabled
 	if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
-		// if model price or ratio is 0, do not pre-consume quota
+		// Nothing to pre-consume when the per-token cost is 0. But a model is only a
+		// FREE model (billing skipped, zero-balance tokens allowed) when the owner
+		// charges nothing, i.e. the group ratio is 0. A paid group (ratio > 0) whose
+		// modelPrice/modelRatio happens to be 0 still bills the user 0 per token but
+		// stays a paid model, so a zero-balance token is gated out of it.
 		if groupRatioInfo.GroupRatio == 0 {
 			preConsumedQuota = 0
 			freeModel = true
 		} else if usePrice {
 			if modelPrice == 0 {
 				preConsumedQuota = 0
-				freeModel = true
 			}
 		} else {
 			if modelRatio == 0 {
 				preConsumedQuota = 0
-				freeModel = true
 			}
 		}
 	}
@@ -220,9 +220,13 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 			return hosttypes.PriceData{}, err
 		}
 		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
-			if groupRatioInfo.GroupRatio == 0 || modelPrice == 0 {
+			// Free model (billing skipped) only when the owner charges nothing
+			// (group ratio 0); a paid group with modelPrice 0 stays paid.
+			if groupRatioInfo.GroupRatio == 0 {
 				quota = 0
 				freeModel = true
+			} else if modelPrice == 0 {
+				quota = 0
 			}
 		}
 	} else {
@@ -234,9 +238,11 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 		}
 		modelPrice = -1
 		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
-			if groupRatioInfo.GroupRatio == 0 || modelRatio == 0 {
+			if groupRatioInfo.GroupRatio == 0 {
 				quota = 0
 				freeModel = true
+			} else if modelRatio == 0 {
+				quota = 0
 			}
 		}
 	}

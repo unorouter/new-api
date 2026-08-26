@@ -10,8 +10,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/relaykit/dto"
+	relaydto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -24,9 +25,9 @@ import (
 )
 
 type listModelsResponse struct {
-	Success bool               `json:"success"`
-	Data    []dto.OpenAIModels `json:"data"`
-	Object  string             `json:"object"`
+	Success bool                    `json:"success"`
+	Data    []relaydto.OpenAIModels `json:"data"`
+	Object  string                  `json:"object"`
 }
 
 type userModelsResponse struct {
@@ -40,7 +41,7 @@ func setupModelListControllerTestDB(t *testing.T) *gorm.DB {
 	initModelListColumnNames(t)
 
 	gin.SetMode(gin.TestMode)
-	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	common.RedisEnabled = false
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
@@ -49,7 +50,7 @@ func setupModelListControllerTestDB(t *testing.T) *gorm.DB {
 	model.DB = db
 	model.LOG_DB = db
 
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}, &model.ChannelDiagnostic{}))
 
 	t.Cleanup(func() {
 		sqlDB, err := db.DB()
@@ -66,13 +67,14 @@ func initModelListColumnNames(t *testing.T) {
 
 	originalIsMasterNode := common.IsMasterNode
 	originalSQLitePath := common.SQLitePath
-	originalMainDatabaseType := common.MainDatabaseType()
-	originalLogDatabaseType := common.LogDatabaseType()
+	originalDBType := common.MainDatabaseType()
+
 	originalSQLDSN, hadSQLDSN := os.LookupEnv("SQL_DSN")
 	defer func() {
 		common.IsMasterNode = originalIsMasterNode
 		common.SQLitePath = originalSQLitePath
-		common.SetDatabaseTypes(originalMainDatabaseType, originalLogDatabaseType)
+		common.SetMainDatabaseType(originalDBType)
+
 		if hadSQLDSN {
 			require.NoError(t, os.Setenv("SQL_DSN", originalSQLDSN))
 		} else {
@@ -82,7 +84,7 @@ func initModelListColumnNames(t *testing.T) {
 
 	common.IsMasterNode = false
 	common.SQLitePath = fmt.Sprintf("file:%s_init?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
-	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	require.NoError(t, os.Setenv("SQL_DSN", "local"))
 
 	require.NoError(t, model.InitDB())
@@ -181,6 +183,21 @@ func decodeUserModelsResponse(t *testing.T, recorder *httptest.ResponseRecorder)
 	return payload.Data
 }
 
+// serveGetUserModels drives prod's fuego GetUserModels handler through a registered
+// gin route, seeding the authenticated user id the handler resolves via dto.UserID.
+func serveGetUserModels(t *testing.T, group string, userID int) *httptest.ResponseRecorder {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(func(c *gin.Context) { c.Set("id", userID) })
+	userRouter := dto.NewRouter(nil, engine.Group("/api/user"), "User")
+	dto.Get(userRouter, "/models", GetUserModels)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/user/models?group="+group, nil)
+	engine.ServeHTTP(recorder, request)
+	return recorder
+}
+
 func TestGetUserModelsFiltersByRequestedGroup(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.Create(&model.User{
@@ -195,23 +212,11 @@ func TestGetUserModelsFiltersByRequestedGroup(t *testing.T) {
 		{Group: "default", Model: "zz-disabled-model", ChannelId: 1, Enabled: false},
 	}).Error)
 
-	defaultRecorder := httptest.NewRecorder()
-	defaultContext, _ := gin.CreateTestContext(defaultRecorder)
-	defaultContext.Request = httptest.NewRequest(http.MethodGet, "/api/user/models?group=default", nil)
-	defaultContext.Set("id", 1002)
-
-	GetUserModels(defaultContext)
-
+	defaultRecorder := serveGetUserModels(t, "default", 1002)
 	defaultModels := decodeUserModelsResponse(t, defaultRecorder)
 	require.ElementsMatch(t, []string{"zz-default-only-model"}, defaultModels)
 
-	vipRecorder := httptest.NewRecorder()
-	vipContext, _ := gin.CreateTestContext(vipRecorder)
-	vipContext.Request = httptest.NewRequest(http.MethodGet, "/api/user/models?group=vip", nil)
-	vipContext.Set("id", 1002)
-
-	GetUserModels(vipContext)
-
+	vipRecorder := serveGetUserModels(t, "vip", 1002)
 	require.Empty(t, decodeUserModelsResponse(t, vipRecorder))
 }
 
@@ -252,12 +257,7 @@ func TestGetUserModelsExpandsAutoGroupsInConfiguredOrder(t *testing.T) {
 		{Group: "unavailable", Model: "zz-unavailable-model", ChannelId: 1, Enabled: true},
 	}).Error)
 
-	recorder := httptest.NewRecorder()
-	context, _ := gin.CreateTestContext(recorder)
-	context.Request = httptest.NewRequest(http.MethodGet, "/api/user/models?group=auto", nil)
-	context.Set("id", 1003)
-
-	GetUserModels(context)
+	recorder := serveGetUserModels(t, "auto", 1003)
 
 	models := decodeUserModelsResponse(t, recorder)
 	require.Len(t, models, 3)
@@ -483,7 +483,7 @@ func TestListModelsTokenLimitUsesResolvedCustomAutoGroups(t *testing.T) {
 		ListModels(emptyCtx, constant.ChannelTypeAnthropic)
 	})
 	var anthropicResponse struct {
-		Data    []dto.AnthropicModel `json:"data"`
+		Data    []relaydto.AnthropicModel `json:"data"`
 		FirstID string               `json:"first_id"`
 		LastID  string               `json:"last_id"`
 	}
@@ -504,21 +504,34 @@ func TestCheckUpdatePasswordRequiresCurrentPassword(t *testing.T) {
 	}
 	require.NoError(t, db.Create(user).Error)
 
-	updatePassword, err := checkUpdatePassword("", "", user.Id)
+	ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ginCtx.Request = httptest.NewRequest(http.MethodPut, "/api/user/self", nil)
+
+	// Wrong original password is rejected even when no new password is supplied.
+	updatePassword, err := checkUpdatePassword(ginCtx, "", "", user.Id)
+	require.Error(t, err)
+	assert.False(t, updatePassword)
+
+	// Correct original password but no new password: nothing to update, no error.
+	updatePassword, err = checkUpdatePassword(ginCtx, "CurrentPassword123", "", user.Id)
 	require.NoError(t, err)
 	assert.False(t, updatePassword)
 
-	updatePassword, err = checkUpdatePassword("", "NewPassword123", user.Id)
+	// Wrong original password with a new password is rejected.
+	updatePassword, err = checkUpdatePassword(ginCtx, "", "NewPassword123", user.Id)
 	require.Error(t, err)
 	assert.False(t, updatePassword)
-	assert.ErrorIs(t, err, errOriginalPasswordFail)
 
-	updatePassword, err = checkUpdatePassword("CurrentPassword123", "NewPassword123", user.Id)
+	// Correct original password with a new password authorizes the update.
+	updatePassword, err = checkUpdatePassword(ginCtx, "CurrentPassword123", "NewPassword123", user.Id)
 	require.NoError(t, err)
 	assert.True(t, updatePassword)
 }
 
-func TestCheckUpdatePasswordRejectsHistoricalEmptyPassword(t *testing.T) {
+// checkUpdatePassword skips the original-password check for accounts whose stored
+// password is empty (legacy passwordless users), letting them set a new password
+// without supplying an original.
+func TestCheckUpdatePasswordAllowsHistoricalEmptyPassword(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	user := &model.User{
 		Username: "legacy-passwordless-user",
@@ -527,10 +540,11 @@ func TestCheckUpdatePasswordRejectsHistoricalEmptyPassword(t *testing.T) {
 	}
 	require.NoError(t, db.Create(user).Error)
 
-	updatePassword, err := checkUpdatePassword("", "NewPassword123", user.Id)
-	require.Error(t, err)
-	assert.False(t, updatePassword)
-	assert.ErrorIs(t, err, errUserPasswordUnset)
+	ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ginCtx.Request = httptest.NewRequest(http.MethodPut, "/api/user/self", nil)
+	updatePassword, err := checkUpdatePassword(ginCtx, "", "NewPassword123", user.Id)
+	require.NoError(t, err)
+	assert.True(t, updatePassword)
 }
 
 func TestSetupLoginDoesNotTouchPasswordWhenPasswordFieldOmitted(t *testing.T) {

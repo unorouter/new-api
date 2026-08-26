@@ -76,6 +76,13 @@ func newSMTPClient(addr string) (*smtp.Client, error) {
 }
 
 func SendEmail(subject string, receiver string, content string) error {
+	return SendEmailWithBcc(subject, receiver, "", content)
+}
+
+// SendEmailWithBcc sends an email and includes the given semicolon-separated
+// bcc addresses in the SMTP envelope without exposing them in the message
+// headers (per RFC 5322, BCC recipients are envelope-only).
+func SendEmailWithBcc(subject string, receiver string, bcc string, content string) error {
 	if SMTPFrom == "" { // for compatibility
 		SMTPFrom = SMTPAccount
 	}
@@ -84,7 +91,7 @@ func SendEmail(subject string, receiver string, content string) error {
 		return err2
 	}
 	if SMTPServer == "" && SMTPAccount == "" {
-		return fmt.Errorf("SMTP 服务器未配置")
+		return fmt.Errorf("SMTP server is not configured")
 	}
 	encodedSubject := fmt.Sprintf("=?UTF-8?B?%s?=", base64.StdEncoding.EncodeToString([]byte(subject)))
 	mail := []byte(fmt.Sprintf("To: %s\r\n"+
@@ -96,7 +103,9 @@ func SendEmail(subject string, receiver string, content string) error {
 		receiver, SystemName, SMTPFrom, encodedSubject, time.Now().Format(time.RFC1123Z), id, content))
 	auth := getSMTPAuth()
 	addr := fmt.Sprintf("%s:%d", SMTPServer, SMTPPort)
-	to := strings.Split(receiver, ";")
+	to := splitAndTrim(receiver)
+	bccList := splitAndTrim(bcc)
+	allRcpt := append(append([]string{}, to...), bccList...)
 	var err error
 	client, err := newSMTPClient(addr)
 	if err != nil {
@@ -111,8 +120,8 @@ func SendEmail(subject string, receiver string, content string) error {
 	if err = client.Mail(SMTPFrom); err != nil {
 		return err
 	}
-	for _, receiver := range to {
-		if err = client.Rcpt(receiver); err != nil {
+	for _, rcpt := range allRcpt {
+		if err = client.Rcpt(rcpt); err != nil {
 			return err
 		}
 	}
@@ -133,4 +142,19 @@ func SendEmail(subject string, receiver string, content string) error {
 		SysError(fmt.Sprintf("failed to send email to %s: %v", receiver, err))
 	}
 	return err
+}
+
+func splitAndTrim(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ";")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

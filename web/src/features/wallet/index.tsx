@@ -41,11 +41,15 @@ import {
   useCreemPayment,
   useWaffoPayment,
   useWaffoPancakePayment,
+  useNowPaymentsPayment,
+  useDeloPayPayment,
 } from './hooks'
 import {
   getDefaultPaymentType,
   getMinTopupAmount,
   dispatchSelectedPayment,
+  isNowPaymentsPayment,
+  isDeloPayPayment,
 } from './lib'
 import type {
   UserWalletData,
@@ -108,6 +112,10 @@ export function Wallet(props: WalletProps) {
   const { processing: waffoProcessing, processWaffoPayment } = useWaffoPayment()
   const { processing: pancakeProcessing, processWaffoPancakePayment } =
     useWaffoPancakePayment()
+  const { processing: nowPaymentsProcessing, processNowPaymentsPayment } =
+    useNowPaymentsPayment()
+  const { processing: deloPayProcessing, processDeloPayPayment } =
+    useDeloPayPayment()
 
   // Fetch and refresh user data
   const fetchUser = useCallback(async () => {
@@ -194,16 +202,20 @@ export function Wallet(props: WalletProps) {
   const handlePaymentConfirm = async () => {
     if (!selectedPaymentMethod) return
 
-    const success = await dispatchSelectedPayment(
-      selectedPaymentMethod,
-      topupAmount,
-      selectedWaffoMethodIndex,
-      {
-        regular: processPayment,
-        waffo: processWaffoPayment,
-        waffoPancake: processWaffoPancakePayment,
-      }
-    )
+    const success = isNowPaymentsPayment(selectedPaymentMethod.type)
+      ? await processNowPaymentsPayment(topupAmount)
+      : isDeloPayPayment(selectedPaymentMethod.type)
+      ? await processDeloPayPayment(topupAmount)
+      : await dispatchSelectedPayment(
+          selectedPaymentMethod,
+          topupAmount,
+          selectedWaffoMethodIndex,
+          {
+            regular: processPayment,
+            waffo: processWaffoPayment,
+            waffoPancake: processWaffoPancakePayment,
+          }
+        )
 
     if (success) {
       setConfirmDialogOpen(false)
@@ -360,7 +372,13 @@ export function Wallet(props: WalletProps) {
         paymentAmount={paymentAmount}
         paymentMethod={selectedPaymentMethod}
         calculating={calculating}
-        processing={processing || waffoProcessing || pancakeProcessing}
+        processing={
+          processing ||
+          waffoProcessing ||
+          pancakeProcessing ||
+          nowPaymentsProcessing ||
+          deloPayProcessing
+        }
         discountRate={getDiscountRate()}
         usdExchangeRate={effectiveUsdExchangeRate}
       />

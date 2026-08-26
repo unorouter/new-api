@@ -500,6 +500,35 @@ export function SubscriptionsMutateDrawer({
                     </FormItem>
                   )}
                 />
+
+                <FormField
+                  control={form.control}
+                  name='free_rate_limit_window_pct'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Free model speed-up (%)')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type='number'
+                          min={0}
+                          max={100}
+                          onChange={(e) =>
+                            field.onChange(
+                              Number.parseInt(e.target.value, 10) || 0
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Percent off the wait between free model requests while subscribed. 0 disables it, 100 removes the wait. Shares one value with the Discord server tag perk, so the higher of the two applies.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
 
               <FormField

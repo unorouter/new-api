@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/model_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/sjson"
 )
 
 func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
@@ -51,11 +52,27 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		if err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
-		requestBody = common.NewReplayableBodyReader(storage)
+		// Even in pass-through, the upstream must receive the model-mapped name, not
+		// the published alias (e.g. "z-image-turbo", not "z-image-turbo:free" which
+		// DashScope 404s). Rewrite only the top-level model field, leaving every
+		// other provider-specific field byte-identical.
+		body, err := io.ReadAll(common.NewReplayableBodyReader(storage))
+		if err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		if info.IsModelMapped && info.UpstreamModelName != "" {
+			if mapped, mErr := sjson.SetBytes(body, "model", info.UpstreamModelName); mErr == nil {
+				body = mapped
+			}
+		}
+		requestBody = bytes.NewReader(body)
 	} else {
 		convertedRequest, err := adaptor.ConvertImageRequest(c, info, *request)
 		if err != nil {
-			return types.NewError(err, types.ErrorCodeConvertRequestFailed)
+			// Request conversion is deterministic (e.g. model does not support image
+			// generation); every channel would fail identically. Skip retry so a bad
+			// request fails fast instead of thrashing the whole pool.
+			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
 
@@ -68,15 +85,20 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 			}
 
-			// apply param override
+			// apply param override (also emits x-newapi-dropped-params for stripped knobs)
 			if len(info.ParamOverride) > 0 {
-				jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+				jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info, c.Writer.Header())
 				if err != nil {
 					return newAPIErrorFromParamOverride(err)
 				}
 			}
 
-			logger.LogDebug(c, "image request body: %s", jsonData)
+			// Unconditional: this is the ONLY view of what the provider actually
+			// receives after conversion and param override. A knob the caller sent
+			// that was rewritten or stripped here is otherwise indistinguishable
+			// from one the provider accepted and ignored.
+			logger.LogInfo(c, fmt.Sprintf("image outbound body: channel=%d model=%s body=%s",
+				info.ChannelId, info.OriginModelName, common.ElideBase64(string(jsonData))))
 			body, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 			if err != nil {
 				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
@@ -96,6 +118,11 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	var httpResp *http.Response
 	if resp != nil {
 		httpResp = resp.(*http.Response)
+		// Pairs with the outbound-body line above: an upstream that accepted the
+		// request but ignored a knob answers 200 like any other success, so the
+		// status is the only marker separating that from a rejected param.
+		logger.LogInfo(c, fmt.Sprintf("image upstream response: channel=%d model=%s status=%d",
+			info.ChannelId, info.OriginModelName, httpResp.StatusCode))
 		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 		if httpResp.StatusCode != http.StatusOK {
 			if httpResp.StatusCode == http.StatusCreated && info.ApiType == constant.APITypeReplicate {
@@ -122,11 +149,16 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		imageN = *request.N
 	}
 
-	if usage.(*dto.Usage).TotalTokens == 0 {
-		usage.(*dto.Usage).TotalTokens = 1
+	// Image upstreams often report no usage at all. Stamping a literal 1 made the
+	// prompt cost one token however long it was, so token stats and per-channel
+	// cost were meaningless for every image channel. Count the prompt locally
+	// instead, the same way the chat path does when an upstream omits usage.
+	imageUsage := usage.(*dto.Usage)
+	if service.IsStubTokenCount(imageUsage.PromptTokens) {
+		imageUsage.PromptTokens = service.CountTextToken(request.Prompt, request.Model)
 	}
-	if usage.(*dto.Usage).PromptTokens == 0 {
-		usage.(*dto.Usage).PromptTokens = 1
+	if imageUsage.TotalTokens == 0 {
+		imageUsage.TotalTokens = imageUsage.PromptTokens + imageUsage.CompletionTokens
 	}
 
 	quality := request.Quality
@@ -137,13 +169,13 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	var logContent []string
 
 	if len(request.Size) > 0 {
-		logContent = append(logContent, fmt.Sprintf("大小 %s", request.Size))
+		logContent = append(logContent, fmt.Sprintf("Size %s", request.Size))
 	}
 	if len(quality) > 0 {
-		logContent = append(logContent, fmt.Sprintf("品质 %s", quality))
+		logContent = append(logContent, fmt.Sprintf("Quality %s", quality))
 	}
 	if imageN > 0 {
-		logContent = append(logContent, fmt.Sprintf("生成数量 %d", imageN))
+		logContent = append(logContent, fmt.Sprintf("Count %d", imageN))
 	}
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), logContent)

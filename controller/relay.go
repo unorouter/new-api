@@ -25,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
@@ -58,6 +59,76 @@ func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIErro
 	return err
 }
 
+// isModeratableRelayMode reports whether a relay mode generates content that
+// Stripe strict-mode moderation should screen: text (chat/completions/responses)
+// AND image generation/edits. Stripe prohibits adult/AI content across text and
+// imagery, so both are gated. Audio/embeddings carry no such content. (Video task
+// submission flows through RelayTask, gated separately there.)
+func isModeratableRelayMode(mode int) bool {
+	switch mode {
+	case relayconstant.RelayModeChatCompletions,
+		relayconstant.RelayModeCompletions,
+		relayconstant.RelayModeResponses,
+		relayconstant.RelayModeResponsesCompact,
+		relayconstant.RelayModeImagesGenerations,
+		relayconstant.RelayModeImagesEdits:
+		return true
+	default:
+		return false
+	}
+}
+
+// isMediaRelayMode reports whether a relay mode produces media (image/audio/video)
+// rather than text. Catalog-probe scrapers hammer many distinct free MEDIA models
+// that mostly fail; the distinct-failing-media abuse signal targets exactly these
+// modes and leaves text (chat/completions/responses/embeddings) untouched.
+func isMediaRelayMode(mode int) bool {
+	switch mode {
+	case relayconstant.RelayModeImagesGenerations,
+		relayconstant.RelayModeImagesEdits,
+		relayconstant.RelayModeAudioSpeech,
+		relayconstant.RelayModeAudioTranscription,
+		relayconstant.RelayModeAudioTranslation,
+		relayconstant.RelayModeVideoSubmit,
+		relayconstant.RelayModeSunoSubmit:
+		return true
+	default:
+		return false
+	}
+}
+
+// moderationGateError maps a moderation result to a client error and, on a
+// denial, records a user-visible error log (LogTypeError) so the prompt's
+// rejection - including the triggering category and score - shows up in the
+// user's usage logs. Returns nil when modErr is nil (allowed).
+func moderationGateError(c *gin.Context, relayInfo *relaycommon.RelayInfo, surface string, modErr error) *types.NewAPIError {
+	if modErr == nil {
+		return nil
+	}
+	if errors.Is(modErr, service.ErrPromptDenied) {
+		reason := service.ModerationDenyReason(modErr)
+		if reason == "" {
+			reason = "Inappropriate prompt: blocked by content moderation. Reword the prompt and retry."
+		}
+		other := map[string]interface{}{
+			"error_type":   "moderation_rejected",
+			"surface":      surface,
+			"request_path": c.Request.URL.Path,
+		}
+		if denyErr := new(service.ModerationDenyError); errors.As(modErr, &denyErr) {
+			other["moderation_category"] = denyErr.Category
+			other["moderation_score"] = denyErr.Score
+			other["moderation_threshold"] = denyErr.Threshold
+		}
+		model.RecordErrorLog(c, relayInfo.UserId, c.GetInt("channel_id"),
+			c.GetString("original_model"), c.GetString("token_name"), reason,
+			c.GetInt("token_id"), 0, false, c.GetString("group"),
+			service.CountTextToken(relaycommon.ExtractPromptText(c), c.GetString("original_model")), other)
+		return types.NewErrorWithStatusCode(errors.New(reason), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+	}
+	return types.NewErrorWithStatusCode(modErr, types.ErrorCodeBadResponse, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+}
+
 func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
 	if strings.Contains(c.Request.URL.Path, "embed") {
@@ -66,6 +137,22 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 		err = relay.GeminiHelper(c, info)
 	}
 	return err
+}
+
+// Whether an already-committed response is an OpenAI-format SSE stream, the one
+// shape a bare {"error":{...}} chunk is valid in. Claude and Responses streams
+// name every event, so an unnamed chunk would be a protocol violation there, and
+// a committed NON-stream response has no frame to append to at all.
+func isCommittedSSE(c *gin.Context, relayFormat types.RelayFormat) bool {
+	if relayFormat != types.RelayFormatOpenAI {
+		return false
+	}
+	// A stream that already sent [DONE] is closed; appending past it is the same
+	// corruption the JSON write was skipped to avoid.
+	if helper.StreamDoneSent(c) {
+		return false
+	}
+	return strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream")
 }
 
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
@@ -92,6 +179,21 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	defer func() {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
+			// Response already streamed to the client. A JSON body would corrupt the
+			// committed stream, so it stays skipped, but returning nothing ends the
+			// SSE with no [DONE] and no error and every client then reports only that
+			// the stream stopped ("response ended without a finish reason") while the
+			// real cause lives in our logs alone. An error event IS legal mid-SSE, so
+			// send the masked one; masked because this path reaches the user, where
+			// the uncommitted path below can afford the raw text.
+			if c.Writer.Written() {
+				if isCommittedSSE(c, relayFormat) {
+					newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.MaskSensitiveErrorWithStatusCode(), requestId))
+					_ = helper.ObjectData(c, gin.H{"error": newAPIError.ToOpenAIError()})
+					helper.Done(c)
+				}
+				return
+			}
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
@@ -128,9 +230,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	needCountToken := constant.CountToken
+	// Stripe strict-mode moderation gates ALL generation (text + image + video) -
+	// Stripe prohibits adult/AI content across "literature, pictures and other media",
+	// so every generative surface is screened, not just text. Needs CombineText built.
+	needStripeModeration := setting.StripeTextModerationEnabled && !service.ModerationExempt(c) && isModeratableRelayMode(relayInfo.RelayMode)
 	// Avoid building huge CombineText (strings.Join) when token counting and sensitive check are both disabled.
 	var meta *types.TokenCountMeta
-	if needSensitiveCheck || needCountToken {
+	if needSensitiveCheck || needCountToken || needStripeModeration {
 		meta = request.GetTokenCountMeta()
 	} else {
 		meta = fastTokenCountMetaForPricing(request)
@@ -141,6 +247,44 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if contains {
 			logger.LogWarn(c, fmt.Sprintf("user sensitive words detected: %s", strings.Join(words, ", ")))
 			newAPIError = types.NewError(err, types.ErrorCodeSensitiveWordsDetected)
+			return
+		}
+	}
+
+	// Image-generation moderation (merchant-of-record content-safety requirement).
+	// Screens the image prompt through OpenAI omni-moderation before dispatch; fails
+	// closed when enabled. Image prompt is meta.CombineText.
+	if setting.CreemModerationEnabled && !service.ModerationExempt(c) &&
+		(relayInfo.RelayMode == relayconstant.RelayModeImagesGenerations ||
+			relayInfo.RelayMode == relayconstant.RelayModeImagesEdits) {
+		moderationMeta := meta
+		if moderationMeta == nil {
+			moderationMeta = request.GetTokenCountMeta()
+		}
+		prompt := ""
+		if moderationMeta != nil {
+			prompt = moderationMeta.CombineText
+		}
+		if modErr := service.AssertPromptAllowed(c.Request.Context(), service.ModerationSurfaceImage, prompt); modErr != nil {
+			newAPIError = moderationGateError(c, relayInfo, service.ModerationSurfaceImage, modErr)
+			return
+		}
+	}
+
+	// Stripe strict-mode moderation - gates text AND image generation (Stripe MoR
+	// holds the merchant liable for AI outputs across text + imagery). Dynamic: only
+	// when StripeTextModerationEnabled is on; applies to all traffic, free + paid.
+	// meta.CombineText is the prompt. The surface picks the provider chain: image
+	// modes use the media chain (OpenAI->Creem), text modes the text chain (OpenAI).
+	// (Image is also covered by the image gate above; they never run simultaneously.)
+	if needStripeModeration && meta != nil {
+		surface := service.ModerationSurfaceText
+		if relayInfo.RelayMode == relayconstant.RelayModeImagesGenerations ||
+			relayInfo.RelayMode == relayconstant.RelayModeImagesEdits {
+			surface = service.ModerationSurfaceImage
+		}
+		if modErr := service.AssertPromptAllowed(c.Request.Context(), surface, meta.CombineText); modErr != nil {
+			newAPIError = moderationGateError(c, relayInfo, surface, modErr)
 			return
 		}
 	}
@@ -162,7 +306,21 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
 
 	if priceData.FreeModel {
-		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.OriginModelName))
+		if relayInfo.UserSetting.BlockFreeWhenNoQuota && relayInfo.UserQuota <= 0 {
+			// Shadow ban: return the same 429 rate-limit response a throttled free
+			// user gets, so an abuser cannot tell they are specifically blocked.
+			paidName := strings.TrimSuffix(relayInfo.OriginModelName, ":free")
+			newAPIError = types.NewErrorWithStatusCode(
+				fmt.Errorf("Too many requests. The free tier allows %d request(s) every %d min per account on %s - nothing is used up, retry in %ds. The paid %s has no per-minute limit.",
+					1, 1, relayInfo.OriginModelName, 60, paidName),
+				types.ErrorCodeRateLimitExceeded, http.StatusTooManyRequests,
+				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			return
+		}
+		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels {
+			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName)
+		}
+		logger.LogInfo(c, fmt.Sprintf("model %s is free, skipping pre-consume billing", relayInfo.OriginModelName))
 	} else {
 		newAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
 		if newAPIError != nil {
@@ -174,10 +332,22 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// Only return quota if downstream failed and quota was actually pre-consumed
 		if newAPIError != nil {
 			newAPIError = service.NormalizeViolationFeeError(newAPIError)
-			if relayInfo.Billing != nil {
+			if relayInfo.Billing != nil && !shouldChargeOnError(newAPIError) {
 				relayInfo.Billing.Refund(c)
 			}
 			service.ChargeViolationFeeIfNeeded(c, relayInfo, newAPIError)
+			// Retry-spam signal: a free-model request that failed because the user
+			// hammered a disabled/nonexistent model counts toward the hourly
+			// free-error budget. A bot retries relentlessly; a human gives up.
+			// Transient upstream infra faults (5xx/429/timeout) are OUR capacity
+			// failing, not abuse, so they must NOT count: a heavy legit user hitting
+			// an overloaded free model would otherwise be auto-blocked for our outage.
+			if priceData.FreeModel && relayInfo.UserId > 0 &&
+				!relayInfo.UserSetting.UnlimitedFreeModels &&
+				!isTransientInfraError(newAPIError) {
+				service.TrackFreeModelError(relayInfo.UserId, relayInfo.UserQuota,
+					relayInfo.OriginModelName, isMediaRelayMode(relayInfo.RelayMode))
+			}
 		}
 	}()
 
@@ -191,20 +361,68 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
 
+	// Channels already tried by this request. A retry that re-picks the channel that
+	// just failed wastes the only failover attempt, since the disable it triggered is
+	// dispatched asynchronously and has usually not landed in abilities yet.
+	triedChannels := make(map[int]bool)
+	// Counted here rather than read from retryParam: cross-group auto-retry resets
+	// that counter on every group switch, so only a tally the switch cannot reach
+	// bounds the whole chain.
+	attempts := 0
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
-		relayInfo.RetryIndex = retryParam.GetRetry()
-		channel, channelErr := getChannel(c, relayInfo, retryParam)
-		if channelErr != nil {
-			logger.LogError(c, channelErr.Error())
-			newAPIError = channelErr
+		if attempts >= common.MaxTotalRelayAttempts {
+			logger.LogError(c, fmt.Sprintf("relay attempt ceiling reached (%d attempts across groups), giving up", attempts))
 			break
 		}
+		// Opt-in per-user ceiling on how long the whole chain may spend hunting for
+		// a first byte. Checked before starting another attempt rather than
+		// interrupting one in flight: an attempt that already has headers is
+		// streaming a real answer and must be left alone.
+		if chainWait := hosttypes.ClampFirstTokenSeconds(relayInfo.UserSetting.MaxChainFirstTokenSeconds); chainWait > 0 && attempts > 0 {
+			elapsed := time.Since(common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime))
+			if elapsed >= time.Duration(chainWait)*time.Second {
+				logger.LogError(c, fmt.Sprintf("relay chain first-token budget reached (%s of %ds after %d attempts), giving up", elapsed.Truncate(time.Millisecond), chainWait, attempts))
+				break
+			}
+		}
+		attempts++
+		relayInfo.RetryIndex = retryParam.GetRetry()
+		channel, channelErr := getChannel(c, relayInfo, retryParam, triedChannels)
+		if channelErr != nil {
+			logger.LogError(c, channelErr.Error())
+			if relayInfo.LastError != nil {
+				newAPIError = relayInfo.LastError
+			} else {
+				newAPIError = channelErr
+			}
+			break
+		}
+
+		// getChannel may switch auto-group to a paid group on retry (free channel
+		// failed first). If the request was admitted free (no billing session) but
+		// now resolves to a paid group, run pre-consume so the wallet/subscription
+		// gate applies before hitting upstream. Without this a negative-balance user
+		// rides free on the initial ratio-0 group and gets charged post-hoc.
+		if relayInfo.Billing == nil {
+			repriced, priceErr := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
+			if priceErr != nil {
+				newAPIError = types.NewError(priceErr, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
+				break
+			}
+			if !repriced.FreeModel {
+				newAPIError = service.PreConsumeBilling(c, repriced.QuotaToPreConsume, relayInfo)
+				if newAPIError != nil {
+					break
+				}
+			}
+		}
+
 		addUsedChannel(c, channel.Id)
 		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
 			newAPIError = billingErr
 			break
 		}
-
+		triedChannels[channel.Id] = true
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
 			// Ensure consistent 413 for oversized bodies even when error occurs later (e.g., retry path)
@@ -230,6 +448,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		if newAPIError == nil {
 			relayInfo.LastError = nil
+			// Denominator for every rate-based disable gate, so it must be recorded
+			// regardless of which of those gates happens to be enabled.
+			service.RecordChannelSuccess(relayInfo.ChannelId)
 			return
 		}
 
@@ -245,7 +466,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	useChannel := c.GetStringSlice("use_channel")
 	if len(useChannel) > 1 {
-		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
+		retryLogStr := fmt.Sprintf("retry: %s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
 		logger.LogInfo(c, retryLogStr)
 	}
 	if newAPIError != nil {
@@ -297,7 +518,7 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 	return meta
 }
 
-func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
+func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam, skipChannels ...map[int]bool) (*model.Channel, *types.NewAPIError) {
 	if info.ChannelMeta == nil {
 		autoBan := c.GetBool("auto_ban")
 		autoBanInt := 1
@@ -311,12 +532,46 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			AutoBan: &autoBanInt,
 		}, nil
 	}
-	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam, skipChannels...)
+	// Excluding the tried channels can empty the candidate set when the model has no
+	// untried sibling left; retrying the same channel still beats failing outright.
+	if (err != nil || channel == nil) && len(skipChannels) > 0 && len(skipChannels[0]) > 0 {
+		channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
+	}
+
+	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
+
 	if err != nil {
-		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		return nil, types.NewError(fmt.Errorf("failed to get an available channel for model %s in group %s (retry): %s", info.OriginModelName, selectGroup, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	if channel == nil {
-		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		// An auto token that exhausted EVERY group for this model: the free-first failover
+		// pool is fully down/rate-limited for it (e.g. a model whose only free provider hit
+		// its daily limit). Surface the friendly "model busy, try another" message instead of
+		// a bare no-channel error.
+		// A pinned token whose groups are all down gets a targeted error when the
+		// model is still served elsewhere - the OVERRIDE is the lockout, not the
+		// platform. Pins come in two shapes: a per-model GroupMapping (flag below)
+		// and a plain token.group set to a specific group (never flagged, which
+		// left real pin lockouts wearing the generic "all providers busy" message).
+		// When nothing serves the model, the generic busy message is the truthful one.
+		pinUserGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+		tokenPinned := common.GetContextKeyBool(c, constant.ContextKeyTokenGroupMappingApplied) ||
+			(info.TokenGroup != "" && info.TokenGroup != "auto" && info.TokenGroup != "default" && info.TokenGroup != pinUserGroup)
+		if tokenPinned &&
+			model.HasEnabledChannelForModelOutsideGroups(info.OriginModelName, service.ParseTokenGroups(info.TokenGroup)) {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("This API key is pinned to a billing group that currently has no available provider for \"%s\" - the model itself is online and served by other groups. This is a problem with the key, not the model: open your token settings and set its group to \"auto\" (or delete the pin), then retry.", info.OriginModelName), types.ErrorCodeGetChannelFailed, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+		}
+		if info.TokenGroup == "auto" || service.IsCompositeTokenGroup(info.TokenGroup) {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("This model is busy right now (free providers hit their rate limit). Please try again in a little while, or switch to another model."), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
+		// The model exists but every channel serving it is currently disabled
+		// (auto-disabled on rate limit / maintenance). Tell the user it is busy,
+		// not that they mistyped the model name.
+		if model.ModelHasAnyChannel(info.OriginModelName) {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("All providers for model \"%s\" are busy right now (they hit their rate limit). This is not a spelling error. Please try again in a little while, or switch to another model.", info.OriginModelName), types.ErrorCodeGetChannelFailed, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+		}
+		return nil, types.NewError(fmt.Errorf("no available channel for model %s in group %s (retry)", info.OriginModelName, selectGroup), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
@@ -332,6 +587,9 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if openaiErr == nil {
 		return false
 	}
+	if c.Request != nil && c.Request.Context().Err() != nil {
+		return false
+	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
@@ -341,11 +599,35 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if types.IsSkipRetryError(openaiErr) {
 		return false
 	}
+	// Upstream 400 = malformed request; retrying other channels yields the same
+	// rejection. Fail fast, never failover.
+	if types.IsDeterministicUpstreamError(openaiErr) {
+		return false
+	}
 	if retryTimes <= 0 {
 		return false
 	}
 	if _, ok := c.Get("specific_channel_id"); ok {
 		return false
+	}
+	// A moderation verdict from a filter every sibling shares (those shards all
+	// front the same z.ai endpoint) repeats identically on failover, so the chain
+	// only delays the refusal the user needs to see.
+	if types.IsSharedFilterModerationError(openaiErr) {
+		return false
+	}
+	// An out-of-range parameter value is in the request body every sibling gets,
+	// so the chain reproduces the same rejection on each channel.
+	if types.IsInvalidParamError(openaiErr) {
+		return false
+	}
+	// PROD-ONLY (fork): force failover for per-channel 400s that a sibling can
+	// still serve - moderation is per-upstream (one channel's content-policy reject
+	// passes on a laxer sibling), and a capacity/degradation 400 (NVIDIA DEGRADED,
+	// a reseller's masked "retry later") is transient. 400 is excluded from the
+	// generic retry ranges, so ShouldRetryByStatusCode would otherwise drop these.
+	if types.IsUpstreamModerationError(openaiErr) || types.IsTransientUpstream400(openaiErr) {
+		return true
 	}
 	code := openaiErr.StatusCode
 	if code >= 200 && code < 300 {
@@ -360,13 +642,86 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	return operation_setting.ShouldRetryByStatusCode(code)
 }
 
-func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
+// shouldChargeOnError reports whether a failed request should keep its
+// pre-consumed quota instead of refunding. Only true when the ChargeOnError
+// setting is on AND the error came back from an upstream (the upstream actually
+// processed the request). Local new_api_error failures (no available channel,
+// invalid request, model-mapping, param-override, etc.) never reached an
+// upstream, so they are always refunded regardless of the toggle.
+//
+// Deterministic upstream rejections (400/415/422/451: malformed request,
+// unsupported param, validation, policy block) are ALSO always refunded even
+// though they carry an upstream error type: the upstream rejected the request
+// up front and did no billable work (zero tokens), so charging the user the
+// full pre-consumed estimate for a client-side mistake would be a phantom
+// charge. ChargeOnError is meant for requests the upstream actually processed
+// before failing, not for instant validation rejections.
+func shouldChargeOnError(err *types.NewAPIError) bool {
+	if err == nil || !operation_setting.GetQuotaSetting().ChargeOnError {
+		return false
+	}
+	if types.IsDeterministicUpstreamError(err) {
+		return false
+	}
+	if isTransientInfraError(err) {
+		return false
+	}
+	return err.GetErrorType() != types.ErrorTypeNewAPIError
+}
+
+// isTransientInfraError reports whether a failed upstream call is an
+// infrastructure fault (timeout, saturation, gateway/server error) that
+// delivered nothing to the user, so the pre-consumed quota must be refunded even
+// with ChargeOnError on. Deterministic user-side rejections (400/415/422/451)
+// are handled separately and are not included here.
+func isTransientInfraError(err *types.NewAPIError) bool {
+	if err == nil || err.GetErrorType() == types.ErrorTypeNewAPIError {
+		return false
+	}
+	switch err.StatusCode {
+	case http.StatusRequestTimeout, // 408
+		http.StatusTooManyRequests: // 429
+		return true
+	}
+	return err.StatusCode >= 500
+}
+
+func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, statusOpts ...model.ChannelStatusChangeOpt) {
+	if c.Request != nil && c.Request.Context().Err() != nil {
+		return
+	}
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
-	if service.ShouldDisableChannel(err) && channelError.AutoBan {
+	shouldDisable := service.ShouldDisableChannel(err)
+	// PROD-ONLY (fork): spare non-recoverable media/native-image channels from disable on
+	// user-caused request errors (the channel-test cron has no probe path for them, so a
+	// false-disable is permanent). Genuine channel faults are channel:* coded and NOT skipped.
+	if shouldDisable && shouldSkipDisableForModality(c.GetString("original_model"), err) {
+		logger.LogError(c, fmt.Sprintf("PROD-ONLY(fork): skip auto-disable channel #%d non-recoverable modality model=%s code=%s status=%d",
+			channelError.ChannelId, c.GetString("original_model"), err.GetErrorCode(), err.StatusCode))
+		shouldDisable = false
+	}
+	// A single upstream fault is not evidence a channel is dead. Require the failure
+	// to be a sustained share of the channel's recent traffic before pulling it, so a
+	// capacity blip on a busy lane fails over instead of removing it for everyone.
+	// Credential faults are exempt: those cannot recover on their own.
+	if shouldDisable && !service.IsCredentialFault(err) && !service.RecordChannelFailure(channelError.ChannelId) {
+		fails, oks := service.ChannelFailureWindow(channelError.ChannelId)
+		logger.LogInfo(c, fmt.Sprintf("channel-guard: kept channel #%d (%s) enabled, fault below threshold: fail=%d ok=%d status=%d code=%s",
+			channelError.ChannelId, channelError.ChannelName, fails, oks, err.StatusCode, err.GetErrorCode()))
+		shouldDisable = false
+	}
+	if shouldDisable && channelError.AutoBan {
+		// Default the status-history trigger to a live relay request; the
+		// scheduled-test caller overrides it via statusOpts. Model name comes
+		// from the request context when present.
+		opts := append([]model.ChannelStatusChangeOpt{
+			model.WithChannelStatusTrigger(model.ChannelStatusTriggerLiveRequest),
+			model.WithChannelStatusModel(c.GetString("original_model")),
+		}, statusOpts...)
 		gopool.Go(func() {
-			service.DisableChannel(channelError, err.ErrorWithStatusCode())
+			service.DisableChannel(channelError, err.ErrorWithStatusCode(), opts...)
 		})
 	}
 
@@ -397,12 +752,28 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		}
 		service.AppendChannelAffinityAdminInfo(c, adminInfo)
 		other["admin_info"] = adminInfo
+		// A generic upstream 400 names no field, so without this the log says only
+		// that the request was rejected: which knob did it, and whether the
+		// channel's param_override even ran, both had to be guessed at. Scalars
+		// and shapes only, never message content.
+		if shape := relaycommon.DescribeRequestShape(c); len(shape) > 0 {
+			other["request_shape"] = shape
+		}
+		service.AppendClientAttribution(c, other)
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {
 			startTime = time.Now()
 		}
 		useTimeSeconds := int(time.Since(startTime).Seconds())
-		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+		// Size of the request that failed. Without it the log cannot tell a
+		// 200-token prompt from a 200k one, which is the first thing worth knowing
+		// about a timeout or a context-length rejection. Counted with the
+		// model-aware tokenizer, so it matches what the model would have seen.
+		// Only the INPUT: a failed request produced no completion, and quota stays
+		// zero, so nothing here reaches billing or the tokens-served total (both
+		// are scoped to consume logs).
+		promptTokens := service.CountTextToken(relaycommon.ExtractPromptText(c), modelName)
+		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, promptTokens, other)
 	}
 
 }
@@ -437,7 +808,7 @@ func RelayMidjourney(c *gin.Context) {
 	if mjErr != nil {
 		statusCode := http.StatusBadRequest
 		if mjErr.Code == 30 {
-			mjErr.Result = "当前分组负载已饱和，请稍后再试，或升级账户以提升服务质量。"
+			mjErr.Result = "The current group is at full load, please try again later, or upgrade your account to improve service quality."
 			statusCode = http.StatusTooManyRequests
 		}
 		c.JSON(statusCode, gin.H{
@@ -573,7 +944,7 @@ func RelayTask(c *gin.Context) {
 
 	useChannel := c.GetStringSlice("use_channel")
 	if len(useChannel) > 1 {
-		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
+		retryLogStr := fmt.Sprintf("retry: %s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
 		logger.LogInfo(c, retryLogStr)
 	}
 
@@ -614,7 +985,7 @@ func RelayTask(c *gin.Context) {
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）
 func respondTaskError(c *gin.Context, taskErr *taskdto.TaskError) {
 	if taskErr.StatusCode == http.StatusTooManyRequests {
-		taskErr.Message = "当前分组上游负载已饱和，请稍后再试"
+		taskErr.Message = "The current group's upstream is at full load, please try again later"
 	}
 	c.JSON(taskErr.StatusCode, taskErr)
 }

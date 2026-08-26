@@ -22,6 +22,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/notify"
 	"github.com/QuantumNous/new-api/oauth"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
@@ -29,6 +30,7 @@ import (
 	"github.com/QuantumNous/new-api/router"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting"
 	_ "github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -122,6 +124,14 @@ func main() {
 		go controller.AutomaticallyUpdateChannels(frequency)
 	}
 
+	go controller.AutomaticallySnapshotModelStatus()
+
+	// Realtime notification engine: WS fanout on every replica, differ and
+	// web push sender gate on the master node internally.
+	notify.StartHub()
+	service.StartNotifyDiffer()
+	service.StartWebPushSender()
+
 	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
 	service.StartCodexCredentialAutoRefreshTask()
 
@@ -154,6 +164,9 @@ func main() {
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
 		common.SysLog("batch update enabled with interval " + strconv.Itoa(common.BatchUpdateInterval) + "s")
+		// Every node MUST run its own flusher: the store holds only this node's deltas
+		// (additive UPDATEs, no cross-node overlap). A master-only gate here once left
+		// slaves accumulating quota deltas that were silently dropped on restart.
 		model.InitBatchUpdater()
 	}
 
@@ -293,6 +306,7 @@ func InitResources() error {
 
 	// 加载环境变量
 	common.InitEnv()
+	setting.InitOAuthServerEnv()
 
 	logger.SetupLogger()
 

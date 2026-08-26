@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -488,4 +489,33 @@ func TestNormalizeHTTPTransportPolicyClampsWithoutPanic(t *testing.T) {
 	assert.Equal(t, HTTPTransportPolicy{Protocol: dto.HTTPProtocolAuto, Shards: 1}, NormalizeHTTPTransportPolicy(dto.ChannelSettings{HTTPProtocol: "http3"}))
 	assert.Equal(t, HTTPTransportPolicy{Protocol: dto.HTTPProtocolAuto, Shards: 1}, NormalizeHTTPTransportPolicy(dto.ChannelSettings{HTTP2ConnectionShards: -3}))
 	assert.Equal(t, HTTPTransportPolicy{Protocol: dto.HTTPProtocolAuto, Shards: 8}, NormalizeHTTPTransportPolicy(dto.ChannelSettings{HTTP2ConnectionShards: 99}))
+}
+
+// RESPONSE_HEADER_TIMEOUT must win over RELAY_TIMEOUT for the first-byte deadline.
+// The two are not interchangeable: RelayTimeout ALSO deadlines the AWS relay context
+// and the whole-response client timeout, so raising the header timeout through it
+// would cap long generations and add an AWS deadline that does not exist today.
+func TestResponseHeaderTimeoutPrecedence(t *testing.T) {
+	prevHeader, prevRelay := common.ResponseHeaderTimeout, common.RelayTimeout
+	t.Cleanup(func() {
+		common.ResponseHeaderTimeout, common.RelayTimeout = prevHeader, prevRelay
+	})
+
+	cases := []struct {
+		name   string
+		header int
+		relay  int
+		want   time.Duration
+	}{
+		{"both unset falls back to the 60s default", 0, 0, 60 * time.Second},
+		{"relay alone still overrides", 0, 45, 45 * time.Second},
+		{"header alone overrides", 90, 0, 90 * time.Second},
+		{"header wins over relay", 90, 45, 90 * time.Second},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			common.ResponseHeaderTimeout, common.RelayTimeout = c.header, c.relay
+			assert.Equal(t, c.want, responseHeaderTimeout())
+		})
+	}
 }

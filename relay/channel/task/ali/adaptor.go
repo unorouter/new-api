@@ -136,6 +136,9 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if isNewAPIRelay(info.ApiKey, a.baseURL) {
+		return fmt.Sprintf("%s/alibailian/api/v1/services/aigc/video-generation/video-synthesis", a.baseURL), nil
+	}
 	return fmt.Sprintf("%s/api/v1/services/aigc/video-generation/video-synthesis", a.baseURL), nil
 }
 
@@ -206,6 +209,10 @@ func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) 
 			"720P":  1,
 			"1080P": 1 / 0.6,
 		},
+		"wan2.6-t2v": {
+			"720P":  1,
+			"1080P": 1 / 0.6,
+		},
 		"wan2.5-t2v-preview": {
 			"480P":  1,
 			"720P":  2,
@@ -261,8 +268,28 @@ func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) 
 	return otherRatios, nil
 }
 
-func isWan27I2VModel(model string) bool {
-	return strings.HasPrefix(model, "wan2.7-i2v")
+// usesInputMediaProtocol reports whether the model expects the new
+// input.media[] first_frame protocol instead of the legacy input.img_url.
+// wan2.7 and the happyhorse image/reference-to-video families both require it;
+// happyhorse rejects img_url with "Field required: input.media".
+func usesInputMediaProtocol(model string) bool {
+	if strings.HasPrefix(model, "wan2.7-i2v") {
+		return true
+	}
+	if strings.HasPrefix(model, "happyhorse") &&
+		(strings.Contains(model, "i2v") ||
+			strings.Contains(model, "kf2v") ||
+			strings.Contains(model, "r2v")) {
+		return true
+	}
+	return false
+}
+
+// isReferenceToVideoModel reports whether the model generates a video from a
+// reference image (r2v). These send the image as a "reference_image" media
+// entry rather than a first_frame.
+func isReferenceToVideoModel(model string) bool {
+	return strings.Contains(model, "r2v")
 }
 
 func firstNonEmpty(values ...string) string {
@@ -306,37 +333,55 @@ func secondTaskImage(req relaycommon.TaskSubmitReq) string {
 }
 
 func normalizeWan27I2VInput(aliReq *AliVideoRequest, req relaycommon.TaskSubmitReq) error {
-	if !isWan27I2VModel(aliReq.Model) {
+	if !usesInputMediaProtocol(aliReq.Model) {
 		return nil
 	}
 
 	if len(aliReq.Input.Media) == 0 {
-		firstFrameURL := firstNonEmpty(aliReq.Input.FirstFrameURL, aliReq.Input.ImgURL, firstTaskImage(req))
-		lastFrameURL := firstNonEmpty(aliReq.Input.LastFrameURL, secondTaskImage(req))
-		audioURL := aliReq.Input.AudioURL
+		// Reference-to-video (r2v) uses a "reference_image" media entry; the
+		// image-to-video / keyframe families use first_frame/last_frame.
+		if isReferenceToVideoModel(aliReq.Model) {
+			referenceURL := firstNonEmpty(aliReq.Input.ImgURL, firstTaskImage(req))
+			if referenceURL != "" {
+				aliReq.Input.Media = append(aliReq.Input.Media, AliVideoMedia{
+					Type: "reference_image",
+					URL:  referenceURL,
+				})
+			}
+		} else {
+			firstFrameURL := firstNonEmpty(aliReq.Input.FirstFrameURL, aliReq.Input.ImgURL, firstTaskImage(req))
+			lastFrameURL := firstNonEmpty(aliReq.Input.LastFrameURL, secondTaskImage(req))
+			audioURL := aliReq.Input.AudioURL
 
-		if firstFrameURL != "" {
-			aliReq.Input.Media = append(aliReq.Input.Media, AliVideoMedia{
-				Type: "first_frame",
-				URL:  firstFrameURL,
-			})
-		}
-		if lastFrameURL != "" {
-			aliReq.Input.Media = append(aliReq.Input.Media, AliVideoMedia{
-				Type: "last_frame",
-				URL:  lastFrameURL,
-			})
-		}
-		if audioURL != "" {
-			aliReq.Input.Media = append(aliReq.Input.Media, AliVideoMedia{
-				Type: "driving_audio",
-				URL:  audioURL,
-			})
+			if firstFrameURL != "" {
+				aliReq.Input.Media = append(aliReq.Input.Media, AliVideoMedia{
+					Type: "first_frame",
+					URL:  firstFrameURL,
+				})
+			}
+			if lastFrameURL != "" {
+				aliReq.Input.Media = append(aliReq.Input.Media, AliVideoMedia{
+					Type: "last_frame",
+					URL:  lastFrameURL,
+				})
+			}
+			if audioURL != "" {
+				aliReq.Input.Media = append(aliReq.Input.Media, AliVideoMedia{
+					Type: "driving_audio",
+					URL:  audioURL,
+				})
+			}
 		}
 	}
 
 	if len(aliReq.Input.Media) == 0 {
-		return fmt.Errorf("wan2.7-i2v requires image, images, input_reference, or input.media")
+		return fmt.Errorf("%s requires image, images, input_reference, or input.media", aliReq.Model)
+	}
+
+	// Reference-to-video needs a text prompt describing the video; the reference
+	// image only supplies the subject. Frame-driven i2v/kf2v accept empty prompts.
+	if isReferenceToVideoModel(aliReq.Model) && strings.TrimSpace(aliReq.Input.Prompt) == "" {
+		return fmt.Errorf("%s requires a prompt", aliReq.Model)
 	}
 
 	// Wan2.7 image-to-video uses the new input.media protocol. Avoid sending
@@ -529,6 +574,9 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	}
 
 	uri := fmt.Sprintf("%s/api/v1/tasks/%s", baseUrl, taskID)
+	if isNewAPIRelay(key, baseUrl) {
+		uri = fmt.Sprintf("%s/alibailian/api/v1/tasks/%s", baseUrl, taskID)
+	}
 
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
@@ -620,6 +668,19 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	}
 
 	return common.Marshal(openAIResp)
+}
+
+// isNewAPIRelay reports whether the upstream is ANOTHER new-api instance (which
+// exposes the DashScope task API under a /alibailian prefix) rather than a direct
+// Alibaba DashScope host. A direct DashScope base (dashscope*.aliyuncs.com or a
+// Bailian workspace host *.maas.aliyuncs.com) serves /api/v1/... at the root, so
+// the /alibailian prefix must NOT be added there. Key prefix alone is wrong:
+// Bailian's own keys are `sk-ws-...`.
+func isNewAPIRelay(apiKey, baseURL string) bool {
+	if strings.Contains(baseURL, "aliyuncs.com") {
+		return false
+	}
+	return strings.HasPrefix(apiKey, "sk-")
 }
 
 func convertAliStatus(aliStatus string) string {

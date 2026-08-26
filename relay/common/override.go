@@ -26,25 +26,88 @@ const (
 
 var errSourceHeaderNotFound = errors.New("source header does not exist")
 
-var paramOverrideSensitivePathPrefixes = []string{
-	"model",
-	"original_model",
-	"upstream_model",
-	"reasoning",
-	"reasoning_effort",
-	"output_config",
-	"generationConfig.thinkingConfig",
-	"generation_config.thinking_config",
-	"service_tier",
-	"inference_geo",
-	"speed",
-	"messages",
-	"input",
-	"instructions",
-	"system",
-	"contents",
-	"systemInstruction",
-	"system_instruction",
+var paramOverrideKeyAuditPaths = map[string]struct{}{
+	"model":                             {},
+	"original_model":                    {},
+	"upstream_model":                    {},
+	"service_tier":                      {},
+	"reasoning":                         {},
+	"output_config":                     {},
+	"generationConfig.thinkingConfig":   {},
+	"generation_config.thinking_config": {},
+	"inference_geo":                     {},
+	"speed":                             {},
+	// Sensitive message-content paths: ensure audits expose deletions
+	// of these even though their values themselves aren't logged.
+	"messages":           {},
+	"input":              {},
+	"instructions":       {},
+	"system":             {},
+	"contents":           {},
+	"systemInstruction":  {},
+	"system_instruction": {},
+	// Sampler knobs: audited so the BFF can surface a "dropped params"
+	// notice to the client when the channel's ParamOverride strips them.
+	"temperature":        {},
+	"top_p":              {},
+	"top_k":              {},
+	"min_p":              {},
+	"top_a":              {},
+	"frequency_penalty":  {},
+	"presence_penalty":   {},
+	"repetition_penalty": {},
+	"max_tokens":         {},
+	"max_output_tokens":  {},
+	"reasoning_effort":   {},
+}
+
+// auditedDeletedParamPathsRegexp captures the path from "delete <path>" lines
+// in info.ParamOverrideAudit. Used by ExtractDroppedParamPaths.
+var auditedDeletedParamPathsRegexp = regexp.MustCompile(`^delete\s+(.+)$`)
+
+// EmitDroppedParamsHeader writes the `x-newapi-dropped-params` response header
+// listing every field the param-override engine deleted. Call after every
+// ApplyParamOverrideWithRelayInfo so frontends can warn the user that a
+// sampler knob (or any other field) was stripped because the upstream provider
+// doesn't accept it. No-op when nothing was dropped or headers are unavailable
+// (e.g. internal channel-test path with no http.ResponseWriter).
+func EmitDroppedParamsHeader(h http.Header, audit []string) {
+	if h == nil {
+		return
+	}
+	dropped := ExtractDroppedParamPaths(audit)
+	if len(dropped) == 0 {
+		return
+	}
+	h.Set("x-newapi-dropped-params", strings.Join(dropped, ","))
+}
+
+// ExtractDroppedParamPaths returns the JSON paths of fields the param-override
+// engine deleted. Callers can join the list and emit it as the
+// `x-newapi-dropped-params` response header so frontends can warn the user
+// that a sampler knob was unsupported by the upstream provider.
+func ExtractDroppedParamPaths(audit []string) []string {
+	if len(audit) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(audit))
+	seen := make(map[string]struct{}, len(audit))
+	for _, line := range audit {
+		match := auditedDeletedParamPathsRegexp.FindStringSubmatch(strings.TrimSpace(line))
+		if len(match) != 2 {
+			continue
+		}
+		path := strings.TrimSpace(match[1])
+		if path == "" {
+			continue
+		}
+		if _, dup := seen[path]; dup {
+			continue
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	return out
 }
 
 type paramOverrideAuditRecorder struct {
@@ -180,7 +243,12 @@ func buildLegacyParamOverride(paramOverride map[string]interface{}) map[string]i
 	return legacy
 }
 
-func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) ([]byte, error) {
+// ApplyParamOverrideWithRelayInfo applies the channel's configured param-override
+// to jsonData and, when respHeader is non-nil and any fields were dropped, sets
+// the `x-newapi-dropped-params` header so the client (BFF/UI) can warn that an
+// upstream provider didn't accept those knobs. Pass nil for respHeader on
+// internal/non-HTTP paths (e.g. channel-test).
+func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo, respHeader http.Header) ([]byte, error) {
 	paramOverride := getParamOverrideMap(info)
 	if len(paramOverride) == 0 {
 		return jsonData, nil
@@ -204,6 +272,7 @@ func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) ([]byte, 
 		} else {
 			info.ParamOverrideAudit = nil
 		}
+		EmitDroppedParamsHeader(respHeader, info.ParamOverrideAudit)
 	}
 	return result, nil
 }
@@ -313,7 +382,7 @@ func shouldAuditParamPath(path string) bool {
 	if common.DebugEnabled {
 		return true
 	}
-	for _, prefix := range paramOverrideSensitivePathPrefixes {
+	for prefix := range paramOverrideKeyAuditPaths {
 		if path == prefix || strings.HasPrefix(path, prefix+".") {
 			return true
 		}
@@ -807,11 +876,18 @@ func applyOperations(jsonData []byte, operations []ParamOperation, conditionCont
 		switch op.Mode {
 		case "delete":
 			for _, path := range opPaths {
+				// The audit drives x-newapi-dropped-params, which the frontend
+				// shows as "X not supported and was ignored". Recording a delete
+				// whose path was absent told users their own request carried a
+				// param they never set.
+				existed := gjson.GetBytes(result, path).Exists()
 				result, err = deleteValue(result, path)
 				if err != nil {
 					break
 				}
-				auditRecorder.recordOperation("delete", path, "", "", nil)
+				if existed {
+					auditRecorder.recordOperation("delete", path, "", "", nil)
+				}
 			}
 		case "set":
 			for _, path := range opPaths {
@@ -823,6 +899,12 @@ func applyOperations(jsonData []byte, operations []ParamOperation, conditionCont
 					break
 				}
 				auditRecorder.recordOperation("set", path, "", "", op.Value)
+			}
+		case "strip_images":
+			var stripped bool
+			result, stripped = stripImageParts(result)
+			if stripped {
+				auditRecorder.recordOperation("delete", "image", "", "", nil)
 			}
 		case "move":
 			opFrom := processNegativeIndex(result, op.From)
@@ -1692,6 +1774,61 @@ func collectWildcardPaths(node interface{}, segments []string, prefix []string) 
 	}
 }
 
+// stripImageParts removes image parts from every message, leaving the text.
+// A channel whose upstream is text-only otherwise fails the whole request when
+// an image arrives, and the user cannot tell that one attachment cost them the
+// reply: iOS inserts stickers and Memoji as PNG attachments, so a message that
+// reads as plain text carries an image the model was never going to see.
+//
+// A delete operation cannot express this. sjson paths address a fixed index,
+// and a query path returns "cannot delete value from a complex path", so the
+// parts have to be filtered here rather than named in config.
+func stripImageParts(data []byte) ([]byte, bool) {
+	messages := gjson.GetBytes(data, "messages")
+	if !messages.IsArray() {
+		return data, false
+	}
+	result := data
+	stripped := false
+	messages.ForEach(func(mi, message gjson.Result) bool {
+		content := message.Get("content")
+		if !content.IsArray() {
+			return true
+		}
+		kept := make([]string, 0, len(content.Array()))
+		dropped := false
+		content.ForEach(func(_, part gjson.Result) bool {
+			switch part.Get("type").String() {
+			case "image_url", "image", "input_image":
+				dropped = true
+			default:
+				kept = append(kept, part.Raw)
+			}
+			return true
+		})
+		if !dropped {
+			return true
+		}
+		// An empty content array is rejected by strict upstreams, so a message
+		// that was only an image keeps a placeholder rather than vanishing.
+		if len(kept) == 0 {
+			kept = append(kept, `{"type":"text","text":"[image omitted]"}`)
+		}
+		next, err := sjson.SetRawBytes(
+			result,
+			fmt.Sprintf("messages.%d.content", mi.Int()),
+			[]byte("["+strings.Join(kept, ",")+"]"),
+		)
+		if err != nil {
+			return true
+		}
+		result = next
+		stripped = true
+		return true
+	})
+	return result, stripped
+}
+
 func deleteValue(data []byte, path string) ([]byte, error) {
 	if strings.TrimSpace(path) == "" {
 		return data, nil
@@ -2161,4 +2298,67 @@ func BuildParamOverrideContext(info *RelayInfo) map[string]interface{} {
 
 	ctx["is_channel_test"] = info.IsChannelTest
 	return ctx
+}
+
+// DetectSilentAdapterDrops compares an OpenAI-format request JSON against the
+// adapter-converted JSON and returns audit lines (in "delete <key>" form,
+// matching ParamOverride's audit format) for sampler keys present in the
+// original but absent in the converted payload.
+//
+// This catches the silent drops the adapter pattern performs when an upstream
+// (Claude / Gemini / Cohere / etc.) doesn't accept a knob OpenAI exposes,
+// e.g. min_p, top_a, repetition_penalty for Anthropic. The output is fed to
+// EmitDroppedParamsHeader to surface a `x-newapi-dropped-params` header so
+// the BFF can show a non-blocking toast to the user.
+//
+// originalJSON: the inbound /v1/chat/completions body (or its sjson-edited
+// form right before the adapter sees it). convertedJSON: bytes marshaled from
+// the adapter's ConvertOpenAIRequest return value. Either being empty yields
+// a nil slice. Passthrough channels (no conversion) should not call this.
+//
+// Only sampler keys in paramOverrideKeyAuditPaths are reported. model-related
+// keys are ignored because adapters typically rename rather than drop them.
+func DetectSilentAdapterDrops(originalJSON, convertedJSON []byte) []string {
+	if len(originalJSON) == 0 || len(convertedJSON) == 0 {
+		return nil
+	}
+	out := make([]string, 0)
+	for key := range paramOverrideKeyAuditPaths {
+		// Skip model-renaming keys: adapters translate, not drop, these.
+		switch key {
+		case "model", "original_model", "upstream_model":
+			continue
+		}
+		if !gjson.GetBytes(originalJSON, key).Exists() {
+			continue
+		}
+		if gjson.GetBytes(convertedJSON, key).Exists() {
+			continue
+		}
+		// Tolerate adapter-renamed equivalents so we don't over-report.
+		if key == "max_tokens" {
+			if gjson.GetBytes(convertedJSON, "max_output_tokens").Exists() ||
+				gjson.GetBytes(convertedJSON, "max_completion_tokens").Exists() ||
+				// Gemini marshals generationConfig.maxOutputTokens (camelCase);
+				// keep the snake_case path for any other adapter that emits it.
+				gjson.GetBytes(convertedJSON, "generationConfig.maxOutputTokens").Exists() ||
+				gjson.GetBytes(convertedJSON, "generation_config.max_output_tokens").Exists() {
+				continue
+			}
+		}
+		if key == "max_output_tokens" {
+			if gjson.GetBytes(convertedJSON, "max_tokens").Exists() ||
+				gjson.GetBytes(convertedJSON, "max_completion_tokens").Exists() {
+				continue
+			}
+		}
+		// `messages` is renamed to `contents` by the Gemini adapter, not dropped.
+		if key == "messages" && gjson.GetBytes(convertedJSON, "contents").Exists() {
+			continue
+		}
+		out = append(out, "delete "+key)
+	}
+	// Stable order for the header value (map iteration is randomized).
+	sort.Strings(out)
+	return out
 }

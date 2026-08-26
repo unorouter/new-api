@@ -208,10 +208,10 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 	totalTokens := usage.TotalTokens
 	var logContent string
 	if !usePrice {
-		logContent = fmt.Sprintf("模型倍率 %.2f，补全倍率 %.2f，音频倍率 %.2f，音频补全倍率 %.2f，分组倍率 %.2f",
+		logContent = fmt.Sprintf("Model ratio %.2f, completion ratio %.2f, audio ratio %.2f, audio completion ratio %.2f, group ratio %.2f",
 			modelRatio, completionRatio.InexactFloat64(), audioRatio.InexactFloat64(), audioCompletionRatio.InexactFloat64(), groupRatio)
 	} else {
-		logContent = fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", modelPrice, groupRatio)
+		logContent = fmt.Sprintf("Model price %.2f, group ratio %.2f", modelPrice, groupRatio)
 	}
 
 	// record all the consume log even if quota is 0
@@ -219,9 +219,9 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		// in this case, must be some error happened
 		// we cannot just return, because we may have to return the pre-consumed quota
 		quota = 0
-		logContent += "（可能是上游超时）"
+		logContent += " (possibly an upstream timeout)"
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, "+
-			"tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, modelName, relayInfo.FinalPreConsumedQuota))
+			"tokenId %d, model %s, pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, modelName, relayInfo.FinalPreConsumedQuota))
 	} else {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
@@ -336,10 +336,10 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	totalTokens := usage.TotalTokens
 	var logContent string
 	if !usePrice {
-		logContent = fmt.Sprintf("模型倍率 %.2f，补全倍率 %.2f，音频倍率 %.2f，音频补全倍率 %.2f，分组倍率 %.2f",
+		logContent = fmt.Sprintf("Model ratio %.2f, completion ratio %.2f, audio ratio %.2f, audio completion ratio %.2f, group ratio %.2f",
 			modelRatio, completionRatio.InexactFloat64(), audioRatio.InexactFloat64(), audioCompletionRatio.InexactFloat64(), groupRatio)
 	} else {
-		logContent = fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", modelPrice, groupRatio)
+		logContent = fmt.Sprintf("Model price %.2f, group ratio %.2f", modelPrice, groupRatio)
 	}
 
 	// record all the consume log even if quota is 0
@@ -347,9 +347,9 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		// in this case, must be some error happened
 		// we cannot just return, because we may have to return the pre-consumed quota
 		quota = 0
-		logContent += "（可能是上游超时）"
+		logContent += " (possibly an upstream timeout)"
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, "+
-			"tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, relayInfo.OriginModelName, relayInfo.FinalPreConsumedQuota))
+			"tokenId %d, model %s, pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, relayInfo.OriginModelName, relayInfo.FinalPreConsumedQuota))
 	} else {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
@@ -390,7 +390,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 
 func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 	if quota < 0 {
-		return errors.New("quota 不能为负数！")
+		return errors.New("quota cannot be negative")
 	}
 	if relayInfo.IsPlayground {
 		return nil
@@ -471,6 +471,9 @@ func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, pre
 func checkAndSendQuotaNotify(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int) {
 	gopool.Go(func() {
 		userSetting := relayInfo.UserSetting
+		if !userSetting.QuotaWarningEnabled {
+			return
+		}
 		threshold := common.QuotaRemindThreshold
 		if userSetting.QuotaWarningThreshold != 0 {
 			threshold = int(userSetting.QuotaWarningThreshold)
@@ -483,7 +486,15 @@ func checkAndSendQuotaNotify(relayInfo *relaycommon.RelayInfo, quota int, preCon
 			quotaTooLow = true
 		}
 		if quotaTooLow {
-			prompt := "您的额度即将用尽"
+			// One warning per low-balance episode: latch on first send, cleared
+			// only when the user's quota increases (see clearQuotaWarnedOnTopUp).
+			// Without this the notify limiter's short TTL let the same user get
+			// dozens of "quota running low" mails per hour on every request.
+			if !acquireQuotaWarnLatch(relayInfo.UserId) {
+				return
+			}
+
+			prompt := "Your quota is running low"
 			topUpLink := PaymentReturnURL("/wallet")
 
 			// 根据通知方式生成不同的内容格式
@@ -492,19 +503,19 @@ func checkAndSendQuotaNotify(relayInfo *relaycommon.RelayInfo, quota int, preCon
 
 			notifyType := userSetting.NotifyType
 			if notifyType == "" {
-				notifyType = dto.NotifyTypeEmail
+				notifyType = types.NotifyTypeEmail
 			}
 
-			if notifyType == dto.NotifyTypeBark {
+			if notifyType == types.NotifyTypeBark {
 				// Bark推送使用简短文本，不支持HTML
-				content = "{{value}}，剩余额度：{{value}}，请及时充值"
+				content = "{{value}}. Remaining quota: {{value}}. Please top up soon."
 				values = []interface{}{prompt, logger.FormatQuota(relayInfo.UserQuota)}
-			} else if notifyType == dto.NotifyTypeGotify {
-				content = "{{value}}，当前剩余额度为 {{value}}，请及时充值。"
+			} else if notifyType == types.NotifyTypeGotify {
+				content = "{{value}}. Your current remaining quota is {{value}}. Please top up soon."
 				values = []interface{}{prompt, logger.FormatQuota(relayInfo.UserQuota)}
 			} else {
 				// 默认内容格式，适用于Email和Webhook（支持HTML）
-				content = "{{value}}，当前剩余额度为 {{value}}，为了不影响您的使用，请及时充值。<br/>充值链接：<a href='{{value}}'>{{value}}</a>"
+				content = "{{value}}. Your current remaining quota is {{value}}. To avoid any disruption, please top up soon.<br/>Top-up link: <a href='{{value}}'>{{value}}</a>"
 				values = []interface{}{prompt, logger.FormatQuota(relayInfo.UserQuota), topUpLink, topUpLink}
 			}
 
@@ -526,6 +537,9 @@ func checkAndSendSubscriptionQuotaNotify(relayInfo *relaycommon.RelayInfo) {
 		}
 
 		userSetting := relayInfo.UserSetting
+		if !userSetting.QuotaWarningEnabled {
+			return
+		}
 		threshold := common.QuotaRemindThreshold
 		if userSetting.QuotaWarningThreshold != 0 {
 			threshold = int(userSetting.QuotaWarningThreshold)
@@ -537,24 +551,28 @@ func checkAndSendSubscriptionQuotaNotify(relayInfo *relaycommon.RelayInfo) {
 			return
 		}
 
-		prompt := "您的订阅额度即将用尽"
+		if !acquireSubscriptionWarnLatch(relayInfo.SubscriptionId) {
+			return
+		}
+
+		prompt := "Your subscription quota is running low"
 		topUpLink := PaymentReturnURL("/wallet")
 
 		var content string
 		var values []interface{}
 		notifyType := userSetting.NotifyType
 		if notifyType == "" {
-			notifyType = dto.NotifyTypeEmail
+			notifyType = types.NotifyTypeEmail
 		}
 
-		if notifyType == dto.NotifyTypeBark {
-			content = "{{value}}，剩余额度：{{value}}，请及时充值"
+		if notifyType == types.NotifyTypeBark {
+			content = "{{value}}. Remaining quota: {{value}}. Please top up soon."
 			values = []interface{}{prompt, logger.FormatQuota(int(remaining))}
-		} else if notifyType == dto.NotifyTypeGotify {
-			content = "{{value}}，当前剩余额度为 {{value}}，请及时充值。"
+		} else if notifyType == types.NotifyTypeGotify {
+			content = "{{value}}. Your current remaining quota is {{value}}. Please top up soon."
 			values = []interface{}{prompt, logger.FormatQuota(int(remaining))}
 		} else {
-			content = "{{value}}，当前剩余额度为 {{value}}，为了不影响您的使用，请及时充值。<br/>充值链接：<a href='{{value}}'>{{value}}</a>"
+			content = "{{value}}. Your current remaining quota is {{value}}. To avoid any disruption, please top up soon.<br/>Top-up link: <a href='{{value}}'>{{value}}</a>"
 			values = []interface{}{prompt, logger.FormatQuota(int(remaining)), topUpLink, topUpLink}
 		}
 
@@ -562,4 +580,55 @@ func checkAndSendSubscriptionQuotaNotify(relayInfo *relaycommon.RelayInfo) {
 			common.SysError(fmt.Sprintf("failed to send subscription quota notify to user %d: %s", relayInfo.UserId, err.Error()))
 		}
 	})
+}
+
+// quotaWarnLatchTTL is a safety-net expiry: the latch is normally cleared the
+// moment a user's quota increases (ClearQuotaWarnLatch on top-up), so this only
+// caps how long a warning stays suppressed if a clear is ever missed.
+const quotaWarnLatchTTL = 30 * 24 * time.Hour
+
+func quotaWarnLatchKey(userId int) string {
+	return fmt.Sprintf("quota_warned:%d", userId)
+}
+
+func subscriptionWarnLatchKey(subscriptionId int) string {
+	return fmt.Sprintf("subscription_quota_warned:%d", subscriptionId)
+}
+
+// acquireQuotaWarnLatch returns true exactly once per low-balance episode: the
+// first caller sets the latch and sends, later callers are suppressed until the
+// latch is cleared on top-up (or the safety-net TTL expires). Without Redis the
+// latch cannot persist, so we fall back to always-send (the notify limiter still
+// caps volume) rather than silently dropping warnings.
+func acquireQuotaWarnLatch(userId int) bool {
+	if !common.RedisEnabled {
+		return true
+	}
+	ok, err := common.RedisSetNX(quotaWarnLatchKey(userId), "1", quotaWarnLatchTTL)
+	if err != nil {
+		common.SysError(fmt.Sprintf("quota warn latch failed for user %d: %s", userId, err.Error()))
+		return true
+	}
+	return ok
+}
+
+func acquireSubscriptionWarnLatch(subscriptionId int) bool {
+	if !common.RedisEnabled {
+		return true
+	}
+	ok, err := common.RedisSetNX(subscriptionWarnLatchKey(subscriptionId), "1", quotaWarnLatchTTL)
+	if err != nil {
+		common.SysError(fmt.Sprintf("subscription quota warn latch failed for subscription %d: %s", subscriptionId, err.Error()))
+		return true
+	}
+	return ok
+}
+
+// ClearQuotaWarnLatch re-arms the low-balance warning for a user, called when
+// their quota increases so the next drain can warn once more.
+func ClearQuotaWarnLatch(userId int) {
+	if !common.RedisEnabled {
+		return
+	}
+	_ = common.RedisDel(quotaWarnLatchKey(userId))
 }

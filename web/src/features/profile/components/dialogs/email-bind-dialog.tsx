@@ -22,9 +22,11 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
+import { Turnstile } from '@/components/turnstile'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
 import { useCountdown } from '@/hooks/use-countdown'
 
 import { sendEmailVerification, bindEmail } from '../../api'
@@ -47,6 +49,7 @@ export function EmailBindDialog({
   onSuccess,
 }: EmailBindDialogProps) {
   const { t } = useTranslation()
+  const turnstile = useTurnstile()
   const [loading, setLoading] = useState(false)
   const [sendingCode, setSendingCode] = useState(false)
   const [email, setEmail] = useState('')
@@ -65,10 +68,14 @@ export function EmailBindDialog({
       toast.error(t('Please enter a valid email address'))
       return
     }
+    if (!turnstile.validateTurnstile()) return
 
     try {
       setSendingCode(true)
-      const response = await sendEmailVerification(email)
+      const response = await sendEmailVerification(
+        email,
+        turnstile.turnstileToken
+      )
 
       if (response.success) {
         toast.success(t('Verification code sent! Please check your email.'))
@@ -187,7 +194,12 @@ export function EmailBindDialog({
               type='button'
               variant='outline'
               onClick={handleSendCode}
-              disabled={sendingCode || isActive || !email}
+              disabled={
+                sendingCode ||
+                isActive ||
+                !email ||
+                (turnstile.isTurnstileEnabled && !turnstile.turnstileToken)
+              }
             >
               {isActive
                 ? `${secondsLeft}s`
@@ -197,6 +209,13 @@ export function EmailBindDialog({
             </Button>
           </div>
         </div>
+
+        {turnstile.isTurnstileEnabled && (
+          <Turnstile
+            siteKey={turnstile.turnstileSiteKey}
+            onVerify={turnstile.setTurnstileToken}
+          />
+        )}
       </div>
     </Dialog>
   )

@@ -86,7 +86,21 @@ func (p *PriceData) ApplyOtherRatiosToFloat(value float64) float64 {
 }
 
 func (p *PriceData) ApplyOtherRatiosToDecimal(value decimal.Decimal) decimal.Decimal {
-	for _, ratio := range p.otherRatios {
+	return p.applyOtherRatios(value, "")
+}
+
+// ApplyOtherRatiosToDecimalExcept skips one ratio by key. Needed when part of the price
+// already accounts for that dimension: an upstream-reported cost is summed over every image
+// in a batch, so multiplying by the image count on top bills the batch n times over.
+func (p *PriceData) ApplyOtherRatiosToDecimalExcept(value decimal.Decimal, skipKey string) decimal.Decimal {
+	return p.applyOtherRatios(value, skipKey)
+}
+
+func (p *PriceData) applyOtherRatios(value decimal.Decimal, skipKey string) decimal.Decimal {
+	for key, ratio := range p.otherRatios {
+		if skipKey != "" && key == skipKey {
+			continue
+		}
 		if isValidOtherRatio(ratio) && ratio != 1.0 {
 			value = value.Mul(decimal.NewFromFloat(ratio))
 		}

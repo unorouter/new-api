@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -41,7 +42,7 @@ type QuotaDataLogParams struct {
 func UpdateQuotaData() {
 	for {
 		if common.DataExportEnabled {
-			common.SysLog("正在更新数据看板数据...")
+			common.SysLog("Updating dashboard data...")
 			SaveQuotaDataCache()
 		}
 		time.Sleep(time.Duration(common.DataExportInterval) * time.Minute)
@@ -121,7 +122,7 @@ func SaveQuotaDataCache() {
 		}
 	}
 	CacheQuotaData = make(map[string]*QuotaData)
-	common.SysLog(fmt.Sprintf("保存数据看板数据成功，共保存%d条数据", size))
+	common.SysLog(fmt.Sprintf("Dashboard data saved successfully, %d records saved in total", size))
 }
 
 func increaseQuotaData(quotaData *QuotaData) {
@@ -168,6 +169,74 @@ func GetQuotaDataGroupByUser(startTime int64, endTime int64) (quotaData []*Quota
 		Group("username, created_at").
 		Find(&quotaDatas).Error
 	return quotaDatas, err
+}
+
+type QuotaDataSummary struct {
+	Count             int64 `json:"count"`
+	Quota             int64 `json:"quota"`
+	TokenUsed         int64 `json:"token_used"`
+	EarliestCreatedAt int64 `json:"earliest_created_at"`
+	AvgTpm            int64 `json:"avg_tpm"`
+}
+
+// The aggregate is a full parallel seq scan (1.2M rows, ~170ms in production),
+// so the public site's ticker would otherwise run it once per visitor per pod.
+// Keyed by the window because callers pass different ranges.
+const quotaSummaryCacheTTL = 5 * time.Minute
+
+func quotaSummaryCacheKey(startTime int64, endTime int64) string {
+	return fmt.Sprintf("quota_summary:%d:%d", startTime, endTime)
+}
+
+// GetQuotaDataSummary aggregates in SQL what callers previously computed by
+// pulling every quota_data row (1M+ rows, ~150MB JSON per call from the badge
+// endpoint alone). Keep totals-only consumers on this.
+//
+// AvgTpm is derived here rather than by each caller: it is tokens over the
+// minutes since the first recorded request, so every consumer that wants it
+// needs the same clock read and the same guards against a zero/absent
+// earliest_created_at. Serving it precomputed keeps that in one place.
+func GetQuotaDataSummary(startTime int64, endTime int64) (*QuotaDataSummary, error) {
+	cacheKey := quotaSummaryCacheKey(startTime, endTime)
+	if common.RedisEnabled {
+		if raw, err := common.RedisGet(cacheKey); err == nil {
+			var cached QuotaDataSummary
+			if common.Unmarshal([]byte(raw), &cached) == nil {
+				// AvgTpm is relative to now, so recompute it rather than serving
+				// the value that was current when the row was cached.
+				cached.AvgTpm = avgTpmSince(cached.EarliestCreatedAt, cached.TokenUsed)
+				return &cached, nil
+			}
+		}
+	}
+
+	var s QuotaDataSummary
+	err := DB.Table("quota_data").
+		Select("COALESCE(sum(count),0) as count, COALESCE(sum(quota),0) as quota, COALESCE(sum(token_used),0) as token_used, COALESCE(min(created_at),0) as earliest_created_at").
+		Where("created_at >= ? and created_at <= ?", startTime, endTime).
+		Scan(&s).Error
+	if err != nil {
+		return &s, err
+	}
+	s.AvgTpm = avgTpmSince(s.EarliestCreatedAt, s.TokenUsed)
+
+	if common.RedisEnabled {
+		if data, marshalErr := common.Marshal(s); marshalErr == nil {
+			_ = common.RedisSet(cacheKey, string(data), quotaSummaryCacheTTL)
+		}
+	}
+	return &s, err
+}
+
+func avgTpmSince(earliestCreatedAt int64, tokenUsed int64) int64 {
+	if earliestCreatedAt <= 0 {
+		return 0
+	}
+	elapsedMinutes := float64(time.Now().Unix()-earliestCreatedAt) / 60
+	if elapsedMinutes <= 0 {
+		return 0
+	}
+	return int64(math.Round(float64(tokenUsed) / elapsedMinutes))
 }
 
 func GetAllQuotaDates(startTime int64, endTime int64, username string) (quotaData []*QuotaData, err error) {

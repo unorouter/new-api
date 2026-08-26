@@ -301,6 +301,10 @@ var defaultModelPrice = map[string]float64{
 	"veo-3.0-fast-generate-001":      0.15,
 	"veo-3.1-generate-preview":       0.4,
 	"veo-3.1-fast-generate-preview":  0.15,
+	// ComfyUI templates — base per-call price; pixels/steps ratios from EstimateBilling stack on top.
+	"comfyui-flux-txt2img":       0.02,
+	"comfyui-flux-txt2img-hires": 0.05,
+	"comfyui-sdxl-txt2img-lora":  0.03,
 }
 
 var defaultAudioRatio = map[string]float64{
@@ -324,6 +328,7 @@ var defaultAudioCompletionRatio = map[string]float64{
 var modelPriceMap = types.NewRWMap[string, float64]()
 var modelRatioMap = types.NewRWMap[string, float64]()
 var completionRatioMap = types.NewRWMap[string, float64]()
+var modelQuotaTypeMap = types.NewRWMap[string, int]()
 
 var defaultCompletionRatio = map[string]float64{
 	"gpt-4-gizmo-*":  2,
@@ -364,6 +369,17 @@ func GetModelPrice(name string, printErr bool) (float64, bool) {
 		return price, true
 	}
 
+	if strings.HasSuffix(name, CompactModelSuffix) {
+		price, ok := modelPriceMap.Get(CompactWildcardModelKey)
+		if !ok {
+			if printErr {
+				common.SysError("model price not found: " + name)
+			}
+			return -1, false
+		}
+		return price, true
+	}
+
 	if printErr {
 		common.SysError("model price not found: " + name)
 	}
@@ -372,6 +388,19 @@ func GetModelPrice(name string, printErr bool) (float64, bool) {
 
 func UpdateModelRatioByJSONString(jsonStr string) error {
 	return types.LoadFromJsonStringWithCallback(modelRatioMap, jsonStr, InvalidateExposedDataCache)
+}
+
+// ModelQuotaType: per-model billing type override (only for types >= 2, e.g. 3=flat video, 4=duration video)
+func GetModelQuotaTypeOverride(name string) (int, bool) {
+	return modelQuotaTypeMap.Get(name)
+}
+
+func ModelQuotaType2JSONString() string {
+	return modelQuotaTypeMap.MarshalJSONString()
+}
+
+func UpdateModelQuotaTypeByJSONString(jsonStr string) error {
+	return types.LoadFromJsonStringWithCallback(modelQuotaTypeMap, jsonStr, InvalidateExposedDataCache)
 }
 
 // 处理带有思考预算的模型名称，方便统一定价
@@ -387,6 +416,11 @@ func GetModelRatio(name string) (float64, bool, string) {
 
 	ratio, ok := modelRatioMap.Get(name)
 	if !ok {
+		if strings.HasSuffix(name, CompactModelSuffix) {
+			if wildcardRatio, ok := modelRatioMap.Get(CompactWildcardModelKey); ok {
+				return wildcardRatio, true, name
+			}
+		}
 		return 37.5, operation_setting.SelfUseModeEnabled, name
 	}
 	return ratio, true, name

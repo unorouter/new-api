@@ -34,7 +34,7 @@ func TestListModelsSupportsOpenAIAndGeminiAuthentication(t *testing.T) {
 	}).Error)
 
 	engine := gin.New()
-	SetRelayRouter(engine)
+	SetRelayRouter(engine, newOpenAPIEngine())
 
 	tests := []struct {
 		name           string

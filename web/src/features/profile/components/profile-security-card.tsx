@@ -130,6 +130,7 @@ export function ProfileSecurityCard({
           open ? dialogs.open('password') : dialogs.close('password')
         }
         username={profile.username}
+        hasPassword={profile.has_password ?? true}
       />
 
       <AccessTokenDialog

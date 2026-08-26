@@ -45,6 +45,8 @@ const rateLimitDialogSchema = z.object({
     .number()
     .min(1, 'Must be ≥ 1')
     .max(2147483647, 'Must be ≤ 2,147,483,647'),
+  // 0 = use the global window; per-model entries can override it.
+  windowMinutes: z.number().min(0).max(10080),
 })
 
 type RateLimitDialogFormValues = z.infer<typeof rateLimitDialogSchema>
@@ -55,6 +57,7 @@ export type RateLimitEntryData = {
   groupName: string
   maxRequests: number
   maxSuccess: number
+  windowMinutes: number
 }
 
 type RateLimitDialogProps = {
@@ -79,6 +82,7 @@ export function RateLimitDialog({
       groupName: '',
       maxRequests: 0,
       maxSuccess: 1,
+      windowMinutes: 0,
     },
   })
 
@@ -90,6 +94,7 @@ export function RateLimitDialog({
         groupName: '',
         maxRequests: 0,
         maxSuccess: 1,
+        windowMinutes: 0,
       })
     }
   }, [editData, form, open])
@@ -213,6 +218,37 @@ export function RateLimitDialog({
                 </FormControl>
                 <FormDescription>
                   {t('Only successful requests count toward this limit.')}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='windowMinutes'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Window (minutes)')}</FormLabel>
+                <FormControl>
+                  <div className='flex items-center gap-2'>
+                    <Input
+                      type='number'
+                      min={0}
+                      max={10080}
+                      step={1}
+                      {...field}
+                      onChange={(e) =>
+                        field.onChange(parseInt(e.target.value) || 0)
+                      }
+                    />
+                    <span className='text-muted-foreground text-sm'>
+                      {t('minutes')}
+                    </span>
+                  </div>
+                </FormControl>
+                <FormDescription>
+                  {t('Per-entry window. 0 = use the global limit period.')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

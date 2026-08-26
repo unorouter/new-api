@@ -1,0 +1,146 @@
+package dto
+
+// RegisterRequest is the request body for POST /api/user/register.
+type RegisterRequest struct {
+	Username         string `json:"username" validate:"max=64"`
+	Password         string `json:"password" validate:"min=8,max=72"`
+	Email            string `json:"email,omitempty" validate:"max=50"`
+	VerificationCode string `json:"verification_code,omitempty"`
+	AffCode          string `json:"aff_code,omitempty"`
+}
+
+// LoginRequest is the request body for POST /api/user/login.
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// TopUpRequest is the request body for POST /api/user/topup.
+type TopUpRequest struct {
+	Key string `json:"key"`
+}
+
+// UpdateUserSettingRequest is the request body for POST /api/user/setting.
+type UpdateUserSettingRequest struct {
+	QuotaWarningEnabled              bool    `json:"quota_warning_enabled"`
+	QuotaWarningType                 string  `json:"notify_type"`
+	QuotaWarningThreshold            float64 `json:"quota_warning_threshold"`
+	WebhookUrl                       string  `json:"webhook_url,omitempty"`
+	WebhookSecret                    string  `json:"webhook_secret,omitempty"`
+	NotificationEmail                string  `json:"notification_email,omitempty"`
+	BarkUrl                          string  `json:"bark_url,omitempty"`
+	GotifyUrl                        string  `json:"gotify_url,omitempty"`
+	GotifyToken                      string  `json:"gotify_token,omitempty"`
+	GotifyPriority                   int     `json:"gotify_priority,omitempty"`
+	UpstreamModelUpdateNotifyEnabled *bool   `json:"upstream_model_update_notify_enabled,omitempty"`
+	AcceptUnsetModelRatioModel       bool    `json:"accept_unset_model_ratio_model"`
+	RecordIpLog                      bool    `json:"record_ip_log"`
+}
+
+// ManageRequest is the request body for POST /api/user/manage.
+type ManageRequest struct {
+	Id     int      `json:"id"`
+	Action string   `json:"action"`
+	Value  int      `json:"value"`
+	Mode   string   `json:"mode"`
+	Groups []string `json:"groups"` // for action=set_usable_groups
+}
+
+// ManageUserData is the response data for POST /api/user/manage.
+type ManageUserData struct {
+	Role   int `json:"role"`
+	Status int `json:"status"`
+}
+
+// GrantDiscordQuotaRequest is the request body for POST /api/user/discord_grant.
+type GrantDiscordQuotaRequest struct {
+	DiscordId string `json:"discord_id"`
+	Quota     int    `json:"quota"`
+	// CheckIpUnique refuses the grant when another account shares the target's register IP.
+	CheckIpUnique bool `json:"check_ip_unique,omitempty"`
+}
+
+// GrantDiscordQuotaData is the response data for POST /api/user/discord_grant.
+type GrantDiscordQuotaData struct {
+	UserId int  `json:"user_id"`
+	Linked bool `json:"linked"`
+	// IpDuplicate is true when the grant was refused because another account shares the register IP.
+	IpDuplicate bool `json:"ip_duplicate,omitempty"`
+}
+
+// TransferDiscordQuotaRequest is the request body for POST /api/user/discord_transfer.
+type TransferDiscordQuotaRequest struct {
+	FromDiscordId string `json:"from_discord_id"`
+	ToDiscordId   string `json:"to_discord_id"`
+	Quota         int    `json:"quota"`
+}
+
+// TransferDiscordQuotaData is the response data for POST /api/user/discord_transfer.
+// FromLinked/ToLinked are false when no user has bound that Discord ID; Insufficient
+// is true when the sender's balance is below the requested amount. FromBalance is the
+// sender's quota after a successful transfer.
+type TransferDiscordQuotaData struct {
+	FromUserId   int  `json:"from_user_id"`
+	ToUserId     int  `json:"to_user_id"`
+	FromLinked   bool `json:"from_linked"`
+	ToLinked     bool `json:"to_linked"`
+	Insufficient bool `json:"insufficient"`
+	FromBalance  int  `json:"from_balance"`
+}
+
+// TransferAffQuotaRequest is the request body for POST /api/user/aff_transfer.
+type TransferAffQuotaRequest struct {
+	Quota int `json:"quota" binding:"required"`
+}
+
+// UserSelfData is the response data for GET /api/user/self.
+type UserSelfData struct {
+	Id                        int     `json:"id"`
+	Username                  string  `json:"username"`
+	DisplayName               string  `json:"display_name"`
+	Role                      int     `json:"role"`
+	Status                    int     `json:"status"`
+	Email                     string  `json:"email"`
+	GitHubId                  string  `json:"github_id"`
+	DiscordId                 string  `json:"discord_id"`
+	OidcId                    string  `json:"oidc_id"`
+	WeChatId                  string  `json:"wechat_id"`
+	TelegramId                string  `json:"telegram_id"`
+	Group                     string  `json:"group"`
+	Quota                     int     `json:"quota"`
+	UsedQuota                 int     `json:"used_quota"`
+	RequestCount              int     `json:"request_count"`
+	AffCode                   string  `json:"aff_code"`
+	AffCount                  int     `json:"aff_count"`
+	AffQuota                  int     `json:"aff_quota"`
+	AffHistoryQuota           int     `json:"aff_history_quota"`
+	AffCommissionRate         float64 `json:"aff_commission_rate"`
+	AffCommissionMaxRecharges int     `json:"aff_commission_max_recharges"`
+	InviterId                 int     `json:"inviter_id"`
+	LinuxDOId                 string  `json:"linux_do_id"`
+	Setting                   string  `json:"setting"`
+	StripeCustomer            string  `json:"stripe_customer"`
+	SidebarModules            string  `json:"sidebar_modules"`
+	Permissions               any     `json:"permissions"`
+	// False for OAuth-only accounts that never set a local password.
+	HasPassword bool `json:"has_password"`
+	// Set only when the current access token is past halfway through its life,
+	// so a client that keeps polling /self never reaches the hard expiry. Empty
+	// otherwise, and absent for callers that authenticate with an API key.
+	AccessToken     string `json:"access_token,omitempty"`
+	AccessExpiresAt int64  `json:"access_expires_at,omitempty"`
+}
+
+// TimeoutPreferenceData is the response data for PUT /api/user/self/timeout.
+type TimeoutPreferenceData struct {
+	MaxFirstTokenSeconds      int `json:"max_first_token_seconds"`
+	MaxChainFirstTokenSeconds int `json:"max_chain_first_token_seconds"`
+}
+
+// TimeoutPreferenceRequest is the request body for PUT /api/user/self/timeout.
+// Zero disables a limit, so both fields are plain ints rather than pointers:
+// "absent" and "off" are the same state here.
+type TimeoutPreferenceRequest struct {
+	MaxFirstTokenSeconds      int `json:"max_first_token_seconds"`
+	MaxChainFirstTokenSeconds int `json:"max_chain_first_token_seconds"`
+}

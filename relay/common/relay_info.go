@@ -92,7 +92,13 @@ type RelayInfo struct {
 	FirstResponseTime time.Time
 	isFirstResponse   bool
 	//SendLastReasoningResponse bool
-	IsStream               bool
+	IsStream bool
+	// ClientWantsStream 记录客户端原始意图：客户端发送的请求里 stream 是否为 true。
+	// IsStream 会被强制上游流式等机制改写（例如客户端 stream=false 但内部改为上游 stream=true），
+	// 这个字段保留未改写前的值，用于响应层决定是以 SSE 还是一次性 JSON 返回给客户端。
+	ClientWantsStream bool
+	// ForceUpstreamStream 为 true 表示本次请求走了"客户端非流式 -> 上游流式 -> 聚合为一次性 JSON"路径。
+	ForceUpstreamStream    bool
 	IsGeminiBatchEmbedding bool
 	IsPlayground           bool
 	UsePrice               bool
@@ -101,22 +107,27 @@ type RelayInfo struct {
 	RequestURLPath         string
 	RequestHeaders         map[string]string
 	ShouldIncludeUsage     bool
-	DisablePing            bool // 是否禁止向下游发送自定义 Ping
-	ClientWs               *websocket.Conn
-	TargetWs               *websocket.Conn
-	InputAudioFormat       string
-	OutputAudioFormat      string
-	RealtimeTools          []dto.RealTimeTool
-	IsFirstRequest         bool
-	AudioUsage             bool
-	ReasoningEffort        string
-	UserSetting            dto.UserSetting
-	UserEmail              string
-	UserQuota              int
-	RelayFormat            types.RelayFormat
-	SendResponseCount      int
-	ReceivedResponseCount  int
-	FinalPreConsumedQuota  int // 最终预消耗的配额
+	// PROD-ONLY (fork): true only when the client EXPLICITLY sent
+	// stream_options.include_usage. Distinct from ShouldIncludeUsage, which defaults
+	// true. Used to suppress the upstream's trailing choices-empty usage chunk for
+	// clients that never asked for it (and crash on chunk.choices[0].delta).
+	ClientRequestedStreamUsage bool
+	DisablePing                bool // 是否禁止向下游发送自定义 Ping
+	ClientWs                   *websocket.Conn
+	TargetWs                   *websocket.Conn
+	InputAudioFormat           string
+	OutputAudioFormat          string
+	RealtimeTools              []dto.RealTimeTool
+	IsFirstRequest             bool
+	AudioUsage                 bool
+	ReasoningEffort            string
+	UserSetting                hosttypes.UserSetting
+	UserEmail                  string
+	UserQuota                  int
+	RelayFormat                types.RelayFormat
+	SendResponseCount          int
+	ReceivedResponseCount      int
+	FinalPreConsumedQuota      int // 最终预消耗的配额
 	// ForcePreConsume 为 true 时禁用 BillingSession 的信任额度旁路，
 	// 强制预扣全额。用于异步任务（视频/音乐生成等），因为请求返回后任务仍在运行，
 	// 必须在提交前锁定全额。
@@ -172,6 +183,16 @@ type RelayInfo struct {
 	FinalRequestRelayFormat types.RelayFormat
 
 	StreamStatus *StreamStatus
+	// ImageResolution is the requested image output resolution (e.g. "512", "1K", "2K", "4K").
+	// Set by adapters to enable grid-pricing-based billing lookup.
+	ImageResolution string
+
+	// UpstreamCostUSD is the provider's own reported cost for this request, in USD. Set only
+	// by adaptors whose upstream returns a real per-request cost (Runware bills by GPU time,
+	// so the same prompt at the same size can cost different amounts). When set, settlement
+	// bills this times the model's markup instead of a flat per-call price, which is what
+	// makes an arbitrary user-supplied model priceable without knowing its cost in advance.
+	UpstreamCostUSD float64
 
 	// convOptions caches the converter settings snapshot (see ConvOptions).
 	convOptions *convmeta.Options
@@ -519,11 +540,12 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		TokenUnlimited: common.GetContextKeyBool(c, constant.ContextKeyTokenUnlimited),
 		TokenGroup:     tokenGroup,
 
-		isFirstResponse: true,
-		RelayMode:       relayconstant.Path2RelayMode(c.Request.URL.Path),
-		RequestURLPath:  c.Request.URL.String(),
-		RequestHeaders:  cloneRequestHeaders(c),
-		IsStream:        isStream,
+		isFirstResponse:   true,
+		RelayMode:         relayconstant.Path2RelayMode(c.Request.URL.Path),
+		RequestURLPath:    c.Request.URL.String(),
+		RequestHeaders:    cloneRequestHeaders(c),
+		IsStream:          isStream,
+		ClientWantsStream: isStream,
 
 		StartTime:         startTime,
 		FirstResponseTime: startTime.Add(-time.Second),
@@ -547,7 +569,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		info.RequestURLPath = "/v1" + info.RequestURLPath
 	}
 
-	userSetting, ok := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting)
+	userSetting, ok := common.GetContextKeyType[hosttypes.UserSetting](c, constant.ContextKeyUserSetting)
 	if ok {
 		info.UserSetting = userSetting
 	}
@@ -948,15 +970,23 @@ func (t *TaskSubmitReq) UnmarshalMetadata(v any) error {
 }
 
 type TaskInfo struct {
-	Code             int    `json:"code"`
-	TaskID           string `json:"task_id"`
-	Status           string `json:"status"`
-	Reason           string `json:"reason,omitempty"`
-	Url              string `json:"url,omitempty"`
-	RemoteUrl        string `json:"remote_url,omitempty"`
-	Progress         string `json:"progress,omitempty"`
-	CompletionTokens int    `json:"completion_tokens,omitempty"` // 用于按倍率计费
-	TotalTokens      int    `json:"total_tokens,omitempty"`      // 用于按倍率计费
+	Code   int    `json:"code"`
+	TaskID string `json:"task_id"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+	// Url is the canonical single-output URL (used by every video adapter:
+	// ali, xai, doubao, jimeng, hailuo, vertex, the single-image comfyui
+	// path, etc).
+	Url string `json:"url,omitempty"`
+	// Urls is populated by adapters that genuinely produce multiple
+	// outputs in a single task (ComfyUI batch_size>1). When set, Url is
+	// not used; consumers should iterate Urls.
+	Urls      []string `json:"urls,omitempty"`
+	RemoteUrl string   `json:"remote_url,omitempty"`
+	Progress  string   `json:"progress,omitempty"`
+	// 用于按倍率计费
+	CompletionTokens int `json:"completion_tokens,omitempty"`
+	TotalTokens      int `json:"total_tokens,omitempty"`
 }
 
 func FailTaskInfo(reason string) *TaskInfo {

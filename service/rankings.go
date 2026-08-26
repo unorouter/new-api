@@ -11,20 +11,19 @@ import (
 )
 
 const (
-	rankingCacheTTL         = 5 * time.Minute
-	rankingLeaderboardLimit = 20
-	rankingHistoryLimit     = 10
-	rankingVendorLimit      = 5
-	rankingMoverLimit       = 6
-	rankingOthersLabel      = "Others"
-	rankingUnknownVendor    = "Unknown"
+	rankingCacheTTL      = 5 * time.Minute
+	rankingHistoryLimit  = 10
+	rankingVendorLimit   = 5
+	rankingMoverLimit    = 6
+	rankingOthersLabel   = "Others"
+	rankingUnknownVendor = "Unknown"
 )
 
 type RankingsResponse struct {
-	Models             []RankedModel      `json:"models"`
-	Vendors            []RankedVendor     `json:"vendors"`
-	TopMovers          []RankingMover     `json:"top_movers"`
-	TopDroppers        []RankingMover     `json:"top_droppers"`
+	Models             []RankedModel      `json:"models" validate:"required"`
+	Vendors            []RankedVendor     `json:"vendors" validate:"required"`
+	TopMovers          []RankingMover     `json:"top_movers" validate:"required"`
+	TopDroppers        []RankingMover     `json:"top_droppers" validate:"required"`
 	ModelsHistory      ModelHistorySeries `json:"models_history"`
 	VendorShareHistory VendorShareSeries  `json:"vendor_share_history"`
 }
@@ -76,8 +75,8 @@ type ModelHistoryModel struct {
 }
 
 type ModelHistorySeries struct {
-	Points  []ModelHistoryPoint `json:"points"`
-	Models  []ModelHistoryModel `json:"models"`
+	Points  []ModelHistoryPoint `json:"points" validate:"required"`
+	Models  []ModelHistoryModel `json:"models" validate:"required"`
 	Buckets int                 `json:"buckets"`
 }
 
@@ -96,8 +95,8 @@ type VendorShareVendor struct {
 }
 
 type VendorShareSeries struct {
-	Points  []VendorSharePoint  `json:"points"`
-	Vendors []VendorShareVendor `json:"vendors"`
+	Points  []VendorSharePoint  `json:"points" validate:"required"`
+	Vendors []VendorShareVendor `json:"vendors" validate:"required"`
 	Buckets int                 `json:"buckets"`
 }
 
@@ -133,6 +132,109 @@ var (
 	rankingCacheMu sync.Mutex
 	rankingCache   = map[string]rankingCacheItem{}
 )
+
+type ModelRankingPoint struct {
+	Ts     string `json:"ts"`
+	Label  string `json:"label"`
+	Tokens int64  `json:"tokens"`
+}
+
+type ModelRankingResponse struct {
+	ModelName   string              `json:"model_name"`
+	Period      string              `json:"period"`
+	Rank        int                 `json:"rank"`
+	TotalTokens int64               `json:"total_tokens"`
+	Share       float64             `json:"share"`
+	GrowthPct   float64             `json:"growth_pct"`
+	Series      []ModelRankingPoint `json:"series"`
+}
+
+type modelRankingCacheItem struct {
+	expiresAt time.Time
+	data      *ModelRankingResponse
+}
+
+var (
+	modelRankingCacheMu sync.Mutex
+	modelRankingCache   = map[string]modelRankingCacheItem{}
+)
+
+func GetModelRankingSnapshot(modelName string, period string) (*ModelRankingResponse, error) {
+	config, err := rankingConfig(period)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheKey := config.id + "|" + modelName
+	now := time.Now()
+	modelRankingCacheMu.Lock()
+	if item, ok := modelRankingCache[cacheKey]; ok && now.Before(item.expiresAt) {
+		modelRankingCacheMu.Unlock()
+		return item.data, nil
+	}
+	modelRankingCacheMu.Unlock()
+
+	data, err := buildModelRankingSnapshot(modelName, config, now)
+	if err != nil {
+		return nil, err
+	}
+
+	modelRankingCacheMu.Lock()
+	modelRankingCache[cacheKey] = modelRankingCacheItem{
+		expiresAt: now.Add(rankingCacheTTL),
+		data:      data,
+	}
+	modelRankingCacheMu.Unlock()
+
+	return data, nil
+}
+
+func buildModelRankingSnapshot(modelName string, config rankingPeriodConfig, now time.Time) (*ModelRankingResponse, error) {
+	startTime, endTime := rankingTimeRange(config, now)
+	currentTotals, err := model.GetRankingQuotaTotals(startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &ModelRankingResponse{
+		ModelName: modelName,
+		Period:    config.id,
+		Series:    []ModelRankingPoint{},
+	}
+
+	totalTokens := sumRankingTokens(currentTotals)
+	for idx, item := range currentTotals {
+		if item.ModelName == modelName {
+			result.Rank = idx + 1
+			result.TotalTokens = item.TotalTokens
+			result.Share = rankingShare(item.TotalTokens, totalTokens)
+			break
+		}
+	}
+
+	if config.hasPrevious {
+		previousStart, previousEnd := previousRankingTimeRange(config, startTime)
+		previousTotals, err := model.GetRankingQuotaTotals(previousStart, previousEnd)
+		if err != nil {
+			return nil, err
+		}
+		result.GrowthPct = rankingGrowthPct(result.TotalTokens, rankingTokenMap(previousTotals)[modelName])
+	}
+
+	buckets, err := model.GetRankingQuotaBucketsForModel(modelName, startTime, endTime, config.bucketSize)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range buckets {
+		result.Series = append(result.Series, ModelRankingPoint{
+			Ts:     rankingBucketTs(item.Bucket),
+			Label:  rankingBucketLabel(item.Bucket, config),
+			Tokens: item.Tokens,
+		})
+	}
+
+	return result, nil
+}
 
 func GetRankingsSnapshot(period string) (*RankingsResponse, error) {
 	config, err := rankingConfig(period)
@@ -210,7 +312,7 @@ func buildRankingsSnapshot(config rankingPeriodConfig, now time.Time) (*Rankings
 	movers, droppers := buildRankingMovers(rankedModels)
 
 	return &RankingsResponse{
-		Models:             limitRankedModels(rankedModels, rankingLeaderboardLimit),
+		Models:             rankedModels,
 		Vendors:            vendors,
 		TopMovers:          movers,
 		TopDroppers:        droppers,
@@ -239,16 +341,14 @@ func buildRankingModelMeta() map[string]rankingModelMeta {
 		vendorByID[vendor.ID] = vendor
 	}
 
+	// Resolve straight from the models table, not pricing: pricing only carries
+	// models with a live channel, so logged-but-unrouted models would rank as
+	// "Unknown". Every ranked model has a models row; vendor_id is the source.
 	meta := make(map[string]rankingModelMeta)
-	for _, pricing := range model.GetPricing() {
-		item := rankingModelMeta{vendor: rankingUnknownVendor}
-		if vendor, ok := vendorByID[pricing.VendorID]; ok {
-			item.vendor = vendor.Name
-			item.vendorIcon = vendor.Icon
-		} else if pricing.OwnerBy != "" {
-			item.vendor = pricing.OwnerBy
+	for _, m := range model.GetRankingModelVendors() {
+		if vendor, ok := vendorByID[m.VendorID]; ok {
+			meta[m.ModelName] = rankingModelMeta{vendor: vendor.Name, vendorIcon: vendor.Icon}
 		}
-		meta[pricing.ModelName] = item
 	}
 	return meta
 }
@@ -256,6 +356,11 @@ func buildRankingModelMeta() map[string]rankingModelMeta {
 func modelMeta(modelName string, meta map[string]rankingModelMeta) rankingModelMeta {
 	if item, ok := meta[modelName]; ok && item.vendor != "" {
 		return item
+	}
+	// No models-table vendor (vendor_id=0). Pattern-match the name so the row
+	// gets a real vendor + icon instead of "Unknown".
+	if vendor, icon := model.ResolveDefaultVendor(modelName); vendor != "" {
+		return rankingModelMeta{vendor: vendor, vendorIcon: icon}
 	}
 	return rankingModelMeta{vendor: rankingUnknownVendor}
 }
@@ -573,13 +678,6 @@ func rankingGrowthPct(current int64, previous int64) float64 {
 
 func roundRankingFloat(value float64) float64 {
 	return math.Round(value*10000) / 10000
-}
-
-func limitRankedModels(rows []RankedModel, limit int) []RankedModel {
-	if limit <= 0 || len(rows) <= limit {
-		return rows
-	}
-	return rows[:limit]
 }
 
 func limitRankingMovers(rows []RankingMover, limit int) []RankingMover {

@@ -27,24 +27,24 @@ type UniversalVerifyRequest struct {
 func UniversalVerify(c *gin.Context) {
 	identity, ok := middleware.GetSessionAuthIdentity(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "当前认证方式不支持安全验证"})
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "The current authentication method does not support security verification"})
 		return
 	}
 	var request UniversalVerifyRequest
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
-		common.ApiError(c, fmt.Errorf("参数错误: %v", err))
+		common.ApiError(c, fmt.Errorf("invalid parameter: %v", err))
 		return
 	}
 	if request.Method != secureVerificationMethod2FA {
-		common.ApiError(c, errors.New("Passkey 验证必须使用 Passkey verify 流程"))
+		common.ApiError(c, errors.New("Passkey verification must use the Passkey verify flow"))
 		return
 	}
 	if !isAllowedSecurityProofScope(request.Scope) {
-		common.ApiError(c, errors.New("不支持的安全验证范围"))
+		common.ApiError(c, errors.New("unsupported security verification scope"))
 		return
 	}
 	if strings.TrimSpace(request.Code) == "" {
-		common.ApiError(c, errors.New("验证码不能为空"))
+		common.ApiError(c, errors.New("verification code cannot be empty"))
 		return
 	}
 	twoFA, err := model.GetTwoFAByUserId(identity.UserID)
@@ -53,11 +53,11 @@ func UniversalVerify(c *gin.Context) {
 		return
 	}
 	if twoFA == nil || !twoFA.IsEnabled {
-		common.ApiError(c, errors.New("用户未启用2FA"))
+		common.ApiError(c, errors.New("user has not enabled 2FA"))
 		return
 	}
 	if !validateTwoFactorAuth(twoFA, request.Code) {
-		common.ApiError(c, errors.New("验证失败，请检查验证码"))
+		common.ApiError(c, errors.New("verification failed, please check the verification code"))
 		return
 	}
 	proofToken, expiresAt, err := service.IssueSecurityProof(identity, request.Method, []string{request.Scope})
@@ -65,10 +65,10 @@ func UniversalVerify(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	model.RecordLog(identity.UserID, model.LogTypeSystem, "通用安全验证成功 (验证方式: 2FA)")
+	model.RecordLog(identity.UserID, model.LogTypeSystem, "Universal security verification succeeded (method: 2FA)")
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "验证成功",
+		"message": "Verification succeeded",
 		"data": gin.H{
 			"proof_token": proofToken,
 			"expires_at":  expiresAt,

@@ -8,7 +8,11 @@ import (
 
 func CORS() gin.HandlerFunc {
 	config := cors.DefaultConfig()
-	config.AllowAllOrigins = true
+	// Reflect the request Origin instead of literal "*": ACAO "*" with
+	// AllowCredentials true is spec-forbidden, so browsers reject every
+	// credentialed cross-origin call (Authorization header). AllowOriginFunc
+	// echoes the Origin, keeping wildcard-equivalent access AND credentials valid.
+	config.AllowOriginFunc = func(origin string) bool { return true }
 	config.AllowCredentials = true
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
 	config.AllowHeaders = []string{"*"}

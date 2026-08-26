@@ -59,6 +59,8 @@ export const userSchema = z.object({
   last_login_at: z.number().optional(),
   DeletedAt: z.any().nullable().optional(),
   remark: z.string().optional(),
+  referral_commission_percent: z.number().nullable().optional(),
+  setting: z.string().optional(),
   admin_permissions: z
     .record(z.string(), z.record(z.string(), z.boolean()))
     .optional(),
@@ -125,6 +127,7 @@ export interface UserFormData {
   quota?: number // Only used when updating user
   group?: string // Only used when updating user
   remark?: string // Only used when updating user
+  referral_commission_percent?: number | null // null restores the global rate
   admin_permissions?: AdminPermissionMatrix
 }
 
@@ -135,6 +138,9 @@ export type ManageUserAction =
   | 'disable'
   | 'delete'
   | 'add_quota'
+  | 'set_block_free'
+  | 'set_unlimited_free'
+  | 'set_usable_groups'
 
 export type QuotaAdjustMode = 'add' | 'subtract' | 'override'
 
