@@ -81,6 +81,8 @@ export interface UserProfile {
   telegram_id?: string
   /** LinuxDO ID (OAuth) */
   linux_do_id?: string
+  /** Whether a local password is set (false for OAuth-only accounts) */
+  has_password?: boolean
 }
 
 /**
@@ -92,6 +94,8 @@ export type NotifyType = 'email' | 'webhook' | 'bark' | 'gotify'
  * Parsed user settings
  */
 export interface UserSettings {
+  /** Master switch for quota warnings, off unless explicitly enabled */
+  quota_warning_enabled?: boolean
   /** Notification type */
   notify_type?: NotifyType
   /** Quota warning threshold */
@@ -114,6 +118,10 @@ export interface UserSettings {
   accept_unset_model_ratio_model?: boolean
   /** Record IP log */
   record_ip_log?: boolean
+  /** Seconds to wait for the first token per provider (0 = use global) */
+  max_first_token_seconds?: number
+  /** Seconds to spend across the whole failover chain (0 = no limit) */
+  max_chain_first_token_seconds?: number
   /** Receive upstream model update notifications (admin only) */
   upstream_model_update_notify_enabled?: boolean
   /** Preferred interface/API response language */
@@ -133,6 +141,7 @@ export interface UpdateUserRequest {
  * User settings update request
  */
 export interface UpdateUserSettingsRequest {
+  quota_warning_enabled?: boolean
   notify_type?: string
   quota_warning_threshold?: number
   webhook_url?: string
@@ -145,6 +154,15 @@ export interface UpdateUserSettingsRequest {
   accept_unset_model_ratio_model?: boolean
   record_ip_log?: boolean
   upstream_model_update_notify_enabled?: boolean
+}
+
+/**
+ * First-token timeout preferences. Both bound only the wait for the model's
+ * FIRST token, never a reply already streaming. 0 disables a limit.
+ */
+export interface TimeoutPreferenceRequest {
+  max_first_token_seconds: number
+  max_chain_first_token_seconds: number
 }
 
 /**

@@ -20,14 +20,21 @@ import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 
 import { cn } from '@/lib/utils'
 
+// delay=0 opened a tooltip on any pointer pass, so scrolling a dense table
+// (the logs grid mounts one provider per cell) fired and stripped dozens in a
+// row, leaving popups stranded mid-page. A short open delay means a pointer
+// merely travelling over a row never triggers one, and a close delay keeps the
+// grouping behaviour that makes moving between adjacent triggers feel instant.
 function TooltipProvider({
-  delay = 0,
+  delay = 300,
+  closeDelay = 100,
   ...props
 }: TooltipPrimitive.Provider.Props) {
   return (
     <TooltipPrimitive.Provider
       data-slot='tooltip-provider'
       delay={delay}
+      closeDelay={closeDelay}
       {...props}
     />
   )
@@ -61,7 +68,10 @@ function TooltipContent({
         alignOffset={alignOffset}
         side={side}
         sideOffset={sideOffset}
-        className='isolate z-50'
+        // A tooltip whose trigger has scrolled out of view keeps its last
+        // position and reads as text floating over unrelated rows. base-ui
+        // reports that as data-anchor-hidden but still paints the popup.
+        className='isolate z-50 data-anchor-hidden:hidden'
       >
         <TooltipPrimitive.Popup
           data-slot='tooltip-content'

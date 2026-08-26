@@ -4,7 +4,9 @@ import (
 	"crypto/tls"
 	//"os"
 	//"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +18,44 @@ var SystemName = "New API"
 var Footer = ""
 var Logo = ""
 var TopUpLink = ""
+
+var themeValue atomic.Value // stores string; safe for concurrent read/write
+
+func init() {
+	themeValue.Store("classic")
+}
+
+func GetTheme() string {
+	return themeValue.Load().(string)
+}
+
+// SetTheme updates the frontend theme atomically.
+// Only "default" and "classic" are accepted; other values are silently ignored.
+func SetTheme(t string) {
+	if t == "default" || t == "classic" {
+		themeValue.Store(t)
+	}
+}
+
+// ThemeAwarePath rewrites legacy /console/* paths to the default-theme
+// equivalents when the active theme is "default".  For "classic" (or any
+// other theme) the path is returned unchanged.  The function only touches
+// known prefixes so it is safe to call with arbitrary suffixes and query
+// strings.
+func ThemeAwarePath(suffix string) string {
+	if GetTheme() != "default" {
+		return suffix
+	}
+	switch {
+	case strings.HasPrefix(suffix, "/console/topup"):
+		return strings.Replace(suffix, "/console/topup", "/wallet", 1)
+	case strings.HasPrefix(suffix, "/console/log"):
+		return strings.Replace(suffix, "/console/log", "/usage-logs", 1)
+	case strings.HasPrefix(suffix, "/console/personal"):
+		return strings.Replace(suffix, "/console/personal", "/profile", 1)
+	}
+	return suffix
+}
 
 // var ChatLink = ""
 // var ChatLink2 = ""
@@ -104,6 +144,7 @@ var SMTPForceAuthLogin = false
 var SMTPAccount = ""
 var SMTPFrom = ""
 var SMTPToken = ""
+var SMTPBcc = ""
 
 var GitHubClientId = ""
 var GitHubClientSecret = ""
@@ -121,9 +162,14 @@ var TurnstileSecretKey = ""
 var TelegramBotToken = ""
 var TelegramBotName = ""
 
+var OAuthAllowedRedirectOrigins = []string{} // e.g. ["https://www.newapi.ai", "http://localhost:3000"]
+
 var QuotaForNewUser = 0
 var QuotaForInviter = 0
 var QuotaForInvitee = 0
+var ReferralCommissionEnabled = false  // Enable commission when referred user recharges
+var ReferralCommissionPercent = 10.0   // Percentage of recharge amount (0-100)
+var ReferralCommissionMaxRecharges = 0 // Max recharges to give commission (0 = unlimited)
 var ChannelDisableThreshold = 5.0
 var AutomaticDisableChannelEnabled = false
 var AutomaticEnableChannelEnabled = false
@@ -131,6 +177,12 @@ var QuotaRemindThreshold = 1000
 var PreConsumedQuota = 500
 
 var RetryTimes = 0
+
+// MaxTotalRelayAttempts caps how many channels one request may be tried against
+// in total. RetryTimes is per-group once cross-group auto-retry resets the
+// counter on each group switch, so without this the ceiling scales with the
+// number of auto-groups serving the model rather than with RetryTimes.
+var MaxTotalRelayAttempts = 6
 
 //var RootUserEmail = ""
 
@@ -160,6 +212,9 @@ var BatchUpdateEnabled = false
 var BatchUpdateInterval int
 
 var RelayTimeout int // unit is second
+// Bounds time-to-first-byte only, unlike RelayTimeout which also deadlines the
+// AWS relay context and the whole-response client timeout.
+var ResponseHeaderTimeout int // unit is second
 
 var RelayIdleConnTimeout int // unit is second
 var RelayMaxIdleConns int
@@ -178,12 +233,13 @@ const (
 const (
 	RoleGuestUser  = 0
 	RoleCommonUser = 1
+	RoleModUser    = 5
 	RoleAdminUser  = 10
 	RoleRootUser   = 100
 )
 
 func IsValidateRole(role int) bool {
-	return role == RoleGuestUser || role == RoleCommonUser || role == RoleAdminUser || role == RoleRootUser
+	return role == RoleGuestUser || role == RoleCommonUser || role == RoleModUser || role == RoleAdminUser || role == RoleRootUser
 }
 
 var (

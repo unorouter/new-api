@@ -52,8 +52,10 @@ export interface CommonLogFilters extends CommonFilters {
   token?: string
   group?: string
   username?: string
+  discordId?: string
   requestId?: string
   upstreamRequestId?: string
+  subscriptionPlan?: string
 }
 
 /**
@@ -162,6 +164,12 @@ export interface LogOtherData {
   login_method?: string
   user_agent?: string
   request_path?: string
+  // Which tool made the request, self-reported via the headers OpenRouter
+  // established. Distinct from user_agent above, which is a login audit field.
+  client_title?: string
+  client_origin?: string
+  client_referer?: string
+  client_user_agent?: string
   request_conversion?: string[]
   ws?: boolean
   audio?: boolean
@@ -316,6 +324,7 @@ export interface GetLogsParams {
   page_size?: number
   type?: number
   username?: string
+  discord_id?: string
   token_name?: string
   model_name?: string
   start_timestamp?: number
@@ -324,6 +333,7 @@ export interface GetLogsParams {
   group?: string
   request_id?: string
   upstream_request_id?: string
+  subscription_plan?: string
 }
 
 export interface GetLogsResponse {

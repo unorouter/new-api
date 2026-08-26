@@ -48,7 +48,10 @@ import type {
 export async function getModels(
   params: GetModelsParams = {}
 ): Promise<GetModelsResponse> {
-  const res = await api.get('/api/models/', { params })
+  // Must be /list (the paginated ModelMeta endpoint). Bare /api/models/ 301-strips
+  // the trailing slash to /api/models, which is the public channel->models map
+  // (no items/total) and renders the table empty.
+  const res = await api.get('/api/models/list', { params })
   return res.data
 }
 

@@ -16,6 +16,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 
@@ -74,10 +75,10 @@ func ExtendWriteDeadline(c *gin.Context) {
 	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Now().Add(streamWriteTimeout))
 }
 
-func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, dataHandler func(data string, sr *StreamResult)) {
+func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, dataHandler func(data string, sr *StreamResult)) *types.NewAPIError {
 
 	if resp == nil || dataHandler == nil {
-		return
+		return nil
 	}
 
 	// 无条件新建 StreamStatus
@@ -249,7 +250,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 			ticker.Reset(streamingTimeout)
 			data := scanner.Text()
-			logger.LogDebug(c, "stream scanner data: %s", data)
+			logger.LogDebug(c, "stream scanner data: %s", common.ElideBase64(data))
 
 			if len(data) < 6 {
 				continue
@@ -307,4 +308,21 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	} else {
 		logger.LogError(c, fmt.Sprintf("stream ended: %s, received=%d", info.StreamStatus.Summary(), info.ReceivedResponseCount))
 	}
+
+	// If the stream ended abnormally and no tokens were ever sent to the client,
+	// return a retriable channel error so the retry loop can try another channel.
+	if info.StreamStatus.IsRetriable() && info.ReceivedResponseCount == 0 {
+		// 429, not 5xx: Cloudflare replaces a 502 body with its own error page and chat
+		// frontends replace any 5xx body with their own generic string, so the caller
+		// loses the reason either way. 429 is forwarded and rendered verbatim by both,
+		// and retry is the correct action here. The channel: code carries the real
+		// meaning for routing and disable classification.
+		return types.NewErrorWithStatusCode(
+			fmt.Errorf("the upstream provider closed the stream before sending anything: %s", info.StreamStatus.Summary()),
+			"channel:stream_timeout_no_response",
+			http.StatusTooManyRequests,
+		)
+	}
+
+	return nil
 }

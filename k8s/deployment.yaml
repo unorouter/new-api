@@ -1,0 +1,175 @@
+# new-api gateway: master (1, runs migrations + scheduled jobs) + slaves (2, serve traffic).
+# Both share one `app: new-api` Service (master also serves, like don's Traefik WRR).
+# /data + /logs = per-pod emptyDir (verified on don: pprof dumps + rotated logs only).
+apiVersion: v1
+kind: Service
+metadata:
+  name: new-api
+  namespace: services
+spec:
+  selector: { app: new-api }
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: new-api-master
+  namespace: services
+spec:
+  replicas: 1 # singleton: runs migrations + scheduled jobs (IsMasterNode)
+  selector:
+    matchLabels: { app: new-api, tier: master }
+  template:
+    metadata:
+      labels: { app: new-api, tier: master }
+    spec:
+      containers:
+        - name: new-api
+          # pinned by this repo's GHCR workflow (deploy job); ArgoCD rolls it out.
+          # NEVER set this back to :latest -- a floating tag never changes the manifest, so
+          # ArgoCD sees no diff and the deploy silently does not happen.
+          image: ghcr.io/unorouter/new-api:d43d46201a479d35fc6fc62809806df70e509207
+          # 2026-08-12 evening: pods rolled out mid-peak spiked to 840Mi (reconnecting SSE
+          # streams + cold caches) and the old 1Gi limit OOM-killed them in a cascade that
+          # briefly zeroed the deployment. Steady state ~200-320Mi; the limit is a node
+          # blast-radius cap, not a fit to usage.
+          resources:
+            requests: { memory: 512Mi, cpu: 100m }
+            limits: { memory: 2Gi }
+          envFrom:
+            - secretRef: { name: newapi-env }
+          # NODE_TYPE empty in the env secret => master
+          env:
+            # Without this the instance registers under its pod name, which carries a
+            # fresh ReplicaSet hash every deploy: the System Info instance list fills
+            # with stale ghosts instead of showing one row per running instance.
+            - name: NODE_NAME
+              value: new-api-master
+            - name: HOST_NODE
+              valueFrom:
+                fieldRef: { fieldPath: spec.nodeName }
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: logs, mountPath: /logs }
+          # startupProbe gates liveness: DB migration on 2.3M rows can take minutes on first
+          # boot; without this, liveness restarts the pod mid-migration (crashloop).
+          startupProbe:
+            httpGet: { path: /api/status, port: 3000 }
+            periodSeconds: 10
+            failureThreshold: 60   # up to 10min for migration
+          readinessProbe:
+            httpGet: { path: /api/status, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/status, port: 3000 }
+            periodSeconds: 20
+      volumes:
+        # /data = pprof dumps, /logs = rotated logs. Nothing shared, nothing worth surviving
+        # a pod, so no RWX volume is needed.
+        - name: data
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: new-api-slave
+  namespace: services
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: new-api, tier: slave }
+  template:
+    metadata:
+      labels: { app: new-api, tier: slave }
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels: { app: new-api, tier: slave }
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: new-api
+          # pinned by this repo's GHCR workflow (deploy job); ArgoCD rolls it out.
+          # NEVER set this back to :latest -- a floating tag never changes the manifest, so
+          # ArgoCD sees no diff and the deploy silently does not happen.
+          image: ghcr.io/unorouter/new-api:d43d46201a479d35fc6fc62809806df70e509207
+          resources:
+            requests: { memory: 512Mi, cpu: 100m }
+            limits: { memory: 2Gi }
+          envFrom:
+            - secretRef: { name: newapi-env }
+          env:
+            - name: NODE_TYPE
+              value: slave
+            # Identity must be unique per replica AND stable across deploys, so it
+            # cannot be a literal (2 replicas) nor the pod name (fresh hash every
+            # rollout, which filled the instance list with stale ghosts). Anti-affinity
+            # keeps one slave per k8s node, so the node name is both.
+            - name: HOST_NODE
+              valueFrom:
+                fieldRef: { fieldPath: spec.nodeName }
+            - name: NODE_NAME
+              value: new-api-slave-$(HOST_NODE)
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: logs, mountPath: /logs }
+          readinessProbe:
+            httpGet: { path: /api/status, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/status, port: 3000 }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+      volumes:
+        # /data = pprof dumps, /logs = rotated logs. Nothing shared, nothing worth surviving
+        # a pod, so no RWX volume is needed.
+        - name: data
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: newapi-redis
+  namespace: services
+spec:
+  selector: { app: newapi-redis }
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+# cache only (sessions/rate-limit): ephemeral, no persistence to migrate
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: newapi-redis
+  namespace: services
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: newapi-redis }
+  template:
+    metadata:
+      labels: { app: newapi-redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            tcpSocket: { port: 6379 }

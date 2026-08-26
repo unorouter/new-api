@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -75,7 +76,7 @@ func openTokenControllerTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
 	gin.SetMode(gin.TestMode)
-	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	common.RedisEnabled = false
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
@@ -117,23 +118,27 @@ func openTokenControllerExternalDB(t *testing.T, dialect string, dsn string) (*g
 
 	gin.SetMode(gin.TestMode)
 	common.RedisEnabled = false
+	switch dialect {
+	case "mysql":
+		common.SetMainDatabaseType(common.DatabaseTypeMySQL)
+	case "postgres":
+		common.SetMainDatabaseType(common.DatabaseTypePostgreSQL)
+	default:
+		common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	}
 
 	var (
-		db     *gorm.DB
-		dbType common.DatabaseType
-		err    error
+		db  *gorm.DB
+		err error
 	)
 	switch dialect {
 	case "mysql":
-		dbType = common.DatabaseTypeMySQL
 		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	case "postgres":
-		dbType = common.DatabaseTypePostgreSQL
 		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	default:
 		t.Fatalf("unsupported dialect %q", dialect)
 	}
-	common.SetDatabaseTypes(dbType, dbType)
 	if err != nil {
 		t.Fatalf("failed to open %s db: %v", dialect, err)
 	}
@@ -181,7 +186,10 @@ func seedToken(t *testing.T, db *gorm.DB, userID int, name string, rawKey string
 	return token
 }
 
-func newAuthenticatedContext(t *testing.T, method string, target string, body any, userID int) (*gin.Context, *httptest.ResponseRecorder) {
+// serveAuthenticatedTokenRoute registers the token handlers under /api/token via
+// the prod dto.Router helpers and drives them through a real gin request, seeding
+// the authenticated user id the fuego handlers resolve via dto.UserID.
+func serveAuthenticatedTokenRoute(t *testing.T, method string, target string, body any, userID int, register func(*dto.Router)) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var requestBody *bytes.Reader
@@ -195,14 +203,18 @@ func newAuthenticatedContext(t *testing.T, method string, target string, body an
 		requestBody = bytes.NewReader(nil)
 	}
 
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(func(c *gin.Context) { c.Set("id", userID) })
+	register(dto.NewRouter(nil, engine.Group("/api/token"), "Token"))
+
 	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(method, target, requestBody)
+	request := httptest.NewRequest(method, target, requestBody)
 	if body != nil {
-		ctx.Request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Content-Type", "application/json")
 	}
-	ctx.Set("id", userID)
-	return ctx, recorder
+	engine.ServeHTTP(recorder, request)
+	return recorder
 }
 
 func decodeAPIResponse(t *testing.T, recorder *httptest.ResponseRecorder) tokenAPIResponse {
@@ -434,8 +446,9 @@ func TestGetAllTokensMasksKeyInResponse(t *testing.T) {
 	token := seedToken(t, db, 1, "list-token", "abcd1234efgh5678")
 	seedToken(t, db, 2, "other-user-token", "zzzz1234yyyy5678")
 
-	ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/?p=1&size=10", nil, 1)
-	GetAllTokens(ctx)
+	recorder := serveAuthenticatedTokenRoute(t, http.MethodGet, "/api/token/?p=1&size=10", nil, 1, func(r *dto.Router) {
+		dto.Get(r, "/", GetAllTokens)
+	})
 
 	response := decodeAPIResponse(t, recorder)
 	if !response.Success {
@@ -461,8 +474,9 @@ func TestSearchTokensMasksKeyInResponse(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	token := seedToken(t, db, 1, "searchable-token", "ijkl1234mnop5678")
 
-	ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/search?keyword=searchable-token&p=1&size=10", nil, 1)
-	SearchTokens(ctx)
+	recorder := serveAuthenticatedTokenRoute(t, http.MethodGet, "/api/token/search?keyword=searchable-token&p=1&size=10", nil, 1, func(r *dto.Router) {
+		dto.GetP(r, "/search", SearchTokens)
+	})
 
 	response := decodeAPIResponse(t, recorder)
 	if !response.Success {
@@ -488,9 +502,9 @@ func TestGetTokenMasksKeyInResponse(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	token := seedToken(t, db, 1, "detail-token", "qrst1234uvwx5678")
 
-	ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/"+strconv.Itoa(token.Id), nil, 1)
-	ctx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(token.Id)}}
-	GetToken(ctx)
+	recorder := serveAuthenticatedTokenRoute(t, http.MethodGet, "/api/token/"+strconv.Itoa(token.Id), nil, 1, func(r *dto.Router) {
+		dto.Get(r, "/:id", GetToken)
+	})
 
 	response := decodeAPIResponse(t, recorder)
 	if !response.Success {
@@ -525,8 +539,9 @@ func TestUpdateTokenMasksKeyInResponse(t *testing.T) {
 		"cross_group_retry":    false,
 	}
 
-	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", body, 1)
-	UpdateToken(ctx)
+	recorder := serveAuthenticatedTokenRoute(t, http.MethodPut, "/api/token/", body, 1, func(r *dto.Router) {
+		dto.PutBP(r, "/", UpdateToken)
+	})
 
 	response := decodeAPIResponse(t, recorder)
 	if !response.Success {
@@ -549,9 +564,9 @@ func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	token := seedToken(t, db, 1, "owned-token", "owner1234token5678")
 
-	authorizedCtx, authorizedRecorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/"+strconv.Itoa(token.Id)+"/key", nil, 1)
-	authorizedCtx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(token.Id)}}
-	GetTokenKey(authorizedCtx)
+	authorizedRecorder := serveAuthenticatedTokenRoute(t, http.MethodPost, "/api/token/"+strconv.Itoa(token.Id)+"/key", nil, 1, func(r *dto.Router) {
+		dto.Post(r, "/:id/key", GetTokenKey)
+	})
 
 	authorizedResponse := decodeAPIResponse(t, authorizedRecorder)
 	if !authorizedResponse.Success {
@@ -566,9 +581,9 @@ func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {
 		t.Fatalf("expected full key %q, got %q", token.GetFullKey(), keyData.Key)
 	}
 
-	unauthorizedCtx, unauthorizedRecorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/"+strconv.Itoa(token.Id)+"/key", nil, 2)
-	unauthorizedCtx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(token.Id)}}
-	GetTokenKey(unauthorizedCtx)
+	unauthorizedRecorder := serveAuthenticatedTokenRoute(t, http.MethodPost, "/api/token/"+strconv.Itoa(token.Id)+"/key", nil, 2, func(r *dto.Router) {
+		dto.Post(r, "/:id/key", GetTokenKey)
+	})
 
 	unauthorizedResponse := decodeAPIResponse(t, unauthorizedRecorder)
 	if unauthorizedResponse.Success {

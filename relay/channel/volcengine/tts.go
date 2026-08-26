@@ -207,7 +207,7 @@ func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest V
 	}
 
 	header := http.Header{}
-	header.Set("Authorization", fmt.Sprintf("Bearer;%s", token))
+	header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
 	conn, resp, dialErr := websocket.DefaultDialer.DialContext(context.Background(), requestURL, header)
 	if dialErr != nil {

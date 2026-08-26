@@ -1,0 +1,150 @@
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: newapi-pg-store
+  namespace: databases
+  annotations:
+    # deleting this breaks WAL archiving and PITR for a live cluster; never prune it
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  # Without this nothing is ever deleted: every daily base backup and every WAL segment is kept
+  # forever. Base backups also grow with the DB, so unbounded retention compounds rather than
+  # accumulating linearly.
+  retentionPolicy: 30d
+  # serverName is set via plugin parameters on the Cluster, NOT here (plugin API).
+  configuration:
+    destinationPath: s3://unorouter-pg-backups/
+    endpointURL: https://fsn1.your-objectstorage.com
+    s3Credentials:
+      accessKeyId:
+        name: newapi-pg-s3
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: newapi-pg-s3
+        key: ACCESS_SECRET_KEY
+      # Hetzner Ceph requires region or throws LocationConstraintConflict on writes.
+      region:
+        name: newapi-pg-s3
+        key: REGION
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+      # -vv: at default WARNING level a healthy 15-min 1GB upload is silent and
+      # indistinguishable from a hang. Debug shows per-part progress.
+      additionalCommandArgs:
+        - "-vv"
+  # boto3 >=1.36 attaches x-amz-checksum headers Ceph/RadosGW rejects on MULTIPART uploads:
+  # WAL (single-part) archives fine, the base backup (multipart) hangs forever. These env vars
+  # revert to legacy checksum behavior. Runs in the barman plugin sidecar. (EDB/barman#1057)
+  instanceSidecarConfiguration:
+    env:
+      - name: AWS_REQUEST_CHECKSUM_CALCULATION
+        value: when_required
+      - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+        value: when_required
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: newapi-pg
+  namespace: databases
+  annotations:
+    # A resource-level Prune option overrides the Application's prune policy. Without it, a
+    # manifest that briefly leaves this app's scope (an ownership move, a bad path) is a
+    # DELETED database. Removing this is a decision, not a cleanup.
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  # Velero must NOT file-copy pgdata. CNPG's base backup + WAL archive (the -v4 prefix in
+  # the same bucket) is the real restore path; a file-level copy of a running data
+  # directory is only crash-consistent and would never be restored from. It was also 62GB
+  # of the 98GB bucket, backing up the same bytes twice.
+  inheritedMetadata:
+    annotations:
+      backup.velero.io/backup-volumes-excludes: pgdata,scratch-data,shm
+  imageName: ghcr.io/cloudnative-pg/postgresql:15-standard-bookworm
+  instances: 3
+  resources:
+    requests:
+      memory: 1Gi
+  # barman-cloud-backup runs in the postgres container -> the boto3 checksum-disable env must
+  # be HERE (not just instanceSidecarConfiguration). Fixes the Hetzner Ceph multipart hang.
+  env:
+    - name: AWS_REQUEST_CHECKSUM_CALCULATION
+      value: when_required
+    - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+      value: when_required
+  storage:
+    size: 20Gi
+    storageClass: local-path
+
+  # DR MODE: recovery is create-time-only (inert on a running cluster). Every fresh create
+  # RESTORES from S3 latest; add recoveryTarget.targetTime for PITR. On each DR event bump
+  # the lineage PAIR below: restore-from = last archive, archive-to = +1.
+  bootstrap:
+    recovery:
+      source: newapi-pg-origin
+  externalClusters:
+    - name: newapi-pg-origin
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: newapi-pg-store
+          serverName: newapi-pg-v3 # RESTORE-FROM lineage (current archive)
+
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: newapi-pg-store
+        serverName: newapi-pg-v4 # ARCHIVE-TO lineage (current+1); MUST differ from restore-from
+
+  # Teleport-provisioned read role, declared here so CNPG reconciles it on every DR.
+  managed:
+    roles:
+      - name: reader
+        login: true
+        # pg_read_all_data browses all tables, but secret option VALUES stay hidden by an RLS
+        # policy on `options` (masking.sql) that it does NOT bypass. reader must NEVER get
+        # BYPASSRLS -- that would defeat the masking.
+        passwordSecret:
+          name: newapi-pg-reader
+        inRoles:
+          - pg_read_all_data
+
+  # Teleport DB access: reader authenticates with a Teleport-signed client cert (CN=reader).
+  # clientCASecret ca.crt = own 10y CA (first, holds ca.key -> operator signs streaming_replica
+  # from it) + Teleport db-client CA appended. Server certs stay operator-managed.
+  certificates:
+    clientCASecret: newapi-pg-client-ca
+
+  postgresql:
+    # cert rule lands AFTER CNPG's fixed streaming_replica rules, BEFORE the scram catch-all
+    pg_hba:
+      - hostssl newapi reader all cert
+    parameters:
+      max_connections: "200"
+      # 3.3GB model_status_pings + 2.3M logs: default 128MB shared_buffers thrashed disk
+      # on every status-page aggregation (83 SLOW SQL / 2h, user-visible page hangs)
+      shared_buffers: "512MB"
+      work_mem: "12MB"
+      effective_cache_size: "3GB"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  annotations:
+    # without this the CR is prunable: an ownership move deleted it once, which reset
+    # lastScheduleTime and dropped the Backup CR the freshness alert reads.
+    argocd.argoproj.io/sync-options: Prune=false
+  name: newapi-pg-daily
+  namespace: databases
+spec:
+  # daily base backup; continuous WAL archiving (plugin) gives PITR between base backups.
+  schedule: "0 0 3 * * *" # 03:00 UTC daily (CNPG cron = 6 fields, leading seconds)
+  backupOwnerReference: self
+  cluster:
+    name: newapi-pg
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io

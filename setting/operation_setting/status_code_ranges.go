@@ -33,8 +33,54 @@ var alwaysSkipRetryStatusCodes = map[int]struct{}{
 	524: {},
 }
 
+// alwaysSkipRetryCodes lists upstream/internal error codes that are inherently
+// terminal: retrying against another channel will produce the same outcome
+// because the rejection is content/policy driven rather than a per-channel
+// transient failure. Keys MUST be lowercase; IsAlwaysSkipRetryCode lowercases
+// the lookup so upstream casing variations still match.
 var alwaysSkipRetryCodes = map[types.ErrorCode]struct{}{
 	types.ErrorCodeBadResponseBody: {},
+	// Zhipu / GLM input moderation
+	"data_inspection_failed": {},
+	// OpenAI / Azure OpenAI content moderation
+	"content_filter":               {},
+	"content_policy_violation":     {},
+	"responsibleaipolicyviolation": {},
+	// Google Gemini safety stops
+	"safety":     {},
+	"recitation": {},
+	// Google Gemini malformed-request rejection: deterministic, the same payload
+	// fails on every channel, so do not retry across the pool or auto-ban channels.
+	"invalid_argument": {},
+	// Anthropic / generic policy refusals
+	"policy_violation": {},
+	// Request exceeds the model context window / payload too large.
+	// Deterministic: the same oversized request fails on every channel.
+	"tokens_limit_reached":    {},
+	"context_length_exceeded": {},
+	"context_too_long":        {},
+	"request_too_large":       {},
+	// Local/user quota exhaustion; never an upstream/channel fault. Only the
+	// namespaced local codes belong here. The bare "insufficient_quota" is
+	// intentionally omitted: OpenAI-format upstreams (e.g. W&B Inference) echo it
+	// when THEIR account quota is drained, which is a per-channel fault that must
+	// fail over to a sibling and auto-disable the dead channel.
+	"insufficient_user_quota":  {},
+	"local:insufficient_quota": {},
+	// Local request-build failures (we could not convert/marshal the request for
+	// this model, e.g. "model does not support image generation", AWS/volcengine
+	// request encode failures). Deterministic: every channel of the model fails
+	// identically, so do not retry the pool. Most emit ErrOptionWithSkipRetry()
+	// per-site already; listing them here is the safety net for any that do not.
+	"convert_request_failed": {},
+	"bad_request_body":       {},
+	// NOTE: "pre_consume_token_quota_failed" is intentionally NOT listed. The local
+	// pre-consume failures (billing_session.go, pre_consume_quota.go) already attach
+	// ErrOptionWithSkipRetry() per-error, so they skip retry via IsSkipRetryError
+	// before this map is consulted. Listing the bare code here ALSO matched the
+	// identical code emitted by an upstream reseller (e.g. cent) when OUR account
+	// there is short of balance, which is a per-channel transient fault that MUST
+	// fail over to a sibling channel. Keeping it out lets that case retry.
 }
 
 func AutomaticDisableStatusCodesToString() string {
@@ -73,7 +119,13 @@ func IsAlwaysSkipRetryStatusCode(code int) bool {
 }
 
 func IsAlwaysSkipRetryCode(errorCode types.ErrorCode) bool {
-	_, exists := alwaysSkipRetryCodes[errorCode]
+	if _, exists := alwaysSkipRetryCodes[errorCode]; exists {
+		return true
+	}
+	// Upstream providers vary in casing (e.g. Azure "ResponsibleAIPolicyViolation",
+	// Gemini "SAFETY"). Normalize to lowercase for a deterministic match.
+	lower := types.ErrorCode(strings.ToLower(string(errorCode)))
+	_, exists := alwaysSkipRetryCodes[lower]
 	return exists
 }
 

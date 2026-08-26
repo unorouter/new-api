@@ -47,6 +47,8 @@ export type PricingModel = {
   audio_completion_ratio?: number | null
   enable_groups: string[]
   tags?: string
+  /** Opaque JSON blob of per-model client hints (maxOutputTokens, isReasoning, etc). */
+  metadata?: string
   supported_endpoint_types?: string[]
   key?: string
   group_ratio?: Record<string, number>

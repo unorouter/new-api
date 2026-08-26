@@ -42,7 +42,8 @@ type TaskDto struct {
 	Action     string          `json:"action"`
 	Status     string          `json:"status"`
 	FailReason string          `json:"fail_reason"`
-	ResultURL  string          `json:"result_url,omitempty"` // 任务结果 URL（视频地址等）
+	ResultURL  string          `json:"result_url,omitempty"`  // 任务结果 URL（视频地址等）
+	ResultURLs []string        `json:"result_urls,omitempty"` // 多输出任务（ComfyUI batch）的完整 URL 列表
 	SubmitTime int64           `json:"submit_time"`
 	StartTime  int64           `json:"start_time"`
 	FinishTime int64           `json:"finish_time"`

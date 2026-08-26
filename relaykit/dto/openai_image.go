@@ -152,6 +152,13 @@ func (i *ImageRequest) GetTokenCountMeta() *types.TokenCountMeta {
 				qualityRatio = 1.5
 			}
 		}
+	} else if strings.HasPrefix(i.Model, "imagen") {
+		// Imagen: quality maps to imageSize (1K default, 2K for hd/high)
+		// Based on Google's official pricing: 2K is ~1.5x the 1K price
+		switch i.Quality {
+		case "hd", "high", "2K":
+			qualityRatio = 1.5
+		}
 	}
 
 	imageN := uint(1)
@@ -189,4 +196,8 @@ type ImageData struct {
 	Url           string `json:"url"`
 	B64Json       string `json:"b64_json"`
 	RevisedPrompt string `json:"revised_prompt"`
+	// Diffusion backends pick a random seed when the request omits one, and the
+	// image cannot be reproduced without knowing which. omitempty keeps this absent
+	// for providers that report no seed.
+	Seed int64 `json:"seed,omitempty"`
 }

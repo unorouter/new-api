@@ -16,7 +16,22 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+
+	"github.com/tidwall/gjson"
 )
+
+// extractUpstreamErrorMessage best-effort pulls a human error message out of an
+// upstream body that did not fit GeneralErrorResponse. Covers the object shape
+// ({"error":{"message":...}}) and the array shape Google's OpenAI-compat endpoint
+// returns ([{"error":{"message":...}}]). Returns "" when nothing usable is found.
+func extractUpstreamErrorMessage(body []byte) string {
+	for _, path := range []string{"error.message", "0.error.message", "message", "0.message"} {
+		if v := gjson.GetBytes(body, path); v.Exists() && v.String() != "" {
+			return v.String()
+		}
+	}
+	return ""
+}
 
 func MidjourneyErrorWrapper(code int, desc string) *taskdto.MidjourneyResponse {
 	return &taskdto.MidjourneyResponse{
@@ -65,7 +80,7 @@ func ClaudeErrorWrapper(err error, code string, statusCode int) *dto.ClaudeError
 	if !strings.HasPrefix(lowerText, "get file base64 from url") {
 		if strings.Contains(lowerText, "post") || strings.Contains(lowerText, "dial") || strings.Contains(lowerText, "http") {
 			common.SysLog(fmt.Sprintf("error: %s", text))
-			text = "请求上游地址失败"
+			text = "failed to request upstream address"
 		}
 	}
 	claudeError := types.ClaudeError{
@@ -108,7 +123,15 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 			newApiErr.Err = buildErrWithBody("")
 		} else {
 			logger.LogError(ctx, fmt.Sprintf("bad response status code %d, body: %s", resp.StatusCode, responseBodyPreview))
-			newApiErr.Err = fmt.Errorf("bad response status code %d", resp.StatusCode)
+			// Body did not fit GeneralErrorResponse (e.g. Google returns a
+			// [{"error":{"message":...}}] array on its OpenAI-compat endpoint). Pull
+			// the real upstream message out of the raw body so the client/log sees the
+			// actual cause instead of a bare "bad response status code".
+			if msg := extractUpstreamErrorMessage(responseBody); msg != "" {
+				newApiErr = types.NewOpenAIError(errors.New(msg), types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
+			} else {
+				newApiErr.Err = fmt.Errorf("bad response status code %d", resp.StatusCode)
+			}
 		}
 		return
 	}
@@ -217,6 +240,10 @@ func TaskErrorWrapper(err error, code string, statusCode int) *taskdto.TaskError
 }
 
 // TaskErrorFromAPIError 将 PreConsumeBilling 返回的 NewAPIError 转换为 TaskError。
+// Skip-retry errors (insufficient user quota, our own DB/validation failures)
+// are user/local faults: mark them LocalError so the task retry loop neither
+// fails over to sibling channels nor records a channel error (which counted
+// toward auto-disable and buried the real message behind a later attempt's).
 func TaskErrorFromAPIError(apiErr *types.NewAPIError) *taskdto.TaskError {
 	if apiErr == nil {
 		return nil
@@ -226,5 +253,6 @@ func TaskErrorFromAPIError(apiErr *types.NewAPIError) *taskdto.TaskError {
 		Message:    apiErr.Err.Error(),
 		StatusCode: apiErr.StatusCode,
 		Error:      apiErr.Err,
+		LocalError: types.IsSkipRetryError(apiErr),
 	}
 }

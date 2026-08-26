@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
@@ -366,9 +367,39 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		summary.Quota = quota
 		noteQuotaClamp(relayInfo, clamp)
 	} else {
-		quotaCalculateDecimal := dModelPrice.Mul(dQuotaPerUnit).Mul(dGroupRatio)
+		effectivePrice := dModelPrice
+		if relayInfo.ImageResolution != "" {
+			if gridPrice, ok := ratio_setting.GetGridPrice(summary.ModelName, relayInfo.ImageResolution); ok {
+				effectivePrice = decimal.NewFromFloat(gridPrice)
+			}
+		}
+		// An upstream that reports its own per-request cost prices off that instead. The
+		// flat price is a guess at an average; here the cost is known exactly, so it is
+		// billed at the model's markup. This is what lets a model whose cost cannot be
+		// known in advance (an arbitrary user-supplied checkpoint) still be billed safely.
+		// The flat price stays the floor, so a cheap request is never billed under it.
+		billedFromUpstreamCost := false
+		if relayInfo.UpstreamCostUSD > 0 {
+			marked := decimal.NewFromFloat(relayInfo.UpstreamCostUSD).
+				Mul(decimal.NewFromFloat(ratio_setting.GetUpstreamCostMarkup(summary.ModelName)))
+			if marked.GreaterThan(effectivePrice) {
+				effectivePrice = marked
+				billedFromUpstreamCost = true
+			}
+		}
+		quotaCalculateDecimal := effectivePrice.Mul(dQuotaPerUnit).Mul(dGroupRatio)
+		quotaCalculateDecimal = quotaCalculateDecimal.Add(summary.ToolCallSurchargeQuota)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(audioInputQuota)
-		quotaCalculateDecimal = relayInfo.PriceData.ApplyOtherRatiosToDecimal(quotaCalculateDecimal)
+		// The image-count ratio scales a PER-IMAGE flat price up to the batch. A reported
+		// upstream cost is already the sum over every image in the batch, so applying the
+		// count again bills it n times over: a 4-image request cost $0.0083 upstream and
+		// settled at $0.64 instead of $0.17. Every other ratio still applies.
+		if billedFromUpstreamCost {
+			quotaCalculateDecimal = relayInfo.PriceData.
+				ApplyOtherRatiosToDecimalExcept(quotaCalculateDecimal, "n")
+		} else {
+			quotaCalculateDecimal = relayInfo.PriceData.ApplyOtherRatiosToDecimal(quotaCalculateDecimal)
+		}
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(summary.ToolCallSurchargeQuota)
 		quota, clamp := common.QuotaFromDecimalChecked(quotaCalculateDecimal)
 		summary.Quota = quota
@@ -398,7 +429,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	originUsage := usage
 	billingUsage := effectiveBillingUsage(usage)
 	if usage == nil {
-		extraContent = append(extraContent, "上游无计费信息")
+		extraContent = append(extraContent, "No billing info from upstream")
 	}
 	if originUsage != nil {
 		ObserveChannelAffinityUsageCacheByRelayFormat(ctx, billingUsage, relayInfo.GetFinalRequestRelayFormat())
@@ -429,7 +460,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 			Mul(decimal.NewFromFloat(summary.GroupRatio)).
 			Mul(decimal.NewFromFloat(common.QuotaPerUnit))
 		extraContent = append(extraContent, fmt.Sprintf(
-			"%s 调用 %d 次，调用花费 %s",
+			"%s %d call(s), cost %s",
 			item.Name,
 			item.Count,
 			logger.LogQuota(common.QuotaFromDecimal(q)),
@@ -437,11 +468,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	if summary.AudioInputPrice > 0 && summary.AudioTokens > 0 {
 		q := decimal.NewFromFloat(summary.AudioInputPrice).Div(decimal.NewFromInt(1000000)).Mul(decimal.NewFromInt(int64(summary.AudioTokens))).Mul(decimal.NewFromFloat(summary.GroupRatio)).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
-		extraContent = append(extraContent, fmt.Sprintf("Audio Input 花费 %s", logger.LogQuota(common.QuotaFromDecimal(q))))
+		extraContent = append(extraContent, fmt.Sprintf("Audio Input cost %s", logger.LogQuota(common.QuotaFromDecimal(q))))
 	}
 
 	if !summary.hasBillableUsage() {
-		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
+		extraContent = append(extraContent, "Upstream returned no billing info, cannot charge (possibly an upstream timeout)")
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
 	} else {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
@@ -455,11 +486,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	logModel := summary.ModelName
 	if strings.HasPrefix(logModel, "gpt-4-gizmo") {
 		logModel = "gpt-4-gizmo-*"
-		extraContent = append(extraContent, fmt.Sprintf("模型 %s", summary.ModelName))
+		extraContent = append(extraContent, fmt.Sprintf("Model %s", summary.ModelName))
 	}
 	if strings.HasPrefix(logModel, "gpt-4o-gizmo") {
 		logModel = "gpt-4o-gizmo-*"
-		extraContent = append(extraContent, fmt.Sprintf("模型 %s", summary.ModelName))
+		extraContent = append(extraContent, fmt.Sprintf("Model %s", summary.ModelName))
 	}
 
 	logContent := strings.Join(extraContent, ", ")
