@@ -61,6 +61,15 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.GetP(publicRankings, "/rankings", controller.GetRankings)
 		dto.GetP(publicRankings, "/rankings/model", controller.GetModelRanking)
 
+		// Aggregate platform totals and model health, both rendered to anonymous
+		// visitors on the public stats and status pages. Neither reads user context.
+		publicStats := dto.NewRouter(engine, apiRouter.Group("", middleware.TryUserAuth()), "Stats", secPublic())
+		dto.GetP(publicStats, "/data/summary", controller.GetQuotaDataSummary)
+		dto.Get(publicStats, "/model_status/components", controller.GetModelStatusComponents)
+		dto.GetP(publicStats, "/model_status/buckets", controller.GetModelStatusBuckets)
+		dto.GetP(publicStats, "/model_status/page_compact", controller.GetModelStatusPageCompact)
+		dto.GetP(publicStats, "/log/by-request", controller.GetLogByRequest)
+
 		publicEmailVerify := dto.NewRouter(engine, apiRouter.Group("", middleware.EmailVerificationRateLimit(), middleware.TurnstileCheck()), "Auth", secPublic())
 		dto.GetP(publicEmailVerify, "/verification", controller.SendEmailVerification, dto.TurnstileQuery())
 
@@ -406,12 +415,11 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.GetP(chDiagMod, "/diagnostics/stats", controller.GetChannelDiagnosticStats)
 
 		// ---- Model status routes (admin) ----
+		// components, buckets and page_compact are registered public above; only
+		// incidents stays admin, since nothing public renders it.
 		modelStatusGroup := apiRouter.Group("/model_status", middleware.AdminAuth())
 		ms := dto.NewRouter(engine, modelStatusGroup, "ModelStatus", secDashboard())
-		dto.Get(ms, "/components", controller.GetModelStatusComponents)
-		dto.GetP(ms, "/buckets", controller.GetModelStatusBuckets)
 		dto.GetP(ms, "/incidents", controller.GetModelStatusIncidents)
-		dto.GetP(ms, "/page_compact", controller.GetModelStatusPageCompact)
 
 		// ---- Token routes (user auth) ----
 		tokenGroup := apiRouter.Group("/token", middleware.UserAuth())
@@ -476,7 +484,6 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// ---- Data routes ----
 		dataAdmin := dto.NewRouter(engine, apiRouter.Group("/data", middleware.ModAuth()), "Data", secDashboard())
 		dto.GetP(dataAdmin, "/", controller.GetAllQuotaDates)
-		dto.GetP(dataAdmin, "/summary", controller.GetQuotaDataSummary)
 		dto.GetP(dataAdmin, "/flow", controller.GetFlowQuotaDates)
 
 		dataUser := dto.NewRouter(engine, apiRouter.Group("/data", middleware.UserAuth()), "Data", secDashboard())

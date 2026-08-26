@@ -105,6 +105,10 @@ type GetAllLogsParams struct {
 	SubscriptionPlan  string `query:"subscription_plan"   description:"Filter by subscription plan title (substring)"`
 }
 
+type GetLogByRequestParams struct {
+	RequestID string `query:"request_id" description:"Full request ID naming exactly one log row"`
+}
+
 type GetUserLogsParams struct {
 	Type              int    `query:"type"`
 	StartTimestamp    int64  `query:"start_timestamp"`

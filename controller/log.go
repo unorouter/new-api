@@ -49,6 +49,33 @@ func SearchUserLogs(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	return dto.FailMsg("This API has been deprecated")
 }
 
+// GetLogByRequest resolves one log row by its full request_id. Public because a
+// request_id is 62^8 of random suffix on top of a nanosecond timestamp, so it is
+// not enumerable and whoever holds one already made that request.
+func GetLogByRequest(c fuego.ContextWithParams[dto.GetLogByRequestParams]) (*dto.Response[dto.LogByRequestData], error) {
+	p, _ := dto.ParseParams[dto.GetLogByRequestParams](c)
+	if p.RequestID == "" {
+		return dto.Fail[dto.LogByRequestData]("request_id is required")
+	}
+	logs, _, err := model.GetAllLogs(0, 0, 0, "", "", "", "", 0, 1, 0, "", p.RequestID, "", "")
+	if err != nil {
+		return dto.Fail[dto.LogByRequestData](err.Error())
+	}
+	if len(logs) == 0 {
+		return dto.Ok(dto.LogByRequestData{})
+	}
+	l := logs[0]
+	return dto.Ok(dto.LogByRequestData{
+		Channel:          l.ChannelName,
+		Quota:            l.Quota,
+		PromptTokens:     l.PromptTokens,
+		CompletionTokens: l.CompletionTokens,
+		UseTime:          l.UseTime,
+		ModelName:        l.ModelName,
+		Group:            l.Group,
+	})
+}
+
 func GetLogByKey(c fuego.ContextNoBody) (*dto.Response[[]*model.Log], error) {
 	tokenId := dto.TokenID(c)
 	if tokenId == 0 {
