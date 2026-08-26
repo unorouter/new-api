@@ -94,6 +94,30 @@ const (
 
 // populateChannelNames resolves each log's ChannelName from its ChannelId,
 // using the channel cache when enabled, otherwise a single bulk DB query.
+// GetLogByRequestId fetches the single log row named by a full request_id.
+//
+// Deliberately NOT expressed as GetAllLogs with a request_id filter: that path
+// carries ORDER BY id DESC, which makes the planner walk logs_pkey backward
+// expecting an early match instead of using idx_logs_request_id. For an id that
+// matches nothing it walks the entire table and never returns. Without the sort
+// the same lookup is an index scan that finishes in well under a millisecond.
+func GetLogByRequestId(requestId string) (*Log, error) {
+	if requestId == "" {
+		return nil, nil
+	}
+	var logs []*Log
+	err := LOG_DB.Where("logs.request_id = ?", requestId).Limit(1).Find(&logs).Error
+	if err != nil {
+		common.SysError("failed to get log by request id: " + err.Error())
+		return nil, errors.New("failed to query log")
+	}
+	if len(logs) == 0 {
+		return nil, nil
+	}
+	populateChannelNames(logs)
+	return logs[0], nil
+}
+
 func populateChannelNames(logs []*Log) {
 	channelIds := types.NewSet[int]()
 	for _, log := range logs {
