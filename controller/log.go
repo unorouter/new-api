@@ -57,14 +57,13 @@ func GetLogByRequest(c fuego.ContextWithParams[dto.GetLogByRequestParams]) (*dto
 	if p.RequestID == "" {
 		return dto.Fail[dto.LogByRequestData]("request_id is required")
 	}
-	logs, _, err := model.GetAllLogs(0, 0, 0, "", "", "", "", 0, 1, 0, "", p.RequestID, "", "")
+	l, err := model.GetLogByRequestId(p.RequestID)
 	if err != nil {
 		return dto.Fail[dto.LogByRequestData](err.Error())
 	}
-	if len(logs) == 0 {
+	if l == nil {
 		return dto.Ok(dto.LogByRequestData{})
 	}
-	l := logs[0]
 	return dto.Ok(dto.LogByRequestData{
 		Channel:          l.ChannelName,
 		Quota:            l.Quota,
