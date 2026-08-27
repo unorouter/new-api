@@ -555,6 +555,10 @@ var transientUpstream400Markers = []string{
 	"upstream provider returned an error",
 	// Console Go reseller masking its upstream's failure as a 400
 	"upstream request failed",
+	// A new-api-based reseller intermittently drops the model field server-side
+	// and blames the request. The identical body succeeds on the same channel
+	// minutes apart, so this must failover and count toward the rate guard.
+	"model name cannot be empty",
 }
 
 // invalidSamplerValueMarkers are upstream rejections of a SAMPLER VALUE the

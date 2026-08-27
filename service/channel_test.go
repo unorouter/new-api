@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -235,32 +235,43 @@ func TestIsCredentialFault(t *testing.T) {
 	}
 }
 
-// Request-side / transient upstream faults must never auto-ban the channel, even
-// when their status code sits in the configured disable ranges: the same request
-// fails identically elsewhere (deterministic), a laxer sibling accepts the prompt
-// (moderation), or the channel recovers on its own (transient capacity 400).
+// Request-side upstream faults must never auto-ban the channel, even when their
+// status code sits in the configured disable ranges: the same request fails
+// identically elsewhere (deterministic) or a laxer sibling accepts the prompt
+// (moderation). A transient capacity 400 is the exception: it reports the
+// CHANNEL's condition, so it must reach the caller's failure-rate guard, which
+// spares a lane that is still serving and pulls one emitting nothing else.
 func TestShouldDisableChannelSparesNonChannelFaults(t *testing.T) {
 	prev := common.AutomaticDisableChannelEnabled
 	common.AutomaticDisableChannelEnabled = true
-	t.Cleanup(func() { common.AutomaticDisableChannelEnabled = prev })
+	prevRanges := operation_setting.AutomaticDisableStatusCodeRanges
+	operation_setting.AutomaticDisableStatusCodeRanges = []operation_setting.StatusCodeRange{{Start: 400, End: 406}}
+	t.Cleanup(func() {
+		common.AutomaticDisableChannelEnabled = prev
+		operation_setting.AutomaticDisableStatusCodeRanges = prevRanges
+	})
 
 	cases := []struct {
-		name string
-		err  *types.NewAPIError
+		name      string
+		err       *types.NewAPIError
+		rateGated bool
 	}{
 		{"transient capacity 400", types.NewOpenAIError(
 			errors.New("The current model cannot be routed at the moment, please try again later"),
-			types.ErrorCodeBadResponse, http.StatusBadRequest)},
+			types.ErrorCodeBadResponse, http.StatusBadRequest), true},
+		{"flapping reseller model-lost 400", types.NewOpenAIError(
+			errors.New("Model name not specified, model name cannot be empty"),
+			types.ErrorCodeBadResponse, http.StatusBadRequest), true},
 		{"upstream moderation 400", types.NewOpenAIError(
 			errors.New("Input data may contain inappropriate content"),
-			types.ErrorCodeBadResponse, http.StatusBadRequest)},
+			types.ErrorCodeBadResponse, http.StatusBadRequest), false},
 		{"deterministic malformed 400", types.NewOpenAIError(
 			errors.New("missing required field messages"),
-			types.ErrorCodeBadResponse, http.StatusBadRequest)},
+			types.ErrorCodeBadResponse, http.StatusBadRequest), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.False(t, ShouldDisableChannel(tc.err))
+			assert.Equal(t, tc.rateGated, ShouldDisableChannel(tc.err))
 		})
 	}
 }

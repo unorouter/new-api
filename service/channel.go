@@ -350,16 +350,20 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	//   - a sampler value no upstream accepts: same body, same rejection everywhere;
 	//   - per-upstream content moderation (400/422): caused by the client's prompt,
 	//     fails over to a less strict sibling. 597 of the 616 channels emitting one
-	//     are serving successful traffic, so this must never pull a lane;
-	//   - transient upstream 400 ("degraded", "retry later", "try again"): capacity
-	//     blip, fails over to a sibling and the channel recovers on its own.
+	//     are serving successful traffic, so this must never pull a lane.
 	if types.IsDeterministicUpstreamError(err) ||
 		types.IsUpstreamModerationError(err) ||
 		types.IsSharedFilterModerationError(err) ||
-		types.IsInvalidParamError(err) ||
-		types.IsTransientUpstream400(err) {
+		types.IsInvalidParamError(err) {
 		return false
 	}
+	// A transient upstream 400 ("degraded", "retry later", "model name cannot be
+	// empty") is a capacity/flap signal, not a request fault, so it fails over AND
+	// falls through to the caller's failure-RATE guard like a 429: a channel still
+	// serving keeps its successes and survives the rate gate, while one emitting
+	// only these is dead in that costume and gets pulled. Excluding it outright
+	// left a flapping lane serving 34 errors against 28 successes invisible to the
+	// guard, recoverable only by the scheduled autotest hours later.
 	// "User has been banned" from an upstream that runs new-api is ambiguous, and
 	// the wording is identical either way: it means one END USER of ours tripped
 	// their rules (channel healthy - banning it would let a single banned user walk
