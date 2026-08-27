@@ -194,9 +194,14 @@ func IncrementUserAuthVersionWithTx(tx *gorm.DB, userId int) (int64, error) {
 		if err := SetUserAuthVersionFence(userId, next); err != nil {
 			return 0, err
 		}
+		// The PAT is cleared in the same statement because ValidateAccessToken
+		// resolves a caller by access_token alone and never reads auth_version.
+		// Without this, a password reset, a session revocation and this fence all
+		// leave a stolen PAT working -- which is how the 2026-08-26 intruder would
+		// have survived the eviction of all 19 accounts he touched.
 		result := tx.Unscoped().Model(&User{}).
 			Where("id = ? AND auth_version = ?", userId, user.AuthVersion).
-			Update("auth_version", next)
+			Updates(map[string]interface{}{"auth_version": next, "access_token": nil})
 		if result.Error != nil {
 			return 0, result.Error
 		}

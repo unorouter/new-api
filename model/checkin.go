@@ -84,13 +84,22 @@ func UserCheckin(userId int) (*Checkin, error) {
 	}
 
 	// 根据数据库类型选择不同的策略
+	var result *Checkin
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		// SQLite 不支持嵌套事务，使用顺序操作 + 手动回滚
-		return userCheckinWithoutTransaction(checkin, userId, quotaAwarded)
+		result, err = userCheckinWithoutTransaction(checkin, userId, quotaAwarded)
+	} else {
+		// MySQL 和 PostgreSQL 支持事务，使用事务保证原子性
+		result, err = userCheckinWithTransaction(checkin, userId, quotaAwarded)
 	}
-
-	// MySQL 和 PostgreSQL 支持事务，使用事务保证原子性
-	return userCheckinWithTransaction(checkin, userId, quotaAwarded)
+	if err != nil {
+		return nil, err
+	}
+	// Above the engine branch: every other way a balance grows writes a topup row,
+	// and a check-in that raises one with nothing to reconcile against is how a
+	// balance becomes unexplainable after the fact.
+	RecordLog(userId, LogTypeTopup, fmt.Sprintf("Check-in reward, quota: %s", logger.LogQuota(quotaAwarded)))
+	return result, nil
 }
 
 // userCheckinWithTransaction 使用事务执行签到（适用于 MySQL 和 PostgreSQL）
@@ -138,10 +147,6 @@ func userCheckinWithoutTransaction(checkin *Checkin, userId int, quotaAwarded in
 		DB.Delete(checkin)
 		return nil, errors.New("Check-in failed: error updating quota")
 	}
-	// Every other way a balance grows writes a topup row; without this one a
-	// check-in raises a balance with nothing to reconcile it against.
-	RecordLog(userId, LogTypeTopup, fmt.Sprintf("Check-in reward, quota: %s", logger.LogQuota(quotaAwarded)))
-
 	return checkin, nil
 }
 
