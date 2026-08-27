@@ -179,13 +179,21 @@ type QuotaDataSummary struct {
 	AvgTpm            int64 `json:"avg_tpm"`
 }
 
-// The aggregate is a full parallel seq scan (1.2M rows, ~170ms in production),
+// The aggregate is a full parallel seq scan (2M rows, ~950ms in production),
 // so the public site's ticker would otherwise run it once per visitor per pod.
 // Keyed by the window because callers pass different ranges.
 const quotaSummaryCacheTTL = 5 * time.Minute
 
+// The route is public and both timestamps are caller-controlled, so an exact
+// key lets an anonymous caller mint a fresh miss per request and pay for a full
+// scan every time. Rounding to the hour keeps distinct real windows distinct
+// while collapsing that space to something a cache can hold.
+const quotaSummaryKeyGranularity = 3600
+
 func quotaSummaryCacheKey(startTime int64, endTime int64) string {
-	return fmt.Sprintf("quota_summary:%d:%d", startTime, endTime)
+	return fmt.Sprintf("quota_summary:%d:%d",
+		startTime/quotaSummaryKeyGranularity,
+		endTime/quotaSummaryKeyGranularity)
 }
 
 // GetQuotaDataSummary aggregates in SQL what callers previously computed by
