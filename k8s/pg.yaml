@@ -70,7 +70,12 @@ spec:
   # nothing. Queries live in infra/monitoring/extras/cnpg-security-queries.yaml; they are
   # all bounded by created_at so they use idx_created_at_type instead of scanning 9M rows.
   monitoring:
-    enablePodMonitor: true
+    # false because monitoring/cnpg-instances already scrapes every pod carrying
+    # cnpg.io/podRole=instance in this namespace. Enabling this too created a second
+    # PodMonitor over the same three pods, so every series existed 6 times (3 instances
+    # x 2 jobs): each `> 0` alert paged six times per event, and ElevatedAdminActivity's
+    # sum() threshold of 800 actually tripped at ~133 real actions.
+    enablePodMonitor: false
     customQueriesConfigMap:
       - name: cnpg-default-monitoring
         key: queries
