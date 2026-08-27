@@ -198,6 +198,14 @@ const botAuthContextKey = "authenticated_via_bot_token"
 
 // AuthenticatedViaBotToken reports whether BotAuth accepted this request, so a
 // handler can restrict what a service credential may do beyond route access.
+// AuthenticatedViaPAT reports a personal access token specifically, as opposed to
+// the bot and sync service tokens, which also set use_access_token but are scoped
+// secrets held by our own automation. SessionOnly cannot make that distinction,
+// which is why routes the sync legitimately drives need this instead.
+func AuthenticatedViaPAT(c *gin.Context) bool {
+	return c.GetBool("use_access_token") && !AuthenticatedViaBotToken(c) && !AuthenticatedViaSyncToken(c)
+}
+
 func AuthenticatedViaBotToken(c *gin.Context) bool {
 	return c.GetBool(botAuthContextKey)
 }
@@ -360,6 +368,23 @@ func ResolveDashboardCredential(c *gin.Context) (*model.UserBase, error) {
 		return nil, err
 	}
 	if kind == dashboardCredentialUnmatched {
+		return nil, nil
+	}
+	return user, nil
+}
+
+// ResolveDashboardSessionCredential is ResolveDashboardCredential minus the PAT
+// kind. Attaching an OAuth identity adds a way to log in, and OAuth login never
+// checks a second factor, so a PAT reaching that path manufactures a full
+// interactive session for an account whose password and 2FA it never held.
+// A session token presented in the Authorization header still resolves, which is
+// what the cross-domain bind actually needs.
+func ResolveDashboardSessionCredential(c *gin.Context) (*model.UserBase, error) {
+	user, _, kind, err := classifyDashboardCredential(c)
+	if err != nil {
+		return nil, err
+	}
+	if kind == dashboardCredentialUnmatched || kind == dashboardCredentialPAT {
 		return nil, nil
 	}
 	return user, nil

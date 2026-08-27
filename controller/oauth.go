@@ -79,10 +79,10 @@ func GenerateOAuthCode(c fuego.ContextWithParams[dto.GenerateOAuthCodeParams]) (
 			// trusting a plain New-Api-User header here let anyone mint a bind state
 			// for an arbitrary account and attach their own OAuth identity to it.
 			//
-			// Resolved through the shared dashboard resolver so BOTH credential kinds
-			// work; validating only the PAT column rejects every user who has never
-			// minted one, which is the large majority.
-			user, err := middleware.ResolveDashboardCredential(ginCtx)
+			// A session token in that header resolves; a PAT does not. Binding adds a
+			// login method and OAuth login checks no second factor, so accepting a PAT
+			// here would let a bearer secret attach an identity it can then log in as.
+			user, err := middleware.ResolveDashboardSessionCredential(ginCtx)
 			if err != nil || user == nil || user.Status != common.UserStatusEnabled {
 				return dto.Fail[string]("Authentication required for bind")
 			}

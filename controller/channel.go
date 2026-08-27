@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
@@ -804,9 +805,16 @@ func UpdateChannel(c fuego.ContextWithBody[PatchChannel]) (*dto.Response[PatchCh
 	// Rewriting a channel's key, base_url or type redirects live traffic and can
 	// exfiltrate every request routed through it, so it needs the sensitive
 	// permission even though the route itself only demands ChannelWrite.
-	if channelHasSensitiveChangesTyped(&channel, originChannel) &&
-		!authz.Can(dto.UserID(c), dto.UserRole(c), authz.ChannelSensitiveWrite) {
-		return dto.Fail[PatchChannel](common.TranslateMessage(dto.GinCtx(c), i18n.MsgAuthInsufficientPrivilege))
+	if channelHasSensitiveChangesTyped(&channel, originChannel) {
+		if !authz.Can(dto.UserID(c), dto.UserRole(c), authz.ChannelSensitiveWrite) {
+			return dto.Fail[PatchChannel](common.TranslateMessage(dto.GinCtx(c), i18n.MsgAuthInsufficientPrivilege))
+		}
+		// Repointing base_url walks around the hardened /channel/:id/key route: the
+		// key is never read back, it is forwarded to whatever host the next relay
+		// request goes to. A bearer secret with no second factor must not do that.
+		if middleware.AuthenticatedViaPAT(dto.GinCtx(c)) {
+			return dto.Fail[PatchChannel](common.TranslateMessage(dto.GinCtx(c), i18n.MsgAuthInsufficientPrivilege))
+		}
 	}
 	originProxy := originChannel.GetSetting().Proxy
 	newProxy, _ := service.NormalizeProxyURL(channel.GetSetting().Proxy)

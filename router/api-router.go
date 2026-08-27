@@ -87,7 +87,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// Binding an email to the CURRENT account, so it needs the caller
 		// identified. The handler's own fallback only accepts a system access
 		// token, which a browser session never carries.
-		oauthEmailBind := dto.NewRouter(engine, apiRouter.Group("", middleware.CORS(), middleware.UserAuth(), middleware.CriticalRateLimit()), "OAuth", secDashboard())
+		oauthEmailBind := dto.NewRouter(engine, apiRouter.Group("", middleware.CORS(), middleware.UserAuth(), middleware.SessionOnly(), middleware.CriticalRateLimit()), "OAuth", secDashboard())
 		dto.GetP(oauthEmailBind, "/oauth/email/bind", controller.EmailBind)
 		oauthCritical.GinGet("/oauth/wechat", controller.WeChatAuth, option.Query("code", "WeChat auth code"), dto.GinResp[dto.ApiResponse]())
 		dto.GetP(oauthCritical, "/oauth/wechat/bind", controller.WeChatBind)
@@ -144,10 +144,14 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		selfModels := dto.NewRouter(engine, selfGroup.Group("", middleware.RequireScope("models:read")), "User", secDashboard())
 		dto.Get(selfModels, "/models", controller.GetUserModels)
 		selfCriticalUser := dto.NewRouter(engine, selfGroup.Group("", middleware.CriticalRateLimit()), "User", secDashboard())
+		// The caller's own credential surface. A PAT is a bearer secret with no
+		// second factor, so it must not be able to mint its replacement or detach
+		// the identities that can log in as this account.
+		selfCred := dto.NewRouter(engine, selfGroup.Group("", middleware.SessionOnly()), "User", secDashboard())
 		dto.Put(selfCriticalUser, "/self", controller.UpdateSelf)
 		dto.PutB(self, "/self/timeout", controller.UpdateTimeoutPreference)
 		dto.Delete(self, "/self", controller.DeleteSelf)
-		dto.Get(self, "/token", controller.GenerateAccessToken)
+		dto.Get(selfCred, "/token", controller.GenerateAccessToken)
 		self.GinGet("/passkey", controller.PasskeyStatus, dto.GinResp[dto.Response[dto.PasskeyStatusData]]())
 		self.GinPost("/passkey/register/begin", controller.PasskeyRegisterBegin, dto.GinResp[dto.Response[dto.PasskeyOptionsData]]())
 		self.GinPost("/passkey/register/finish", controller.PasskeyRegisterFinish, dto.GinResp[dto.MessageResponse]())
@@ -215,9 +219,10 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 
 		// Custom OAuth bindings
 		selfOAuth := dto.NewRouter(engine, selfGroup, "OAuth", secDashboard())
+		selfOAuthCred := dto.NewRouter(engine, selfGroup.Group("", middleware.SessionOnly()), "OAuth", secDashboard())
 		dto.Get(selfOAuth, "/oauth/bindings", controller.GetUserOAuthBindings)
-		dto.Delete(selfOAuth, "/oauth/bindings/:provider_id", controller.UnbindCustomOAuth, option.Path("provider_id", "OAuth provider ID"))
-		dto.Delete(selfOAuth, "/bindings/:binding_type", controller.SelfClearBinding, option.Path("binding_type", "Binding type (github, discord, oidc, wechat, telegram, linuxdo)"))
+		dto.Delete(selfOAuthCred, "/oauth/bindings/:provider_id", controller.UnbindCustomOAuth, option.Path("provider_id", "OAuth provider ID"))
+		dto.Delete(selfOAuthCred, "/bindings/:binding_type", controller.SelfClearBinding, option.Path("binding_type", "Binding type (github, discord, oidc, wechat, telegram, linuxdo)"))
 
 		// Admin user routes
 		adminGroup := userGroup.Group("", middleware.AdminAuth())
@@ -229,11 +234,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.GetP(admin, "/topup", controller.GetAllTopUps, dto.PageParams())
 		dto.PostB(admin, "/topup/complete", controller.AdminCompleteTopUp)
 		dto.GetP(adminRead, "/search", controller.SearchUsers, dto.PageParams())
-		dto.Get(admin, "/:id/oauth/bindings", controller.GetUserOAuthBindingsByAdmin, option.Path("id", "User ID"))
-		dto.Delete(admin, "/:id/oauth/bindings/:provider_id", controller.UnbindCustomOAuthByAdmin, option.Path("id", "User ID"), option.Path("provider_id", "OAuth provider ID"))
-		dto.Delete(admin, "/:id/bindings/:binding_type", controller.AdminClearUserBinding, option.Path("id", "User ID"), option.Path("binding_type", "Binding type"))
 		dto.Get(adminRead, "/:id", controller.GetUser, option.Path("id", "User ID"))
-		dto.PostB(admin, "/", controller.CreateUser)
+		dto.Get(admin, "/:id/oauth/bindings", controller.GetUserOAuthBindingsByAdmin, option.Path("id", "User ID"))
 
 		// Routes the Discord bot needs. BotAuth accepts its service token and
 		// otherwise falls through to AdminAuth, so the dashboard is unchanged.
@@ -258,7 +260,15 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		adminCred := dto.NewRouter(engine, userGroup.Group("", middleware.AdminAuth(), middleware.SessionOnly()), "AdminUser", secDashboard())
 		dto.PutB(adminCred, "/", controller.UpdateUser)
 		dto.Delete(adminCred, "/:id/reset_passkey", controller.AdminResetPasskey, option.Path("id", "User ID"))
-		dto.Delete(admin, "/:id", controller.DeleteUser, option.Path("id", "User ID"))
+		// CreateUser takes an attacker-chosen username, password and role, so a PAT
+		// reaching it mints a fresh admin account and logs in interactively -- the
+		// whole control, walked around in one request.
+		dto.PostB(adminCred, "/", controller.CreateUser)
+		dto.Delete(adminCred, "/:id", controller.DeleteUser, option.Path("id", "User ID"))
+		// Detaching an identity frees it to be re-attached elsewhere, so it changes
+		// what can log in as this account.
+		dto.Delete(adminCred, "/:id/oauth/bindings/:provider_id", controller.UnbindCustomOAuthByAdmin, option.Path("id", "User ID"), option.Path("provider_id", "OAuth provider ID"))
+		dto.Delete(adminCred, "/:id/bindings/:binding_type", controller.AdminClearUserBinding, option.Path("id", "User ID"), option.Path("binding_type", "Binding type"))
 
 		// Admin 2FA routes
 		admin2FA := admin.WithTag("Admin2FA")
@@ -358,7 +368,11 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 
 		// ---- System maintenance routes (root only) ----
 		systemTaskGroup := apiRouter.Group("/system-task", middleware.RootAuth())
-		systemTaskGroup.POST("/log-cleanup", controller.CreateLogCleanupSystemTask)
+		// Log cleanup runs an unqualified DELETE over the audit table every security
+		// alert reads, so a single call both destroys the evidence and silences the
+		// detection built on it. It is the one route where a bearer secret alone
+		// must not be enough.
+		systemTaskGroup.POST("/log-cleanup", middleware.SessionOnly(), controller.CreateLogCleanupSystemTask)
 		systemTaskGroup.GET("/current", controller.GetCurrentSystemTask)
 		systemTaskGroup.GET("/list", controller.ListSystemTasks)
 		systemTaskGroup.GET("/:task_id", controller.GetSystemTask)
