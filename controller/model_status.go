@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/go-fuego/fuego"
+	"golang.org/x/sync/singleflight"
 )
 
 // ----- Response DTOs (match the OpenStatus lib's TypeScript types verbatim) -----
@@ -149,6 +150,14 @@ type statusPageCacheEntry struct {
 var (
 	statusPageCacheMu sync.Mutex
 	statusPageCache   = map[string]statusPageCacheEntry{}
+
+	// The TTL alone does not collapse concurrent readers: it only stops work that
+	// starts after a result is stored. This aggregation takes ~12s over every
+	// public model, so on a cold key every request arriving inside that window
+	// starts its own copy, and an anonymous caller can force arbitrarily many by
+	// firing in parallel. singleflight makes the first caller do the work and the
+	// rest wait on its result, which is what the cache was always assumed to do.
+	statusPageGroup singleflight.Group
 )
 
 func statusPageCacheGet(key string) (any, bool) {
@@ -472,16 +481,40 @@ func GetModelStatusPageCompact(c fuego.ContextWithParams[dto.GetModelStatusPageP
 
 	cacheKey := fmt.Sprintf("compact|%d|%d", bucketSec, hours)
 	if cached, ok := statusPageCacheGet(cacheKey); ok {
-		return dtoOk(cached.(CompactPageDTO))
+		if page, ok := cached.(CompactPageDTO); ok {
+			return dtoOk(page)
+		}
 	}
 
-	comps, err := model.GetAllPublicModelStatusComponents()
+	// Only one caller per key builds; the rest block here and share its result.
+	built, err, _ := statusPageGroup.Do(cacheKey, func() (any, error) {
+		// Re-check inside the flight: the winner of a race that just finished may
+		// have populated the cache while this closure was being scheduled.
+		if cached, ok := statusPageCacheGet(cacheKey); ok {
+			if page, ok := cached.(CompactPageDTO); ok {
+				return page, nil
+			}
+		}
+		return buildCompactPage(bucketSec, hours, cacheKey)
+	})
 	if err != nil {
 		return dto.Fail[CompactPageDTO](err.Error())
+	}
+	page, ok := built.(CompactPageDTO)
+	if !ok {
+		return dto.Fail[CompactPageDTO]("status page build returned an unexpected type")
+	}
+	return dto.Ok(page)
+}
+
+func buildCompactPage(bucketSec int64, hours int, cacheKey string) (CompactPageDTO, error) {
+	comps, err := model.GetAllPublicModelStatusComponents()
+	if err != nil {
+		return CompactPageDTO{}, err
 	}
 	latest, err := model.LatestPingByModel()
 	if err != nil {
-		return dto.Fail[CompactPageDTO](err.Error())
+		return CompactPageDTO{}, err
 	}
 
 	now := time.Now().Unix()
@@ -495,11 +528,11 @@ func GetModelStatusPageCompact(c fuego.ContextWithParams[dto.GetModelStatusPageP
 
 	uptime24h, uptime30d, err := cachedUptimes(modelNames)
 	if err != nil {
-		return dto.Fail[CompactPageDTO](err.Error())
+		return CompactPageDTO{}, err
 	}
 	bucketsByModel, err := model.AggregateBucketsAll(modelNames, bucketSec, since)
 	if err != nil {
-		return dto.Fail[CompactPageDTO](err.Error())
+		return CompactPageDTO{}, err
 	}
 
 	allIncidents, _ := model.ListIncidentsBetween(since, now, "")
@@ -584,7 +617,7 @@ func GetModelStatusPageCompact(c fuego.ContextWithParams[dto.GetModelStatusPageP
 	}
 
 	statusPageCacheSet(cacheKey, page)
-	return dto.Ok(page)
+	return page, nil
 }
 
 // dtoOk wraps a successful response. Local helper so handlers stay terse.
