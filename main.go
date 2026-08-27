@@ -222,6 +222,9 @@ func main() {
 		Handler: server,
 	}
 
+	// Per-process cache, so every pod warms its own.
+	go controller.WarmStatusPageCache()
+
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			common.FatalLog("failed to start HTTP server: " + err.Error())

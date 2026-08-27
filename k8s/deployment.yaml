@@ -200,7 +200,31 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
+          # maxmemory-policy is volatile-lru, NOT allkeys-lru. Most keys here carry
+          # a TTL and are safely evictable, but auth:user:version:* is deliberately
+          # written without one: it is the permanent monotonic floor that makes a
+          # PAT revocation stick (model/user_auth_cache.go). Evicting it makes
+          # getUserAuthVersionFloor return 0, which would let a revoked token
+          # validate again. volatile-lru cannot touch a key that has no TTL, so the
+          # cache sheds expiring entries and the security floor survives.
+          #
+          # 384mb against a 512Mi limit leaves headroom for RSS overhead and the
+          # fork a background save takes. Real usage is ~5MB with a ~6MB peak, so
+          # this is a ceiling to stop unbounded growth rather than a working size.
+          args:
+            - redis-server
+            - --maxmemory
+            - 384mb
+            - --maxmemory-policy
+            - volatile-lru
           ports:
             - containerPort: 6379
+          # Without limits this container can grow until it evicts pods off the
+          # node. That is not hypothetical here: unbounded memory on this cluster
+          # OOMKilled containers across namespaces and triggered a Postgres
+          # failover on 2026-08-27.
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { memory: 512Mi }
           readinessProbe:
             tcpSocket: { port: 6379 }
