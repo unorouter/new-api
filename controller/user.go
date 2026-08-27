@@ -544,6 +544,26 @@ func canManageTargetRole(myRole int, targetRole int) bool {
 	return myRole == common.RoleRootUser || myRole > targetRole
 }
 
+// botAllowedManageAction is the only /user/manage action the Discord bot's
+// service token may invoke.
+const botAllowedManageAction = "set_free_rate_limit_window_pct"
+
+// GetUserBotView returns the two fields the Discord bot reads, instead of the
+// whole user record. GetUser serves email, Discord id, register IP and referral
+// data, none of which the bot uses, so pointing a service credential at it
+// would let a compromised bot enumerate that for any user id.
+func GetUserBotView(c fuego.ContextNoBody) (*dto.Response[dto.UserBotViewData], error) {
+	id, err := c.PathParamIntErr("id")
+	if err != nil {
+		return dto.Fail[dto.UserBotViewData](err.Error())
+	}
+	user, err := model.GetUserById(id, false)
+	if err != nil {
+		return dto.Fail[dto.UserBotViewData](err.Error())
+	}
+	return dto.Ok(dto.UserBotViewData{Quota: user.Quota, Setting: user.Setting})
+}
+
 func GetUser(c fuego.ContextNoBody) (*dto.Response[model.User], error) {
 	id, err := c.PathParamIntErr("id")
 	if err != nil {
@@ -1187,6 +1207,12 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 	}
 	myRole := dto.UserRole(c)
 	if !canManageTargetRole(myRole, user.Role) {
+		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.no_permission_higher_level"))
+	}
+	// The bot's service credential reaches this route for exactly one action.
+	// Without this the token would still be able to delete or promote accounts,
+	// which is most of what taking the token off root was meant to prevent.
+	if middleware.AuthenticatedViaBotToken(ginCtx) && req.Action != botAllowedManageAction {
 		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.no_permission_higher_level"))
 	}
 	switch req.Action {
