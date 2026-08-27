@@ -632,8 +632,9 @@ func extractModelNameFromGeminiPath(path string) string {
 		return ""
 	}
 
-	// 查找 ":" 的位置，模型名在 ":" 之前
-	colonIndex := strings.Index(path[startIndex:], ":")
+	// 查找最后一个 ":" 的位置，模型名在其之前。模型名本身可以含有 ":"
+	// (例如 glm-5.3-flash:free)，而动作总是最后一段。
+	colonIndex := strings.LastIndex(path[startIndex:], ":")
 	if colonIndex == -1 {
 		// 如果没有找到 ":"，返回从 "/models/" 到路径结尾的部分
 		return path[startIndex:]
