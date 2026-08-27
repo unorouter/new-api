@@ -5154,6 +5154,8 @@
     "View the generated image": "View the generated image",
     "View your topup transaction records and payment history": "View your topup transaction records and payment history",
     "Viewed channel key {{name}} (ID: {{id}})": "Viewed channel key {{name}} (ID: {{id}})",
+    "Revealed API key {{name}} (ID: {{id}})": "Revealed API key {{name}} (ID: {{id}})",
+    "Revealed {{count}} API keys in bulk": "Revealed {{count}} API keys in bulk",
     "Violation Code": "Violation Code",
     "Violation deduction amount": "Violation deduction amount",
     "Violation Fee": "Violation Fee",

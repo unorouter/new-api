@@ -445,6 +445,8 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'user.topup_complete': 'Completed top-up order for the user',
   'user.reset_passkey': 'Reset the user passkey',
   'user.oauth_unbind': 'Removed an OAuth binding for the user',
+  'token.key_view': 'Revealed API key {{name}} (ID: {{id}})',
+  'token.key_view_batch': 'Revealed {{count}} API keys in bulk',
   // System settings
   'option.update': 'Updated system setting {{key}}',
   'option.payment_compliance': 'Confirmed payment compliance',

@@ -5154,6 +5154,8 @@
     "View the generated image": "Xem ảnh đã tạo",
     "View your topup transaction records and payment history": "Xem lịch sử giao dịch nạp tiền và lịch sử thanh toán của bạn",
     "Viewed channel key {{name}} (ID: {{id}})": "Đã xem khóa kênh {{name}} (ID: {{id}})",
+    "Revealed API key {{name}} (ID: {{id}})": "Đã hiển thị khóa API {{name}} (ID: {{id}})",
+    "Revealed {{count}} API keys in bulk": "Đã hiển thị hàng loạt {{count}} khóa API",
     "Violation Code": "Mã vi phạm",
     "Violation deduction amount": "Số tiền trừ vi phạm",
     "Violation Fee": "Phí vi phạm",

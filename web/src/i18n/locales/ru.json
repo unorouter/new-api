@@ -5154,6 +5154,8 @@
     "View the generated image": "Просмотр сгенерированного изображения",
     "View your topup transaction records and payment history": "Просмотреть записи о пополнении счета и историю платежей",
     "Viewed channel key {{name}} (ID: {{id}})": "Просмотрен ключ канала {{name}} (ID: {{id}})",
+    "Revealed API key {{name}} (ID: {{id}})": "Показан API-ключ {{name}} (ID: {{id}})",
+    "Revealed {{count}} API keys in bulk": "Массово показаны API-ключи: {{count}}",
     "Violation Code": "Код нарушения",
     "Violation deduction amount": "Сумма вычета за нарушение",
     "Violation Fee": "Штраф за нарушение",
