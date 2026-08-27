@@ -5154,6 +5154,8 @@
     "View the generated image": "Voir l'image générée",
     "View your topup transaction records and payment history": "Afficher vos enregistrements de transactions de recharge et votre historique de paiement",
     "Viewed channel key {{name}} (ID: {{id}})": "Clé du canal {{name}} consultée (ID : {{id}})",
+    "Revealed API key {{name}} (ID: {{id}})": "Clé API {{name}} révélée (ID : {{id}})",
+    "Revealed {{count}} API keys in bulk": "{{count}} clés API révélées en masse",
     "Violation Code": "Code de violation",
     "Violation deduction amount": "Montant de la déduction pour violation",
     "Violation Fee": "Frais de violation",

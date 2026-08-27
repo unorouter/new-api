@@ -5154,6 +5154,8 @@
     "View the generated image": "查看生成的图片",
     "View your topup transaction records and payment history": "查看您的充值交易记录和付款历史",
     "Viewed channel key {{name}} (ID: {{id}})": "查看渠道密钥 {{name}}（ID: {{id}}）",
+    "Revealed API key {{name}} (ID: {{id}})": "查看 API 密钥 {{name}}（ID: {{id}}）",
+    "Revealed {{count}} API keys in bulk": "批量查看 {{count}} 个 API 密钥",
     "Violation Code": "违规代码",
     "Violation deduction amount": "违规扣费金额",
     "Violation Fee": "违规扣费",

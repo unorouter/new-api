@@ -191,6 +191,14 @@ func GetTokenKey(c fuego.ContextNoBody) (*dto.Response[map[string]string], error
 	if err != nil {
 		return dto.Fail[map[string]string](err.Error())
 	}
+	// Handing out a plaintext API key is the highest-value read in the product,
+	// and it sits under UserAuth, so the admin audit fallback never covers it.
+	// Without this an attacker inside a hijacked account can drain every key the
+	// account owns and leave no trace at all.
+	recordUserSecurityAudit(dto.GinCtx(c), dto.UserID(c), "token.key_view", map[string]interface{}{
+		"id":   token.Id,
+		"name": token.Name,
+	})
 	return dto.Ok(map[string]string{
 		"key": token.GetFullKey(),
 	})
@@ -417,8 +425,16 @@ func GetTokenKeysBatch(c *gin.Context) {
 		return
 	}
 	keysMap := make(map[int]string)
+	revealed := make([]int, 0, len(tokens))
 	for _, t := range tokens {
 		keysMap[t.Id] = t.GetFullKey()
+		revealed = append(revealed, t.Id)
 	}
+	// Bulk reveal is the cheaper path to every key an account owns, so it needs
+	// the same trail as the single-token route.
+	recordUserSecurityAudit(c, userId, "token.key_view_batch", map[string]interface{}{
+		"count": len(revealed),
+		"ids":   revealed,
+	})
 	common.ApiSuccess(c, gin.H{"keys": keysMap})
 }

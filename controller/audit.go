@@ -30,6 +30,9 @@ var auditContentTemplates = map[string]string{
 	"user.reset_passkey":    "Reset the user passkey",
 	"option.update":         "Updated system setting ${key}",
 
+	"token.key_view":       "Revealed API key ${name} (ID: ${id})",
+	"token.key_view_batch": "Revealed ${count} API keys in bulk",
+
 	"channel.create":             "Created channel ${name} (type ${type}, count ${count})",
 	"channel.update":             "Updated channel ${name} (ID: ${id})",
 	"channel.delete":             "Deleted channel ${name} (ID: ${id})",
@@ -110,6 +113,16 @@ func recordManageAuditFor(c *gin.Context, targetUserId int, action string, param
 
 // recordUserSecurityAudit 记录普通用户自己的安全敏感操作（如 passkey 绑定/解绑）。
 // 这类日志没有管理员操作者，不写 admin_info；同时不依赖 AdminAuth/RootAuth 的兜底。
+//
+// auth_method is still recorded: distinguishing a stolen access token from a
+// real session is what identified the 2026-08-26 intruder, and that question is
+// just as relevant for a user-level credential read as for an admin write.
 func recordUserSecurityAudit(c *gin.Context, userId int, action string, params map[string]interface{}) {
-	model.RecordOperationAuditLog(userId, auditContentEN(action, params), c.ClientIP(), action, params, nil, nil)
+	auditInfo := map[string]interface{}{
+		"auth_method": auditAuthMethod(c),
+		"path":        c.Request.URL.Path,
+		"route":       c.FullPath(),
+		"method":      c.Request.Method,
+	}
+	model.RecordOperationAuditLog(userId, auditContentEN(action, params), c.ClientIP(), action, params, nil, auditInfo)
 }

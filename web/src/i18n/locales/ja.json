@@ -5154,6 +5154,8 @@
     "View the generated image": "生成された画像を表示",
     "View your topup transaction records and payment history": "チャージ取引記録と支払い履歴を表示",
     "Viewed channel key {{name}} (ID: {{id}})": "チャネルキー {{name}} を表示しました（ID: {{id}}）",
+    "Revealed API key {{name}} (ID: {{id}})": "APIキー {{name}} を表示しました（ID: {{id}}）",
+    "Revealed {{count}} API keys in bulk": "{{count}} 件のAPIキーを一括表示しました",
     "Violation Code": "違反コード",
     "Violation deduction amount": "違反控除金額",
     "Violation Fee": "違反料金",
