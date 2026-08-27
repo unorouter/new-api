@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
@@ -113,11 +114,51 @@ func GetOptions(c fuego.ContextNoBody) (*dto.Response[[]*model.Option], error) {
 	return dto.Ok(options)
 }
 
+// syncAllowedOptionKeys is every option new-api-sync writes: pricing, group
+// routing and the per-model rate-limit map, taken from MANAGED_OPTION_KEYS in
+// the sync's own src/core/types.ts.
+//
+// The option route is the ONLY thing that ever required root of the sync, and
+// nothing in this list is security-relevant. Without the gate below, the sync
+// credential could still set TurnstileCheckEnabled -- the exact option a
+// 2026-08-26 intruder toggled 36 times to work through the login captcha -- and
+// taking the sync off root would have bought almost nothing.
+//
+// Adding a key here widens what a leaked sync token can rewrite. Anything
+// affecting authentication, registration or payment belongs to root only.
+var syncAllowedOptionKeys = map[string]bool{
+	"GroupRatio":                   true,
+	"UserUsableGroups":             true,
+	"AutoGroups":                   true,
+	"DefaultUseAutoGroup":          true,
+	"ModelRatio":                   true,
+	"CompletionRatio":              true,
+	"ModelPrice":                   true,
+	"ImageRatio":                   true,
+	"CacheRatio":                   true,
+	"CreateCacheRatio":             true,
+	"AudioRatio":                   true,
+	"AudioCompletionRatio":         true,
+	"ModelQuotaType":               true,
+	"ModelGridPricing":             true,
+	"ModelRequestRateLimitModels":  true,
+	"billing_setting.billing_mode": true,
+	"billing_setting.billing_expr": true,
+	"global.chat_completions_to_responses_policy": true,
+}
+
 func UpdateOption(c fuego.ContextWithBody[dto.OptionUpdateRequest]) (dto.MessageResponse, error) {
 	ginCtx := dto.GinCtx(c)
 	option, err := c.Body()
 	if err != nil {
 		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+	}
+	// The sync's service credential reaches this route for pricing and routing
+	// only. Route access alone is not enough here: one handler serves every
+	// option, so without this check the token still reaches the auth-hardening
+	// switches that made the takeover possible.
+	if middleware.AuthenticatedViaSyncToken(ginCtx) && !syncAllowedOptionKeys[option.Key] {
+		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgAuthInsufficientPrivilege))
 	}
 	switch option.Value.(type) {
 	case bool:

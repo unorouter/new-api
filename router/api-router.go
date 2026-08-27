@@ -1,6 +1,7 @@
 package router
 
 import (
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/middleware"
@@ -310,7 +311,11 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		subPaymentPublic.GinPost("/subscription/epay/return", controller.SubscriptionEpayReturn, dto.GinResp[dto.MessageResponse]())
 
 		// ---- Option routes (root only) ----
-		optionGroup := apiRouter.Group("/option", middleware.RootAuth())
+		// SyncAuth, not RootAuth: new-api-sync writes pricing and group-routing
+		// options and nothing else, so it authenticates as its own admin-role
+		// service credential and UpdateOption holds it to syncAllowedOptionKeys.
+		// Every other caller still falls through to the root check unchanged.
+		optionGroup := apiRouter.Group("/option", middleware.SyncAuth(common.RoleRootUser))
 		opt := dto.NewRouter(engine, optionGroup, "Option", secDashboard())
 		dto.Get(opt, "/", controller.GetOptions)
 		dto.PutB(opt, "/", controller.UpdateOption)
@@ -371,7 +376,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// channel's key or base_url. Each route sits in the subgroup matching the
 		// permission it required before, so a restricted admin cannot reach a
 		// sensitive write by virtue of being an admin at all.
-		channelGroup := apiRouter.Group("/channel", middleware.AdminAuth())
+		channelGroup := apiRouter.Group("/channel", middleware.SyncAuth(common.RoleAdminUser))
 		chReadG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelRead))
 		chOpG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelOperate))
 		chWriteG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelWrite))
@@ -538,7 +543,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.GetP(taskAdmin, "/", controller.GetAllTask, dto.PageParams())
 
 		// ---- Vendor routes (admin) ----
-		vendorGroup := apiRouter.Group("/vendors", middleware.AdminAuth())
+		vendorGroup := apiRouter.Group("/vendors", middleware.SyncAuth(common.RoleAdminUser))
 		vendor := dto.NewRouter(engine, vendorGroup, "Vendor", secDashboard())
 		dto.Get(vendor, "/", controller.GetAllVendors, dto.PageParams())
 		dto.GetP(vendor, "/search", controller.SearchVendors, dto.PageParams())
@@ -548,7 +553,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Delete(vendor, "/:id", controller.DeleteVendorMeta, option.Path("id", "Vendor ID"))
 
 		// ---- Models routes (admin) ----
-		modelsGroup := apiRouter.Group("/models", middleware.AdminAuth())
+		modelsGroup := apiRouter.Group("/models", middleware.SyncAuth(common.RoleAdminUser))
 		models := dto.NewRouter(engine, modelsGroup, "ModelMeta", secDashboard())
 		dto.GetP(models, "/sync_upstream/preview", controller.SyncUpstreamPreview)
 		dto.PostB(models, "/sync_upstream", controller.SyncUpstreamModels)
