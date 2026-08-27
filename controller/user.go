@@ -524,7 +524,10 @@ func GetAllUsers(c fuego.ContextNoBody) (*dto.Response[dto.PageData[*model.User]
 	if err != nil {
 		return dto.FailPage[*model.User](err.Error())
 	}
-
+	recordSensitiveRead(ginCtx, "read.user_list", map[string]interface{}{
+		"page":  pageInfo.GetPage(),
+		"count": len(users),
+	})
 	return dto.OkPage(pageInfo, users, int(total))
 }
 
@@ -536,7 +539,10 @@ func SearchUsers(c fuego.ContextWithParams[dto.SearchUsersParams]) (*dto.Respons
 	if err != nil {
 		return dto.FailPage[*model.User](err.Error())
 	}
-
+	recordSensitiveRead(dto.GinCtx(c), "read.user_search", map[string]interface{}{
+		"keyword": p.Keyword,
+		"count":   len(users),
+	})
 	return dto.OkPage(pageInfo, users, int(total))
 }
 

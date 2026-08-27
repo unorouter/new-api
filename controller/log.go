@@ -13,6 +13,12 @@ func GetAllLogs(c fuego.ContextWithParams[dto.GetAllLogsParams]) (*dto.Response[
 	if err != nil {
 		return dto.FailPage[*model.Log](err.Error())
 	}
+	// Cross-user log browsing: prompts are not stored, but usernames, models,
+	// spend and channel routing for every account are.
+	recordSensitiveRead(dto.GinCtx(c), "read.log_search", map[string]interface{}{
+		"count":    len(logs),
+		"username": p.Username,
+	})
 	return dto.OkPage(pageInfo, logs, int(total))
 }
 

@@ -447,6 +447,9 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'user.oauth_unbind': 'Removed an OAuth binding for the user',
   'token.key_view': 'Revealed API key {{name}} (ID: {{id}})',
   'token.key_view_batch': 'Revealed {{count}} API keys in bulk',
+  'read.user_list': 'Listed user accounts (page {{page}}, {{count}} returned)',
+  'read.user_search': 'Searched user accounts for {{keyword}} ({{count}} matched)',
+  'read.log_search': "Searched all users' request logs ({{count}} returned)",
   // System settings
   'option.update': 'Updated system setting {{key}}',
   'option.payment_compliance': 'Confirmed payment compliance',
