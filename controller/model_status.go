@@ -277,7 +277,9 @@ func GetModelStatusBuckets(c fuego.ContextWithParams[dto.GetModelStatusBucketsPa
 	if hours > 720 {
 		hours = 720
 	}
-	bucketSec := resolveBucketSeconds(p.Bucket)
+	// Same cap as page_compact: this route is public and hours reaches 720, so an
+	// uncapped 1m bucket asks for 43,200 buckets per model in one anonymous request.
+	bucketSec := coarsenBucketToCap(resolveBucketSeconds(p.Bucket), int64(hours)*60*60)
 	since := time.Now().Unix() - int64(hours)*60*60
 
 	rows, err := model.AggregateBuckets(p.Model, bucketSec, since)

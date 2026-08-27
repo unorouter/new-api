@@ -321,14 +321,18 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		subPaymentPublic.GinPost("/subscription/epay/return", controller.SubscriptionEpayReturn, dto.GinResp[dto.MessageResponse]())
 
 		// ---- Option routes (root only) ----
-		// SyncAuth, not RootAuth: new-api-sync writes pricing and group-routing
-		// options and nothing else, so it authenticates as its own admin-role
-		// service credential and UpdateOption holds it to syncAllowedOptionKeys.
-		// Every other caller still falls through to the root check unchanged.
-		optionGroup := apiRouter.Group("/option", middleware.SyncAuth(common.RoleRootUser))
+		// The sync reads and writes the options collection and nothing else, so only
+		// those two routes carry SyncAuth. It used to sit on the whole group, which
+		// let the service token reach ten further root handlers -- including the
+		// Waffo payment-product writes -- because syncAllowedOptionKeys is enforced
+		// inside UpdateOption and gates nothing else on the group.
+		optionSyncGroup := apiRouter.Group("/option", middleware.SyncAuth(common.RoleRootUser))
+		optSync := dto.NewRouter(engine, optionSyncGroup, "Option", secDashboard())
+		dto.Get(optSync, "/", controller.GetOptions)
+		dto.PutB(optSync, "/", controller.UpdateOption)
+
+		optionGroup := apiRouter.Group("/option", middleware.RootAuth())
 		opt := dto.NewRouter(engine, optionGroup, "Option", secDashboard())
-		dto.Get(opt, "/", controller.GetOptions)
-		dto.PutB(opt, "/", controller.UpdateOption)
 		dto.Get(opt, "/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 		dto.DeleteP(opt, "/channel_affinity_cache", controller.ClearChannelAffinityCache)
 		dto.Post(opt, "/rest_model_ratio", controller.ResetModelRatio)
