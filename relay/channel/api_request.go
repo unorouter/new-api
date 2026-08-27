@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"strconv"
 	"context"
 	"errors"
 	"fmt"
@@ -152,7 +153,7 @@ func shouldSkipPassthroughHeader(name string) bool {
 	return false
 }
 
-func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey string) (string, bool, error) {
+func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey string, userId int) (string, bool, error) {
 	trimmed := strings.TrimSpace(template)
 	if strings.HasPrefix(trimmed, clientHeaderPlaceholderPrefix) {
 		afterPrefix := trimmed[len(clientHeaderPlaceholderPrefix):]
@@ -179,6 +180,14 @@ func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey str
 	if strings.Contains(template, "{api_key}") {
 		template = strings.ReplaceAll(template, "{api_key}", apiKey)
 	}
+	// Upstreams that keep per-caller state need to tell our users apart. The
+	// OpenAI "user" field does not survive the relay, so the id is stamped here.
+	if strings.Contains(template, "{user_id}") {
+		if userId <= 0 {
+			return "", false, nil
+		}
+		template = strings.ReplaceAll(template, "{user_id}", strconv.Itoa(userId))
+	}
 	if strings.TrimSpace(template) == "" {
 		return "", false, nil
 	}
@@ -189,6 +198,7 @@ func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey str
 // Supported placeholders:
 //   - {api_key}: resolved to the channel API key
 //   - {client_header:<name>}: resolved to the incoming request header value
+//   - {user_id}: resolved to the requesting user's id (header dropped when absent)
 //
 // Header passthrough rules (keys only; values are ignored):
 //   - "*": passthrough all incoming headers by name (excluding unsafe headers)
@@ -282,7 +292,7 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 			continue
 		}
 
-		value, include, err := applyHeaderOverridePlaceholders(str, c, info.ApiKey)
+		value, include, err := applyHeaderOverridePlaceholders(str, c, info.ApiKey, info.UserId)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeChannelHeaderOverrideInvalid)
 		}
