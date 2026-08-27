@@ -237,6 +237,61 @@ func BotAuth() func(c *gin.Context) {
 	}
 }
 
+// SyncServiceUsername identifies new-api-sync in audit rows. Like the bot's
+// credential it is not a user account, so it can never own tokens, log in, or be
+// granted quota.
+const SyncServiceUsername = "new-api-sync"
+
+// SyncServiceUserID is the audit actor id for the sync. Deliberately 0 rather
+// than a real user id, for the same reason as the bot: attributing automated
+// writes to a human account would falsify the audit trail.
+const SyncServiceUserID = 0
+
+const syncAuthContextKey = "authenticated_via_sync_token"
+
+// AuthenticatedViaSyncToken reports whether SyncAuth accepted this request, so a
+// handler can restrict what the sync credential may do beyond route access.
+func AuthenticatedViaSyncToken(c *gin.Context) bool {
+	return c.GetBool(syncAuthContextKey)
+}
+
+// SyncAuth accepts new-api-sync's service token on the routes it needs, and
+// otherwise defers to normal admin auth so the dashboard is unaffected.
+//
+// The sync previously held root's access token, which authorized every admin
+// route. What it actually needs is channel/model/vendor CRUD plus eighteen
+// pricing and routing keys in the options table -- none of them the
+// auth-hardening options a 2026-08-26 intruder used a stolen root PAT to
+// disable. Root was three orders of magnitude more authority than the job.
+//
+// Role is RoleAdminUser, NOT root: the option route is the only thing that ever
+// required root, and UpdateOption gates the sync to its own key list instead.
+// The token resolves to no account, so it cannot be promoted, cannot own tokens,
+// and cannot be reused to log in.
+func SyncAuth(minRole int) func(c *gin.Context) {
+	return func(c *gin.Context) {
+		secret := system_setting.SyncServiceToken()
+		raw, ok := AuthorizationToken(c.GetHeader("Authorization"))
+		if !ok || secret == "" || subtle.ConstantTimeCompare([]byte(raw), []byte(secret)) != 1 {
+			authHelper(c, minRole)
+			return
+		}
+
+		c.Set("id", SyncServiceUserID)
+		c.Set("username", SyncServiceUsername)
+		c.Set("role", common.RoleAdminUser)
+		c.Set("use_access_token", true)
+		c.Set(syncAuthContextKey, true)
+
+		// Sync writes are audited on the same path as admin writes; skipping this
+		// would make the one credential that runs unattended the one that leaves
+		// no trace.
+		auditWriter := beginAdminAudit(c)
+		c.Next()
+		finishAdminAudit(c, auditWriter)
+	}
+}
+
 // GetAuthIdentity returns a dashboard session identity. PAT-authenticated
 // requests intentionally have no SessionID and cannot manage browser sessions.
 func GetAuthIdentity(c *gin.Context) (service.AuthIdentity, bool) {
