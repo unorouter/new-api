@@ -834,10 +834,6 @@ func CountOldLog(ctx context.Context, targetTimestamp int64) (int64, error) {
 	return total, nil
 }
 
-// Mirrors the floor in databases/protect-audit-logs.sql. Audit rows younger than
-// this cannot be deleted by the application role at all.
-const auditLogRetentionFloorSeconds = 180 * 24 * 60 * 60
-
 func DeleteOldLogBatch(ctx context.Context, targetTimestamp int64, limit int) (int64, error) {
 	if limit <= 0 {
 		limit = 100
@@ -867,15 +863,7 @@ func DeleteOldLogBatch(ctx context.Context, targetTimestamp int64, limit int) (i
 		return total, nil
 	}
 
-	// Audit rows inside the retention floor are refused by trg_protect_audit_logs,
-	// and a refusal aborts the whole batch. Excluding them here means cleanup prunes
-	// the consumption bulk it exists for instead of failing on the first audit row
-	// it happens to reach. The trigger stays as the guard against a caller that does
-	// not go through this function.
-	result := LOG_DB.WithContext(ctx).
-		Where("created_at < ?", targetTimestamp).
-		Where("type <> ? OR created_at < ?", LogTypeManage, common.GetTimestamp()-auditLogRetentionFloorSeconds).
-		Limit(limit).Delete(&Log{})
+	result := LOG_DB.WithContext(ctx).Where("created_at < ?", targetTimestamp).Limit(limit).Delete(&Log{})
 	if nil != result.Error {
 		return 0, result.Error
 	}
