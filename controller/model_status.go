@@ -107,6 +107,23 @@ const maxBucketsPerModel = 1500
 
 var bucketLadder = []int64{60, 300, 900, 3600, 86400}
 
+// The windows the status page actually offers. Requests snap up to the nearest
+// one before the cache key is built.
+var hourLadder = []int{1, 6, 24, 168, 720}
+
+// snapHours collapses an arbitrary hours value onto hourLadder. The response is
+// already size-capped by coarsenBucketToCap, but hours reaches the cache key
+// verbatim, so 720 distinct values are 720 distinct keys and every one of them
+// is a full aggregation over every public model. Snapping keeps that at five.
+func snapHours(hours int) int {
+	for _, step := range hourLadder {
+		if hours <= step {
+			return step
+		}
+	}
+	return hourLadder[len(hourLadder)-1]
+}
+
 func coarsenBucketToCap(bucketSec int64, windowSec int64) int64 {
 	for _, step := range bucketLadder {
 		if step < bucketSec {
@@ -289,9 +306,7 @@ func GetModelStatusBuckets(c fuego.ContextWithParams[dto.GetModelStatusBucketsPa
 	if hours <= 0 {
 		hours = 24
 	}
-	if hours > 720 {
-		hours = 720
-	}
+	hours = snapHours(hours)
 	// Same cap as page_compact: this route is public and hours reaches 720, so an
 	// uncapped 1m bucket asks for 43,200 buckets per model in one anonymous request.
 	bucketSec := coarsenBucketToCap(resolveBucketSeconds(p.Bucket), int64(hours)*60*60)
@@ -452,9 +467,7 @@ func GetModelStatusPageCompact(c fuego.ContextWithParams[dto.GetModelStatusPageP
 	if hours <= 0 {
 		hours = 24
 	}
-	if hours > 720 {
-		hours = 720
-	}
+	hours = snapHours(hours)
 	bucketSec := coarsenBucketToCap(resolveBucketSeconds(p.Bucket), int64(hours)*60*60)
 
 	cacheKey := fmt.Sprintf("compact|%d|%d", bucketSec, hours)
