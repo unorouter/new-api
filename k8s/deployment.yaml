@@ -50,6 +50,20 @@ spec:
             - name: HOST_NODE
               valueFrom:
                 fieldRef: { fieldPath: spec.nodeName }
+            # Unset, gin falls back to trusting loopback + every RFC1918 range, so ANY
+            # in-cluster workload can set X-Forwarded-For and write whatever source
+            # address it likes into logs.ip. Verified 2026-08-27: a request from the
+            # BFF pod carrying "X-Forwarded-For: 8.8.8.8" was audited as 8.8.8.8.
+            # That address is the evidence the takeover was reconstructed from and
+            # what the security alerts key on, so it must not be forgeable.
+            #
+            # Pinned to the pod CIDR rather than cloudflared's addresses because those
+            # are ephemeral and change on every reschedule. cloudflared is the only
+            # route into new-api (the tunnel maps api.unorouter.com straight at this
+            # Service), so this leaves the header trusted on exactly that hop and
+            # ignores it everywhere else.
+            - name: TRUSTED_PROXIES
+              value: "10.42.0.0/16"
           ports:
             - containerPort: 3000
           volumeMounts:
@@ -111,6 +125,11 @@ spec:
           env:
             - name: NODE_TYPE
               value: slave
+            # See the master's TRUSTED_PROXIES comment. Slaves serve the same dashboard
+            # and relay traffic, so an unset value here would leave the same forgery
+            # open on two of the three pods.
+            - name: TRUSTED_PROXIES
+              value: "10.42.0.0/16"
             # Identity must be unique per replica AND stable across deploys, so it
             # cannot be a literal (2 replicas) nor the pod name (fresh hash every
             # rollout, which filled the instance list with stale ghosts). Anti-affinity
