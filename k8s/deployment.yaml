@@ -30,7 +30,7 @@ spec:
           # pinned by this repo's GHCR workflow (deploy job); ArgoCD rolls it out.
           # NEVER set this back to :latest -- a floating tag never changes the manifest, so
           # ArgoCD sees no diff and the deploy silently does not happen.
-          image: ghcr.io/unorouter/new-api:5769dc2459339d3730393c3acb7d810a70b52cce
+          image: ghcr.io/unorouter/new-api:0fb134f0d88e9bcb0933bde7c34df14484b82a4b
           # 2026-08-12 evening: pods rolled out mid-peak spiked to 840Mi (reconnecting SSE
           # streams + cold caches) and the old 1Gi limit OOM-killed them in a cascade that
           # briefly zeroed the deployment. Steady state ~200-320Mi; the limit is a node
@@ -125,7 +125,7 @@ spec:
           # pinned by this repo's GHCR workflow (deploy job); ArgoCD rolls it out.
           # NEVER set this back to :latest -- a floating tag never changes the manifest, so
           # ArgoCD sees no diff and the deploy silently does not happen.
-          image: ghcr.io/unorouter/new-api:5769dc2459339d3730393c3acb7d810a70b52cce
+          image: ghcr.io/unorouter/new-api:0fb134f0d88e9bcb0933bde7c34df14484b82a4b
           resources:
             requests: { memory: 512Mi, cpu: 100m }
             limits: { memory: 2Gi }
