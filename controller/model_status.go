@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 
@@ -505,6 +506,61 @@ func GetModelStatusPageCompact(c fuego.ContextWithParams[dto.GetModelStatusPageP
 		return dto.Fail[CompactPageDTO]("status page build returned an unexpected type")
 	}
 	return dto.Ok(page)
+}
+
+// WarmStatusPageCache keeps the status page's cache populated so no public
+// request ever pays for the aggregation.
+//
+// The build takes ~12s across every public model. singleflight stops a cold key
+// from being built more than once per process, but the cache is in-process and
+// three pods serve this route, so a cold key still costs three builds and the
+// first caller after each expiry still waits. Warming ahead of the TTL means the
+// request path is always a cache hit and cold builds stop existing rather than
+// merely being deduplicated.
+//
+// Only the five windows the status page offers are warmed, not all twenty
+// reachable keys: the rest are only produced by a caller passing an unusual
+// bucket, which snapHours and coarsenBucketToCap already collapse onto a bounded
+// set, and building them on a timer would spend more than it saves.
+//
+// Runs on every pod, master and slave alike, because the cache it fills is
+// per-process. Gating this on IsMasterNode would leave the two slaves cold and
+// defeat the point.
+func WarmStatusPageCache() {
+	warm := func() {
+		for _, w := range statusPageWarmWindows {
+			bucketSec := coarsenBucketToCap(resolveBucketSeconds(w.bucket), int64(w.hours)*60*60)
+			key := fmt.Sprintf("compact|%d|%d", bucketSec, w.hours)
+			// Through singleflight so a warm tick and a live request that race
+			// share one build rather than doubling the work they exist to avoid.
+			if _, err, _ := statusPageGroup.Do(key, func() (any, error) {
+				return buildCompactPage(bucketSec, w.hours, key)
+			}); err != nil {
+				common.SysLog("status page warm failed for " + key + ": " + err.Error())
+			}
+		}
+	}
+	warm()
+	ticker := time.NewTicker(statusPageWarmInterval)
+	for range ticker.C {
+		warm()
+	}
+}
+
+// Refresh ahead of statusPageCacheTTL so an entry is replaced before it expires
+// and a request never lands on a gap.
+const statusPageWarmInterval = 45 * time.Second
+
+// The windows BUCKET_OPTIONS offers in the frontend status page.
+var statusPageWarmWindows = []struct {
+	bucket string
+	hours  int
+}{
+	{"1m", 1},
+	{"5m", 6},
+	{"15m", 24},
+	{"1h", 168},
+	{"1d", 720},
 }
 
 func buildCompactPage(bucketSec int64, hours int, cacheKey string) (CompactPageDTO, error) {
