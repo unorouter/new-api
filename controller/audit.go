@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -32,6 +33,10 @@ var auditContentTemplates = map[string]string{
 
 	"token.key_view":       "Revealed API key ${name} (ID: ${id})",
 	"token.key_view_batch": "Revealed ${count} API keys in bulk",
+
+	"read.user_list":   "Listed user accounts (page ${page}, ${count} returned)",
+	"read.user_search": "Searched user accounts for ${keyword} (${count} matched)",
+	"read.log_search":  "Searched all users' request logs (${count} returned)",
 
 	"channel.create":             "Created channel ${name} (type ${type}, count ${count})",
 	"channel.update":             "Updated channel ${name} (ID: ${id})",
@@ -125,4 +130,36 @@ func recordUserSecurityAudit(c *gin.Context, userId int, action string, params m
 		"method":      c.Request.Method,
 	}
 	model.RecordOperationAuditLog(userId, auditContentEN(action, params), c.ClientIP(), action, params, nil, auditInfo)
+}
+
+// recordSensitiveRead audits a READ of bulk personal or operational data.
+//
+// The admin audit fallback only wraps writes (beginAdminAudit bails on anything
+// that is not POST/PUT/PATCH/DELETE), so browsing every user, searching all
+// logs or paging the channel list has always been invisible. After the
+// 2026-08-26 takeover the unanswerable question was not what the intruder
+// changed, which was fully recorded, but what they READ while sitting inside ten
+// hijacked accounts.
+//
+// Automation is skipped on purpose. new-api-sync pages the channel list on every
+// run and the BFF proxies dashboard reads, both from cluster addresses; logging
+// those would add thousands of rows a day to an 11GB table and bury the handful
+// that matter. An intruder arrives through Cloudflare with a public address,
+// which is the same reasoning the security-denial metric uses.
+func recordSensitiveRead(c *gin.Context, action string, params map[string]interface{}) {
+	if isInternalClient(c.ClientIP()) {
+		return
+	}
+	recordUserSecurityAudit(c, c.GetInt("id"), action, params)
+}
+
+// isInternalClient reports whether an address belongs to our own infrastructure
+// rather than a real external caller.
+func isInternalClient(ip string) bool {
+	switch ip {
+	case "", "unknown", "127.0.0.1", "::1":
+		return true
+	}
+	// k3s pod CIDR: the BFF, the bot and any in-cluster job.
+	return strings.HasPrefix(ip, "10.42.")
 }
