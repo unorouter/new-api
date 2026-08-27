@@ -356,10 +356,9 @@ func ListModels(c *gin.Context, modelType int) {
 			NextPageToken: nil,
 		})
 	default:
-		c.JSON(200, dto.ApiResponse{
-			Success: true,
-			Data:    userOpenAiModels,
-			Object:  "list",
+		c.JSON(200, dto.OpenAIModelList{
+			Object: "list",
+			Data:   userOpenAiModels,
 		})
 	}
 }
