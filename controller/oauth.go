@@ -342,6 +342,12 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider, pendingFlow *model
 			return
 		}
 	}
+	// An attached identity is a login path that no password change or session
+	// revocation closes, so the attachment itself has to be on the record.
+	recordUserSecurityAudit(c, userId, "user.oauth_bind", map[string]interface{}{
+		"provider":         provider.GetName(),
+		"provider_user_id": oauthUser.ProviderUserID,
+	})
 
 	// Cross-domain bind: redirect back with exchange code
 	if redirectURI != "" {

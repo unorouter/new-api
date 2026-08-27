@@ -2,10 +2,12 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"math/rand"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"gorm.io/gorm"
 )
@@ -136,6 +138,9 @@ func userCheckinWithoutTransaction(checkin *Checkin, userId int, quotaAwarded in
 		DB.Delete(checkin)
 		return nil, errors.New("Check-in failed: error updating quota")
 	}
+	// Every other way a balance grows writes a topup row; without this one a
+	// check-in raises a balance with nothing to reconcile it against.
+	RecordLog(userId, LogTypeTopup, fmt.Sprintf("Check-in reward, quota: %s", logger.LogQuota(quotaAwarded)))
 
 	return checkin, nil
 }

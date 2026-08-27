@@ -322,15 +322,36 @@ func AddToken(c fuego.ContextWithBody[dto.CreateTokenRequest]) (dto.MessageRespo
 	if err != nil {
 		return dto.FailMsg(err.Error())
 	}
+	// Creating a key inside a hijacked account is how an intruder converts a
+	// session into credentials that outlive it. On 2026-08-27 one was minted and
+	// read back 23 seconds later, and only the read was recorded: reconstructing
+	// the create needed a database restore.
+	recordUserSecurityAudit(dto.GinCtx(c), dto.UserID(c), "token.create", map[string]interface{}{
+		"id":              cleanToken.Id,
+		"name":            cleanToken.Name,
+		"unlimited_quota": cleanToken.UnlimitedQuota,
+		"expired_time":    cleanToken.ExpiredTime,
+		"group":           cleanToken.Group,
+	})
 	return dto.Msg("")
 }
 
 func DeleteToken(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	id := c.PathParamInt("id")
+	// Read before the delete: afterwards the row is gone and the audit could
+	// only name an opaque id.
+	name := ""
+	if existing, lookupErr := model.GetTokenByIds(id, dto.UserID(c)); lookupErr == nil {
+		name = existing.Name
+	}
 	err := model.DeleteTokenById(id, dto.UserID(c))
 	if err != nil {
 		return dto.FailMsg(err.Error())
 	}
+	recordUserSecurityAudit(dto.GinCtx(c), dto.UserID(c), "token.delete", map[string]interface{}{
+		"id":   id,
+		"name": name,
+	})
 	return dto.Msg("")
 }
 
@@ -405,6 +426,10 @@ func DeleteTokenBatch(c fuego.ContextWithBody[dto.TokenBatch]) (*dto.Response[in
 	if err != nil {
 		return dto.Fail[int](err.Error())
 	}
+	recordUserSecurityAudit(dto.GinCtx(c), dto.UserID(c), "token.delete_batch", map[string]interface{}{
+		"count": count,
+		"ids":   tokenBatch.Ids,
+	})
 	return dto.Ok(count)
 }
 
