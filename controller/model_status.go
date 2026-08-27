@@ -138,7 +138,11 @@ func statusPageCacheGet(key string) (any, bool) {
 	statusPageCacheMu.Lock()
 	defer statusPageCacheMu.Unlock()
 	e, ok := statusPageCache[key]
-	if !ok || time.Now().After(e.expiresAt) {
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(e.expiresAt) {
+		delete(statusPageCache, key)
 		return nil, false
 	}
 	return e.payload, true
@@ -147,9 +151,20 @@ func statusPageCacheGet(key string) (any, bool) {
 func statusPageCacheSet(key string, payload any) {
 	statusPageCacheMu.Lock()
 	defer statusPageCacheMu.Unlock()
+	// Expired entries have to be dropped, not just ignored on read. The route is
+	// public and the key is (bucket, hours), so a caller walking hours=1..720 mints
+	// a distinct entry per request; at ~1.25MB per payload that reaches gigabytes
+	// against a 2Gi limit while every entry is already stale. Sweeping here keeps
+	// the map to what was actually requested within one TTL.
+	now := time.Now()
+	for k, e := range statusPageCache {
+		if now.After(e.expiresAt) {
+			delete(statusPageCache, k)
+		}
+	}
 	statusPageCache[key] = statusPageCacheEntry{
 		payload:   payload,
-		expiresAt: time.Now().Add(statusPageCacheTTL),
+		expiresAt: now.Add(statusPageCacheTTL),
 	}
 }
 
