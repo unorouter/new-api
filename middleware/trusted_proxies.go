@@ -36,6 +36,18 @@ var defaultTrustedProxyCIDRs = []string{
 // (api.unorouter.com maps straight at it), which makes the header authoritative
 // here. Set CLIENT_IP_HEADERS to override for a deployment that does not sit
 // behind Cloudflare.
+// configuredClientIPHeaders records what configureRemoteIPHeaders handed gin, so
+// callers that need to know whether a forwarding header was actually sent read the
+// same list gin resolves against instead of keeping their own copy. controller's
+// copy said X-Forwarded-For long after gin had been switched to CF-Connecting-IP,
+// which silently disabled the per-IP registration cap.
+var configuredClientIPHeaders = []string{"CF-Connecting-IP", "X-Forwarded-For", "X-Real-IP"}
+
+// ClientIPHeaders returns the headers gin reads the client address from.
+func ClientIPHeaders() []string {
+	return configuredClientIPHeaders
+}
+
 func configureRemoteIPHeaders(engine *gin.Engine) {
 	if raw := strings.TrimSpace(os.Getenv("CLIENT_IP_HEADERS")); raw != "" {
 		headers := make([]string, 0, 2)
@@ -46,10 +58,12 @@ func configureRemoteIPHeaders(engine *gin.Engine) {
 		}
 		if len(headers) > 0 {
 			engine.RemoteIPHeaders = headers
+			configuredClientIPHeaders = headers
 			return
 		}
 	}
 	engine.RemoteIPHeaders = []string{"CF-Connecting-IP", "X-Forwarded-For", "X-Real-IP"}
+	configuredClientIPHeaders = engine.RemoteIPHeaders
 }
 
 func ConfigureTrustedProxies(engine *gin.Engine) error {
