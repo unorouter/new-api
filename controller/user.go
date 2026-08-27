@@ -163,11 +163,6 @@ func publicClientIp(c *gin.Context) string {
 	return forwarded.String()
 }
 
-// clientIpHeaders mirror gin's default RemoteIPHeaders. A forwarded address is
-// only meaningful if one of these was actually sent; gin gives no flag for that,
-// so we check presence ourselves.
-var clientIpHeaders = []string{"X-Forwarded-For", "X-Real-IP"}
-
 // forwardedClientIp reads the client address from the forwarding headers, but
 // only when gin resolved the request through a TRUSTED proxy. gin's ClientIP()
 // validates the proxy chain against SetTrustedProxies and silently degrades to
@@ -177,7 +172,7 @@ var clientIpHeaders = []string{"X-Forwarded-For", "X-Real-IP"}
 // fallback.
 func forwardedClientIp(c *gin.Context) (net.IP, bool) {
 	hasHeader := false
-	for _, name := range clientIpHeaders {
+	for _, name := range middleware.ClientIPHeaders() {
 		if strings.TrimSpace(c.GetHeader(name)) != "" {
 			hasHeader = true
 			break
