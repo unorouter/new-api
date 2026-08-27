@@ -861,6 +861,12 @@ func UpdateUser(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error
 		updatedUser.Password = "" // rollback to what it should be
 	}
 	updatePassword := updatedUser.Password != ""
+	// Changing your OWN password belongs on /user/self, which requires the current
+	// password and an interactive session. Allowing it here let the 2026-08-26
+	// intruder rewrite the root password from a stolen token without knowing it.
+	if updatePassword && updatedUser.Id == dto.UserID(c) {
+		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.no_permission_higher_level"))
+	}
 	authzTouched := false
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
 		if err := updatedUser.EditWithTx(tx, updatePassword); err != nil {
