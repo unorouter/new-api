@@ -64,6 +64,15 @@ spec:
             # ignores it everywhere else.
             - name: TRUSTED_PROXIES
               value: "10.42.0.0/16"
+            # CF-Connecting-IP ONLY, with no X-Forwarded-For fallback. Keeping XFF in
+            # the list defeats the point: gin tries each header in order, and an
+            # in-cluster caller simply omits CF-Connecting-IP to fall through to the
+            # forgeable one (verified 2026-08-27 -- 8.8.8.8 was still audited after
+            # the header order alone was changed). cloudflared is the only route to
+            # this Service and always sets CF-Connecting-IP, so the fallback buys
+            # nothing and costs the guarantee.
+            - name: CLIENT_IP_HEADERS
+              value: "CF-Connecting-IP"
           ports:
             - containerPort: 3000
           volumeMounts:
@@ -130,6 +139,9 @@ spec:
             # open on two of the three pods.
             - name: TRUSTED_PROXIES
               value: "10.42.0.0/16"
+            # See the master's CLIENT_IP_HEADERS comment.
+            - name: CLIENT_IP_HEADERS
+              value: "CF-Connecting-IP"
             # Identity must be unique per replica AND stable across deploys, so it
             # cannot be a literal (2 replicas) nor the pod name (fresh hash every
             # rollout, which filled the instance list with stale ghosts). Anti-affinity
