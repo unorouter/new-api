@@ -242,10 +242,22 @@ func BotAuth() func(c *gin.Context) {
 // granted quota.
 const SyncServiceUsername = "new-api-sync"
 
-// SyncServiceUserID is the audit actor id for the sync. Deliberately 0 rather
-// than a real user id, for the same reason as the bot: attributing automated
-// writes to a human account would falsify the audit trail.
-const SyncServiceUserID = 0
+// SyncServiceUserID is the audit actor id for the sync. It owns no row in
+// `users`; the id exists so the sync has a stable casbin subject
+// (`user:900000001`) that can hold an explicit ChannelSensitiveWrite grant.
+//
+// Creating a channel means supplying its upstream key, so the sync genuinely
+// needs that permission, and it cannot come from the admin role: the boot
+// reconciler rebuilds casbin from each action's DefaultRoles, so a role grant
+// added by hand is deleted on the next restart, and adding it in code would
+// hand sensitive_write to every admin -- which router/channel_permissions_test.go
+// exists to forbid. Per-user grants are the supported path and survive restarts,
+// which is how user:1 holds the same permission today.
+//
+// Far above the users sequence (~24.7k) so it can never collide with a real
+// account, and positive because id is read as an int in paths that assume a
+// non-negative user.
+const SyncServiceUserID = 900000001
 
 const syncAuthContextKey = "authenticated_via_sync_token"
 
