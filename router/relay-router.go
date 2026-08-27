@@ -136,7 +136,7 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 	modelsRouter.Use(middleware.RequireScope("models:read"))
 	models := dto.NewRouter(engine, modelsRouter, "Relay", secToken())
 	{
-		models.GinGet("", RelayListModels, dto.GinResp[dto.ApiResponse]())
+		models.GinGet("", RelayListModels, dto.GinResp[dto.OpenAIModelList]())
 		models.GinGet("/:model", RelayRetrieveModel, dto.GinResp[relaydto.OpenAIModels]())
 	}
 

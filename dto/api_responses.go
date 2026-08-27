@@ -88,6 +88,14 @@ type GeminiModelList struct {
 	NextPageToken any `json:"nextPageToken"`
 }
 
+// OpenAIModelList is the response for GET /v1/models (OpenAI format). The
+// bare {object, data} shape is what the OpenAI spec defines; strict clients
+// reject the success/message envelope the admin API uses.
+type OpenAIModelList struct {
+	Object string `json:"object"`
+	Data   any    `json:"data"`
+}
+
 // CreditSummary is the response for GET /api/token/credit_summary.
 type CreditSummary struct {
 	Object         string `json:"object"`
