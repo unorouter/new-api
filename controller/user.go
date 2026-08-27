@@ -969,6 +969,13 @@ func SelfClearBinding(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 		return dto.FailMsg(err.Error())
 	}
 
+	// Detaching an identity frees it to be attached elsewhere, so the removal
+	// belongs on the record as much as the bind does. The admin path already
+	// audits; this is the self-service one.
+	recordUserSecurityAudit(ginCtx, userId, "user.oauth_unbind", map[string]interface{}{
+		"provider": bindingType,
+	})
+
 	return dto.Msg("Unbound successfully")
 }
 
@@ -1546,10 +1553,19 @@ func EmailBind(c fuego.ContextWithParams[dto.EmailBindParams]) (dto.MessageRespo
 	if err := user.FillUserById(); err != nil {
 		return dto.FailMsg(err.Error())
 	}
+	previousEmail := user.Email
 	user.Email = p.Email
 	if err := user.Update(false); err != nil {
 		return dto.FailMsg(err.Error())
 	}
+	// The address is the password-reset channel, so repointing it is a way back
+	// into an account that survives revoking every session and credential. The
+	// old value is recorded because only the transition proves a redirect: after
+	// the write the prior address exists nowhere.
+	recordUserSecurityAudit(ginCtx, id, "user.email_bind", map[string]interface{}{
+		"from": previousEmail,
+		"to":   p.Email,
+	})
 	return dto.Msg("")
 }
 

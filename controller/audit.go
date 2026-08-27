@@ -33,6 +33,13 @@ var auditContentTemplates = map[string]string{
 
 	"token.key_view":       "Revealed API key ${name} (ID: ${id})",
 	"token.key_view_batch": "Revealed ${count} API keys in bulk",
+	"token.create":         "Created API key ${name} (ID: ${id})",
+	"token.delete":         "Deleted API key ${name} (ID: ${id})",
+	"token.delete_batch":   "Deleted ${count} API keys in bulk",
+
+	"user.email_bind":   "Bound email ${to} to the account (was ${from})",
+	"user.oauth_bind":   "Bound ${provider} identity ${provider_user_id} to the account",
+	"user.oauth_unbind": "Removed the ${provider} identity binding",
 
 	"read.user_list":   "Listed user accounts (page ${page}, ${count} returned)",
 	"read.user_search": "Searched user accounts for ${keyword} (${count} matched)",
@@ -123,13 +130,26 @@ func recordManageAuditFor(c *gin.Context, targetUserId int, action string, param
 // real session is what identified the 2026-08-26 intruder, and that question is
 // just as relevant for a user-level credential read as for an admin write.
 func recordUserSecurityAudit(c *gin.Context, userId int, action string, params map[string]interface{}) {
+	// The log store is absent before init and in handler tests, where the write
+	// panics on a nil handle.
+	if c == nil || model.LOG_DB == nil {
+		return
+	}
 	auditInfo := map[string]interface{}{
 		"auth_method": auditAuthMethod(c),
-		"path":        c.Request.URL.Path,
 		"route":       c.FullPath(),
-		"method":      c.Request.Method,
 	}
-	model.RecordOperationAuditLog(userId, auditContentEN(action, params), c.ClientIP(), action, params, nil, auditInfo)
+	// Recording the action must never be what fails it, and a context without a
+	// Request is real: handler tests build one, and the audit is not what they
+	// are exercising. ClientIP() reads the Request too, so it is guarded here
+	// rather than passed straight through.
+	clientIP := ""
+	if c.Request != nil {
+		auditInfo["path"] = c.Request.URL.Path
+		auditInfo["method"] = c.Request.Method
+		clientIP = c.ClientIP()
+	}
+	model.RecordOperationAuditLog(userId, auditContentEN(action, params), clientIP, action, params, nil, auditInfo)
 }
 
 // recordSensitiveRead audits a READ of bulk personal or operational data.
