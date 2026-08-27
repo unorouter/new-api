@@ -248,14 +248,22 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// Reduced read. The bot uses this instead of /:id so its token never sees
 		// the email, Discord id or register IP on the full record.
 		dto.Get(botOrAdmin, "/:id/bot_view", controller.GetUserBotView, option.Path("id", "User ID"))
-		dto.PutB(admin, "/", controller.UpdateUser)
+		// Routes that rewrite the credentials guarding an account. A personal
+		// access token is a bearer secret with no second factor, so letting one
+		// reset a password or strip 2FA means the weakest credential can disable
+		// the strongest -- which is exactly the move that took root on 2026-08-26.
+		// These require an interactive session; automation that legitimately needs
+		// them should drive the dashboard, not a PAT.
+		adminCred := dto.NewRouter(engine, userGroup.Group("", middleware.AdminAuth(), middleware.SessionOnly()), "AdminUser", secDashboard())
+		dto.PutB(adminCred, "/", controller.UpdateUser)
+		dto.Delete(adminCred, "/:id/reset_passkey", controller.AdminResetPasskey, option.Path("id", "User ID"))
 		dto.Delete(admin, "/:id", controller.DeleteUser, option.Path("id", "User ID"))
-		dto.Delete(admin, "/:id/reset_passkey", controller.AdminResetPasskey, option.Path("id", "User ID"))
 
 		// Admin 2FA routes
 		admin2FA := admin.WithTag("Admin2FA")
 		dto.Get(admin2FA, "/2fa/stats", controller.Admin2FAStats)
-		dto.Delete(admin2FA, "/:id/2fa", controller.AdminDisable2FA, option.Path("id", "User ID"))
+		admin2FACred := dto.NewRouter(engine, userGroup.Group("", middleware.AdminAuth(), middleware.SessionOnly()), "Admin2FA", secDashboard())
+		dto.Delete(admin2FACred, "/:id/2fa", controller.AdminDisable2FA, option.Path("id", "User ID"))
 
 		// ---- Subscription routes ----
 		subGroup := apiRouter.Group("/subscription", middleware.UserAuth())

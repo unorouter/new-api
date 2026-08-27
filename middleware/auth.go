@@ -156,6 +156,35 @@ func RootAuth() func(c *gin.Context) {
 	}
 }
 
+// SessionOnly rejects personal access tokens on routes that change the
+// credentials guarding an account.
+//
+// A PAT is a bearer credential with no second factor and no expiry short enough
+// to matter, so treating it as equivalent to a live browser session means the
+// weakest credential can rewrite the strongest. On 2026-08-26 a stolen PAT
+// changed the root password through the admin update route: UpdateSelf refuses
+// exactly that (it demands the current password AND a real session), but the
+// admin route accepts any caller who is already admin, so pointing it at your
+// own account skipped every check.
+//
+// A credential must never be able to change what revokes it.
+func SessionOnly() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		if !c.GetBool("use_access_token") {
+			c.Next()
+			return
+		}
+		recordSecurityDenial(c, auditActionPermissionDenied, "PAT_NOT_ALLOWED", map[string]interface{}{
+			"reason": "credential-changing route requires an interactive session",
+		})
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"code":    "PAT_NOT_ALLOWED",
+			"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
+		})
+	}
+}
+
 // BotServiceUsername identifies the Discord bot in audit rows. It is not a user
 // account, so it can never own tokens, log in, or be granted quota.
 const BotServiceUsername = "discord-bot"
