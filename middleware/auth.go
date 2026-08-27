@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -151,6 +153,58 @@ func AdminAuth() func(c *gin.Context) {
 func RootAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleRootUser)
+	}
+}
+
+// BotServiceUsername identifies the Discord bot in audit rows. It is not a user
+// account, so it can never own tokens, log in, or be granted quota.
+const BotServiceUsername = "discord-bot"
+
+// BotServiceUserID is the audit actor id for the bot. Deliberately 0 rather
+// than a real user id: the bot authenticates as itself, so attributing its
+// writes to a human account would falsify the audit trail.
+const BotServiceUserID = 0
+
+const botAuthContextKey = "authenticated_via_bot_token"
+
+// AuthenticatedViaBotToken reports whether BotAuth accepted this request, so a
+// handler can restrict what a service credential may do beyond route access.
+func AuthenticatedViaBotToken(c *gin.Context) bool {
+	return c.GetBool(botAuthContextKey)
+}
+
+// BotAuth accepts the Discord bot's service token on the handful of routes it
+// needs, and otherwise defers to AdminAuth so the dashboard is unaffected.
+//
+// The bot previously held root's access token, which authorized every admin
+// route (channel writes, user deletion, upstream key reads) to perform four
+// operations. A service credential that leaks should cost what the service can
+// do, not what the platform can do.
+//
+// The token is NOT a user: it resolves to no account, so it cannot be promoted,
+// cannot own tokens, and cannot be reused to log in. It only sets the context
+// keys the downstream handlers and the admin auditor already read.
+func BotAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		secret := system_setting.BotServiceToken()
+		raw, ok := AuthorizationToken(c.GetHeader("Authorization"))
+		if !ok || secret == "" || subtle.ConstantTimeCompare([]byte(raw), []byte(secret)) != 1 {
+			authHelper(c, common.RoleAdminUser)
+			return
+		}
+
+		c.Set("id", BotServiceUserID)
+		c.Set("username", BotServiceUsername)
+		c.Set("role", common.RoleAdminUser)
+		c.Set("use_access_token", true)
+		c.Set(botAuthContextKey, true)
+
+		// Bot writes are audited on the same path as admin writes; skipping this
+		// would make the one credential that runs unattended the one that leaves
+		// no trace.
+		auditWriter := beginAdminAudit(c)
+		c.Next()
+		finishAdminAudit(c, auditWriter)
 	}
 }
 

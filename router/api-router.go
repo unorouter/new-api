@@ -233,9 +233,21 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Delete(admin, "/:id/bindings/:binding_type", controller.AdminClearUserBinding, option.Path("id", "User ID"), option.Path("binding_type", "Binding type"))
 		dto.Get(adminRead, "/:id", controller.GetUser, option.Path("id", "User ID"))
 		dto.PostB(admin, "/", controller.CreateUser)
-		dto.PostB(admin, "/manage", controller.ManageUser)
-		dto.PostB(admin, "/discord_grant", controller.GrantDiscordQuota)
-		dto.PostB(admin, "/discord_transfer", controller.TransferDiscordQuota)
+
+		// Routes the Discord bot needs. BotAuth accepts its service token and
+		// otherwise falls through to AdminAuth, so the dashboard is unchanged.
+		// Registered HERE rather than alongside the admin group above because gin
+		// panics on a duplicate method+path pair.
+		botOrAdminGroup := userGroup.Group("", middleware.BotAuth())
+		botOrAdmin := dto.NewRouter(engine, botOrAdminGroup, "AdminUser", secDashboard())
+		// ManageUser restricts a bot-authenticated caller to one action; every
+		// other action stays admin-only.
+		dto.PostB(botOrAdmin, "/manage", controller.ManageUser)
+		dto.PostB(botOrAdmin, "/discord_grant", controller.GrantDiscordQuota)
+		dto.PostB(botOrAdmin, "/discord_transfer", controller.TransferDiscordQuota)
+		// Reduced read. The bot uses this instead of /:id so its token never sees
+		// the email, Discord id or register IP on the full record.
+		dto.Get(botOrAdmin, "/:id/bot_view", controller.GetUserBotView, option.Path("id", "User ID"))
 		dto.PutB(admin, "/", controller.UpdateUser)
 		dto.Delete(admin, "/:id", controller.DeleteUser, option.Path("id", "User ID"))
 		dto.Delete(admin, "/:id/reset_passkey", controller.AdminResetPasskey, option.Path("id", "User ID"))
