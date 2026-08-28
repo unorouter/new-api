@@ -91,3 +91,24 @@ func TestCredentialChangingRoutesRequireASession(t *testing.T) {
 		})
 	}
 }
+
+// TestManageUserRefusesPATForDestructiveActions guards a rule that cannot be
+// expressed as route membership. /user/manage stays on a bot-reachable group
+// because the Discord bot needs it, so a PAT is refused inside the handler
+// instead, and nothing above would notice if that check were dropped.
+//
+// The 2026-08-26 intruder drove exactly these actions through this route with a
+// stolen admin PAT. The guard that existed then only covered the bot token.
+func TestManageUserRefusesPATForDestructiveActions(t *testing.T) {
+	b, err := os.ReadFile("../controller/user.go")
+	require.NoError(t, err, "controller source must be readable")
+	src := string(b)
+
+	require.Contains(t, src, "patDeniedManageActions[req.Action] && middleware.AuthenticatedViaPAT(ginCtx)",
+		"ManageUser must refuse a personal access token for account-altering actions")
+
+	for _, action := range []string{"delete", "promote", "demote", "disable"} {
+		require.Regexp(t, `(?s)patDeniedManageActions = map\[string\]bool\{[^}]*"`+action+`":`, src,
+			"action %q must stay in patDeniedManageActions", action)
+	}
+}

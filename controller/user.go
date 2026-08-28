@@ -545,6 +545,22 @@ func canManageTargetRole(myRole int, targetRole int) bool {
 	return myRole == common.RoleRootUser || myRole > targetRole
 }
 
+// patDeniedManageActions are the /user/manage actions a personal access token
+// must never perform. Each of them changes who can log in or what they may do,
+// which is exactly what the 2026-08-26 intruder drove through this route with a
+// stolen admin PAT: promote to gain reach, disable and delete to lock the owner
+// out. The route cannot move behind SessionOnly() because the Discord bot needs
+// it, so the refusal lives here instead.
+//
+// Read actions and the bot's rate-limit action are unaffected; a real dashboard
+// session still performs all of these normally.
+var patDeniedManageActions = map[string]bool{
+	"delete":  true,
+	"promote": true,
+	"demote":  true,
+	"disable": true,
+}
+
 // botAllowedManageAction is the only /user/manage action the Discord bot's
 // service token may invoke.
 const botAllowedManageAction = "set_free_rate_limit_window_pct"
@@ -1228,6 +1244,12 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 	// which is most of what taking the token off root was meant to prevent.
 	if middleware.AuthenticatedViaBotToken(ginCtx) && req.Action != botAllowedManageAction {
 		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.no_permission_higher_level"))
+	}
+	// A bearer secret with no second factor must not decide who keeps their
+	// account. AuthenticatedViaPAT excludes the bot and sync service tokens, so
+	// this narrows human PATs only.
+	if patDeniedManageActions[req.Action] && middleware.AuthenticatedViaPAT(ginCtx) {
+		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, i18n.MsgAuthInsufficientPrivilege))
 	}
 	switch req.Action {
 	case "disable":
