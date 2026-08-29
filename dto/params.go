@@ -64,6 +64,14 @@ func ParseParams[P any](c FuegoCtx) (P, error) {
 }
 
 func setParamValue(value reflect.Value, paramValue string, kind reflect.Kind) error {
+	if kind == reflect.Pointer {
+		elem := reflect.New(value.Type().Elem())
+		if err := setParamValue(elem.Elem(), paramValue, value.Type().Elem().Kind()); err != nil {
+			return err
+		}
+		value.Set(elem)
+		return nil
+	}
 	switch kind {
 	case reflect.String:
 		value.SetString(paramValue)
