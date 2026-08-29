@@ -344,7 +344,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			// an overloaded free model would otherwise be auto-blocked for our outage.
 			if priceData.FreeModel && relayInfo.UserId > 0 &&
 				!relayInfo.UserSetting.UnlimitedFreeModels &&
-				!isTransientInfraError(newAPIError) {
+				!isTransientInfraError(newAPIError) &&
+				!isModerationRejection(newAPIError) {
 				service.TrackFreeModelError(relayInfo.UserId, relayInfo.UserQuota,
 					relayInfo.OriginModelName, isMediaRelayMode(relayInfo.RelayMode))
 			}
@@ -674,6 +675,16 @@ func shouldChargeOnError(err *types.NewAPIError) bool {
 // delivered nothing to the user, so the pre-consumed quota must be refunded even
 // with ChargeOnError on. Deterministic user-side rejections (400/415/422/451)
 // are handled separately and are not included here.
+// isModerationRejection reports an upstream content-filter refusal. These arrive
+// as 400s, so isTransientInfraError never covers them, yet they are not abuse:
+// the filter refuses ONE prompt the user typed, and each refusal is a different
+// message rather than a retry. Counting them auto-blocked real users, because the
+// only free provider (chatglm) rejects ordinary roleplay often enough to cross
+// FreeAbuseMaxErrorsPerHour in a single sitting.
+func isModerationRejection(err *types.NewAPIError) bool {
+	return types.IsUpstreamModerationError(err) || types.IsSharedFilterModerationError(err)
+}
+
 func isTransientInfraError(err *types.NewAPIError) bool {
 	if err == nil || err.GetErrorType() == types.ErrorTypeNewAPIError {
 		return false
