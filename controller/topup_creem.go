@@ -315,6 +315,11 @@ func CreemWebhook(c *gin.Context) {
 		// charge is already handled by checkout.completed, so this path is the
 		// renewal driver (checkout.completed does not fire on auto-renewal).
 		handleSubscriptionPaid(c, &webhookEvent, string(bodyBytes))
+	case "refund.created", "subscription.canceled", "subscription.expired":
+		// Creem delivers all three already; until this branch existed they fell
+		// through to the default log, so a refunded customer kept a live
+		// subscription and its full quota pool until end_time.
+		handleSubscriptionTerminated(c, &webhookEvent, string(bodyBytes))
 	default:
 		// Log the FULL raw payload for any event we don't handle yet, so the
 		// exact shape (e.g. subscription.active / past_due) is captured for
@@ -322,6 +327,51 @@ func CreemWebhook(c *gin.Context) {
 		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem webhook ignored event event_type=%s event_id=%s body=%q", webhookEvent.EventType, webhookEvent.Id, string(bodyBytes)))
 		c.Status(http.StatusOK)
 	}
+}
+
+// handleSubscriptionTerminated ends a subscription when Creem reports a refund,
+// cancellation or expiry, so access stops with the money rather than running to
+// the original end_time.
+func handleSubscriptionTerminated(c *gin.Context, event *dto.CreemWebhookEvent, rawBody string) {
+	persistCreemCustomerID(event)
+
+	referenceId := event.ReferenceID()
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem %s received event_id=%s sub_id=%s reference_id=%s customer=%s product=%s", event.EventType, event.Id, event.Object.Id, referenceId, event.Object.Customer.Id, event.Object.Product.Id))
+
+	lockKey := event.Object.Id
+	if lockKey == "" {
+		lockKey = referenceId
+	}
+	if lockKey != "" {
+		LockOrder(lockKey)
+		defer UnlockOrder(lockKey)
+	}
+
+	userId, subId, err := model.TerminateUserSubscriptionByCreem(model.CreemTerminationInput{
+		ReferenceId:     referenceId,
+		CreemCustomerId: event.Object.Customer.Id,
+		CreemProductId:  event.Object.Product.Id,
+		Reason:          event.EventType,
+	})
+	if err != nil {
+		if errors.Is(err, model.ErrSubscriptionOrderNotFound) {
+			// Not mappable to a local user. Log the payload for reconciliation and
+			// 200 so Creem stops retrying.
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem %s could not match user event_id=%s sub_id=%s reference_id=%s customer=%s body=%q", event.EventType, event.Id, event.Object.Id, referenceId, event.Object.Customer.Id, rawBody))
+			c.Status(http.StatusOK)
+			return
+		}
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem %s processing failed event_id=%s sub_id=%s error=%q", event.EventType, event.Id, event.Object.Id, err.Error()))
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	if subId == 0 {
+		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem %s no active subscription to end event_id=%s user_id=%d", event.EventType, event.Id, userId))
+	} else {
+		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem %s subscription ended event_id=%s user_id=%d subscription_id=%d", event.EventType, event.Id, userId, subId))
+	}
+	c.Status(http.StatusOK)
 }
 
 // handleSubscriptionPaid extends a recurring subscription on each successful
