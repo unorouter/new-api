@@ -74,8 +74,9 @@ func InsertModelStatusPings(rows []*ModelStatusPing) error {
 	return nil
 }
 
-func PruneModelStatusPingsBefore(beforeTs int64) error {
-	return DB.Where("timestamp < ?", beforeTs).Delete(&ModelStatusPing{}).Error
+func PruneModelStatusPingsBefore(beforeTs int64) (int64, error) {
+	res := DB.Where("timestamp < ?", beforeTs).Delete(&ModelStatusPing{})
+	return res.RowsAffected, res.Error
 }
 
 // DeleteModelStatusPingsNotIn removes ping history for any model not in the

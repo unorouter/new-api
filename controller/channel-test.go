@@ -1457,6 +1457,11 @@ func TestAllChannels(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 
 var autoSnapshotModelStatusOnce sync.Once
 
+// Last time the hourly ping-table maintenance ran. Zero value means "never",
+// so the first pass after boot does the work rather than waiting for an hour
+// the process may not survive.
+var lastPingMaintenance time.Time
+
 // AutomaticallySnapshotModelStatus runs once per minute on the master node and
 // records a per-model up/down snapshot derived from the current channel table.
 // A model is up iff at least one channel listing it has Status == enabled.
@@ -1600,20 +1605,21 @@ func runModelStatusSnapshot() {
 		}
 	}
 
-	// 7. Heavy ping-table maintenance once per hour. The orphan delete is a
+	// 7. Heavy ping-table maintenance, at most hourly. The orphan delete is a
 	// NOT IN over the full ping table (no index can serve a negation); run
 	// per-minute it was a full scan of 17M+ rows every 60s and the biggest
 	// standing load on the DB.
 	//
-	// Gate on the minute this run STARTED, not on `timestamp`, and not on
-	// minuteIndex%60. Two ways to get this wrong, both shipped once:
-	// minuteIndex is an absolute minute count (unix/60), so minuteIndex%60==0
-	// almost never coincides with a run; and `timestamp` is the PREVIOUS minute
-	// (the one being recorded) while sleepUntilNextMinute wakes at HH:MM:00.5,
-	// so at 02:00:00.5 it reads 01:59 and Minute() is 59, never 0. Both left the
-	// retention prune dead: 30 days of rows against a 7-day policy (18.6M rows
-	// / 4.85GB, 2026-08-19), then still 2.0M stale rows after the first fix.
-	if time.Now().UTC().Minute() == 0 {
+	// Track elapsed time since the last run instead of matching a wall-clock
+	// minute. A wall-clock gate only fires if the process happens to be alive
+	// at HH:00, and this pod restarts far more often than hourly (OOM kills,
+	// rollouts, node swaps), so it kept missing its one chance per hour and
+	// the table grew unbounded: 30 days against a 7-day policy (18.6M rows /
+	// 4.85GB, 2026-08-19), then 8.4M rows / 2.0GB on 2026-08-30 after two
+	// earlier gate fixes that were both still wall-clock based. Elapsed-time
+	// gating fires on the first run an hour after start, whenever that is.
+	if time.Since(lastPingMaintenance) >= time.Hour {
+		lastPingMaintenance = time.Now()
 		if len(modelNames) > 0 {
 			if err := model.DeleteModelStatusPingsNotIn(modelNames); err != nil {
 				common.SysLog("model status snapshot: orphan ping delete failed: " + err.Error())
@@ -1622,8 +1628,14 @@ func runModelStatusSnapshot() {
 		retentionDays := operation_setting.GetMonitorSetting().SnapshotModelStatusRetentionDays
 		if retentionDays > 0 {
 			cutoffTs := timestamp - int64(retentionDays)*24*60*60
-			if err := model.PruneModelStatusPingsBefore(cutoffTs); err != nil {
+			// Logged unconditionally: the prune was silently dead for two weeks
+			// twice, and a silent success is indistinguishable from a gate that
+			// never fired.
+			deleted, err := model.PruneModelStatusPingsBefore(cutoffTs)
+			if err != nil {
 				common.SysLog("model status snapshot: prune failed: " + err.Error())
+			} else {
+				common.SysLog(fmt.Sprintf("model status snapshot: pruned %d pings older than %dd (cutoff %d)", deleted, retentionDays, cutoffTs))
 			}
 		}
 	}
