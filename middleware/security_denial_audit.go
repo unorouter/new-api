@@ -54,6 +54,9 @@ func recordSecurityDenial(c *gin.Context, action string, reason string, extra ma
 	// distinguish "presented a PAT" from "presented a session" without becoming
 	// a place secrets leak to.
 	params["credential"] = presentedCredentialKind(c)
+	for k, v := range originSignals(c) {
+		params[k] = v
+	}
 	if fingerprint := rejectedCredentialFingerprint(c, action); fingerprint != "" {
 		params["credential_fingerprint"] = fingerprint
 	}
@@ -129,4 +132,35 @@ func auditAuthMethodForDenial(c *gin.Context) string {
 		return "session"
 	}
 	return "unauthenticated"
+}
+
+// originSignals captures the cheap edge-provided hints about where a request
+// came from. In the 2026-08-26 takeover the only origin evidence was IP
+// ownership, which took manual WHOIS work to resolve to a tunnel broker and
+// says nothing once an address is recycled.
+//
+// CF-IPCountry is set by Cloudflare on every request and cannot be spoofed from
+// outside, because the edge overwrites whatever the client sent (same property
+// CF-Connecting-IP relies on). Accept-Language is client-controlled and
+// therefore proves nothing on its own, but a credential whose refusals suddenly
+// arrive with a different locale than its owner's successful requests is worth
+// a look. Both are recorded as signals to correlate, never as authorization
+// input.
+//
+// Absent values are omitted rather than stored empty: a missing country means
+// the request did not traverse the edge, which is itself the interesting case.
+func originSignals(c *gin.Context) map[string]interface{} {
+	out := make(map[string]interface{}, 2)
+	if country := strings.TrimSpace(c.GetHeader("CF-IPCountry")); country != "" && country != "XX" {
+		out["country"] = country
+	}
+	if lang := strings.TrimSpace(c.GetHeader("Accept-Language")); lang != "" {
+		// First tag only: the full header is long, low-entropy and turns the
+		// params blob into a fingerprinting surface for no forensic gain.
+		if i := strings.IndexAny(lang, ",;"); i > 0 {
+			lang = lang[:i]
+		}
+		out["accept_language"] = strings.TrimSpace(lang)
+	}
+	return out
 }
