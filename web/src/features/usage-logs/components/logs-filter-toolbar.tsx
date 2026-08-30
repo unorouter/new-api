@@ -79,7 +79,16 @@ export function LogsFilterInput(props: ComponentProps<typeof Input>) {
   return (
     <Input
       {...props}
-      autoComplete='off'
+      // Chrome ignores autoComplete='off' on a login-shaped field and fills the
+      // saved username here, then the NEXT text input with the password: a user
+      // reported his password sitting in the Token Name filter. An unrecognized
+      // token IS honored where 'off' is not, and the data attributes opt out of
+      // 1Password/LastPass/Bitwarden, which ignore both.
+      autoComplete='new-search-filter'
+      data-1p-ignore=''
+      data-lpignore='true'
+      data-bwignore='true'
+      data-form-type='other'
       className={cn('h-8 min-w-0 text-sm leading-5', props.className)}
     />
   )
