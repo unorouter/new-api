@@ -1916,3 +1916,156 @@ func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error
 		return tx.Save(&sub).Error
 	})
 }
+
+// CreemTerminationInput identifies the subscription a Creem lifecycle event
+// (refund.created / subscription.canceled / subscription.expired) refers to.
+type CreemTerminationInput struct {
+	ReferenceId     string
+	CreemCustomerId string
+	CreemProductId  string
+	Reason          string
+}
+
+// TerminateUserSubscriptionByCreem ends a user's subscription when Creem reports
+// a refund, cancellation or expiry. Creem delivers these events already, but
+// nothing consumed them: a refunded customer kept a live subscription and its
+// full quota pool until end_time, so the money went back and the access stayed.
+//
+// The subscription's own quota pool is zeroed rather than deducted from the
+// wallet: the pool is separate from the user's balance, so clearing it removes
+// exactly what the subscription granted and never touches credit the user
+// bought with a top-up.
+//
+// Idempotent: a subscription that is already terminated resolves to no rows.
+// Returns (userId, subscriptionId, nil); ErrSubscriptionOrderNotFound when the
+// event cannot be mapped, so the caller can log the payload and still 200.
+func TerminateUserSubscriptionByCreem(in CreemTerminationInput) (int, int, error) {
+	status := "cancelled"
+	if in.Reason == "subscription.expired" {
+		status = "expired"
+	}
+
+	var resolvedUserId, resolvedSubId int
+	var groupChanged bool
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		userId, err := resolveCreemSubscriptionUser(tx, in)
+		if err != nil {
+			return err
+		}
+
+		var sub UserSubscription
+		q := tx.Where("user_id = ? AND status = ?", userId, "active").
+			Order("end_time desc, id desc").Limit(1).Find(&sub)
+		if q.Error != nil {
+			return q.Error
+		}
+		if q.RowsAffected == 0 {
+			// Already terminated, or never active. Nothing to undo.
+			resolvedUserId = userId
+			return nil
+		}
+
+		if err := tx.Model(&UserSubscription{}).Where("id = ?", sub.Id).
+			Updates(map[string]interface{}{
+				"status":      status,
+				"end_time":    time.Now().Unix(),
+				"amount_used": sub.AmountTotal,
+			}).Error; err != nil {
+			return err
+		}
+
+		// Mark the originating order so it stops looking like a live purchase.
+		if in.ReferenceId != "" {
+			refCol := "`trade_no`"
+			if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+				refCol = `"trade_no"`
+			}
+			if err := tx.Model(&SubscriptionOrder{}).Where(refCol+" = ?", in.ReferenceId).
+				Update("status", status).Error; err != nil {
+				return err
+			}
+		}
+
+		changed, err := revertSubscriptionGroupTx(tx, userId, sub)
+		if err != nil {
+			return err
+		}
+		groupChanged = changed
+
+		resolvedUserId = userId
+		resolvedSubId = sub.Id
+		return nil
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	if resolvedSubId != 0 {
+		if groupChanged {
+			refreshSubscriptionUserGroupCache(resolvedUserId, "subscription termination")
+		}
+		if err := invalidateUserCache(resolvedUserId); err != nil {
+			common.SysLog(fmt.Sprintf("failed to invalidate user cache after subscription termination user_id=%d: %s", resolvedUserId, err.Error()))
+		}
+	}
+	return resolvedUserId, resolvedSubId, nil
+}
+
+// resolveCreemSubscriptionUser maps a Creem lifecycle event to a local user the
+// same way renewals do: the original order is authoritative, creem_customer is
+// the fallback for events that carry no reference id.
+func resolveCreemSubscriptionUser(tx *gorm.DB, in CreemTerminationInput) (int, error) {
+	if in.ReferenceId != "" {
+		var order SubscriptionOrder
+		refCol := "`trade_no`"
+		if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+			refCol = `"trade_no"`
+		}
+		if err := tx.Where(refCol+" = ?", in.ReferenceId).First(&order).Error; err == nil {
+			return order.UserId, nil
+		}
+	}
+	if in.CreemCustomerId != "" {
+		var user User
+		if err := tx.Where("creem_customer = ?", in.CreemCustomerId).First(&user).Error; err == nil {
+			return user.Id, nil
+		}
+	}
+	return 0, ErrSubscriptionOrderNotFound
+}
+
+// revertSubscriptionGroupTx mirrors the group handling in ExpireDueSubscriptions:
+// an explicit downgrade target wins, otherwise revert to the group held before
+// the subscription elevated the user. Reports whether the group actually moved.
+func revertSubscriptionGroupTx(tx *gorm.DB, userId int, sub UserSubscription) (bool, error) {
+	// Another live subscription still entitles the user; leave the group alone.
+	var other UserSubscription
+	q := tx.Where("user_id = ? AND status = ? AND id <> ? AND upgrade_group <> ''",
+		userId, "active", sub.Id).Limit(1).Find(&other)
+	if q.Error != nil {
+		return false, q.Error
+	}
+	if q.RowsAffected > 0 {
+		return false, nil
+	}
+
+	currentGroup, err := getUserGroupByIdTx(tx, userId)
+	if err != nil {
+		return false, err
+	}
+	target := strings.TrimSpace(sub.DowngradeGroup)
+	if target == "" {
+		upgradeGroup := strings.TrimSpace(sub.UpgradeGroup)
+		prevGroup := strings.TrimSpace(sub.PrevUserGroup)
+		if upgradeGroup == "" || prevGroup == "" || currentGroup != upgradeGroup {
+			return false, nil
+		}
+		target = prevGroup
+	}
+	if target == "" || target == currentGroup {
+		return false, nil
+	}
+	if err := tx.Model(&User{}).Where("id = ?", userId).Update("group", target).Error; err != nil {
+		return false, err
+	}
+	return true, nil
+}
