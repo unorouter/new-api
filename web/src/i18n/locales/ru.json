@@ -714,6 +714,8 @@
     "Built-in": "Встроенный",
     "Built-in Device": "Встроенное устройство",
     "Built-in v{{factory}} / marketplace v{{market}}": "Встроенный v{{factory}} / магазин v{{market}}",
+    "Updates with the system": "Обновляется с системой",
+    "Built-in is v{{factory}}; delete the custom version to return to it": "Встроенная версия — v{{factory}}; удалите свою, чтобы вернуться к ней",
     "Built-in: phone fingerprint/face, or Windows Hello; External: USB security key": "Встроенное: отпечаток пальца/лицо телефона или Windows Hello; Внешнее: USB-ключ безопасности",
     "by": "от",
     "By category": "По категориям",

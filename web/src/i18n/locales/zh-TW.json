@@ -714,6 +714,8 @@
     "Built-in": "內置",
     "Built-in Device": "內置設備",
     "Built-in v{{factory}} / marketplace v{{market}}": "內建 v{{factory}} / 市集 v{{market}}",
+    "Updates with the system": "隨系統更新",
+    "Built-in is v{{factory}}; delete the custom version to return to it": "內建版本為 v{{factory}}；刪除自訂版本即可恢復",
     "Built-in: phone fingerprint/face, or Windows Hello; External: USB security key": "內置：手機指紋/面部，或 Windows Hello；外部：USB 安全金鑰",
     "by": "由",
     "By category": "按行業",

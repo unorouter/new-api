@@ -714,6 +714,8 @@
     "Built-in": "Intégré",
     "Built-in Device": "Appareil intégré",
     "Built-in v{{factory}} / marketplace v{{market}}": "Intégré v{{factory}} / marché v{{market}}",
+    "Updates with the system": "Mise à jour système",
+    "Built-in is v{{factory}}; delete the custom version to return to it": "La version intégrée est v{{factory}} ; supprimez la version personnalisée pour y revenir",
     "Built-in: phone fingerprint/face, or Windows Hello; External: USB security key": "Intégré : empreinte digitale/visage du téléphone, ou Windows Hello ; Externe : clé de sécurité USB",
     "by": "par",
     "By category": "Par catégorie",

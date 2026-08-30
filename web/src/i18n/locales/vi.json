@@ -714,6 +714,8 @@
     "Built-in": "Tích hợp sẵn",
     "Built-in Device": "Thiết bị tích hợp",
     "Built-in v{{factory}} / marketplace v{{market}}": "Tích hợp v{{factory}} / chợ v{{market}}",
+    "Updates with the system": "Cập nhật cùng hệ thống",
+    "Built-in is v{{factory}}; delete the custom version to return to it": "Bản tích hợp là v{{factory}}; xóa bản tùy chỉnh để trở lại",
     "Built-in: phone fingerprint/face, or Windows Hello; External: USB security key": "Tích hợp sẵn: vân tay/khuôn mặt điện thoại, hoặc Windows Hello; Bên ngoài: khóa bảo mật USB",
     "by": "by",
     "By category": "Theo danh mục",

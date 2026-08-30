@@ -714,6 +714,8 @@
     "Built-in": "組み込み",
     "Built-in Device": "内蔵デバイス",
     "Built-in v{{factory}} / marketplace v{{market}}": "組み込み v{{factory}} / マーケット v{{market}}",
+    "Updates with the system": "システムとともに更新",
+    "Built-in is v{{factory}}; delete the custom version to return to it": "組み込みは v{{factory}} です。カスタム版を削除すると戻ります",
     "Built-in: phone fingerprint/face, or Windows Hello; External: USB security key": "内蔵: 電話の指紋/顔認証、またはWindows Hello。外部: USBセキュリティキー",
     "by": "によって",
     "By category": "カテゴリ別",
