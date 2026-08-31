@@ -298,6 +298,15 @@ func handleNowPaymentsEvent(c *gin.Context, event *dto.NowPaymentsWebhookEvent, 
 		}
 	}
 
+	// Record what actually landed, on every status. An order that stalls after
+	// the money arrived is otherwise indistinguishable from a checkout nobody
+	// paid, and only this figure separates the two.
+	if event.ActuallyPaid > 0 {
+		if err := model.SetTopUpPaidAmount(orderId, event.ActuallyPaid); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("NowPayments failed to record paid amount trade_no=%s actually_paid=%v error=%q", orderId, event.ActuallyPaid, err.Error()))
+		}
+	}
+
 	switch status {
 	case "finished":
 		LockOrder(orderId)

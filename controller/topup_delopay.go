@@ -325,6 +325,15 @@ func handleDeloPayEvent(c *gin.Context, event *dto.DeloPayWebhookEvent, callerIp
 		LockOrder(orderId)
 		defer UnlockOrder(orderId)
 
+		// Only on success: DeloPay reports the invoice Amount on every status,
+		// including requires_payment_method, so recording it earlier would mark
+		// abandoned checkouts as paid. Amount is in minor units.
+		if object.Amount > 0 {
+			if err := model.SetTopUpPaidAmount(orderId, float64(object.Amount)/100); err != nil {
+				logger.LogError(ctx, fmt.Sprintf("DeloPay failed to record paid amount trade_no=%s amount=%d error=%q", orderId, object.Amount, err.Error()))
+			}
+		}
+
 		subPayload := common.GetJsonString(event)
 		if err := model.CompleteSubscriptionOrder(orderId, subPayload, model.PaymentProviderDeloPay, ""); err == nil {
 			// Completion upserts a success top_ups ledger row under the same

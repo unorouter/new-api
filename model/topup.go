@@ -32,7 +32,20 @@ type TopUp struct {
 	// processing fee was passed to the buyer. Credit is always granted from
 	// Money, so this stays out of the quota calculation by design. Zero means
 	// no surcharge and the buyer paid Money.
+	//
+	// NOTE this is set at ORDER CREATION and is therefore intent, not evidence:
+	// an abandoned checkout carries a ChargedMoney it never paid. Use PaidAmount
+	// to tell "money arrived" from "invoice opened".
 	ChargedMoney float64 `json:"charged_money" gorm:"default:0"`
+	// Funds the provider reports as RECEIVED, in the order's own currency, from
+	// the webhook rather than from our own record of what we asked for. Nothing
+	// else in this table distinguishes a paid-but-uncredited order from a
+	// checkout the buyer walked away from: status stays 'pending' for both,
+	// complete_time is only written on success, and provider_payment_id is
+	// recorded on every webhook including 'waiting'. A monitor that cannot tell
+	// those apart reports money owed that was never sent (27 orders / $142, all
+	// of them abandoned, Aug 2026).
+	PaidAmount float64 `json:"paid_amount" gorm:"default:0;index"`
 }
 
 const (
@@ -251,6 +264,21 @@ func SetTopUpProviderPaymentId(tradeNo string, paymentId string) error {
 	return DB.Model(&TopUp{}).
 		Where("trade_no = ? AND provider_payment_id = ?", tradeNo, "").
 		Update("provider_payment_id", paymentId).Error
+}
+
+// SetTopUpPaidAmount records funds the provider says it RECEIVED. Written from
+// the webhook on any status that carries a real figure, not only the final one,
+// so an order that stalls after the money landed is still identifiable as owed.
+//
+// Monotonic: a later webhook reporting less than we already recorded (a partial
+// figure arriving out of order) must not erase the higher one.
+func SetTopUpPaidAmount(tradeNo string, paidAmount float64) error {
+	if tradeNo == "" || paidAmount <= 0 {
+		return nil
+	}
+	return DB.Model(&TopUp{}).
+		Where("trade_no = ? AND paid_amount < ?", tradeNo, paidAmount).
+		Update("paid_amount", paidAmount).Error
 }
 
 func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, targetStatus string) error {
