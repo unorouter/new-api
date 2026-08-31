@@ -635,6 +635,12 @@ func TransferAffQuota(c fuego.ContextWithBody[dto.TransferAffQuotaRequest]) (dto
 	if err != nil {
 		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "user.transfer_failed", map[string]any{"Error": err.Error()}))
 	}
+	// Converts commission into spendable balance. Lower risk than a partner grant
+	// because the money stays in the account, but it is still a balance change a
+	// PAT can trigger, and it recorded nothing at all.
+	recordUserSecurityAudit(ginCtx, id, "user.aff_transfer", map[string]interface{}{
+		"quota": tran.Quota,
+	})
 	return dto.Msg(common.TranslateMessage(dto.GinCtx(c), "user.transfer_success"))
 }
 
@@ -1086,6 +1092,11 @@ func UpdateSelf(c fuego.ContextNoBody) (dto.ApiResponse, error) {
 		if err != nil {
 			return dto.FailAny(err.Error())
 		}
+		// Taking over an account permanently means changing its password. The
+		// checks above make that hard (current password plus a real session, which
+		// a PAT cannot satisfy), but nothing recorded a success, so a change made
+		// with stolen credentials left the same trace as a routine one: none.
+		recordUserSecurityAudit(ginCtx, cleanUser.Id, "user.password_change", nil)
 		return dto.OkMsgAny("", gin.H{
 			"access_token":      bundle.AccessToken,
 			"token_type":        bundle.TokenType,
