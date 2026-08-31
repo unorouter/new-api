@@ -204,6 +204,9 @@ type uptimeCacheEntry struct {
 	at  time.Time
 	key string
 	val map[string]float64
+	// Held for the duration of one refresh so concurrent callers wait for it
+	// instead of each running their own. Nil when no refresh is in flight.
+	inflight *sync.WaitGroup
 }
 
 var (
@@ -212,23 +215,52 @@ var (
 	uptime30dCache uptimeCacheEntry
 )
 
+// cachedUptimeSince serves the window from cache, and on a miss lets exactly one
+// caller run the aggregate while the rest wait for its result.
+//
+// The mutex used to cover only the map read and the map write, with the query
+// itself running unlocked. That is a cache stampede: when the TTL lapsed every
+// concurrent request saw a stale entry and all of them ran the full aggregate
+// at once. Measured 2026-08-31 on the node1 saturation alert -- four concurrent
+// copies, parallel workers spilling to disk (BufFileRead), 2.3 of 4 cores in one
+// pod. Both callers are PUBLIC unauthenticated endpoints (/pricing/catalog and
+// /model_status/components), so the concurrency is whatever the internet sends.
 func cachedUptimeSince(cache *uptimeCacheEntry, ttl time.Duration, modelNames []string, since int64) (map[string]float64, error) {
 	key := fmt.Sprintf("%d", len(modelNames))
-	uptimeCacheMu.Lock()
-	if cache.key == key && time.Since(cache.at) < ttl {
-		v := cache.val
+	for {
+		uptimeCacheMu.Lock()
+		if cache.key == key && time.Since(cache.at) < ttl {
+			v := cache.val
+			uptimeCacheMu.Unlock()
+			return v, nil
+		}
+		if wg := cache.inflight; wg != nil {
+			// Someone else is already computing this window. Wait for them and
+			// re-check rather than issuing a duplicate aggregate.
+			uptimeCacheMu.Unlock()
+			wg.Wait()
+			continue
+		}
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
+		cache.inflight = wg
 		uptimeCacheMu.Unlock()
-		return v, nil
+
+		val, err := model.UptimeByModelSince(modelNames, since)
+
+		uptimeCacheMu.Lock()
+		cache.inflight = nil
+		if err == nil {
+			cache.at, cache.key, cache.val = time.Now(), key, val
+		}
+		uptimeCacheMu.Unlock()
+		wg.Done()
+
+		if err != nil {
+			return nil, err
+		}
+		return val, nil
 	}
-	uptimeCacheMu.Unlock()
-	val, err := model.UptimeByModelSince(modelNames, since)
-	if err != nil {
-		return nil, err
-	}
-	uptimeCacheMu.Lock()
-	*cache = uptimeCacheEntry{at: time.Now(), key: key, val: val}
-	uptimeCacheMu.Unlock()
-	return val, nil
 }
 
 // cachedUptimes24 is the 24h window alone, for callers that would otherwise pay
