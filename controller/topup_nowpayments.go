@@ -339,7 +339,33 @@ func handleNowPaymentsEvent(c *gin.Context, event *dto.NowPaymentsWebhookEvent, 
 		}
 		c.Status(http.StatusOK)
 
-	case "waiting", "confirming", "confirmed", "sending", "partially_paid":
+	case "partially_paid":
+		// A crypto transfer almost never lands on the exact invoice amount: gas,
+		// slippage and rounding leave a few cents either way. NowPayments only
+		// promotes such a deposit to "finished" when the dashboard is set to do
+		// so, and while it was not, a 0.25% shortfall left the order pending
+		// forever: the money arrived, the balance never did, and the user saw
+		// nothing. Settle it here instead of depending on a dashboard toggle.
+		if withinUnderpaymentTolerance(event) {
+			LockOrder(orderId)
+			defer UnlockOrder(orderId)
+
+			logger.LogInfo(ctx, fmt.Sprintf("NowPayments crediting partial payment within tolerance trade_no=%s pay_amount=%v actually_paid=%v", orderId, event.PayAmount, event.ActuallyPaid))
+			if err := model.RechargeNowPayments(orderId, event.PayCurrency, event.ActuallyPaid); err != nil {
+				logger.LogError(ctx, fmt.Sprintf("NowPayments partial topup processing failed trade_no=%s client_ip=%s error=%q", orderId, callerIp, err.Error()))
+				c.AbortWithStatus(http.StatusInternalServerError)
+				return
+			}
+			if topUp := model.GetTopUpByTradeNo(orderId); topUp != nil {
+				go service.SendTopupConfirmationEmail(topUp.UserId, topUp.Money, event.ActuallyPaid, strings.ToUpper(event.PayCurrency), topUp.TradeNo)
+			}
+			c.Status(http.StatusOK)
+			return
+		}
+		logger.LogWarn(ctx, fmt.Sprintf("NowPayments underpaid beyond tolerance, left pending trade_no=%s pay_amount=%v actually_paid=%v", orderId, event.PayAmount, event.ActuallyPaid))
+		c.Status(http.StatusOK)
+
+	case "waiting", "confirming", "confirmed", "sending":
 		logger.LogInfo(ctx, fmt.Sprintf("NowPayments awaiting confirmation trade_no=%s status=%s", orderId, status))
 		c.Status(http.StatusOK)
 
@@ -373,4 +399,24 @@ func getNowPaymentsMinTopup() int64 {
 		minTopup = minTopup * int(common.QuotaPerUnit)
 	}
 	return int64(minTopup)
+}
+
+// nowPaymentsUnderpaymentTolerance matches the "payment covering" percentage
+// configured on the NowPayments merchant account, so both sides agree on what
+// counts as paid.
+const nowPaymentsUnderpaymentTolerance = 0.10
+
+// withinUnderpaymentTolerance reports whether a partially paid deposit is close
+// enough to the invoice to credit. Overpayments always qualify; a shortfall
+// qualifies while it stays inside the tolerance. A zero pay_amount is never
+// credited, since it carries no invoice to compare against.
+func withinUnderpaymentTolerance(event *dto.NowPaymentsWebhookEvent) bool {
+	if event == nil || event.PayAmount <= 0 || event.ActuallyPaid <= 0 {
+		return false
+	}
+	if event.ActuallyPaid >= event.PayAmount {
+		return true
+	}
+	shortfall := (event.PayAmount - event.ActuallyPaid) / event.PayAmount
+	return shortfall <= nowPaymentsUnderpaymentTolerance
 }
