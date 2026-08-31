@@ -12,8 +12,11 @@ import (
 )
 
 type Redemption struct {
-	Id           int            `json:"id"`
-	UserId       int            `json:"user_id"`
+	Id int `json:"id"`
+	// Who created the code, set from the caller at insert. UsedUserId is the
+	// separate column for whoever redeemed it. Indexed because an enterprise
+	// partner's listing filters on it to see only their own codes.
+	UserId       int            `json:"user_id" gorm:"index"`
 	Key          string         `json:"key" gorm:"type:char(32);uniqueIndex"`
 	Status       int            `json:"status" gorm:"default:1"`
 	Name         string         `json:"name" gorm:"index"`
@@ -238,4 +241,130 @@ func DeleteInvalidRedemptions() (int64, error) {
 	now := common.GetTimestamp()
 	result := DB.Where("status IN ? OR (status = ? AND expired_time != 0 AND expired_time < ?)", []int{common.RedemptionCodeStatusUsed, common.RedemptionCodeStatusDisabled}, common.RedemptionCodeStatusEnabled, now).Delete(&Redemption{})
 	return result.RowsAffected, result.Error
+}
+
+// ErrRedemptionNotVoidable means the code was not the caller's, or was already
+// redeemed or voided. Deliberately one error for all three: a partner must not be
+// able to probe another partner's code ids by the difference in the message.
+var ErrRedemptionNotVoidable = errors.New("redemption code cannot be voided")
+
+// CreateFundedRedemption mints a single gift card paid for out of the creator's
+// own balance, for enterprise partners who resell credit to their customers.
+//
+// One card per call, never a batch: the stock AddRedemption loop inserts codes
+// one at a time and does not roll back a partial failure, which is harmless when
+// codes are conjured by an admin and a money bug once they are funded.
+//
+// The deduction goes through TryReserveUserQuota, the existing atomic
+// check-and-deduct, rather than a hand-rolled UPDATE: it holds the balance
+// guard AND keeps the quota cache coherent. Do not add a manual
+// cacheDecrUserQuota here, it would double-count.
+func CreateFundedRedemption(creatorId int, name string, quota int, expiredTime int64) (string, error) {
+	if creatorId <= 0 {
+		return "", errors.New("invalid creator id")
+	}
+	if quota <= 0 {
+		return "", errors.New("redemption quota must be positive")
+	}
+	if err := common.ValidateWalletQuota(quota); err != nil {
+		return "", err
+	}
+
+	reserved, err := TryReserveUserQuota(creatorId, quota)
+	if err != nil {
+		return "", err
+	}
+	if !reserved {
+		return "", ErrInsufficientQuota
+	}
+
+	redemption := &Redemption{
+		UserId:      creatorId,
+		Name:        name,
+		Key:         common.GetUUID(),
+		Status:      common.RedemptionCodeStatusEnabled,
+		Quota:       quota,
+		CreatedTime: common.GetTimestamp(),
+		ExpiredTime: expiredTime,
+	}
+	if err := redemption.Insert(); err != nil {
+		// Give the money back: the partner must never be charged for a card that
+		// does not exist. Single row, so this compensation cannot be partial.
+		if refundErr := IncreaseUserQuota(creatorId, quota, true); refundErr != nil {
+			common.SysError(fmt.Sprintf("failed to refund reserved quota after redemption insert failed user_id=%d quota=%d: %v", creatorId, quota, refundErr))
+		}
+		return "", err
+	}
+
+	RecordLog(creatorId, LogTypeManage, fmt.Sprintf("Created gift card %s from balance, code ID %d", logger.LogQuota(quota), redemption.Id))
+	return redemption.Key, nil
+}
+
+// VoidFundedRedemption disables an unredeemed code the caller minted and returns
+// its full face value to their balance.
+//
+// The status flip is the same compare-and-swap the redeem path uses, so a void
+// racing a customer's redemption cannot both refund the partner and credit the
+// customer: whichever transaction flips enabled -> {disabled,used} first wins and
+// the loser changes nothing. The refund therefore runs ONLY when this update
+// actually claimed the row.
+//
+// user_id in the predicate is the authorization: a partner can only void a code
+// they created.
+func VoidFundedRedemption(creatorId int, redemptionId int) (int, error) {
+	if creatorId <= 0 || redemptionId <= 0 {
+		return 0, ErrRedemptionNotVoidable
+	}
+
+	var quota int
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var redemption Redemption
+		if err := tx.Where("id = ? AND user_id = ?", redemptionId, creatorId).
+			First(&redemption).Error; err != nil {
+			return ErrRedemptionNotVoidable
+		}
+		result := tx.Model(&Redemption{}).
+			Where("id = ? AND user_id = ? AND status = ?", redemptionId, creatorId, common.RedemptionCodeStatusEnabled).
+			Update("status", common.RedemptionCodeStatusDisabled)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrRedemptionNotVoidable
+		}
+		quota = redemption.Quota
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	// Outside the transaction, mirroring how Redeem credits after commit.
+	// IncreaseUserQuota guards the wallet ceiling and syncs the cache itself.
+	if err := IncreaseUserQuota(creatorId, quota, true); err != nil {
+		common.SysError(fmt.Sprintf("failed to refund voided redemption user_id=%d redemption_id=%d quota=%d: %v", creatorId, redemptionId, quota, err))
+		return 0, err
+	}
+	RecordLog(creatorId, LogTypeManage, fmt.Sprintf("Voided gift card, refunded %s, code ID %d", logger.LogQuota(quota), redemptionId))
+	return quota, nil
+}
+
+// GetRedemptionsByCreator lists one partner's own codes. The user_id predicate is
+// what makes the partner API multi-tenant: without it every partner would see
+// every other partner's codes, since the stock list and search functions do not
+// filter by owner at all.
+func GetRedemptionsByCreator(creatorId int, startIdx int, num int) ([]*Redemption, int64, error) {
+	if creatorId <= 0 {
+		return nil, 0, errors.New("invalid creator id")
+	}
+	var redemptions []*Redemption
+	var total int64
+	query := DB.Model(&Redemption{}).Where("user_id = ?", creatorId)
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if err := query.Order("id desc").Limit(num).Offset(startIdx).Find(&redemptions).Error; err != nil {
+		return nil, 0, err
+	}
+	return redemptions, total, nil
 }

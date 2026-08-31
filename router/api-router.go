@@ -183,6 +183,17 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.PostB(self, "/aff_transfer", controller.TransferAffQuota)
 		dto.PostB(self, "/setting", controller.UpdateUserSetting)
 
+		// Enterprise partner API: mint gift cards and grant balance, both funded
+		// from the caller's own wallet. On selfGroup so a PAT works (these are
+		// meant to be scripted) and rate limited because every call moves money.
+		// Authorization is per-handler: requirePartner refuses anyone without a
+		// negotiated top-up bonus.
+		partner := dto.NewRouter(engine, selfGroup.Group("/partner", middleware.CriticalRateLimit()), "Partner", secDashboard())
+		dto.PostB(partner, "/redemption", controller.PartnerCreateRedemption)
+		dto.Get(partner, "/redemption", controller.PartnerListRedemptions, dto.PageParams())
+		dto.Delete(partner, "/redemption/:id", controller.PartnerVoidRedemption, option.Path("id", "Redemption ID"))
+		dto.PostB(partner, "/grant", controller.PartnerGrantQuota)
+
 		// Billing portal URL (Stripe one-time session, or Creem per-customer/fallback).
 		// Gated by subscription:cancel for OAuth agents; humans pass through.
 		selfBilling := dto.NewRouter(engine, selfGroup.Group("", middleware.RequireScope("subscription:cancel")), "Billing", secDashboard())

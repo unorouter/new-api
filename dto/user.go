@@ -95,26 +95,29 @@ type TransferAffQuotaRequest struct {
 
 // UserSelfData is the response data for GET /api/user/self.
 type UserSelfData struct {
-	Id                        int     `json:"id"`
-	Username                  string  `json:"username"`
-	DisplayName               string  `json:"display_name"`
-	Role                      int     `json:"role"`
-	Status                    int     `json:"status"`
-	Email                     string  `json:"email"`
-	GitHubId                  string  `json:"github_id"`
-	DiscordId                 string  `json:"discord_id"`
-	OidcId                    string  `json:"oidc_id"`
-	WeChatId                  string  `json:"wechat_id"`
-	TelegramId                string  `json:"telegram_id"`
-	Group                     string  `json:"group"`
-	Quota                     int     `json:"quota"`
-	UsedQuota                 int     `json:"used_quota"`
-	RequestCount              int     `json:"request_count"`
-	AffCode                   string  `json:"aff_code"`
-	AffCount                  int     `json:"aff_count"`
-	AffQuota                  int     `json:"aff_quota"`
-	AffHistoryQuota           int     `json:"aff_history_quota"`
-	AffCommissionRate         float64 `json:"aff_commission_rate"`
+	Id                int     `json:"id"`
+	Username          string  `json:"username"`
+	DisplayName       string  `json:"display_name"`
+	Role              int     `json:"role"`
+	Status            int     `json:"status"`
+	Email             string  `json:"email"`
+	GitHubId          string  `json:"github_id"`
+	DiscordId         string  `json:"discord_id"`
+	OidcId            string  `json:"oidc_id"`
+	WeChatId          string  `json:"wechat_id"`
+	TelegramId        string  `json:"telegram_id"`
+	Group             string  `json:"group"`
+	Quota             int     `json:"quota"`
+	UsedQuota         int     `json:"used_quota"`
+	RequestCount      int     `json:"request_count"`
+	AffCode           string  `json:"aff_code"`
+	AffCount          int     `json:"aff_count"`
+	AffQuota          int     `json:"aff_quota"`
+	AffHistoryQuota   int     `json:"aff_history_quota"`
+	AffCommissionRate float64 `json:"aff_commission_rate"`
+	// Negotiated enterprise top-up bonus, 0 when the account has none. Also what
+	// the dashboard keys the partner-only gift card section off.
+	TopUpBonusPercent         float64 `json:"topup_bonus_percent"`
 	AffCommissionMaxRecharges int     `json:"aff_commission_max_recharges"`
 	InviterId                 int     `json:"inviter_id"`
 	LinuxDOId                 string  `json:"linux_do_id"`
@@ -143,4 +146,32 @@ type TimeoutPreferenceData struct {
 type TimeoutPreferenceRequest struct {
 	MaxFirstTokenSeconds      int `json:"max_first_token_seconds"`
 	MaxChainFirstTokenSeconds int `json:"max_chain_first_token_seconds"`
+}
+
+// Partner (enterprise reseller) API payloads.
+
+type PartnerRedemptionRequest struct {
+	Name string `json:"name"`
+	// Quota is the card's face value in quota units, deducted from the creator.
+	Quota       int   `json:"quota"`
+	ExpiredTime int64 `json:"expired_time,omitempty"`
+}
+
+type PartnerRedemptionData struct {
+	Key   string `json:"key"`
+	Quota int    `json:"quota"`
+}
+
+type PartnerVoidData struct {
+	Refunded int `json:"refunded"`
+}
+
+type PartnerGrantRequest struct {
+	UserId int `json:"user_id"`
+	Quota  int `json:"quota"`
+}
+
+type PartnerGrantData struct {
+	Granted      int `json:"granted"`
+	BalanceAfter int `json:"balance_after"`
 }

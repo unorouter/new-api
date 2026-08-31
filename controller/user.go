@@ -717,6 +717,7 @@ func GetSelf(c fuego.ContextNoBody) (*dto.Response[dto.UserSelfData], error) {
 		AffQuota:                  user.AffQuota,
 		AffHistoryQuota:           user.AffHistoryQuota,
 		AffCommissionRate:         effectiveCommissionRate(user.ReferralCommissionPercent),
+		TopUpBonusPercent:         effectiveTopUpBonus(user.TopUpBonusPercent),
 		AffCommissionMaxRecharges: common.ReferralCommissionMaxRecharges,
 		InviterId:                 user.InviterId,
 		LinuxDOId:                 user.LinuxDOId,
@@ -1810,4 +1811,13 @@ func UpdateTimeoutPreference(c fuego.ContextWithBody[dto.TimeoutPreferenceReques
 		MaxFirstTokenSeconds:      perAttempt,
 		MaxChainFirstTokenSeconds: chain,
 	})
+}
+
+// effectiveTopUpBonus flattens the nullable per-user bonus for the /self
+// response: absent means no bonus, which the dashboard reads as "not a partner".
+func effectiveTopUpBonus(perUser *float64) float64 {
+	if perUser != nil && *perUser > 0 {
+		return *perUser
+	}
+	return 0
 }
