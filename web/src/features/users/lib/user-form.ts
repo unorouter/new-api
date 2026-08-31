@@ -54,6 +54,19 @@ export const userFormSchema = z.object({
       },
       { message: 'Commission rate must be between 0 and 100' }
     ),
+  // Same string-not-number reasoning as above: empty removes the bonus, an
+  // explicit 0 is indistinguishable from empty once coerced to a number.
+  topup_bonus_percent: z
+    .string()
+    .optional()
+    .refine(
+      (v) => {
+        if (!v || v.trim() === '') return true
+        const n = Number(v)
+        return Number.isFinite(n) && n >= 0 && n <= 100
+      },
+      { message: 'Top-up bonus must be between 0 and 100' }
+    ),
   admin_permissions: z
     .record(z.string(), z.record(z.string(), z.boolean()))
     .optional(),
@@ -74,6 +87,7 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   group: DEFAULT_GROUP,
   remark: '',
   referral_commission_percent: '',
+  topup_bonus_percent: '',
   // Filled against the backend catalog at render time; see UsersMutateDrawer.
   admin_permissions: {},
 }
@@ -118,6 +132,9 @@ export function transformFormDataToPayload(
     const rate = data.referral_commission_percent?.trim()
     payload.referral_commission_percent =
       rate === undefined || rate === '' ? null : Number(rate)
+    const bonus = data.topup_bonus_percent?.trim()
+    payload.topup_bonus_percent =
+      bonus === undefined || bonus === '' ? null : Number(bonus)
     payload.id = userId
   }
 
@@ -143,6 +160,11 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
       user.referral_commission_percent === undefined
         ? ''
         : String(user.referral_commission_percent),
+    topup_bonus_percent:
+      user.topup_bonus_percent === null ||
+      user.topup_bonus_percent === undefined
+        ? ''
+        : String(user.topup_bonus_percent),
     admin_permissions: user.admin_permissions ?? {},
   }
 }

@@ -58,6 +58,8 @@ func TestRechargeFunctionsShareSettlementInvariants(t *testing.T) {
 				"money must convert through the shared helper, which rejects non-positive and out-of-range quota")
 			assert.Contains(t, body, "syncCreditUserQuotaCache",
 				"a credit that skips the cache leaves Redis under-reporting the balance the user paid for")
+			assert.Contains(t, body, "applyTopUpBonus",
+				"a settler that skips the bonus silently underpays enterprise partners on money already received")
 		})
 	}
 }

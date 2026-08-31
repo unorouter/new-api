@@ -371,8 +371,34 @@ func migrateDB() error {
 		}
 	}
 	ensureSubscriptionPlanColumn("nowpayments_plan_id", "varchar(128) DEFAULT ''")
+	ensureUserColumn("topup_bonus_percent", "decimal(5,2) NULL")
 	backfillModelStatusLastUp()
 	return nil
+}
+
+// ensureUserColumn adds a column to users if it is missing, for the same reason
+// as ensureSubscriptionPlanColumn: AutoMigrate has been observed to skip new
+// optional columns on long-lived tables, and users is the longest-lived table
+// here. Nullable with no default, so existing rows read as "unset".
+func ensureUserColumn(columnName, columnDDL string) {
+	tableName := "users"
+	if !DB.Migrator().HasTable(tableName) {
+		return
+	}
+	if DB.Migrator().HasColumn(&User{}, columnName) {
+		return
+	}
+	quote := "`"
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		quote = `"`
+	}
+	sql := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s%s%s %s",
+		tableName, quote, columnName, quote, columnDDL)
+	if err := DB.Exec(sql).Error; err != nil {
+		common.SysLog(fmt.Sprintf("failed to add %s.%s: %v", tableName, columnName, err))
+	} else {
+		common.SysLog(fmt.Sprintf("added column %s.%s", tableName, columnName))
+	}
 }
 
 // backfillModelStatusLastUp seeds the last_up_at column (added Jul 2026) from

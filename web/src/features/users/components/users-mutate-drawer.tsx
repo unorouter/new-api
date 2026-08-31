@@ -693,6 +693,34 @@ export function UsersMutateDrawer({
                     />
                   )}
 
+                  {isUpdate && (
+                    <FormField
+                      control={form.control}
+                      name='topup_bonus_percent'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Top-up bonus (%)')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type='number'
+                              min={0}
+                              max={100}
+                              step='0.01'
+                              placeholder={t('Leave empty for no bonus')}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Extra quota granted on top-up, for enterprise partners. 50 means pay $100 and receive $150. Empty or 0 gives no bonus; the maximum is 100. Does not apply to redemption codes.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+
                   <div className='flex items-start justify-between gap-3 rounded-lg border p-3 sm:items-center sm:p-4'>
                     <div className='space-y-0.5'>
                       <Label>
