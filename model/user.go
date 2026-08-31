@@ -102,6 +102,7 @@ type User struct {
 	AffHistoryQuota           int                        `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
 	InviterId                 int                        `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
 	ReferralCommissionPercent *float64                   `json:"referral_commission_percent" gorm:"type:decimal(5,2);column:referral_commission_percent"` // nil = use global default
+	TopUpBonusPercent         *float64                   `json:"topup_bonus_percent" gorm:"type:decimal(5,2);column:topup_bonus_percent"`                  // nil = no bonus; top-up only, never redemption
 	DeletedAt                 gorm.DeletedAt             `gorm:"index"`
 	LinuxDOId                 string                     `json:"linux_do_id" gorm:"column:linux_do_id;index"`
 	Setting                   string                     `json:"setting" gorm:"type:text;column:setting"`
@@ -1074,6 +1075,7 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 		// A map is used instead of struct Updates precisely so that nil writes
 		// NULL rather than being skipped.
 		"referral_commission_percent": newUser.ReferralCommissionPercent,
+		"topup_bonus_percent":         newUser.TopUpBonusPercent,
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password

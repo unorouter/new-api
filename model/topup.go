@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -77,10 +78,83 @@ func topUpQuotaMaxCurrent(creditedQuota int) (int, error) {
 	return common.MaxWalletQuota - creditedQuota, nil
 }
 
+// topUpBonusMaxPercent caps the enterprise bonus at double. A larger stored
+// value is clamped rather than rejected: the column is admin-only and a webhook
+// arrives for an order the customer has already paid, so crediting the
+// documented maximum beats failing the settlement over a typo. This is
+// deliberately unlike CreditReferralCommission, which pays nothing when its
+// rate is out of range -- that is commission owed to a third party, this is
+// money already in hand.
+const topUpBonusMaxPercent = 100.0
+
+// applyTopUpBonus grants a partner's enterprise bonus on top of a paid top-up
+// and reports the percent actually applied (0 when there is none) for the log
+// line. Reseller deals are priced as a discount on volume, and this is how that
+// discount is expressed: pay $10,000 at 25%, receive $12,500 of quota.
+//
+// MUST be called by the settlement functions and never inside
+// creditTopUpQuota: redemption codes settle through that same helper, and
+// bonusing them would double the discount on cards the partner already minted
+// from bonused balance. Callers reassign their existing quota local so the
+// out-of-transaction syncCreditUserQuotaCache sees the same number the database
+// got; a separate variable would desync the cached balance.
+//
+// Fails open. A bonus lookup must never fail a settlement for money already
+// received, so any read error credits the base amount and logs.
+func applyTopUpBonus(tx *gorm.DB, userId int, baseQuota int) (int, float64) {
+	if baseQuota <= 0 {
+		return baseQuota, 0
+	}
+	var user User
+	if err := tx.Model(&User{}).Select("topup_bonus_percent").
+		Where("id = ?", userId).First(&user).Error; err != nil {
+		common.SysLog(fmt.Sprintf("top-up bonus lookup failed for user %d, crediting base amount: %v", userId, err))
+		return baseQuota, 0
+	}
+	if user.TopUpBonusPercent == nil {
+		return baseQuota, 0
+	}
+	percent := *user.TopUpBonusPercent
+	if math.IsNaN(percent) || math.IsInf(percent, 0) || percent <= 0 {
+		return baseQuota, 0
+	}
+	if percent > topUpBonusMaxPercent {
+		common.SysLog(fmt.Sprintf("top-up bonus for user %d is %v%%, clamping to %v%%", userId, percent, topUpBonusMaxPercent))
+		percent = topUpBonusMaxPercent
+	}
+
+	bonused, err := common.WalletQuotaFromDecimalStrict(
+		decimal.NewFromInt(int64(baseQuota)).
+			Mul(decimal.NewFromFloat(1 + percent/100)),
+	)
+	// Out of range means the bonus alone would breach the wallet ceiling. Credit
+	// the base rather than nothing: the customer paid for that much.
+	if err != nil || bonused < baseQuota {
+		common.SysLog(fmt.Sprintf("top-up bonus overflowed for user %d, crediting base amount: %v", userId, err))
+		return baseQuota, 0
+	}
+	return bonused, percent
+}
+
+// topUpBonusNote renders the log suffix for a credited bonus, empty when none
+// applied. Support reads the top-up log to explain why a balance is larger than
+// the payment.
+func topUpBonusNote(percent float64) string {
+	if percent <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (includes %g%% enterprise bonus)", percent)
+}
+
 // ValidateTopUpQuotaCapacity performs the user-facing pre-payment check. The
 // settlement path repeats the same invariant with an atomic conditional
 // update, because the wallet balance can change after checkout creation.
+//
+// The bonus is applied here too, so checkout is judged on the same number
+// settlement will credit: a partner near the ceiling would otherwise pass
+// checkout, pay, and only then have settlement rejected.
 func ValidateTopUpQuotaCapacity(userId int, creditedQuota int) error {
+	creditedQuota, _ = applyTopUpBonus(DB, userId, creditedQuota)
 	maxCurrentQuota, err := topUpQuotaMaxCurrent(creditedQuota)
 	if err != nil {
 		return err
@@ -221,6 +295,7 @@ func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (
 	}
 
 	var quotaToAdd int
+	var bonusPercent float64
 	topUp := &TopUp{}
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(topUp).Error; err != nil {
@@ -246,6 +321,7 @@ func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (
 		if quotaErr != nil || quotaToAdd <= 0 {
 			return ErrInvalidTopUpQuota
 		}
+		quotaToAdd, bonusPercent = applyTopUpBonus(tx, topUp.UserId, quotaToAdd)
 		topUp.CompleteTime = common.GetTimestamp()
 		topUp.Status = common.TopUpStatusSuccess
 		if err := tx.Save(topUp).Error; err != nil {
@@ -265,7 +341,7 @@ func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (
 	syncCreditUserQuotaCache(topUp.UserId, quotaToAdd, "epay topup")
 
 	common.SysLog(fmt.Sprintf("易支付充值成功 trade_no=%s user_id=%d quota_to_add=%d money=%.2f", topUp.TradeNo, topUp.UserId, quotaToAdd, topUp.Money))
-	RecordTopupLog(topUp.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%f", logger.LogQuota(quotaToAdd), topUp.Money), callerIp, topUp.PaymentMethod, PaymentProviderEpay)
+	RecordTopupLog(topUp.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%f%s", logger.LogQuota(quotaToAdd), topUp.Money, topUpBonusNote(bonusPercent)), callerIp, topUp.PaymentMethod, PaymentProviderEpay)
 	return false, nil
 }
 
@@ -275,6 +351,7 @@ func Recharge(referenceId string, customerId string, callerIp string) (err error
 	}
 
 	var quota int
+	var bonusPercent float64
 	topUp := &TopUp{}
 
 	refCol := "`trade_no`"
@@ -309,6 +386,7 @@ func Recharge(referenceId string, customerId string, callerIp string) (err error
 		if err != nil || quota <= 0 {
 			return ErrInvalidTopUpQuota
 		}
+		quota, bonusPercent = applyTopUpBonus(tx, topUp.UserId, quota)
 		return creditTopUpQuota(tx, topUp.UserId, quota, map[string]interface{}{
 			"stripe_customer": customerId,
 		})
@@ -320,7 +398,7 @@ func Recharge(referenceId string, customerId string, callerIp string) (err error
 	}
 	syncCreditUserQuotaCache(topUp.UserId, quota, "stripe topup")
 
-	RecordTopupLog(topUp.UserId, fmt.Sprintf("online top-up successful, quota: %v, payment amount: %d", logger.FormatQuota(quota), topUp.Amount), callerIp, topUp.PaymentMethod, PaymentMethodStripe)
+	RecordTopupLog(topUp.UserId, fmt.Sprintf("online top-up successful, quota: %v, payment amount: %d%s", logger.FormatQuota(quota), topUp.Amount, topUpBonusNote(bonusPercent)), callerIp, topUp.PaymentMethod, PaymentMethodStripe)
 	common.CapturePaymentSuccess(topUp.UserId, topUp.Money, "stripe", topUp.Id)
 
 	// Credit referral commission to inviter (if enabled)
@@ -475,6 +553,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 
 	var userId int
 	var quotaToAdd int
+	var bonusPercent float64
 	var payMoney float64
 	var topUpId int
 	var paymentMethod string
@@ -516,6 +595,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 		if quotaErr != nil || quotaToAdd <= 0 {
 			return ErrInvalidTopUpQuota
 		}
+		quotaToAdd, bonusPercent = applyTopUpBonus(tx, topUp.UserId, quotaToAdd)
 
 		// 标记完成
 		topUp.CompleteTime = common.GetTimestamp()
@@ -542,7 +622,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 
 	// 事务外记录日志，避免阻塞
 	syncCreditUserQuotaCache(userId, quotaToAdd, "manual topup")
-	RecordTopupLog(userId, fmt.Sprintf("admin manual completion successful, quota: %v, payment amount: %v", logger.FormatQuota(quotaToAdd), payMoney), callerIp, paymentMethod, "admin")
+	RecordTopupLog(userId, fmt.Sprintf("admin manual completion successful, quota: %v, payment amount: %v%s", logger.FormatQuota(quotaToAdd), payMoney, topUpBonusNote(bonusPercent)), callerIp, paymentMethod, "admin")
 	common.CapturePaymentSuccess(userId, payMoney, "manual", topUpId)
 
 	// Credit referral commission to inviter (if enabled)
@@ -558,6 +638,7 @@ func RechargeCreem(referenceId string, customerEmail string, customerName string
 	}
 
 	var quota int
+	var bonusPercent float64
 	topUp := &TopUp{}
 
 	refCol := "`trade_no`"
@@ -610,6 +691,7 @@ func RechargeCreem(referenceId string, customerEmail string, customerName string
 			}
 		}
 
+		quota, bonusPercent = applyTopUpBonus(tx, topUp.UserId, quota)
 		return creditTopUpQuota(tx, topUp.UserId, quota, updateFields)
 	})
 
@@ -619,7 +701,7 @@ func RechargeCreem(referenceId string, customerEmail string, customerName string
 	}
 	syncCreditUserQuotaCache(topUp.UserId, quota, "creem topup")
 
-	RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("Creem top-up successful, quota: %v, payment amount: %.2f", quota, topUp.Money))
+	RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("Creem top-up successful, quota: %v, payment amount: %.2f%s", quota, topUp.Money, topUpBonusNote(bonusPercent)))
 	common.CapturePaymentSuccess(topUp.UserId, topUp.Money, "creem", topUp.Id)
 
 	// Credit referral commission to inviter (if enabled)
@@ -637,6 +719,7 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 	}
 
 	var quotaToAdd int
+	var bonusPercent float64
 	topUp := &TopUp{}
 
 	refCol := "`trade_no`"
@@ -675,6 +758,7 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 			return err
 		}
 
+		quotaToAdd, bonusPercent = applyTopUpBonus(tx, topUp.UserId, quotaToAdd)
 		return creditTopUpQuota(tx, topUp.UserId, quotaToAdd, nil)
 	})
 
@@ -685,7 +769,7 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 	syncCreditUserQuotaCache(topUp.UserId, quotaToAdd, "waffo topup")
 
 	if quotaToAdd > 0 {
-		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("Waffo top-up succeeded, credit added: %v, amount paid: %.2f", logger.FormatQuota(quotaToAdd), topUp.Money))
+		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("Waffo top-up succeeded, credit added: %v, amount paid: %.2f%s", logger.FormatQuota(quotaToAdd), topUp.Money, topUpBonusNote(bonusPercent)))
 		common.CapturePaymentSuccess(topUp.UserId, topUp.Money, "waffo", topUp.Id)
 	}
 
@@ -698,6 +782,7 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 	}
 
 	var quotaToAdd int
+	var bonusPercent float64
 	topUp := &TopUp{}
 
 	refCol := "`trade_no`"
@@ -736,6 +821,7 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 			return err
 		}
 
+		quotaToAdd, bonusPercent = applyTopUpBonus(tx, topUp.UserId, quotaToAdd)
 		return creditTopUpQuota(tx, topUp.UserId, quotaToAdd, nil)
 	})
 
@@ -746,7 +832,7 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 	syncCreditUserQuotaCache(topUp.UserId, quotaToAdd, "waffo pancake topup")
 
 	if quotaToAdd > 0 {
-		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("Waffo Pancake top-up succeeded, credit added: %v, amount paid: %.2f", logger.FormatQuota(quotaToAdd), topUp.Money))
+		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("Waffo Pancake top-up succeeded, credit added: %v, amount paid: %.2f%s", logger.FormatQuota(quotaToAdd), topUp.Money, topUpBonusNote(bonusPercent)))
 		common.CapturePaymentSuccess(topUp.UserId, topUp.Money, "waffo_pancake", topUp.Id)
 	}
 
@@ -759,6 +845,7 @@ func RechargeNowPayments(referenceId string, payerCurrency string, actuallyPaid 
 	}
 
 	var quota int
+	var bonusPercent float64
 	topUp := &TopUp{}
 
 	refCol := "`trade_no`"
@@ -801,6 +888,7 @@ func RechargeNowPayments(referenceId string, payerCurrency string, actuallyPaid 
 		if err != nil || quota <= 0 {
 			return ErrInvalidTopUpQuota
 		}
+		quota, bonusPercent = applyTopUpBonus(tx, topUp.UserId, quota)
 		return creditTopUpQuota(tx, topUp.UserId, quota, nil)
 	})
 
@@ -811,7 +899,7 @@ func RechargeNowPayments(referenceId string, payerCurrency string, actuallyPaid 
 
 	if quota > 0 {
 		syncCreditUserQuotaCache(topUp.UserId, quota, "nowpayments topup")
-		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("NowPayments top-up success, quota: %v, amount: %v, currency: %v, paid: %v", logger.FormatQuota(quota), topUp.Money, payerCurrency, actuallyPaid))
+		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("NowPayments top-up success, quota: %v, amount: %v, currency: %v, paid: %v%s", logger.FormatQuota(quota), topUp.Money, payerCurrency, actuallyPaid, topUpBonusNote(bonusPercent)))
 		common.CapturePaymentSuccess(topUp.UserId, topUp.Money, "nowpayments", topUp.Id)
 	}
 
@@ -828,6 +916,7 @@ func RechargeDeloPay(referenceId string, connector string) (err error) {
 	}
 
 	var quota int
+	var bonusPercent float64
 	topUp := &TopUp{}
 
 	refCol := "`trade_no`"
@@ -870,6 +959,7 @@ func RechargeDeloPay(referenceId string, connector string) (err error) {
 		if err != nil || quota <= 0 {
 			return ErrInvalidTopUpQuota
 		}
+		quota, bonusPercent = applyTopUpBonus(tx, topUp.UserId, quota)
 		return creditTopUpQuota(tx, topUp.UserId, quota, nil)
 	})
 
@@ -880,7 +970,7 @@ func RechargeDeloPay(referenceId string, connector string) (err error) {
 
 	if quota > 0 {
 		syncCreditUserQuotaCache(topUp.UserId, quota, "delopay topup")
-		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("DeloPay top-up success, quota: %v, amount: %v, connector: %v", logger.FormatQuota(quota), topUp.Money, connector))
+		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("DeloPay top-up success, quota: %v, amount: %v, connector: %v%s", logger.FormatQuota(quota), topUp.Money, connector, topUpBonusNote(bonusPercent)))
 		common.CapturePaymentSuccess(topUp.UserId, topUp.Money, "delopay", topUp.Id)
 	}
 

@@ -60,6 +60,7 @@ export const userSchema = z.object({
   DeletedAt: z.any().nullable().optional(),
   remark: z.string().optional(),
   referral_commission_percent: z.number().nullable().optional(),
+  topup_bonus_percent: z.number().nullable().optional(),
   setting: z.string().optional(),
   admin_permissions: z
     .record(z.string(), z.record(z.string(), z.boolean()))
@@ -128,6 +129,7 @@ export interface UserFormData {
   group?: string // Only used when updating user
   remark?: string // Only used when updating user
   referral_commission_percent?: number | null // null restores the global rate
+  topup_bonus_percent?: number | null // null removes the enterprise bonus
   admin_permissions?: AdminPermissionMatrix
 }
 
