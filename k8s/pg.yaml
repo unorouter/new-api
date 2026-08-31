@@ -121,13 +121,24 @@ spec:
     roles:
       - name: reader
         login: true
-        # pg_read_all_data browses all tables, but secret option VALUES stay hidden by an RLS
-        # policy on `options` (masking.sql) that it does NOT bypass. reader must NEVER get
-        # BYPASSRLS -- that would defeat the masking.
+        # inRoles is deliberately EMPTY. This role previously held pg_read_all_data on the
+        # theory that an RLS policy on `options` was enough to hide secrets. It was not:
+        # pg_read_all_data also reads users.password, users.access_token, tokens.key and
+        # the TOTP seeds in two_fas, none of which RLS covers. Measured on 2026-08-27 that
+        # was 3,908 access tokens, 27,962 API keys, 17,273 password hashes and 43 TOTP
+        # seeds readable by a GitHub readonly-team member through Teleport, with no trace
+        # in the application logs.
+        #
+        # The replacement is databases/reader-least-privilege.sql in the infra repo, which
+        # grants column-scoped SELECT and withholds every secret column. That script must
+        # be re-applied after any bootstrap that recreates the database.
+        #
+        # CNPG reconciles this block continuously, so re-adding pg_read_all_data here
+        # silently re-grants it cluster-wide within a minute. A manual REVOKE cannot hold
+        # against it: one was applied on 2026-08-27 and was gone by 2026-08-31.
         passwordSecret:
           name: newapi-pg-reader
-        inRoles:
-          - pg_read_all_data
+        inRoles: []
 
   # Teleport DB access: reader authenticates with a Teleport-signed client cert (CN=reader).
   # clientCASecret ca.crt = own 10y CA (first, holds ca.key -> operator signs streaming_replica
