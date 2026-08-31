@@ -41,6 +41,9 @@ var auditContentTemplates = map[string]string{
 	"partner.redemption_void":   "Voided gift card ${id} and refunded ${refunded}",
 	"partner.grant":             "Granted ${quota} to user ${recipient_id} from own balance",
 
+	"user.password_change": "Changed the account password",
+	"user.aff_transfer":    "Transferred ${quota} of affiliate commission to balance",
+
 	"user.email_bind":   "Bound email ${to} to the account (was ${from})",
 	"user.oauth_bind":   "Bound ${provider} identity ${provider_user_id} to the account",
 	"user.oauth_unbind": "Removed the ${provider} identity binding",
