@@ -278,6 +278,15 @@ func fulfillOrder(ctx context.Context, event stripe.Event, referenceId string, c
 		return
 	}
 
+	// Same reason as the Creem path: without this the stuck-top-up alert cannot
+	// tell a paid order that never settled from a checkout nobody completed.
+	// Recorded before settling so a failure below still leaves the evidence.
+	if paid, parseErr := strconv.ParseFloat(event.GetObjectValue("amount_total"), 64); parseErr == nil && paid > 0 {
+		if err := model.SetTopUpPaidAmount(referenceId, paid/100); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("Stripe failed to record paid amount trade_no=%s amount_total=%.2f error=%q", referenceId, paid/100, err.Error()))
+		}
+	}
+
 	err := model.Recharge(referenceId, customerId, callerIp)
 	if err != nil {
 		logger.LogError(ctx, fmt.Sprintf("Stripe topup processing failed trade_no=%s event_type=%s client_ip=%s error=%q", referenceId, string(event.Type), callerIp, err.Error()))

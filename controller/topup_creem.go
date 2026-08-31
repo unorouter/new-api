@@ -491,6 +491,18 @@ func handleCheckoutCompleted(c *gin.Context, event *dto.CreemWebhookEvent) {
 		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem callback customer name is empty trade_no=%s creem_order_id=%s", referenceId, event.Object.Order.Id))
 	}
 
+	// Record what actually landed BEFORE settling, mirroring the NowPayments
+	// path. Creem is the bulk of our volume, and it never wrote this, so the
+	// stuck-top-up alert (status pending AND paid_amount > 0) could not see the
+	// provider that matters: 134 of 135 successful Creem top-ups in a week had
+	// paid_amount = 0. Written first so a settlement that fails below still
+	// leaves the evidence that the customer paid.
+	if event.Object.Order.AmountPaid > 0 {
+		if err := model.SetTopUpPaidAmount(referenceId, float64(event.Object.Order.AmountPaid)/100); err != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Creem failed to record paid amount trade_no=%s amount_paid=%d error=%q", referenceId, event.Object.Order.AmountPaid, err.Error()))
+		}
+	}
+
 	err := model.RechargeCreem(referenceId, customerEmail, customerName)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem topup processing failed trade_no=%s creem_order_id=%s client_ip=%s error=%q", referenceId, event.Object.Order.Id, c.ClientIP(), err.Error()))
