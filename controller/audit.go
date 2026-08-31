@@ -37,6 +37,10 @@ var auditContentTemplates = map[string]string{
 	"token.delete":         "Deleted API key ${name} (ID: ${id})",
 	"token.delete_batch":   "Deleted ${count} API keys in bulk",
 
+	"partner.redemption_create": "Minted a gift card ${name} worth ${quota} from own balance",
+	"partner.redemption_void":   "Voided gift card ${id} and refunded ${refunded}",
+	"partner.grant":             "Granted ${quota} to user ${recipient_id} from own balance",
+
 	"user.email_bind":   "Bound email ${to} to the account (was ${from})",
 	"user.oauth_bind":   "Bound ${provider} identity ${provider_user_id} to the account",
 	"user.oauth_unbind": "Removed the ${provider} identity binding",

@@ -74,6 +74,14 @@ func PartnerCreateRedemption(c fuego.ContextWithBody[dto.PartnerRedemptionReques
 		}
 		return dto.Fail[dto.PartnerRedemptionData](err.Error())
 	}
+	// Minting converts balance into a bearer code, so a stolen PAT can drain an
+	// account into codes it controls. The audit records auth_method and IP,
+	// which is what separates a stolen token from the real partner. The key
+	// itself is never logged: it spends like cash.
+	recordUserSecurityAudit(ginCtx, userId, "partner.redemption_create", map[string]interface{}{
+		"name":  req.Name,
+		"quota": req.Quota,
+	})
 	return dto.Ok(dto.PartnerRedemptionData{Key: key, Quota: req.Quota})
 }
 
@@ -111,6 +119,10 @@ func PartnerVoidRedemption(c fuego.ContextNoBody) (*dto.Response[dto.PartnerVoid
 		}
 		return dto.Fail[dto.PartnerVoidData](err.Error())
 	}
+	recordUserSecurityAudit(dto.GinCtx(c), userId, "partner.redemption_void", map[string]interface{}{
+		"id":       id,
+		"refunded": refunded,
+	})
 	return dto.Ok(dto.PartnerVoidData{Refunded: refunded})
 }
 
@@ -152,6 +164,14 @@ func PartnerGrantQuota(c fuego.ContextWithBody[dto.PartnerGrantRequest]) (*dto.R
 	// arrived, mirroring TransferDiscordQuota.
 	model.RecordLog(userId, model.LogTypeManage, "Granted "+logger.LogQuota(req.Quota)+" to user "+strconv.Itoa(req.UserId))
 	model.RecordLog(req.UserId, model.LogTypeTopup, "Received "+logger.LogQuota(req.Quota)+" from a partner account")
+
+	// The irreversible one: balance leaves for an account the caller names, and
+	// nothing here can claw it back. The RecordLog rows above are the partner's
+	// own statement; this records WHO authorised it and from where.
+	recordUserSecurityAudit(dto.GinCtx(c), userId, "partner.grant", map[string]interface{}{
+		"recipient_id": req.UserId,
+		"quota":        req.Quota,
+	})
 
 	return dto.Ok(dto.PartnerGrantData{Granted: req.Quota, BalanceAfter: balanceAfter})
 }
