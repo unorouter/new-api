@@ -143,6 +143,31 @@ func coarsenBucketToCap(bucketSec int64, windowSec int64) int64 {
 // serving visibly stale bars. Keyed by (compact, bucket, hours).
 const statusPageCacheTTL = time.Minute
 
+// A uniform 1min TTL was right when every window was cheap, and wrong once the
+// set grew to include 720h. A day-bucketed 30-day view cannot change visibly in
+// a minute -- its newest bucket covers today and moves once per day -- yet it was
+// rebuilt at the same cadence as the 1h/1m view, and that build alone measures
+// ~30s against 4.5M ping rows. Five windows on a 45s timer across three pods was
+// the single largest standing load on the database, and it saturated node1 on
+// 2026-08-31.
+//
+// The TTL now scales with the bucket: a window is refreshed on the order of the
+// resolution it actually shows, so the 1m view stays a minute fresh while the 1d
+// view is allowed to be an hour stale. Staleness is bounded by bucket size in
+// every case, which is the only freshness a reader of that chart can perceive.
+func statusPageTTLFor(bucketSec int64) time.Duration {
+	switch {
+	case bucketSec >= 24*60*60: // 1d buckets: 30-day view
+		return time.Hour
+	case bucketSec >= 60*60: // 1h buckets: 7-day view
+		return 15 * time.Minute
+	case bucketSec >= 15*60: // 15m buckets: 24h view
+		return 5 * time.Minute
+	default: // 1m/5m buckets: the live views
+		return statusPageCacheTTL
+	}
+}
+
 type statusPageCacheEntry struct {
 	payload   any
 	expiresAt time.Time
@@ -176,6 +201,10 @@ func statusPageCacheGet(key string) (any, bool) {
 }
 
 func statusPageCacheSet(key string, payload any) {
+	statusPageCacheSetTTL(key, payload, statusPageCacheTTL)
+}
+
+func statusPageCacheSetTTL(key string, payload any, ttl time.Duration) {
 	statusPageCacheMu.Lock()
 	defer statusPageCacheMu.Unlock()
 	// Expired entries have to be dropped, not just ignored on read. The route is
@@ -191,7 +220,7 @@ func statusPageCacheSet(key string, payload any) {
 	}
 	statusPageCache[key] = statusPageCacheEntry{
 		payload:   payload,
-		expiresAt: now.Add(statusPageCacheTTL),
+		expiresAt: now.Add(ttl),
 	}
 }
 
@@ -580,24 +609,43 @@ func GetModelStatusPageCompact(c fuego.ContextWithParams[dto.GetModelStatusPageP
 // per-process. Gating this on IsMasterNode would leave the two slaves cold and
 // defeat the point.
 func WarmStatusPageCache() {
-	warm := func() {
-		for _, w := range statusPageWarmWindows {
-			bucketSec := coarsenBucketToCap(resolveBucketSeconds(w.bucket), int64(w.hours)*60*60)
-			key := fmt.Sprintf("compact|%d|%d", bucketSec, w.hours)
-			// Through singleflight so a warm tick and a live request that race
-			// share one build rather than doubling the work they exist to avoid.
-			if _, err, _ := statusPageGroup.Do(key, func() (any, error) {
-				return buildCompactPage(bucketSec, w.hours, key)
-			}); err != nil {
-				common.SysLog("status page warm failed for " + key + ": " + err.Error())
-			}
+	warmOne := func(w struct {
+		bucket string
+		hours  int
+	}) {
+		bucketSec := coarsenBucketToCap(resolveBucketSeconds(w.bucket), int64(w.hours)*60*60)
+		key := fmt.Sprintf("compact|%d|%d", bucketSec, w.hours)
+		// Through singleflight so a warm tick and a live request that race
+		// share one build rather than doubling the work they exist to avoid.
+		if _, err, _ := statusPageGroup.Do(key, func() (any, error) {
+			return buildCompactPage(bucketSec, w.hours, key)
+		}); err != nil {
+			common.SysLog("status page warm failed for " + key + ": " + err.Error())
 		}
 	}
-	warm()
-	ticker := time.NewTicker(statusPageWarmInterval)
-	for range ticker.C {
-		warm()
+
+	// Each window gets its own ticker at its own TTL rather than one 45s tick
+	// rebuilding all five. Warming the 30-day view every 45 seconds meant a ~30s
+	// build was restarted before the previous one had usefully aged, on three
+	// pods at once, which is what saturated node1 on 2026-08-31.
+	for _, w := range statusPageWarmWindows {
+		w := w
+		bucketSec := coarsenBucketToCap(resolveBucketSeconds(w.bucket), int64(w.hours)*60*60)
+		// Refresh ahead of the entry's own expiry so it is replaced before it
+		// lapses and a request never lands on a gap.
+		interval := statusPageTTLFor(bucketSec) - 15*time.Second
+		if interval < statusPageWarmInterval {
+			interval = statusPageWarmInterval
+		}
+		go func() {
+			warmOne(w)
+			ticker := time.NewTicker(interval)
+			for range ticker.C {
+				warmOne(w)
+			}
+		}()
 	}
+	select {}
 }
 
 // Refresh ahead of statusPageCacheTTL so an entry is replaced before it expires
@@ -725,7 +773,7 @@ func buildCompactPage(bucketSec int64, hours int, cacheKey string) (CompactPageD
 		page.Incidents = append(page.Incidents, incidentToEvent(inc))
 	}
 
-	statusPageCacheSet(cacheKey, page)
+	statusPageCacheSetTTL(cacheKey, page, statusPageTTLFor(bucketSec))
 	return page, nil
 }
 
