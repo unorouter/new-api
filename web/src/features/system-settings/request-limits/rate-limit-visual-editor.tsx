@@ -59,7 +59,8 @@ export function RateLimitVisualEditor({
       .map(([groupName, limits]) => {
         if (
           Array.isArray(limits) &&
-          limits.length === 2 &&
+          limits.length >= 2 &&
+          limits.length <= 3 &&
           typeof limits[0] === 'number' &&
           typeof limits[1] === 'number'
         ) {
@@ -67,6 +68,10 @@ export function RateLimitVisualEditor({
             groupName,
             maxRequests: limits[0],
             maxSuccess: limits[1],
+            windowMinutes:
+              limits.length === 3 && typeof limits[2] === 'number'
+                ? limits[2]
+                : 0,
           }
         }
         return null
@@ -93,7 +98,9 @@ export function RateLimitVisualEditor({
       delete parsed[editData.groupName]
     }
 
-    parsed[data.groupName] = [data.maxRequests, data.maxSuccess]
+    parsed[data.groupName] = data.windowMinutes
+      ? [data.maxRequests, data.maxSuccess, data.windowMinutes]
+      : [data.maxRequests, data.maxSuccess]
 
     onChange(JSON.stringify(parsed, null, 2))
   }

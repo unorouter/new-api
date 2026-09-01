@@ -2,16 +2,16 @@ package controller
 
 import (
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,33 +53,39 @@ func setupTokenAutoGroupsControllerTest(t *testing.T) *model.User {
 	return user
 }
 
-func baseAutoTokenRequest(name string) map[string]any {
-	return map[string]any{
-		"name":              name,
-		"expired_time":      -1,
-		"remain_quota":      0,
-		"unlimited_quota":   true,
-		"group":             "auto",
-		"cross_group_retry": true,
+func baseAutoTokenRequest(name string) dto.CreateTokenRequest {
+	return dto.CreateTokenRequest{
+		Name:            name,
+		ExpiredTime:     -1,
+		RemainQuota:     0,
+		UnlimitedQuota:  true,
+		Group:           "auto",
+		CrossGroupRetry: true,
 	}
 }
 
-func newTokenAutoGroupsAuthenticatedContext(t *testing.T, method string, target string, body any, userID int) (*gin.Context, *httptest.ResponseRecorder) {
-	t.Helper()
-	ctx, recorder := newAuthenticatedContext(t, method, target, body, userID)
+// newTokenAutoGroupsGinContext builds the gin context prod's fuego handlers reach
+// through dto.GinCtx for the authenticated user id and group.
+func newTokenAutoGroupsGinContext(userID int) *gin.Context {
+	ctx, _ := gin.CreateTestContext(nil)
+	ctx.Set("id", userID)
 	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
-	return ctx, recorder
+	return ctx
+}
+
+func newAutoGroupsAddContext(userID int, body dto.CreateTokenRequest) *fuego.MockContext[dto.CreateTokenRequest, any] {
+	ctx := fuego.NewMockContext[dto.CreateTokenRequest, any](body, nil)
+	ctx.CommonCtx = newTokenAutoGroupsGinContext(userID)
+	return ctx
 }
 
 func TestAddTokenEmptyAutoGroupsInheritGlobalAuto(t *testing.T) {
 	tests := []struct {
-		name         string
-		includeField bool
-		value        any
+		name  string
+		value *[]string
 	}{
-		{name: "omitted"},
-		{name: "null", includeField: true, value: nil},
-		{name: "empty array", includeField: true, value: []string{}},
+		{name: "omitted", value: nil},
+		{name: "empty array", value: &[]string{}},
 	}
 
 	for _, test := range tests {
@@ -87,19 +93,17 @@ func TestAddTokenEmptyAutoGroupsInheritGlobalAuto(t *testing.T) {
 			configureTokenAutoGroupsTest(t, "5", `["default","vip"]`)
 			user := setupTokenAutoGroupsControllerTest(t)
 			request := baseAutoTokenRequest("create-" + test.name)
-			if test.includeField {
-				request["auto_groups"] = test.value
-			}
+			request.AutoGroups = test.value
 
-			ctx, recorder := newTokenAutoGroupsAuthenticatedContext(t, http.MethodPost, "/api/token/", request, user.Id)
-			AddToken(ctx)
-
-			response := decodeAPIResponse(t, recorder)
+			response, err := AddToken(newAutoGroupsAddContext(user.Id, request))
+			require.NoError(t, err)
 			require.True(t, response.Success, response.Message)
+
 			var token model.Token
-			require.NoError(t, model.DB.Where("name = ?", request["name"]).First(&token).Error)
+			require.NoError(t, model.DB.Where("name = ?", request.Name).First(&token).Error)
 			assert.Empty(t, token.AutoGroups)
 			assert.True(t, token.CrossGroupRetry)
+
 			payload, err := common.Marshal(buildMaskedTokenResponse(&token))
 			require.NoError(t, err)
 			var responseData map[string]any
@@ -113,41 +117,36 @@ func TestAddTokenPersistsOrderedAutoGroupsSnapshot(t *testing.T) {
 	configureTokenAutoGroupsTest(t, "5", `["default","vip"]`)
 	user := setupTokenAutoGroupsControllerTest(t)
 	request := baseAutoTokenRequest("ordered-snapshot")
-	request["auto_groups"] = []string{"vip", "default"}
+	request.AutoGroups = &[]string{"vip", "default"}
 
-	ctx, recorder := newTokenAutoGroupsAuthenticatedContext(t, http.MethodPost, "/api/token/", request, user.Id)
-	AddToken(ctx)
-	require.True(t, decodeAPIResponse(t, recorder).Success)
+	response, err := AddToken(newAutoGroupsAddContext(user.Id, request))
+	require.NoError(t, err)
+	require.True(t, response.Success, response.Message)
 
 	var token model.Token
 	require.NoError(t, model.DB.Where("name = ?", "ordered-snapshot").First(&token).Error)
 	assert.JSONEq(t, `["vip","default"]`, token.AutoGroups)
 
-	getCtx, getRecorder := newTokenAutoGroupsAuthenticatedContext(t, http.MethodGet, "/api/token/"+stringInt(token.Id), nil, user.Id)
-	getCtx.Params = append(getCtx.Params, gin.Param{Key: "id", Value: stringInt(token.Id)})
-	GetToken(getCtx)
-	getResponse := decodeAPIResponse(t, getRecorder)
-	require.True(t, getResponse.Success)
-	var data struct {
-		AutoGroups []string `json:"auto_groups"`
-	}
-	require.NoError(t, common.Unmarshal(getResponse.Data, &data))
-	assert.Equal(t, []string{"vip", "default"}, data.AutoGroups)
+	getCtx := fuego.NewMockContext[any, any](nil, nil)
+	getCtx.CommonCtx = newTokenAutoGroupsGinContext(user.Id)
+	getCtx.PathParams = map[string]string{"id": stringInt(token.Id)}
+	getResponse, err := GetToken(getCtx)
+	require.NoError(t, err)
+	require.True(t, getResponse.Success, getResponse.Message)
+	assert.Equal(t, []string{"vip", "default"}, getResponse.Data.AutoGroups)
 }
 
 func TestUpdateTokenAutoGroupsTriStateAndNonAutoCleanup(t *testing.T) {
 	tests := []struct {
 		name               string
-		includeField       bool
-		value              any
+		value              *[]string
 		group              string
 		expectedAutoGroups string
 		expectedRetry      bool
 	}{
 		{name: "omitted preserves", group: "auto", expectedAutoGroups: `["vip","default"]`, expectedRetry: true},
-		{name: "null inherits", includeField: true, value: nil, group: "auto", expectedRetry: true},
-		{name: "empty inherits", includeField: true, value: []string{}, group: "auto", expectedRetry: true},
-		{name: "non auto clears and disables retry", includeField: true, value: []string{"vip"}, group: "default"},
+		{name: "empty inherits", value: &[]string{}, group: "auto", expectedRetry: true},
+		{name: "non auto clears and disables retry", value: &[]string{"vip"}, group: "default"},
 	}
 
 	for _, test := range tests {
@@ -160,16 +159,21 @@ func TestUpdateTokenAutoGroupsTriStateAndNonAutoCleanup(t *testing.T) {
 			require.NoError(t, token.SetAutoGroups([]string{"vip", "default"}))
 			require.NoError(t, model.DB.Save(token).Error)
 
-			request := baseAutoTokenRequest("updated-auto")
-			request["id"] = token.Id
-			request["status"] = common.TokenStatusEnabled
-			request["group"] = test.group
-			if test.includeField {
-				request["auto_groups"] = test.value
+			request := dto.UpdateTokenRequest{
+				Id:              token.Id,
+				Status:          common.TokenStatusEnabled,
+				Name:            "updated-auto",
+				ExpiredTime:     -1,
+				UnlimitedQuota:  true,
+				Group:           test.group,
+				CrossGroupRetry: true,
+				AutoGroups:      test.value,
 			}
-			ctx, recorder := newTokenAutoGroupsAuthenticatedContext(t, http.MethodPut, "/api/token/", request, user.Id)
-			UpdateToken(ctx)
-			response := decodeAPIResponse(t, recorder)
+
+			ctx := fuego.NewMockContext[dto.UpdateTokenRequest, dto.StatusOnlyParams](request, dto.StatusOnlyParams{})
+			ctx.CommonCtx = newTokenAutoGroupsGinContext(user.Id)
+			response, err := UpdateToken(ctx)
+			require.NoError(t, err)
 			require.True(t, response.Success, response.Message)
 
 			var updated model.Token
@@ -201,13 +205,12 @@ func TestAddTokenRejectsInvalidAutoGroups(t *testing.T) {
 			configureTokenAutoGroupsTest(t, test.maxCount, `["default","vip"]`)
 			user := setupTokenAutoGroupsControllerTest(t)
 			request := baseAutoTokenRequest("invalid-" + test.name)
-			request["auto_groups"] = test.groups
+			request.AutoGroups = &test.groups
 
-			ctx, recorder := newTokenAutoGroupsAuthenticatedContext(t, http.MethodPost, "/api/token/", request, user.Id)
-			AddToken(ctx)
-
-			response := decodeAPIResponse(t, recorder)
+			response, err := AddToken(newAutoGroupsAddContext(user.Id, request))
+			require.NoError(t, err)
 			assert.False(t, response.Success)
+
 			var count int64
 			require.NoError(t, model.DB.Model(&model.Token{}).Count(&count).Error)
 			assert.Zero(t, count)
@@ -219,16 +222,11 @@ func TestGetTokenAutoGroupsReturnsFullFilteredGlobalOrderAndLimit(t *testing.T) 
 	configureTokenAutoGroupsTest(t, "1", `["vip","missing","default"]`)
 	user := setupTokenAutoGroupsControllerTest(t)
 
-	ctx, recorder := newTokenAutoGroupsAuthenticatedContext(t, http.MethodGet, "/api/token/auto-groups", nil, user.Id)
-	GetTokenAutoGroups(ctx)
-
-	response := decodeAPIResponse(t, recorder)
+	ctx := fuego.NewMockContext[any, any](nil, nil)
+	ctx.CommonCtx = newTokenAutoGroupsGinContext(user.Id)
+	response, err := GetTokenAutoGroups(ctx)
+	require.NoError(t, err)
 	require.True(t, response.Success, response.Message)
-	var data struct {
-		Groups   []string `json:"groups"`
-		MaxCount int      `json:"max_count"`
-	}
-	require.NoError(t, common.Unmarshal(response.Data, &data))
-	assert.Equal(t, []string{"vip", "default"}, data.Groups)
-	assert.Equal(t, 1, data.MaxCount)
+	assert.Equal(t, []string{"vip", "default"}, response.Data.Groups)
+	assert.Equal(t, 1, response.Data.MaxCount)
 }

@@ -1,0 +1,149 @@
+package openai
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/QuantumNous/new-api/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// openAIResponseHasOutput gates the live empty-response auto-disable. These cases
+// are real upstream shapes captured from Bailian/OpenAI so a normal reply is never
+// misread as empty, and a genuinely empty reply is.
+func TestOpenAIResponseHasOutput(t *testing.T) {
+	parse := func(body string) *dto.OpenAITextResponse {
+		var r dto.OpenAITextResponse
+		require.NoError(t, common.Unmarshal([]byte(body), &r))
+		return &r
+	}
+
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{
+			"plain content",
+			`{"choices":[{"index":0,"message":{"role":"assistant","content":"Hello! How can I"},"finish_reason":"length"}]}`,
+			true,
+		},
+		{
+			// Completed thinking turn where reasoning IS the answer (Qwen-style):
+			// finish_reason=stop, so reasoning-only counts as real output.
+			"reasoning only, completed (qwen thinking)",
+			`{"choices":[{"index":0,"message":{"role":"assistant","content":"","reasoning_content":"Thinking..."},"finish_reason":"stop"}]}`,
+			true,
+		},
+		{
+			// Ran out of budget mid-reasoning, never produced an answer (GLM with
+			// thinking left on): finish_reason=length + empty content = blank to
+			// the user, so this is empty and must auto-disable.
+			"reasoning only, truncated (glm thinking budget exhausted)",
+			`{"choices":[{"index":0,"message":{"role":"assistant","content":"","reasoning_content":"Analyzing the request..."},"finish_reason":"length"}]}`,
+			false,
+		},
+		{
+			"tool call only",
+			`{"choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"f","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`,
+			true,
+		},
+		{
+			"no choices (dead channel / quota wall)",
+			`{"id":"x","object":"chat.completion","choices":[],"usage":{"prompt_tokens":9,"total_tokens":9}}`,
+			false,
+		},
+		{
+			"choice with blank content, no reasoning, no tools",
+			`{"choices":[{"index":0,"message":{"role":"assistant","content":""},"finish_reason":"stop"}]}`,
+			false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, openAIResponseHasOutput(parse(tc.body)))
+		})
+	}
+}
+
+// streamHadOutput is the streaming twin of the above. It exists because
+// responseTextBuilder also accumulates reasoning (it feeds billing), so the old
+// builder-emptiness test could only ever catch a totally silent upstream and was
+// blind to a stream that spent its whole budget on reasoning_content.
+func TestStreamHadOutput(t *testing.T) {
+	// Each case is the sequence of SSE data chunks an upstream sent.
+	cases := []struct {
+		name      string
+		chunks    []string
+		want      bool
+		wantBuilt string // responseTextBuilder must keep feeding billing unchanged
+	}{
+		{
+			"plain content",
+			[]string{`{"choices":[{"index":0,"delta":{"content":"Hello"}}]}`,
+				`{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`},
+			true, "Hello",
+		},
+		{
+			// Qwen-style: reasoning IS the answer and the turn completed cleanly.
+			"reasoning only, finish_reason=stop",
+			[]string{`{"choices":[{"index":0,"delta":{"reasoning_content":"Thinking..."}}]}`,
+				`{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`},
+			true, "Thinking...",
+		},
+		{
+			// GLM burned the budget on reasoning and never answered.
+			"reasoning only, finish_reason=length",
+			[]string{`{"choices":[{"index":0,"delta":{"reasoning_content":"Analyzing..."}}]}`,
+				`{"choices":[{"index":0,"delta":{},"finish_reason":"length"}]}`},
+			false, "Analyzing...",
+		},
+		{
+			// The upstream stopped mid-reasoning and never sent a finish_reason at
+			// all. Blank to the reader, so empty - absent is not "stop".
+			"reasoning only, no finish_reason",
+			[]string{`{"choices":[{"index":0,"delta":{"reasoning_content":"Analyzing..."}}]}`},
+			false, "Analyzing...",
+		},
+		{
+			// The regression this fix targets: reasoning, then a single stray
+			// character of content. Whitespace-only content is not an answer.
+			"reasoning then whitespace-only content",
+			[]string{`{"choices":[{"index":0,"delta":{"reasoning_content":"Analyzing..."}}]}`,
+				`{"choices":[{"index":0,"delta":{"content":"\n"}}]}`},
+			false, "Analyzing...\n",
+		},
+		{
+			"tool call only",
+			[]string{`{"choices":[{"index":0,"delta":{"tool_calls":[{"id":"c1","type":"function","function":{"name":"f","arguments":"{}"}}]}}]}`},
+			true, "f{}",
+		},
+		{
+			"no usable data at all (silent upstream)",
+			[]string{`{"choices":[{"index":0,"delta":{}}]}`},
+			false, "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var builder strings.Builder
+			var stats StreamOutputStats
+			var toolCount int
+			for _, chunk := range tc.chunks {
+				require.NoError(t, processTokenData(
+					relayconstant.RelayModeChatCompletions, chunk, &builder, &toolCount, &stats))
+			}
+
+			assert.Equal(t, tc.want, streamHadOutput(&stats, toolCount))
+			// Billing invariant: reasoning must still reach the builder, which is
+			// what ResponseText2Usage bills when the upstream sends no usage block.
+			// Dropping it here would silently under-bill every reasoning model.
+			assert.Equal(t, tc.wantBuilt, builder.String())
+		})
+	}
+}

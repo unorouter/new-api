@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/base64"
 	"fmt"
+	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -48,6 +50,95 @@ func attachQuotaSaturation(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, o
 	attachQuotaSaturationToOther(other, clamp)
 	logger.LogWarn(ctx, fmt.Sprintf("quota saturation on consume log: op=%s kind=%s original=%g clamped=%d user=%d model=%s",
 		clamp.Op, clamp.Kind, clamp.Original, clamp.Clamped, relayInfo.UserId, relayInfo.GetBillingModelName()))
+}
+
+// AppendClientAttribution records which tool made the request. Clients identify
+// themselves with the headers OpenRouter established (HTTP-Referer + X-Title),
+// which is why agents and harnesses already send them; a plain User-Agent is the
+// fallback for everything else. All of it is self-reported and trivially
+// spoofed, so this is usage attribution, never authorization.
+//
+// Origin is the exception worth capturing separately: a browser-hosted frontend
+// calling this gateway cross-origin MUST send it, page script cannot forge or
+// suppress it (forbidden header name), and it names the platform even though
+// every such client sends a plain browser User-Agent that names nothing. It is
+// absent on native and server-side callers, which identify via User-Agent.
+func AppendClientAttribution(ctx *gin.Context, other map[string]interface{}) {
+	if other == nil || ctx == nil || ctx.Request == nil {
+		return
+	}
+	h := ctx.Request.Header
+	logAllClientHeaders(ctx, h)
+	// X-OpenRouter-Title is the newer alias; a client may send either.
+	title := firstNonEmptyHeader(h, "X-Title", "X-OpenRouter-Title")
+	referer := firstNonEmptyHeader(h, "HTTP-Referer", "Referer")
+	ua := ctx.Request.UserAgent()
+	if title != "" {
+		other["client_title"] = truncateAttribution(title)
+	}
+	if referer != "" {
+		other["client_referer"] = truncateAttribution(referer)
+	}
+	if ua != "" {
+		other["client_user_agent"] = truncateAttribution(ua)
+	}
+	// Normalized (lowercased host, default port dropped) so the same platform
+	// groups as one value instead of several spellings.
+	if origin, err := common.NormalizeOrigin(h.Get("Origin")); err == nil {
+		other["client_origin"] = truncateAttribution(origin)
+	}
+}
+
+// secretHeaders carry credentials or session material. Their VALUES are never
+// logged; everything else is logged verbatim so nothing is missed by an
+// allowlist nobody thought to extend.
+var secretHeaders = map[string]bool{
+	"Authorization": true, "X-Api-Key": true, "X-Goog-Api-Key": true,
+	"Cookie": true, "Set-Cookie": true, "Proxy-Authorization": true,
+	"Api-Key": true, "X-Auth-Token": true, "Mj-Api-Secret": true,
+	"X-Session-Token": true, "Session_id": true,
+}
+
+// logAllClientHeaders dumps every inbound header so client-identifying ones can
+// be found from real traffic rather than guessed at. Credential values are
+// replaced with their length; nothing else is filtered, because the point is to
+// see what is actually there. Behind an env flag and meant to be removed.
+func logAllClientHeaders(ctx *gin.Context, h http.Header) {
+	if common.GetEnvOrDefaultString("LOG_ALL_CLIENT_HEADERS", "") != "true" {
+		return
+	}
+	parts := make([]string, 0, len(h))
+	for name, values := range h {
+		canonical := http.CanonicalHeaderKey(name)
+		value := strings.Join(values, "|")
+		if secretHeaders[canonical] {
+			value = fmt.Sprintf("<redacted %d chars>", len(value))
+		} else if len(value) > 200 {
+			value = value[:200] + "..."
+		}
+		parts = append(parts, canonical+"="+value)
+	}
+	sort.Strings(parts)
+	logger.LogInfo(ctx, "allhdr "+strings.Join(parts, " ~ "))
+}
+
+func firstNonEmptyHeader(h http.Header, names ...string) string {
+	for _, name := range names {
+		if v := strings.TrimSpace(h.Get(name)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// Bounded because these are attacker-controlled strings landing in every row of
+// the largest table in the database.
+func truncateAttribution(v string) string {
+	const max = 128
+	if len(v) > max {
+		return v[:max]
+	}
+	return v
 }
 
 func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
@@ -119,6 +210,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
+	AppendClientAttribution(ctx, other)
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
 	appendBillingInfo(relayInfo, other)

@@ -156,9 +156,9 @@ export async function updateChannelStatus(
   id: number,
   status: number
 ): Promise<{ success: boolean; message?: string; data?: boolean }> {
-  const res = await api.post(
-    `/api/channel/${id}/status`,
-    { status },
+  const res = await api.put(
+    '/api/channel/',
+    { id, status },
     channelActionConfig()
   )
   return res.data
@@ -171,12 +171,18 @@ export async function batchUpdateChannelStatus(
   ids: number[],
   status: number
 ): Promise<{ success: boolean; message?: string; data?: number }> {
-  const res = await api.post(
-    '/api/channel/status/batch',
-    { ids, status },
-    channelActionConfig()
+  const results = await Promise.all(
+    ids.map((id) => updateChannelStatus(id, status))
   )
-  return res.data
+  const failed = results.filter((r) => !r.success)
+  if (failed.length > 0) {
+    return {
+      success: false,
+      message: failed[0].message,
+      data: ids.length - failed.length,
+    }
+  }
+  return { success: true, data: ids.length }
 }
 
 /**

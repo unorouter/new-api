@@ -9,70 +9,59 @@ import (
 
 	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 	"github.com/samber/lo"
 )
 
-type SubscriptionEpayPayRequest struct {
-	PlanId        int    `json:"plan_id"`
-	PaymentMethod string `json:"payment_method"`
-}
-
-func SubscriptionRequestEpay(c *gin.Context) {
-	if !requirePaymentCompliance(c) {
-		return
+func SubscriptionRequestEpay(c fuego.ContextWithBody[dto.SubscriptionEpayPayRequest]) (*dto.Response[dto.EpayPayResponse], error) {
+	ginCtx := dto.GinCtx(c)
+	if !operation_setting.IsPaymentComplianceConfirmed() {
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
 	}
-
-	var req SubscriptionEpayPayRequest
-	if err := c.ShouldBindJSON(&req); err != nil || req.PlanId <= 0 {
-		common.ApiErrorMsg(c, "参数错误")
-		return
+	req, err := c.Body()
+	if err != nil || req.PlanId <= 0 {
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "common.invalid_params"))
 	}
 
 	plan, err := model.GetSubscriptionPlanById(req.PlanId)
 	if err != nil {
-		common.ApiError(c, err)
-		return
+		return dto.Fail[dto.EpayPayResponse](err.Error())
 	}
 	if !plan.Enabled {
-		common.ApiErrorMsg(c, "套餐未启用")
-		return
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "subscription.not_enabled"))
 	}
 	if plan.PriceAmount < 0.01 {
-		common.ApiErrorMsg(c, "套餐金额过低")
-		return
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.amount_too_low"))
 	}
 	if !operation_setting.ContainsPayMethod(req.PaymentMethod) {
-		common.ApiErrorMsg(c, "支付方式不存在")
-		return
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.method_not_exists"))
 	}
 
-	userId := c.GetInt("id")
+	userId := dto.UserID(c)
 	if plan.MaxPurchasePerUser > 0 {
 		count, err := model.CountUserSubscriptionsByPlan(userId, plan.Id)
 		if err != nil {
-			common.ApiError(c, err)
-			return
+			return dto.Fail[dto.EpayPayResponse](err.Error())
 		}
 		if count >= int64(plan.MaxPurchasePerUser) {
-			common.ApiErrorMsg(c, "已达到该套餐购买上限")
-			return
+			return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "subscription.purchase_max"))
 		}
 	}
 
 	callBackAddress := service.GetCallbackAddress()
 	returnUrl, err := url.Parse(callBackAddress + "/api/subscription/epay/return")
 	if err != nil {
-		common.ApiErrorMsg(c, "回调地址配置错误")
-		return
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.callback_error"))
 	}
 	notifyUrl, err := url.Parse(callBackAddress + "/api/subscription/epay/notify")
 	if err != nil {
-		common.ApiErrorMsg(c, "回调地址配置错误")
-		return
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.callback_error"))
 	}
 
 	tradeNo := fmt.Sprintf("%s%d", common.GetRandomString(6), time.Now().Unix())
@@ -80,8 +69,7 @@ func SubscriptionRequestEpay(c *gin.Context) {
 
 	client := GetEpayClient()
 	if client == nil {
-		common.ApiErrorMsg(c, "当前管理员未配置支付信息")
-		return
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.not_configured"))
 	}
 
 	order := &model.SubscriptionOrder{
@@ -95,8 +83,7 @@ func SubscriptionRequestEpay(c *gin.Context) {
 		Status:          common.TopUpStatusPending,
 	}
 	if err := order.Insert(); err != nil {
-		common.ApiErrorMsg(c, "创建订单失败")
-		return
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.create_failed"))
 	}
 	uri, params, err := client.Purchase(&epay.PurchaseArgs{
 		Type:           req.PaymentMethod,
@@ -109,10 +96,9 @@ func SubscriptionRequestEpay(c *gin.Context) {
 	})
 	if err != nil {
 		_ = model.ExpireSubscriptionOrder(tradeNo, model.PaymentProviderEpay)
-		common.ApiErrorMsg(c, "拉起支付失败")
-		return
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.start_failed"))
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": params, "url": uri})
+	return dto.Ok(dto.EpayPayResponse{Params: params, Url: uri})
 }
 
 func SubscriptionEpayNotify(c *gin.Context) {
@@ -176,7 +162,7 @@ func SubscriptionEpayReturn(c *gin.Context) {
 	if c.Request.Method == "POST" {
 		// POST 请求：从 POST body 解析参数
 		if err := c.Request.ParseForm(); err != nil {
-			c.Redirect(http.StatusFound, paymentReturnPath("/wallet?pay=fail"))
+			c.Redirect(http.StatusFound, paymentReturnPath(c, "/wallet?pay=fail"))
 			return
 		}
 		params = lo.Reduce(lo.Keys(c.Request.PostForm), func(r map[string]string, t string, i int) map[string]string {
@@ -192,29 +178,29 @@ func SubscriptionEpayReturn(c *gin.Context) {
 	}
 
 	if len(params) == 0 {
-		c.Redirect(http.StatusFound, paymentReturnPath("/wallet?pay=fail"))
+		c.Redirect(http.StatusFound, paymentReturnPath(c, "/wallet?pay=fail"))
 		return
 	}
 
 	client := GetEpayClient()
 	if client == nil {
-		c.Redirect(http.StatusFound, paymentReturnPath("/wallet?pay=fail"))
+		c.Redirect(http.StatusFound, paymentReturnPath(c, "/wallet?pay=fail"))
 		return
 	}
 	verifyInfo, err := client.Verify(params)
 	if err != nil || !verifyInfo.VerifyStatus {
-		c.Redirect(http.StatusFound, paymentReturnPath("/wallet?pay=fail"))
+		c.Redirect(http.StatusFound, paymentReturnPath(c, "/wallet?pay=fail"))
 		return
 	}
 	if verifyInfo.TradeStatus == epay.StatusTradeSuccess {
 		LockOrder(verifyInfo.ServiceTradeNo)
 		defer UnlockOrder(verifyInfo.ServiceTradeNo)
 		if err := model.CompleteSubscriptionOrder(verifyInfo.ServiceTradeNo, common.GetJsonString(verifyInfo), model.PaymentProviderEpay, verifyInfo.Type); err != nil {
-			c.Redirect(http.StatusFound, paymentReturnPath("/wallet?pay=fail"))
+			c.Redirect(http.StatusFound, paymentReturnPath(c, "/wallet?pay=fail"))
 			return
 		}
-		c.Redirect(http.StatusFound, paymentReturnPath("/wallet?pay=success"))
+		c.Redirect(http.StatusFound, paymentReturnPath(c, "/wallet?pay=success"))
 		return
 	}
-	c.Redirect(http.StatusFound, paymentReturnPath("/wallet?pay=pending"))
+	c.Redirect(http.StatusFound, paymentReturnPath(c, "/wallet?pay=pending"))
 }

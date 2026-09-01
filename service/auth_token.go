@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	AccessTokenTTL        = 15 * time.Minute
+	AccessTokenTTL        = 30 * 24 * time.Hour
 	SecurityProofTTL      = 5 * time.Minute
 	LoginSessionTTL       = 30 * 24 * time.Hour
 	RefreshReplayWindow   = 30 * time.Second
@@ -97,6 +97,19 @@ func ParseAccessToken(raw string) (AuthIdentity, error) {
 		UserAuthVersion: claims.UserAuthVersion,
 		SessionVersion:  claims.SessionVersion,
 	}, nil
+}
+
+// AccessTokenPastHalfLife reports whether a verified access token has spent
+// more than half its lifetime, which is when it is worth handing the caller a
+// replacement. Renewing on every request would rewrite the cookie constantly;
+// waiting for actual expiry is too late, since the request that discovers it
+// has already failed.
+func AccessTokenPastHalfLife(raw string) bool {
+	claims, err := parseAuthClaims(raw, accessTokenUse, authSigningKey(accessTokenUse))
+	if err != nil || claims.ExpiresAt == nil {
+		return false
+	}
+	return time.Until(claims.ExpiresAt.Time) < AccessTokenTTL/2
 }
 
 // ParseDashboardAccessToken distinguishes new-api dashboard JWTs from opaque

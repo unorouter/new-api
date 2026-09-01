@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -49,7 +50,8 @@ type Channel struct {
 	Setting           *string `json:"setting" gorm:"type:text"` // 渠道额外设置
 	ParamOverride     *string `json:"param_override" gorm:"type:text"`
 	HeaderOverride    *string `json:"header_override" gorm:"type:text"`
-	Remark            *string `json:"remark" gorm:"type:varchar(255)" validate:"max=255"`
+	WorkflowTemplates *string `json:"workflow_templates" gorm:"type:text"` // ComfyUI workflow templates JSON
+	Remark            *string `json:"remark" gorm:"type:varchar(1024)" validate:"omitempty,max=1024"`
 	// add after v0.8.5
 	ChannelInfo ChannelInfo `json:"channel_info" gorm:"type:json"`
 
@@ -497,6 +499,10 @@ func BatchDeleteChannels(ids []int) (int64, error) {
 			tx.Rollback()
 			return 0, err
 		}
+		if err := DeleteChannelDiagnosticsByChannelIds(tx, chunk); err != nil {
+			tx.Rollback()
+			return 0, err
+		}
 	}
 	if err := tx.Commit().Error; err != nil {
 		return 0, err
@@ -628,6 +634,9 @@ func (channel *Channel) Delete() error {
 	if err != nil {
 		return err
 	}
+	if err = DeleteChannelDiagnosticsByChannelIds(nil, []int{channel.Id}); err != nil {
+		common.SysLog(fmt.Sprintf("failed to delete channel diagnostics: channel_id=%d, error=%v", channel.Id, err))
+	}
 	err = channel.DeleteAbilities()
 	return err
 }
@@ -733,7 +742,63 @@ func hasEnabledMultiKey(keys []string, statusList map[int]int) bool {
 	return false
 }
 
-func UpdateChannelStatus(channelId int, usingKey string, status int, reason string) bool {
+// channelStatusChange carries the optional debug context for a status flip so
+// it can be recorded in channel_diagnostics. Callers that have the context
+// (relay error path, scheduled test, manual admin action) supply it via the
+// WithChannelStatus* options; callers that do not get sensible defaults.
+type channelStatusChange struct {
+	triggerSource  string
+	modelName      string
+	responseTimeMs int
+}
+
+type ChannelStatusChangeOpt func(*channelStatusChange)
+
+func WithChannelStatusTrigger(source string) ChannelStatusChangeOpt {
+	return func(c *channelStatusChange) { c.triggerSource = source }
+}
+
+func WithChannelStatusModel(modelName string) ChannelStatusChangeOpt {
+	return func(c *channelStatusChange) { c.modelName = modelName }
+}
+
+func WithChannelStatusResponseTime(ms int) ChannelStatusChangeOpt {
+	return func(c *channelStatusChange) { c.responseTimeMs = ms }
+}
+
+// recordChannelDiagnostic builds and async-inserts a status-transition row for a
+// channel that just transitioned fromStatus -> toStatus. Fire-and-forget: never
+// blocks or fails the status flip.
+func recordChannelDiagnostic(channel *Channel, fromStatus, toStatus int, reason string, meta channelStatusChange) {
+	baseURL := ""
+	if channel.BaseURL != nil {
+		baseURL = *channel.BaseURL
+	}
+	source := meta.triggerSource
+	if source == "" {
+		source = ChannelStatusTriggerLiveRequest
+	}
+	row := &ChannelDiagnostic{
+		ChannelId:      channel.Id,
+		ChannelName:    channel.Name,
+		BaseURL:        baseURL,
+		FromStatus:     fromStatus,
+		ToStatus:       toStatus,
+		StatusReason:   reason,
+		ModelName:      meta.modelName,
+		TriggerSource:  source,
+		ResponseTimeMs: meta.responseTimeMs,
+	}
+	gopool.Go(func() {
+		InsertChannelDiagnostic(row)
+	})
+}
+
+func UpdateChannelStatus(channelId int, usingKey string, status int, reason string, opts ...ChannelStatusChangeOpt) bool {
+	var meta channelStatusChange
+	for _, o := range opts {
+		o(&meta)
+	}
 	if common.MemoryCacheEnabled {
 		channelStatusLock.Lock()
 		defer channelStatusLock.Unlock()
@@ -770,27 +835,38 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 	}
 
 	shouldUpdateAbilities := false
-	defer func() {
+	// Registered after the channel row is saved: abilities are the routing gate, so
+	// writing them for a status the channels row never took would blind-route traffic.
+	syncAbilities := func() {
 		if shouldUpdateAbilities {
 			err := UpdateAbilityStatus(channelId, status == common.ChannelStatusEnabled)
 			if err != nil {
 				common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
 			}
 		}
-	}()
+	}
 	channel, err := GetChannelById(channelId, true)
 	if err != nil {
 		return false
 	} else {
 		if channel.Status == status {
+			// Already in the target status, but abilities can still disagree (a partial
+			// earlier write). Routing reads abilities, so reconcile instead of returning
+			// early and leaving the channel silently unroutable.
+			shouldUpdateAbilities = true
+			syncAbilities()
 			return false
 		}
 
+		fromStatus := channel.Status
+		statusChanged := true
 		if channel.ChannelInfo.IsMultiKey {
 			beforeStatus := channel.Status
 			handlerMultiKeyUpdate(channel, usingKey, status, reason)
 			if beforeStatus != channel.Status {
 				shouldUpdateAbilities = true
+			} else {
+				statusChanged = false
 			}
 		} else {
 			info := channel.GetOtherInfo()
@@ -804,6 +880,10 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 		if err != nil {
 			common.SysLog(fmt.Sprintf("failed to update channel status: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
 			return false
+		}
+		syncAbilities()
+		if statusChanged {
+			recordChannelDiagnostic(channel, fromStatus, status, reason, meta)
 		}
 	}
 	return true
@@ -899,13 +979,19 @@ func updateChannelUsedQuota(id int, quota int) {
 }
 
 func DeleteChannelByStatus(status int64) (int64, error) {
-	result := DB.Where("status = ?", status).Delete(&Channel{})
-	return result.RowsAffected, result.Error
+	var ids []int
+	if err := DB.Model(&Channel{}).Where("status = ?", status).Pluck("id", &ids).Error; err != nil {
+		return 0, err
+	}
+	return BatchDeleteChannels(ids)
 }
 
 func DeleteDisabledChannel() (int64, error) {
-	result := DB.Where("status = ? or status = ?", common.ChannelStatusAutoDisabled, common.ChannelStatusManuallyDisabled).Delete(&Channel{})
-	return result.RowsAffected, result.Error
+	var ids []int
+	if err := DB.Model(&Channel{}).Where("status = ? or status = ?", common.ChannelStatusAutoDisabled, common.ChannelStatusManuallyDisabled).Pluck("id", &ids).Error; err != nil {
+		return 0, err
+	}
+	return BatchDeleteChannels(ids)
 }
 
 func GetPaginatedTags(offset int, limit int) ([]*string, error) {
@@ -1052,6 +1138,24 @@ func (channel *Channel) SetOtherSettings(setting dto.ChannelOtherSettings) {
 		return
 	}
 	channel.OtherSettings = string(settingBytes)
+}
+
+// GetWorkflowTemplatesRaw returns the raw JSON string of the workflow templates,
+// or an empty string when unset. Adapters parse this into their own typed struct
+// to avoid a model -> adapter import cycle.
+func (channel *Channel) GetWorkflowTemplatesRaw() string {
+	if channel.WorkflowTemplates == nil {
+		return ""
+	}
+	return *channel.WorkflowTemplates
+}
+
+func (channel *Channel) SetWorkflowTemplatesRaw(raw string) {
+	if raw == "" {
+		channel.WorkflowTemplates = nil
+		return
+	}
+	channel.WorkflowTemplates = common.GetPointer[string](raw)
 }
 
 func (channel *Channel) GetParamOverride() map[string]interface{} {

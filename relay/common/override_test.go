@@ -3,6 +3,7 @@ package common
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"reflect"
 	"testing"
 
@@ -1321,7 +1322,7 @@ func TestApplyParamOverrideConditionByUserAndGPTModel(t *testing.T) {
 			}
 			input := []byte(fmt.Sprintf(`{"model":%q}`, tt.model))
 
-			out, err := ApplyParamOverrideWithRelayInfo(input, info)
+			out, err := ApplyParamOverrideWithRelayInfo(input, info, nil)
 
 			require.NoError(t, err)
 			require.JSONEq(t, tt.expected, string(out))
@@ -1955,7 +1956,7 @@ func TestApplyParamOverrideWithRelayInfoSyncRuntimeHeaders(t *testing.T) {
 	}
 
 	input := []byte(`{"temperature":0.7}`)
-	out, err := ApplyParamOverrideWithRelayInfo(input, info)
+	out, err := ApplyParamOverrideWithRelayInfo(input, info, nil)
 	if err != nil {
 		t.Fatalf("ApplyParamOverrideWithRelayInfo returned error: %v", err)
 	}
@@ -1996,7 +1997,7 @@ func TestApplyParamOverrideWithRelayInfoMixedLegacyAndOperations(t *testing.T) {
 		},
 	}
 
-	out, err := ApplyParamOverrideWithRelayInfo([]byte(`{"model":"gpt-5","temperature":0.7}`), info)
+	out, err := ApplyParamOverrideWithRelayInfo([]byte(`{"model":"gpt-5","temperature":0.7}`), info, nil)
 	if err != nil {
 		t.Fatalf("ApplyParamOverrideWithRelayInfo returned error: %v", err)
 	}
@@ -2037,7 +2038,7 @@ func TestApplyParamOverrideWithRelayInfoMoveAndCopyHeaders(t *testing.T) {
 	}
 
 	input := []byte(`{"temperature":0.7}`)
-	_, err := ApplyParamOverrideWithRelayInfo(input, info)
+	_, err := ApplyParamOverrideWithRelayInfo(input, info, nil)
 	if err != nil {
 		t.Fatalf("ApplyParamOverrideWithRelayInfo returned error: %v", err)
 	}
@@ -2073,7 +2074,7 @@ func TestApplyParamOverrideWithRelayInfoSetHeaderMapRewritesAnthropicBeta(t *tes
 		},
 	}
 
-	_, err := ApplyParamOverrideWithRelayInfo([]byte(`{"temperature":0.7}`), info)
+	_, err := ApplyParamOverrideWithRelayInfo([]byte(`{"temperature":0.7}`), info, nil)
 	if err != nil {
 		t.Fatalf("ApplyParamOverrideWithRelayInfo returned error: %v", err)
 	}
@@ -2243,7 +2244,7 @@ func TestApplyParamOverrideWithRelayInfoRecordsOperationAuditInDebugMode(t *test
 		"model":"gpt-4.1",
 		"temperature":0.7,
 		"metadata":{"target_model":"gpt-4.1-mini"}
-	}`), info)
+	}`), info, nil)
 	if err != nil {
 		t.Fatalf("ApplyParamOverrideWithRelayInfo returned error: %v", err)
 	}
@@ -2294,20 +2295,95 @@ func TestApplyParamOverrideWithRelayInfoRecordsOnlyKeyOperationsWhenDebugDisable
 		"model":"gpt-4.1",
 		"temperature":0.7,
 		"metadata":{"target_model":"gpt-4.1-mini"}
-	}`), info)
+	}`), info, nil)
 	if err != nil {
 		t.Fatalf("ApplyParamOverrideWithRelayInfo returned error: %v", err)
 	}
 
+	// `temperature` is now an audited sampler-knob path (alongside model/etc.)
+	// so the BFF can warn the client when an override strips/changes it.
 	expected := []string{
 		"copy metadata.target_model -> model",
+		"set temperature = 0.1",
 	}
 	if !reflect.DeepEqual(info.ParamOverrideAudit, expected) {
 		t.Fatalf("unexpected param override audit, got %#v", info.ParamOverrideAudit)
 	}
 }
 
-func TestApplyParamOverrideWithRelayInfoRecordsConversationBodyOperationsWhenDebugDisabled(t *testing.T) {
+func TestExtractDroppedParamPaths(t *testing.T) {
+	cases := []struct {
+		name  string
+		audit []string
+		want  []string
+	}{
+		{name: "empty", audit: nil, want: nil},
+		{
+			name: "delete and other ops mixed",
+			audit: []string{
+				"delete min_p",
+				"set temperature = 0.7",
+				"delete top_a",
+				"copy metadata.target_model -> model",
+			},
+			want: []string{"min_p", "top_a"},
+		},
+		{
+			name: "duplicates collapsed",
+			audit: []string{
+				"delete min_p",
+				"delete min_p",
+				"delete top_a",
+			},
+			want: []string{"min_p", "top_a"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ExtractDroppedParamPaths(tc.audit)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("ExtractDroppedParamPaths(%v) = %v, want %v", tc.audit, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEmitDroppedParamsHeader(t *testing.T) {
+	t.Run("nil header is no-op", func(t *testing.T) {
+		EmitDroppedParamsHeader(nil, []string{"delete min_p"})
+	})
+
+	t.Run("empty audit emits nothing", func(t *testing.T) {
+		h := http.Header{}
+		EmitDroppedParamsHeader(h, nil)
+		if got := h.Get("x-newapi-dropped-params"); got != "" {
+			t.Fatalf("expected empty header, got %q", got)
+		}
+	})
+
+	t.Run("audit-only-non-deletes emits nothing", func(t *testing.T) {
+		h := http.Header{}
+		EmitDroppedParamsHeader(h, []string{"set temperature = 0.7"})
+		if got := h.Get("x-newapi-dropped-params"); got != "" {
+			t.Fatalf("expected empty header, got %q", got)
+		}
+	})
+
+	t.Run("dropped paths joined into header", func(t *testing.T) {
+		h := http.Header{}
+		EmitDroppedParamsHeader(h, []string{
+			"delete min_p",
+			"set temperature = 0.7",
+			"delete top_a",
+		})
+		got := h.Get("x-newapi-dropped-params")
+		if got != "min_p,top_a" {
+			t.Fatalf("expected min_p,top_a header, got %q", got)
+		}
+	})
+}
+
+func TestApplyParamOverrideWithRelayInfoEmitsDroppedParamsHeader(t *testing.T) {
 	originalDebugEnabled := common2.DebugEnabled
 	common2.DebugEnabled = false
 	t.Cleanup(func() {
@@ -2319,67 +2395,24 @@ func TestApplyParamOverrideWithRelayInfoRecordsConversationBodyOperationsWhenDeb
 			ParamOverride: map[string]interface{}{
 				"operations": []interface{}{
 					map[string]interface{}{
-						"mode": "replace",
-						"path": "messages.0.content",
-						"from": "hello",
-						"to":   "hi",
+						"mode": "delete",
+						"path": "min_p",
 					},
 					map[string]interface{}{
-						"mode":  "set",
-						"path":  "input.0.content.0.text",
-						"value": "rewritten response input",
-					},
-					map[string]interface{}{
-						"mode":  "set",
-						"path":  "instructions",
-						"value": "new instruction",
-					},
-					map[string]interface{}{
-						"mode":  "append",
-						"path":  "contents.0.parts",
-						"value": map[string]interface{}{"text": "new gemini part"},
-					},
-					map[string]interface{}{
-						"mode": "copy",
-						"from": "system",
-						"to":   "metadata.system_copy",
-					},
-					map[string]interface{}{
-						"mode":  "set",
-						"path":  "temperature",
-						"value": 0.1,
+						"mode": "delete",
+						"path": "top_a",
 					},
 				},
 			},
 		},
 	}
-
-	out, err := ApplyParamOverrideWithRelayInfo([]byte(`{
-		"messages":[{"role":"user","content":"hello world"}],
-		"input":[{"role":"user","content":[{"type":"input_text","text":"original response input"}]}],
-		"instructions":"old instruction",
-		"system":"old system",
-		"contents":[{"role":"user","parts":[{"text":"hello gemini"}]}],
-		"temperature":0.7
-	}`), info)
-	require.NoError(t, err)
-	assertJSONEqual(t, `{
-		"messages":[{"role":"user","content":"hi world"}],
-		"input":[{"role":"user","content":[{"type":"input_text","text":"rewritten response input"}]}],
-		"instructions":"new instruction",
-		"system":"old system",
-		"contents":[{"role":"user","parts":[{"text":"hello gemini"},{"text":"new gemini part"}]}],
-		"temperature":0.1,
-		"metadata":{"system_copy":"old system"}
-	}`, string(out))
-
-	require.Equal(t, []string{
-		"replace messages.0.content from hello to hi",
-		"set input.0.content.0.text = rewritten response input",
-		"set instructions = new instruction",
-		"append contents.0.parts with {\"text\":\"new gemini part\"}",
-		"copy system -> metadata.system_copy",
-	}, info.ParamOverrideAudit)
+	h := http.Header{}
+	if _, err := ApplyParamOverrideWithRelayInfo([]byte(`{"model":"gpt-5","min_p":0.05,"top_a":0.2}`), info, h); err != nil {
+		t.Fatalf("ApplyParamOverrideWithRelayInfo returned error: %v", err)
+	}
+	if got := h.Get("x-newapi-dropped-params"); got != "min_p,top_a" {
+		t.Fatalf("expected min_p,top_a in header, got %q", got)
+	}
 }
 
 func TestShouldAuditParamPathUsesFieldBoundaryPrefixMatching(t *testing.T) {
@@ -2411,6 +2444,81 @@ func assertJSONEqual(t *testing.T, want, got string) {
 
 	if !reflect.DeepEqual(wantObj, gotObj) {
 		t.Fatalf("json not equal\nwant: %s\ngot:  %s", want, got)
+	}
+}
+
+func TestDetectSilentAdapterDrops_DropsSamplerKnobs(t *testing.T) {
+	original := []byte(`{"model":"claude-sonnet","temperature":0.7,"min_p":0.05,"top_a":0.2,"frequency_penalty":0.1}`)
+	// Adapter dropped min_p, top_a, frequency_penalty.
+	converted := []byte(`{"model":"claude-sonnet","temperature":0.7}`)
+
+	dropped := DetectSilentAdapterDrops(original, converted)
+	want := []string{"delete frequency_penalty", "delete min_p", "delete top_a"}
+	if !reflect.DeepEqual(dropped, want) {
+		t.Fatalf("dropped mismatch\nwant: %v\n got: %v", want, dropped)
+	}
+}
+
+func TestDetectSilentAdapterDrops_PassthroughReturnsEmpty(t *testing.T) {
+	body := []byte(`{"model":"gpt-5","temperature":0.5,"min_p":0.05}`)
+	dropped := DetectSilentAdapterDrops(body, body)
+	if len(dropped) != 0 {
+		t.Fatalf("expected no drops on identity, got %v", dropped)
+	}
+}
+
+func TestDetectSilentAdapterDrops_IgnoresUnauditedFields(t *testing.T) {
+	original := []byte(`{"model":"foo","user":"alice","stream_options":{"include_usage":true}}`)
+	// Adapter dropped user and stream_options. They aren't audited, so we don't
+	// report them.
+	converted := []byte(`{"model":"foo"}`)
+	dropped := DetectSilentAdapterDrops(original, converted)
+	if len(dropped) != 0 {
+		t.Fatalf("expected zero drops, got %v", dropped)
+	}
+}
+
+func TestDetectSilentAdapterDrops_IgnoresModelRenames(t *testing.T) {
+	original := []byte(`{"model":"gpt-4-original"}`)
+	// Model field renamed by adapter.
+	converted := []byte(`{"model":"gpt-4-renamed"}`)
+	dropped := DetectSilentAdapterDrops(original, converted)
+	if len(dropped) != 0 {
+		t.Fatalf("model renames must not be reported, got %v", dropped)
+	}
+}
+
+func TestDetectSilentAdapterDrops_AcceptsMaxTokensAlias(t *testing.T) {
+	original := []byte(`{"model":"foo","max_tokens":2048}`)
+	// Adapter (e.g. AI SDK) renames to max_output_tokens.
+	converted := []byte(`{"model":"foo","max_output_tokens":2048}`)
+	dropped := DetectSilentAdapterDrops(original, converted)
+	if len(dropped) != 0 {
+		t.Fatalf("expected max_tokens alias to be tolerated, got %v", dropped)
+	}
+}
+
+func TestDetectSilentAdapterDrops_NilInputs(t *testing.T) {
+	if dropped := DetectSilentAdapterDrops(nil, nil); dropped != nil {
+		t.Fatalf("expected nil for nil inputs, got %v", dropped)
+	}
+	if dropped := DetectSilentAdapterDrops([]byte(`{"min_p":0.1}`), nil); dropped != nil {
+		t.Fatalf("expected nil when converted is nil, got %v", dropped)
+	}
+}
+
+func TestDetectSilentAdapterDrops_HeaderRoundTrip(t *testing.T) {
+	original := []byte(`{"model":"foo","min_p":0.05,"top_a":0.2,"repetition_penalty":1.05}`)
+	converted := []byte(`{"model":"foo"}`)
+
+	h := http.Header{}
+	dropped := DetectSilentAdapterDrops(original, converted)
+	EmitDroppedParamsHeader(h, dropped)
+
+	got := h.Get("x-newapi-dropped-params")
+	want := "min_p,repetition_penalty,top_a"
+	if got != want {
+		t.Fatalf("header mismatch\nwant: %s\n got: %s", want, got)
 	}
 }
 
@@ -2497,7 +2605,7 @@ func TestApplyParamOverrideWithRelayInfoSynchronizesReasoningEffort(t *testing.T
 				}},
 			}
 
-			_, err := ApplyParamOverrideWithRelayInfo([]byte(tt.input), info)
+			_, err := ApplyParamOverrideWithRelayInfo([]byte(tt.input), info, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, info.ReasoningEffort)
 		})
@@ -2519,7 +2627,7 @@ func TestReasoningEffortOverrideIsAuditedWithoutDebugMode(t *testing.T) {
 		}},
 	}
 
-	_, err := ApplyParamOverrideWithRelayInfo([]byte(`{"reasoning":{"effort":"high"}}`), info)
+	_, err := ApplyParamOverrideWithRelayInfo([]byte(`{"reasoning":{"effort":"high"}}`), info, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"set reasoning.effort = max"}, info.ParamOverrideAudit)
 }

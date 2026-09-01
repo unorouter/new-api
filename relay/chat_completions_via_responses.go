@@ -84,7 +84,7 @@ func textRequestViaResponses(c *gin.Context, info *relaycommon.RelayInfo, adapto
 		}
 
 		if len(info.ParamOverride) > 0 {
-			chatJSON, err = relaycommon.ApplyParamOverrideWithRelayInfo(chatJSON, info)
+			chatJSON, err = relaycommon.ApplyParamOverrideWithRelayInfo(chatJSON, info, c.Writer.Header())
 			if err != nil {
 				return nil, newAPIErrorFromParamOverride(err)
 			}
@@ -136,7 +136,7 @@ func relayResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 	if !paramOverrideApplied && len(info.ParamOverride) > 0 {
-		jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+		jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info, c.Writer.Header())
 		if err != nil {
 			return nil, newAPIErrorFromParamOverride(err)
 		}

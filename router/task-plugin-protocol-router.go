@@ -45,7 +45,11 @@ func taskPluginProtocolHandlers(protocol, operation string) ([]gin.HandlerFunc, 
 	case "openai_video.retrieve":
 		return []gin.HandlerFunc{middleware.RouteTag("relay"), middleware.TokenAuth(), middleware.Distribute(), controller.RelayTaskFetch}, nil
 	case "openai_video.content":
-		return []gin.HandlerFunc{middleware.RouteTag("relay"), middleware.TokenAuth(), controller.VideoProxy}, nil
+		// PROD-ONLY (fork): TokenOrUserAuth, not TokenAuth. The dashboard plays video
+		// with its session token, which TokenAuth alone rejects; this path used to be
+		// registered separately by SetVideoRouter with that middleware, but gin cannot
+		// register the same path twice, so the wider check lives here.
+		return []gin.HandlerFunc{middleware.RouteTag("relay"), middleware.TokenOrUserAuth(), controller.VideoProxy}, nil
 	default:
 		return nil, fmt.Errorf("host protocol registry operation %s.%s has no handler", protocol, operation)
 	}

@@ -100,7 +100,7 @@ func attachOpenAIChatRequest(request any, set Set) (any, []types.ConversionDiagn
 	normalizedChoice, allowedChoiceDiagnostics := narrowAllowedFunctionChoice(set.Choice, types.RelayFormatOpenAI)
 	choice, choiceDiagnostics := encodeOpenAIChatChoice(normalizedChoice)
 	target.ToolChoice = choice
-	target.ParallelTooCalls = set.ParallelAllowed
+	target.ParallelToolCalls = set.ParallelAllowed
 	diagnostics = append(diagnostics, allowedChoiceDiagnostics...)
 	diagnostics = append(diagnostics, choiceDiagnostics...)
 	diagnostics = append(diagnostics, unsupportedHostedHistoryDiagnostics(types.RelayFormatOpenAI, set.History)...)

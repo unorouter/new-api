@@ -20,14 +20,27 @@ import (
 func TestGetTaskPluginOptionsAdminForbiddenRootAllowed(t *testing.T) {
 	wasMaster := common.IsMasterNode
 	common.IsMasterNode = true
+	// The admin denial below is audited (RecordOperationAuditLog), which looks the
+	// user up and writes a log row: give it a real DB and no Redis, like the
+	// sibling router tests, or it dereferences a nil Redis client.
+	previousRedisEnabled := common.RedisEnabled
+	common.RedisEnabled = false
+	originalDB, originalLogDB := model.DB, model.LOG_DB
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&model.CasbinRule{}, &model.AuthzRole{}))
+	require.NoError(t, db.AutoMigrate(&model.CasbinRule{}, &model.AuthzRole{}, &model.User{}, &model.Log{}))
+	model.DB = db
+	model.LOG_DB = db
 	require.NoError(t, authz.Init(db))
-	t.Cleanup(func() { common.IsMasterNode = wasMaster })
+	t.Cleanup(func() {
+		common.IsMasterNode = wasMaster
+		common.RedisEnabled = previousRedisEnabled
+		model.DB = originalDB
+		model.LOG_DB = originalLogDB
+	})
 
 	gin.SetMode(gin.TestMode)
 	for _, testCase := range []struct {

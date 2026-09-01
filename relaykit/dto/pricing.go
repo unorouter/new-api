@@ -9,6 +9,11 @@ type OpenAIModels struct {
 	Created                int                  `json:"created"`
 	OwnedBy                string               `json:"owned_by"`
 	SupportedEndpointTypes []types.EndpointType `json:"supported_endpoint_types"`
+	// Context window + output cap, surfaced so OpenAI-compatible clients and
+	// catalog scrapers reading /v1/models get correct limits instead of
+	// falling back to defaults. Sourced from each model's metadata.
+	ContextLength   int `json:"context_length,omitempty"`
+	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
 }
 
 type AnthropicModel struct {

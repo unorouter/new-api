@@ -8,8 +8,9 @@ This is an AI API gateway/proxy built with Go. It aggregates 40+ upstream AI pro
 
 ## Tech Stack
 
-- **Backend**: Go 1.22+, Gin web framework, GORM v2 ORM
-- **Frontend**: React 19, TypeScript, Rsbuild, Base UI, Tailwind CSS
+- **Backend**: Go 1.25+, Gin web framework, GORM v2 ORM, Fuego (OpenAPI spec generation via fuegogin adapter)
+- **Frontend (default)**: React 19, TypeScript, Rsbuild, Base UI, Tailwind CSS
+- **Frontend (classic)**: React 18, Vite, Semi Design UI (@douyinfe/semi-ui)
 - **Databases**: SQLite, MySQL, PostgreSQL (all three must be supported)
 - **Cache**: Redis (go-redis) + in-memory cache
 - **Auth**: JWT, WebAuthn/Passkeys, OAuth (GitHub, Discord, OIDC, etc.)
@@ -29,7 +30,7 @@ relay/         — AI API relay/proxy with provider adapters
 middleware/    — Auth, rate limiting, CORS, logging, distribution
 setting/       — Configuration management (ratio, model, operation, system, performance)
 common/        — Shared utilities (JSON, crypto, Redis, env, rate-limit, etc.)
-dto/           — Data transfer objects (request/response structs)
+dto/           — Data transfer objects, response helpers (Response[T], Ok/Fail), and Router wrapper for fuegogin
 constant/      — Constants (API types, channel types, context keys)
 types/         — Type definitions (relay formats, file sources, errors)
 i18n/          — Backend internationalization (go-i18n, en/zh)
@@ -51,6 +52,17 @@ web/           — Frontend (React 19, Rsbuild, Base UI, Tailwind)
 - Translation files: `web/src/i18n/locales/{lang}.json` — flat JSON, keys are English source strings
 - Usage: `useTranslation()` hook, call `t('English key')` in components
 - CLI tools: `bun run i18n:sync` (from `web/`)
+
+## OpenAPI / Swagger
+
+Auto-generated OpenAPI spec via Fuego (fuegogin adapter). Gin remains the HTTP runtime; Fuego only generates the spec.
+
+- **Enable**: Set `ENABLE_OPENAPI=true` env var (disabled by default)
+- **Endpoints**: `GET /openapi.json` (spec), `GET /swagger` (Scalar UI)
+- **Route registration**: Use `dto.Router` helpers (`dto.Get`, `dto.PostB`, `dto.GinPost`, etc.) — they register routes in both Gin and the OpenAPI spec simultaneously
+- **Response types**: `dto.Response[T]` for typed responses (`dto.Ok[T]`, `dto.Fail[T]`), `dto.ApiResponse` for untyped fallback
+- **Gin handlers**: Use `dto.GinResp[T]()` option to annotate response type for raw `gin.HandlerFunc` routes
+- **Import cycle**: Shared types live in `types/` package, re-exported via `dto/type_aliases.go`
 
 ## Rules
 

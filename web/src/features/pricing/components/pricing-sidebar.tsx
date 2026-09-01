@@ -54,6 +54,7 @@ type FilterSectionProps = {
   value: string
   options: FilterOption[]
   onChange: (value: string) => void
+  defaultOpen?: boolean
 }
 
 export interface PricingSidebarProps {
@@ -132,7 +133,7 @@ function FilterChip(props: {
 function FilterSection(props: FilterSectionProps) {
   return (
     <Collapsible
-      defaultOpen
+      defaultOpen={props.defaultOpen ?? true}
       className='border-border/70 border-b pb-3 last:border-b-0'
     >
       <CollapsibleTrigger className='group flex w-full items-center justify-between py-2.5 text-left'>
@@ -220,7 +221,19 @@ export function PricingSidebar(props: PricingSidebarProps) {
       label: quotaTypeLabels[QUOTA_TYPES.TASK],
       count: countBy(props.models, (model) => hasTaskUsageSchema(model)),
     },
-  ]
+    {
+      value: QUOTA_TYPES.CUSTOM,
+      label: quotaTypeLabels[QUOTA_TYPES.CUSTOM],
+      count: countBy(props.models, (model) => model.quota_type === 3),
+    },
+    {
+      value: QUOTA_TYPES.GRID,
+      label: quotaTypeLabels[QUOTA_TYPES.GRID],
+      count: countBy(props.models, (model) => model.quota_type === 4),
+    },
+  ].filter(
+    (option) => option.value === QUOTA_TYPES.ALL || (option.count ?? 0) > 0
+  )
 
   const tagOptions: FilterOption[] = [
     {
@@ -291,6 +304,7 @@ export function PricingSidebar(props: PricingSidebarProps) {
           value={props.groupFilter}
           options={groupOptions}
           onChange={props.onGroupChange}
+          defaultOpen={false}
         />
         <FilterSection
           title={t('All Vendors')}

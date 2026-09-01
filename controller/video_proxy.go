@@ -112,21 +112,92 @@ func VideoProxy(c *gin.Context) {
 	if descriptor == nil {
 		resultURL := task.GetResultURL()
 		if isTaskMediaFallbackLoop(resultURL, task.TaskID) {
+			// The poller parked the bytes in task.Data and stored a self-referencing
+			// proxy URL; serve the inlined image instead of looping back here.
+			// `?index=N` selects which image in a batch (0-based).
+			idx := 0
+			if raw := strings.TrimSpace(c.Query("index")); raw != "" {
+				if n, convErr := strconv.Atoi(raw); convErr == nil && n >= 0 {
+					idx = n
+				}
+			}
+			if dataURL := extractDataURLFromTaskData(task, idx); dataURL != "" {
+				if writeErr := writeVideoDataURL(c, dataURL); writeErr != nil {
+					logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to decode video data URL for task %s: %s", taskID, writeErr.Error()))
+					writeTaskMediaProxyError(c, &taskMediaProxyError{
+						status: http.StatusBadGateway, code: "artifact_upstream_error",
+						message: "Failed to fetch video content",
+					})
+				}
+				return
+			}
 			writeTaskMediaProxyError(c, &taskMediaProxyError{
 				status: http.StatusGone, code: "artifact_gone",
 				message: "Artifact content is no longer available",
 			})
 			return
 		}
+
 		descriptor = &relaychannel.TaskContentRequest{
 			URL:            resultURL,
 			Method:         c.Request.Method,
 			Credentialless: true,
 		}
+
 	}
 	if err := proxyTaskMedia(c, task, descriptor); err != nil {
 		writeTaskMediaProxyError(c, err)
 	}
+}
+
+// extractDataURLFromTaskData walks the raw upstream response we cached in
+// task.Data (currently used by the comfyui/runpod path) looking for an
+// inlined image. Returns a data: URI ready for writeVideoDataURL or "".
+//
+// idx selects which image in a batch to return (0-based). Out-of-range
+// requests return "" so the caller surfaces a 502 rather than silently
+// substituting a different image. idx=0 preserves the original
+// single-image behaviour.
+//
+// Known shapes:
+//   - RunPod worker-comfyui: { "output": { "images": [{"data": "<b64>", "filename": "...png"}] } }
+//   - Generic data URI parked in any string field
+//
+// We avoid a full recursive walker — too easy to grab user-prompt echoes by
+// accident. The two paths above cover the cases we actually emit today.
+func extractDataURLFromTaskData(task *model.Task, idx int) string {
+	raw, err := task.Data.MarshalJSON()
+	if err != nil || len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var envelope struct {
+		Output struct {
+			Images []struct {
+				Data     string `json:"data"`
+				Filename string `json:"filename"`
+				URL      string `json:"url"`
+			} `json:"images"`
+		} `json:"output"`
+	}
+	if err := common.Unmarshal(raw, &envelope); err == nil {
+		if idx < 0 || idx >= len(envelope.Output.Images) {
+			return ""
+		}
+		img := envelope.Output.Images[idx]
+		if strings.HasPrefix(img.URL, "data:") {
+			return img.URL
+		}
+		if img.Data != "" {
+			mime := "image/png"
+			if strings.HasSuffix(strings.ToLower(img.Filename), ".jpg") || strings.HasSuffix(strings.ToLower(img.Filename), ".jpeg") {
+				mime = "image/jpeg"
+			} else if strings.HasSuffix(strings.ToLower(img.Filename), ".webp") {
+				mime = "image/webp"
+			}
+			return "data:" + mime + ";base64," + img.Data
+		}
+	}
+	return ""
 }
 
 func proxyTaskMedia(c *gin.Context, task *model.Task, descriptor *relaychannel.TaskContentRequest) error {

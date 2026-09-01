@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/ai360"
+	"github.com/QuantumNous/new-api/relay/channel/claude"
 	"github.com/QuantumNous/new-api/relay/channel/lingyiwanwu"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -272,6 +273,14 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		if len(request.Usage) == 0 {
 			request.Usage = json.RawMessage(`{"include":true}`)
 		}
+		// OpenRouter may route Anthropic models through Vertex/Bedrock backends
+		// that reject assistant prefill ("This model does not support assistant
+		// message prefill."). Fold any trailing assistant message into the
+		// system prompt so the hint is preserved.
+		if strings.HasPrefix(info.UpstreamModelName, "anthropic") ||
+			strings.Contains(strings.ToLower(info.UpstreamModelName), "claude") {
+			request.Messages = claude.HandleUnsupportedAssistantPrefillOpenAI(request.Messages)
+		}
 		// 适配 OpenRouter 的 thinking 后缀
 		preserveSuffix := model_setting.ShouldPreserveThinkingSuffix(info.OriginModelName) || model_setting.ShouldPreserveThinkingSuffix(info.UpstreamModelName)
 		mergeEffortSuffix := func(modelName string) error {
@@ -375,6 +384,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 			request.MaxCompletionTokens = request.MaxTokens
 			request.MaxTokens = nil
 		}
+		clampOpenAIMinTokens(&request.MaxCompletionTokens)
 
 		if isOModel {
 			request.Temperature = nil
@@ -441,6 +451,15 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		if info.ChannelType == constant.ChannelTypeOpenAI || info.ChannelType == constant.ChannelTypeAzure {
 			request.Reasoning = nil
 		}
+	}
+
+	// DeepSeek V4 thinking-mode compatibility — see
+	// relay/common/deepseek_thinking.go for the spec/rationale and the
+	// rules applied. Runs for every OpenAI-shape outbound request, so
+	// both native OpenAI clients and the Claude->OpenAI conversion path
+	// produce the request shape DeepSeek V4 upstreams expect.
+	if err := relaycommon.ApplyDeepSeekV4OpenAIRequestRules(request); err != nil {
+		return nil, err
 	}
 
 	return request, nil
@@ -731,7 +750,27 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 			info.SetReasoningEffort(string(canonicalEffort))
 		}
 	}
+	clampOpenAIMinTokens(&request.MaxOutputTokens)
 	return request, nil
+}
+
+// clampOpenAIMinTokens enforces OpenAI's >= 16 floor for max_completion_tokens
+// and max_output_tokens. Below that, OpenAI returns a 400 ("Expected a value
+// >= 16") that surfaces to the user and triggers cross-channel retries with
+// the same invalid payload. Clamping silently bumps a too-low value to the
+// upstream minimum so the request just succeeds with the smallest viable cap.
+//
+// This is the single chokepoint for any request leaving toward api.openai.com:
+// both ConvertOpenAIRequest (Chat Completions) and ConvertOpenAIResponsesRequest
+// call it, so no other layer needs to validate this field.
+func clampOpenAIMinTokens(field **uint) {
+	if field == nil || *field == nil {
+		return
+	}
+	if v := **field; v > 0 && v < 16 {
+		min := uint(16)
+		*field = &min
+	}
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
@@ -774,7 +813,11 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		usage, err = OaiResponsesCompactionHandler(c, resp)
 	default:
 		if info.IsStream {
-			usage, err = OaiStreamHandler(c, info, resp)
+			if info.ForceUpstreamStream {
+				usage, err = OaiStreamToJsonHandler(c, info, resp)
+			} else {
+				usage, err = OaiStreamHandler(c, info, resp)
+			}
 		} else {
 			usage, err = OpenaiHandler(c, info, resp)
 		}

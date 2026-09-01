@@ -39,7 +39,7 @@ func extractOpenAIChatRequest(request any) (any, Set, error) {
 	}
 
 	set := Set{Source: types.RelayFormatOpenAI}
-	set.ParallelAllowed = source.ParallelTooCalls
+	set.ParallelAllowed = source.ParallelToolCalls
 	if len(source.Functions) > 0 {
 		var functions []dto.FunctionRequest
 		if err := kitutil.Unmarshal(source.Functions, &functions); err != nil {
@@ -117,7 +117,7 @@ func extractOpenAIChatRequest(request any) (any, Set, error) {
 	clone.WebSearchOptions = nil
 	clone.Functions = nil
 	clone.FunctionCall = nil
-	clone.ParallelTooCalls = nil
+	clone.ParallelToolCalls = nil
 	return &clone, set, nil
 }
 

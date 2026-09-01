@@ -95,9 +95,14 @@ export function useTopNavLinks(): TopNavLink[] {
     }
   }
 
-  // About
+  // About (supports external link via status.about_url)
   if (modules?.about !== false) {
-    links.push({ title: t('About'), href: '/about' })
+    const aboutUrl = status?.about_url as string | undefined
+    if (aboutUrl) {
+      links.push({ title: t('About'), href: aboutUrl, external: true })
+    } else {
+      links.push({ title: t('About'), href: '/about' })
+    }
   }
 
   return links

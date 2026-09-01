@@ -1,0 +1,119 @@
+# Swarm stack for the new-api APP only; datastores stay plain compose in
+# docker-compose-traefik.yml. Two services because the app needs exactly one
+# master (IsMasterNode gates migration + jobs), and Traefik fuses them via the
+# file-provider WRR in traefik dynamic/newapi-wrr.yml.
+version: "3.8"
+
+x-newapi-app: &newapi-app
+  # CI sets NEWAPI_IMAGE=unorouter-new-api:<sha>; the changing tag is what makes
+  # swarm roll tasks (an unchanged spec is a no-op even after a fresh build).
+  image: ${NEWAPI_IMAGE:-unorouter-new-api:latest}
+  healthcheck:
+    test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/api/status"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 40s
+  networks:
+    - newapi-overlay
+  # Bind mounts so /data + logs are host-visible (ls/tail, rsync on migration).
+  # stack deploy does not expand ~, so CI sets NEWAPI_HOST_DIR=$HOME/new-api.
+  volumes:
+    - ${NEWAPI_HOST_DIR}/data:/data
+    - ${NEWAPI_HOST_DIR}/logs:/app/logs
+  logging:
+    driver: json-file
+    options:
+      max-size: "10g"
+      max-file: "5"
+
+x-newapi-env: &newapi-env
+  SQL_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@unorouter-new-api-postgres:5432/${POSTGRES_DB}
+  REDIS_CONN_STRING: redis://unorouter-new-api-redis
+  TZ: Europe/Berlin
+  SESSION_SECRET: ${SESSION_SECRET}
+  CRYPTO_SECRET: ${CRYPTO_SECRET}
+  SMTP_BCC: ${SMTP_BCC}
+  POSTHOG_KEY: ${POSTHOG_KEY}
+  POSTHOG_HOST: ${POSTHOG_HOST}
+  VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+  VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+  VAPID_SUBJECT: mailto:don.cryptus@gmail.com
+  ERROR_LOG_ENABLED: "true"
+  # DEBUG logging wrote ~90GB/day of oneapi-*.log and filled the 1TB disk on
+  # 2026-07-10 (postgres ENOSPC panic, gateway 500s). Keep it off.
+  DEBUG: "true"
+  BATCH_UPDATE_ENABLED: "false"
+  MEMORY_CACHE_ENABLED: "false"
+  # 15s DB-poll so the slave's caches refresh soon after a master change.
+  SYNC_FREQUENCY: "15"
+  GIN_MODE: release
+  ENABLE_OPENAPI: "true"
+  DEFAULT_LANGUAGE: en
+  RELAY_TIMEOUT: "0"
+  STREAMING_TIMEOUT: "1800"
+  GLOBAL_API_RATE_LIMIT_ENABLE: "false"
+  SEARCH_RATE_LIMIT_ENABLE: "false"
+  CRITICAL_RATE_LIMIT: "10000"
+  OAUTH_ALLOWED_REDIRECT_ORIGINS: https://unorouter.com,http://localhost:3000
+  TRUSTED_REDIRECT_DOMAINS: unorouter.com,localhost
+  OAUTH_SERVER_ENABLED: "true"
+  OAUTH_ISSUER_URL: https://api.unorouter.com
+  ENABLE_PPROF: "true"
+
+x-newapi-deploy: &newapi-deploy
+  replicas: 1
+  update_config:
+    order: start-first
+    parallelism: 1
+    failure_action: rollback
+  rollback_config:
+    order: start-first
+  restart_policy:
+    condition: any
+
+services:
+  # MASTER: migrates the DB + runs every scheduled job. NODE_TYPE unset = master.
+  newapi-master:
+    <<: *newapi-app
+    command: --log-dir /app/logs/master
+    environment:
+      <<: *newapi-env
+    deploy:
+      <<: *newapi-deploy
+      labels:
+        - "traefik.enable=true"
+        - "traefik.swarm.network=newapi-overlay"
+        - "traefik.http.services.newapi-master.loadbalancer.server.port=3000"
+        - "traefik.http.services.newapi-master.loadbalancer.healthcheck.path=/api/status"
+        - "traefik.http.services.newapi-master.loadbalancer.healthcheck.interval=2s"
+        - "traefik.http.services.newapi-master.loadbalancer.healthcheck.timeout=3s"
+        # Fast dial timeout so a dead task IP fails fast -> retry redispatches (see WRR file).
+        - "traefik.http.services.newapi-master.loadbalancer.serverstransport=newapi-fast@file"
+
+  # SLAVE: serves API + relay + web; skips migration + jobs via NODE_TYPE.
+  newapi-slave:
+    <<: *newapi-app
+    command: --log-dir /app/logs/slave
+    environment:
+      <<: *newapi-env
+      NODE_TYPE: slave
+    deploy:
+      <<: *newapi-deploy
+      # 2 replicas so the slave always has a live task during a master roll and
+      # during its own start-first roll, keeping a healthy backend in the WRR.
+      replicas: 2
+      labels:
+        - "traefik.enable=true"
+        - "traefik.swarm.network=newapi-overlay"
+        - "traefik.http.services.newapi-slave.loadbalancer.server.port=3000"
+        - "traefik.http.services.newapi-slave.loadbalancer.healthcheck.path=/api/status"
+        - "traefik.http.services.newapi-slave.loadbalancer.healthcheck.interval=2s"
+        - "traefik.http.services.newapi-slave.loadbalancer.healthcheck.timeout=3s"
+        - "traefik.http.services.newapi-slave.loadbalancer.serverstransport=newapi-fast@file"
+
+networks:
+  # Shared --attachable overlay: Traefik reaches app task IPs and the app reaches
+  # the plain-compose postgres/redis by name (a local bridge can't carry swarm traffic).
+  newapi-overlay:
+    external: true

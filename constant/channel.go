@@ -59,6 +59,8 @@ const (
 	ChannelTypeSub2API        = 59
 	ChannelTypeNewAPI         = 60
 	ChannelTypeTaskPlugin     = 61
+	ChannelTypeAIHorde        = 62 // prod-only async image-gen task adaptor
+	ChannelTypeRunware        = 63 // prod-only sync image-gen adaptor, addresses Civitai checkpoints by AIR
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -125,7 +127,9 @@ var ChannelBaseURLs = []string{
 	"",                                          //58
 	"",                                          //59
 	"",                                          //60
-	"",                                          //61
+	"",                                          //61 Task Plugin
+	"https://aihorde.net",                       //62 AI Horde
+	"https://api.runware.ai",                    //63 Runware
 }
 
 func GetChannelBaseURL(channelType int) string {
@@ -194,6 +198,8 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeSub2API:        "Sub2API",
 	ChannelTypeNewAPI:         "New API",
 	ChannelTypeTaskPlugin:     "Task Plugin",
+	ChannelTypeAIHorde:        "AI Horde",
+	ChannelTypeRunware:        "Runware",
 }
 
 func GetChannelTypeName(channelType int) string {

@@ -34,7 +34,7 @@ func TestListModelsSupportsOpenAIAndGeminiAuthentication(t *testing.T) {
 	}).Error)
 
 	engine := gin.New()
-	SetRelayRouter(engine)
+	SetRelayRouter(engine, newOpenAPIEngine())
 
 	tests := []struct {
 		name           string
@@ -92,7 +92,7 @@ func TestListModelsSupportsOpenAIAndGeminiAuthentication(t *testing.T) {
 func TestRelayRouterRegistersClaudeTokenCountingEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	SetRelayRouter(engine)
+	SetRelayRouter(engine, newOpenAPIEngine())
 
 	for _, route := range engine.Routes() {
 		if route.Method == http.MethodPost && route.Path == "/v1/messages/count_tokens" {

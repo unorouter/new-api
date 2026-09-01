@@ -111,7 +111,11 @@ func (m Properties) Value() (driver.Value, error) {
 type TaskPrivateData struct {
 	Key            string `json:"key,omitempty"`
 	UpstreamTaskID string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
-	ResultURL      string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	// ResultURL 单输出任务的结果 URL（视频地址等）
+	ResultURL string `json:"result_url,omitempty"`
+	// ResultURLs 多输出任务的结果 URL 列表（ComfyUI batch_size>1）。
+	// 设置时优先级高于 ResultURL；视频代理按 ?i=<idx> 提供每个条目。
+	ResultURLs []string `json:"result_urls,omitempty"`
 	// Execution records safe, immutable request provenance. It lives next to
 	// other private task state so public task DTOs cannot expose it by accident.
 	Execution *TaskExecutionSnapshot `json:"execution,omitempty"`
@@ -172,11 +176,29 @@ func (t *Task) GetUpstreamTaskID() string {
 
 // GetResultURL 获取任务结果 URL（视频地址等）
 // 新数据存在 PrivateData.ResultURL 中；旧数据回退到 FailReason（历史兼容）
+//
+// 多输出任务（ComfyUI batch_size>1）下，本方法返回第一个 URL。完整列表请用
+// GetResultURLs。
 func (t *Task) GetResultURL() string {
 	if t.PrivateData.ResultURL != "" {
 		return t.PrivateData.ResultURL
 	}
+	if len(t.PrivateData.ResultURLs) > 0 {
+		return t.PrivateData.ResultURLs[0]
+	}
 	return t.FailReason
+}
+
+// GetResultURLs 获取所有结果 URL。优先返回 PrivateData.ResultURLs（多输出），
+// 回退到 [ResultURL] 单元素切片。空切片表示任务没有可用的产物。
+func (t *Task) GetResultURLs() []string {
+	if len(t.PrivateData.ResultURLs) > 0 {
+		return t.PrivateData.ResultURLs
+	}
+	if t.PrivateData.ResultURL != "" {
+		return []string{t.PrivateData.ResultURL}
+	}
+	return nil
 }
 
 // GenerateTaskID 生成对外暴露的 task_xxxx 格式 ID
@@ -194,7 +216,20 @@ func (p *TaskPrivateData) Scan(val interface{}) error {
 }
 
 func (p TaskPrivateData) Value() (driver.Value, error) {
-	if (p == TaskPrivateData{}) {
+	// Slice-containing structs aren't directly comparable; check zero by
+	// inspecting each field. Matches the previous "all-zero -> NULL"
+	// behavior so empty rows don't carry a "{}" payload in the DB.
+	if p.Key == "" &&
+		p.UpstreamTaskID == "" &&
+		p.ResultURL == "" &&
+		len(p.ResultURLs) == 0 &&
+		p.Execution == nil &&
+		p.BillingSource == "" &&
+		p.SubscriptionId == 0 &&
+		p.TokenId == 0 &&
+		p.NodeName == "" &&
+		!p.ResponsesBackground &&
+		p.BillingContext == nil {
 		return nil, nil
 	}
 	// 同 Properties.Value:string 避免 PG simple protocol 的 bytea 编码。

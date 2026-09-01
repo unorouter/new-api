@@ -86,7 +86,11 @@ export function filterByQuotaType(
   const targetType =
     quotaType === QUOTA_TYPES.TOKEN
       ? QUOTA_TYPE_VALUES.TOKEN
-      : QUOTA_TYPE_VALUES.REQUEST
+      : quotaType === QUOTA_TYPES.CUSTOM
+        ? QUOTA_TYPE_VALUES.CUSTOM
+        : quotaType === QUOTA_TYPES.GRID
+          ? QUOTA_TYPE_VALUES.GRID
+          : QUOTA_TYPE_VALUES.REQUEST
   return models.filter(
     (m) => m.quota_type === targetType && !hasTaskUsageSchema(m)
   )

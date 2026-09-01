@@ -16,7 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Share2 } from 'lucide-react'
+import { useState } from 'react'
+import { Share2, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
@@ -28,6 +29,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatQuota } from '@/lib/format'
 
 import type { UserWalletData } from '../types'
+import { InvitedUsersDialog } from './dialogs/invited-users-dialog'
 
 interface AffiliateRewardsCardProps {
   user: UserWalletData | null
@@ -45,6 +47,7 @@ export function AffiliateRewardsCard({
   loading,
 }: AffiliateRewardsCardProps) {
   const { t } = useTranslation()
+  const [showInvitees, setShowInvitees] = useState(false)
   if (loading) {
     return (
       <Card data-card-hover='false' className='bg-muted/20 py-0'>
@@ -82,20 +85,36 @@ export function AffiliateRewardsCard({
         </div>
 
         <div className='grid grid-cols-3 gap-1.5 text-center'>
-          {[
-            [t('Pending'), formatQuota(user?.aff_quota ?? 0)],
-            [t('Total Earned'), formatQuota(user?.aff_history_quota ?? 0)],
-            [t('Invites'), String(user?.aff_count ?? 0)],
-          ].map(([label, value]) => (
-            <div key={label}>
-              <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
-                {label}
-              </div>
-              <div className='mt-0.5 truncate text-sm font-semibold tabular-nums'>
-                {value}
-              </div>
+          <div>
+            <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
+              {t('Pending')}
             </div>
-          ))}
+            <div className='mt-0.5 truncate text-sm font-semibold tabular-nums'>
+              {formatQuota(user?.aff_quota ?? 0)}
+            </div>
+          </div>
+          <div>
+            <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
+              {t('Total Earned')}
+            </div>
+            <div className='mt-0.5 truncate text-sm font-semibold tabular-nums'>
+              {formatQuota(user?.aff_history_quota ?? 0)}
+            </div>
+          </div>
+          <button
+            type='button'
+            onClick={() => setShowInvitees(true)}
+            className='hover:bg-accent/50 group rounded-md transition-colors'
+            title={t('View invited users')}
+          >
+            <div className='text-muted-foreground inline-flex items-center gap-1 truncate text-[10px] font-medium tracking-wider uppercase'>
+              {t('Invites')}
+              <Users className='size-3 opacity-60 group-hover:opacity-100' />
+            </div>
+            <div className='mt-0.5 truncate text-sm font-semibold tabular-nums underline-offset-2 group-hover:underline'>
+              {String(user?.aff_count ?? 0)}
+            </div>
+          </button>
         </div>
 
         <div className='flex items-center gap-2'>
@@ -123,6 +142,11 @@ export function AffiliateRewardsCard({
             </Button>
           )}
         </div>
+        <p className='text-muted-foreground text-xs lg:col-span-3'>
+          {t(
+            'Invite real people. Creating extra accounts to refer yourself is not what this program is for, and self-referrals do not earn commission.'
+          )}
+        </p>
         {!complianceConfirmed ? (
           <p className='text-muted-foreground text-xs lg:col-span-3'>
             {t(
@@ -131,6 +155,11 @@ export function AffiliateRewardsCard({
           </p>
         ) : null}
       </CardContent>
+
+      <InvitedUsersDialog
+        open={showInvitees}
+        onOpenChange={setShowInvitees}
+      />
     </Card>
   )
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/notify"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -40,6 +41,17 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 	return abilities, err
 }
 
+// GetAllAbilityWithChannels returns every ability row (enabled and disabled) so
+// pricing can surface offline models (those with all channels auto-disabled).
+func GetAllAbilityWithChannels() ([]AbilityWithChannel, error) {
+	var abilities []AbilityWithChannel
+	err := DB.Table("abilities").
+		Select("abilities.*, channels.type as channel_type").
+		Joins("left join channels on abilities.channel_id = channels.id").
+		Scan(&abilities).Error
+	return abilities, err
+}
+
 func GetGroupEnabledModels(group string) []string {
 	var models []string
 	// Find distinct models
@@ -52,6 +64,20 @@ func GetEnabledModels() []string {
 	// Find distinct models
 	DB.Table("abilities").Where("enabled = ?", true).Distinct("model").Pluck("model", &models)
 	return models
+}
+
+// HasEnabledChannelForModelOutsideGroups reports whether any enabled channel
+// serves the model through a group NOT in excludeGroups. Used to tell a
+// pinned-token user whether their override (rather than the whole platform)
+// is what locked them out.
+func HasEnabledChannelForModelOutsideGroups(model string, excludeGroups []string) bool {
+	var count int64
+	query := DB.Table("abilities").Where("model = ? and enabled = ?", model, true)
+	if len(excludeGroups) > 0 {
+		query = query.Where(commonGroupCol+" NOT IN ?", excludeGroups)
+	}
+	query.Count(&count)
+	return count > 0
 }
 
 func GetAllEnableAbilities() []Ability {
@@ -76,7 +102,7 @@ func getPriority(group string, model string, retry int) (int, error) {
 
 	if len(priorities) == 0 {
 		// 如果没有查询到优先级，则返回错误
-		return 0, errors.New("数据库一致性被破坏")
+		return 0, errors.New("database consistency has been broken")
 	}
 
 	// 确定要使用的优先级
@@ -110,6 +136,7 @@ func GetChannel(
 	model string,
 	retry int,
 	filters []dto.ChannelFilter,
+	skipIDs ...map[int]bool,
 ) (*Channel, error) {
 	var abilities []Ability
 	err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).Order("priority DESC, weight DESC").Find(&abilities).Error
@@ -138,6 +165,15 @@ func GetChannel(
 		abilities = lo.Filter(abilities, func(ability Ability, _ int) bool {
 			return ability.Priority == nil && targetPriority == 0 || ability.Priority != nil && *ability.Priority == targetPriority
 		})
+	}
+	if len(skipIDs) > 0 && len(skipIDs[0]) > 0 {
+		filtered := make([]Ability, 0, len(abilities))
+		for _, ability_ := range abilities {
+			if !skipIDs[0][ability_.ChannelId] {
+				filtered = append(filtered, ability_)
+			}
+		}
+		abilities = filtered
 	}
 	channel := Channel{}
 	if len(abilities) > 0 {
@@ -331,11 +367,19 @@ func (channel *Channel) UpdateAbilities(tx *gorm.DB) error {
 }
 
 func UpdateAbilityStatus(channelId int, status bool) error {
-	return DB.Model(&Ability{}).Where("channel_id = ?", channelId).Select("enabled").Update("enabled", status).Error
+	err := DB.Model(&Ability{}).Where("channel_id = ?", channelId).Select("enabled").Update("enabled", status).Error
+	if err == nil {
+		notify.MarkDirty("ability_status")
+	}
+	return err
 }
 
 func UpdateAbilityStatusByTag(tag string, status bool) error {
-	return DB.Model(&Ability{}).Where("tag = ?", tag).Select("enabled").Update("enabled", status).Error
+	err := DB.Model(&Ability{}).Where("tag = ?", tag).Select("enabled").Update("enabled", status).Error
+	if err == nil {
+		notify.MarkDirty("ability_status_tag")
+	}
+	return err
 }
 
 func UpdateAbilityByTag(tag string, newTag *string, priority *int64, weight *uint) error {
@@ -357,26 +401,19 @@ var fixLock = sync.Mutex{}
 func FixAbility() (int, int, error) {
 	lock := fixLock.TryLock()
 	if !lock {
-		return 0, 0, errors.New("已经有一个修复任务在运行中，请稍后再试")
+		return 0, 0, errors.New("a repair task is already running, please try again later")
 	}
 	defer fixLock.Unlock()
 
-	// truncate abilities table
-	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
-		err := DB.Exec("DELETE FROM abilities").Error
-		if err != nil {
-			common.SysLog(fmt.Sprintf("Delete abilities failed: %s", err.Error()))
-			return 0, 0, err
-		}
-	} else {
-		err := DB.Exec("TRUNCATE TABLE abilities").Error
-		if err != nil {
-			common.SysLog(fmt.Sprintf("Truncate abilities failed: %s", err.Error()))
-			return 0, 0, err
-		}
-	}
+	// Rebuild per-channel WITHOUT a leading global truncate. With memory cache off,
+	// routing reads the abilities table live per request, so `TRUNCATE TABLE abilities`
+	// leaves EVERY model unroutable until the chunked rebuild refills it (seconds) -
+	// live requests fail and channels auto-disable en masse (the "mass up/down after
+	// every sync" incident; sync calls this via /api/channel/fix on every run). Each
+	// channel's rows are instead swapped inside a per-chunk transaction, so the table
+	// is never globally empty; a final orphan sweep removes rows for deleted channels
+	// (the only thing the truncate did that the per-channel delete does not).
 	var channels []*Channel
-	// Find all channels
 	err := DB.Model(&Channel{}).Find(&channels).Error
 	if err != nil {
 		return 0, 0, err
@@ -388,24 +425,48 @@ func FixAbility() (int, int, error) {
 	failCount := 0
 	for _, chunk := range lo.Chunk(channels, 50) {
 		ids := lo.Map(chunk, func(c *Channel, _ int) int { return c.Id })
-		// Delete all abilities of this channel
-		err = DB.Where("channel_id IN ?", ids).Delete(&Ability{}).Error
-		if err != nil {
-			common.SysLog(fmt.Sprintf("Delete abilities failed: %s", err.Error()))
+		txErr := DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("channel_id IN ?", ids).Delete(&Ability{}).Error; err != nil {
+				return err
+			}
+			for _, channel := range chunk {
+				if err := channel.AddAbilities(tx); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if txErr != nil {
+			common.SysLog(fmt.Sprintf("Rebuild abilities chunk failed: %s", txErr.Error()))
 			failCount += len(chunk)
 			continue
 		}
-		// Then add new abilities
-		for _, channel := range chunk {
-			err = channel.AddAbilities(nil)
-			if err != nil {
-				common.SysLog(fmt.Sprintf("Add abilities for channel %d failed: %s", channel.Id, err.Error()))
-				failCount++
-			} else {
-				successCount++
-			}
-		}
+		successCount += len(chunk)
+	}
+	// Sweep abilities whose channel no longer exists (the truncate's orphan role,
+	// now scoped so it never touches a live channel's rows).
+	if err := DB.Where("channel_id NOT IN (?)", DB.Model(&Channel{}).Select("id")).
+		Delete(&Ability{}).Error; err != nil {
+		common.SysLog(fmt.Sprintf("Orphan ability sweep failed: %s", err.Error()))
 	}
 	InitChannelCache()
 	return successCount, failCount, nil
+}
+
+// DeleteOrphanedAbilities removes ability rows whose channel_id no longer exists
+// in the channels table. Orphans accumulate when a channel is removed via a path
+// that skips the cascade (raw SQL, older code, partial ops); left in place they
+// make /v1/models advertise + route to dead channels, causing model_not_found.
+// Safe to run any time: it only deletes routes that can never resolve.
+func DeleteOrphanedAbilities() (int64, error) {
+	result := DB.Where("channel_id NOT IN (?)",
+		DB.Model(&Channel{}).Select("id"),
+	).Delete(&Ability{})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	if result.RowsAffected > 0 {
+		InitChannelCache()
+	}
+	return result.RowsAffected, nil
 }

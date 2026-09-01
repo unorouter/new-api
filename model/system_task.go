@@ -21,6 +21,7 @@ const (
 	SystemTaskTypeModelUpdate    = "model_update"
 	SystemTaskTypeMidjourneyPoll = "midjourney_poll"
 	SystemTaskTypeAsyncTaskPoll  = "async_task_poll"
+	SystemTaskTypeDiagCleanup    = "channel_diagnostics_cleanup"
 )
 
 var ErrSystemTaskLockLost = errors.New("system task lock lost")
@@ -378,17 +379,47 @@ func ExpireStaleSystemTaskLocks(now int64) error {
 	if err := DB.Where("locked_until < ?", now).Find(&locks).Error; err != nil {
 		return err
 	}
+	var lastErr error
 	for _, lock := range locks {
+		// Keep sweeping on error: one unreapable row must not strand every other
+		// expired lease behind it.
 		if err := MarkSystemTaskLeaseExpired(lock.TaskID); err != nil {
-			return err
+			lastErr = err
+			continue
 		}
 		result := DB.Where("type = ? AND task_id = ? AND locked_by = ? AND locked_until < ?", lock.Type, lock.TaskID, lock.LockedBy, now).
 			Delete(&SystemTaskLock{})
 		if result.Error != nil {
-			return result.Error
+			lastErr = result.Error
 		}
 	}
-	return nil
+	return lastErr
+}
+
+// ExpireOrphanedRunningSystemTasks fails running tasks that no longer hold a lock.
+// The scheduler treats any running row as an active run and creates nothing while
+// one exists, so an orphan (runner killed between losing its lease and writing a
+// terminal state) would otherwise halt that task type permanently.
+func ExpireOrphanedRunningSystemTasks(staleBefore int64) error {
+	var tasks []*SystemTask
+	if err := DB.Where("status = ? AND updated_at < ?", SystemTaskStatusRunning, staleBefore).Find(&tasks).Error; err != nil {
+		return err
+	}
+	var lastErr error
+	for _, task := range tasks {
+		var lockCount int64
+		if err := DB.Model(&SystemTaskLock{}).Where("task_id = ?", task.TaskID).Count(&lockCount).Error; err != nil {
+			lastErr = err
+			continue
+		}
+		if lockCount > 0 {
+			continue
+		}
+		if err := MarkSystemTaskLeaseExpired(task.TaskID); err != nil {
+			lastErr = err
+		}
+	}
+	return lastErr
 }
 
 func ReleaseSystemTaskLock(taskID string, lockedBy string) error {

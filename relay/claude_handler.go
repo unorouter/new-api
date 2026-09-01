@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -40,6 +41,16 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 	if err = helper.ApplyReasoningModelSuffix(info, request); err != nil {
 		return newConvertRequestFailedError(c, info, err)
+	}
+
+	// 强制上游流式：见 compatible_handler.go 同逻辑
+	if !info.ClientWantsStream &&
+		(operation_setting.IsForceUpstreamStreamingEnabled() ||
+			info.ChannelSetting.ForceUpstreamStream) &&
+		isForceStreamEligibleClaude(request, info) {
+		request.Stream = common.GetPointer[bool](true)
+		info.IsStream = true
+		info.ForceUpstreamStream = true
 	}
 
 	adaptor := GetAdaptor(info.ApiType)
@@ -111,7 +122,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 
 		// apply param override
 		if len(info.ParamOverride) > 0 {
-			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info, c.Writer.Header())
 			if err != nil {
 				return newAPIErrorFromParamOverride(err)
 			}
@@ -154,4 +165,20 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	return nil
+}
+
+// isForceStreamEligibleClaude gates the force-stream upgrade for /v1/messages.
+// Text, thinking, and tool_use blocks are all handled by the aggregator, so the
+// only gate is the thinking-model blacklist (response shape for those models is
+// still evolving upstream and best left untouched).
+func isForceStreamEligibleClaude(request *dto.ClaudeRequest, info *relaycommon.RelayInfo) bool {
+	if request == nil {
+		return false
+	}
+	for _, m := range model_setting.GetGlobalSettings().ThinkingModelBlacklist {
+		if m == info.OriginModelName {
+			return false
+		}
+	}
+	return true
 }

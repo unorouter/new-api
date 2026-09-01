@@ -1,154 +1,153 @@
 package controller
 
 import (
-	"net/http"
-	"strconv"
-
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
-
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 )
 
-func GetAllLogs(c *gin.Context) {
-	pageInfo := common.GetPageQuery(c)
-	logType, _ := strconv.Atoi(c.Query("type"))
-	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	username := c.Query("username")
-	tokenName := c.Query("token_name")
-	modelName := c.Query("model_name")
-	channel, _ := strconv.Atoi(c.Query("channel"))
-	group := c.Query("group")
-	requestId := c.Query("request_id")
-	upstreamRequestId := c.Query("upstream_request_id")
-	logs, total, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), channel, group, requestId, upstreamRequestId)
+func GetAllLogs(c fuego.ContextWithParams[dto.GetAllLogsParams]) (*dto.Response[dto.PageData[*model.Log]], error) {
+	pageInfo := dto.PageInfo(c)
+	p, _ := dto.ParseParams[dto.GetAllLogsParams](c)
+	logs, total, err := model.GetAllLogs(p.Type, p.StartTimestamp, p.EndTimestamp, p.ModelName, p.Username, p.DiscordId, p.TokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), p.Channel, p.Group, p.RequestID, p.UpstreamRequestID, p.SubscriptionPlan)
 	if err != nil {
-		common.ApiError(c, err)
-		return
+		return dto.FailPage[*model.Log](err.Error())
 	}
-	if c.GetInt("role") < common.RoleRootUser {
+	ginCtx := dto.GinCtx(c)
+	if ginCtx.GetInt("role") < common.RoleRootUser {
 		model.FormatAdminLogs(logs)
 	}
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(logs)
-	common.ApiSuccess(c, pageInfo)
-	return
+	// Cross-user log browsing: prompts are not stored, but usernames, models,
+	// spend and channel routing for every account are.
+	recordSensitiveRead(ginCtx, "read.log_search", map[string]interface{}{
+		"count":    len(logs),
+		"username": p.Username,
+	})
+	return dto.OkPage(pageInfo, logs, int(total))
 }
 
-func GetUserLogs(c *gin.Context) {
-	pageInfo := common.GetPageQuery(c)
-	userId := c.GetInt("id")
-	logType, _ := strconv.Atoi(c.Query("type"))
-	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	tokenName := c.Query("token_name")
-	modelName := c.Query("model_name")
-	group := c.Query("group")
-	requestId := c.Query("request_id")
-	upstreamRequestId := c.Query("upstream_request_id")
-	logs, total, err := model.GetUserLogs(userId, logType, startTimestamp, endTimestamp, modelName, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group, requestId, upstreamRequestId)
-	if err != nil {
-		common.ApiError(c, err)
-		return
+// Sanity bound only (garbage timestamps), mirroring maxQuotaDateSpan: a bounded
+// window keeps the per-user stat aggregation on its covering index instead of
+// letting a zero start_timestamp scan the whole logs table.
+const maxLogDateSpan = 10 * 365 * 86400
+
+func logSpanTooWide(start, end int64) bool {
+	return start != 0 && end != 0 && end-start > maxLogDateSpan
+}
+
+func GetUserLogs(c fuego.ContextWithParams[dto.GetUserLogsParams]) (*dto.Response[dto.PageData[*model.Log]], error) {
+	pageInfo := dto.PageInfo(c)
+	userId := dto.UserID(c)
+	p, _ := dto.ParseParams[dto.GetUserLogsParams](c)
+	if logSpanTooWide(p.StartTimestamp, p.EndTimestamp) {
+		return dto.FailPage[*model.Log]("Time span cannot exceed 10 years")
 	}
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(logs)
-	common.ApiSuccess(c, pageInfo)
-	return
+	logs, total, err := model.GetUserLogs(userId, p.Type, p.StartTimestamp, p.EndTimestamp, p.ModelName, p.TokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), p.Group, p.RequestID, p.UpstreamRequestID, p.SubscriptionPlan)
+	if err != nil {
+		return dto.FailPage[*model.Log](err.Error())
+	}
+	return dto.OkPage(pageInfo, logs, int(total))
 }
 
 // Deprecated: SearchAllLogs 已废弃，前端未使用该接口。
-func SearchAllLogs(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"success": false,
-		"message": "该接口已废弃",
-	})
+func SearchAllLogs(c fuego.ContextNoBody) (dto.MessageResponse, error) {
+	return dto.FailMsg("This API has been deprecated")
 }
 
 // Deprecated: SearchUserLogs 已废弃，前端未使用该接口。
-func SearchUserLogs(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"success": false,
-		"message": "该接口已废弃",
+func SearchUserLogs(c fuego.ContextNoBody) (dto.MessageResponse, error) {
+	return dto.FailMsg("This API has been deprecated")
+}
+
+// GetLogByRequest resolves one log row by its full request_id. Public because a
+// request_id is 62^8 of random suffix on top of a nanosecond timestamp, so it is
+// not enumerable and whoever holds one already made that request.
+func GetLogByRequest(c fuego.ContextWithParams[dto.GetLogByRequestParams]) (*dto.Response[dto.LogByRequestData], error) {
+	p, _ := dto.ParseParams[dto.GetLogByRequestParams](c)
+	if p.RequestID == "" {
+		return dto.Fail[dto.LogByRequestData]("request_id is required")
+	}
+	l, err := model.GetLogByRequestId(p.RequestID)
+	if err != nil {
+		return dto.Fail[dto.LogByRequestData](err.Error())
+	}
+	if l == nil {
+		return dto.Ok(dto.LogByRequestData{})
+	}
+	return dto.Ok(dto.LogByRequestData{
+		Channel:          l.ChannelName,
+		Quota:            l.Quota,
+		PromptTokens:     l.PromptTokens,
+		CompletionTokens: l.CompletionTokens,
+		UseTime:          l.UseTime,
+		ModelName:        l.ModelName,
+		Group:            l.Group,
 	})
 }
 
-func GetLogByKey(c *gin.Context) {
-	tokenId := c.GetInt("token_id")
+func GetLogByKey(c fuego.ContextNoBody) (*dto.Response[[]*model.Log], error) {
+	tokenId := dto.TokenID(c)
 	if tokenId == 0 {
-		c.JSON(200, gin.H{
-			"success": false,
-			"message": "无效的令牌",
-		})
-		return
+		return dto.Fail[[]*model.Log]("Invalid token")
 	}
 	logs, err := model.GetLogByTokenId(tokenId)
 	if err != nil {
-		c.JSON(200, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
+		return dto.Fail[[]*model.Log](err.Error())
 	}
-	c.JSON(200, gin.H{
-		"success": true,
-		"message": "",
-		"data":    logs,
+	return dto.Ok(logs)
+}
+
+func GetLogsStat(c fuego.ContextWithParams[dto.LogStatParams]) (*dto.Response[dto.LogStatData], error) {
+	p, _ := dto.ParseParams[dto.LogStatParams](c)
+	stat, err := model.SumUsedQuota(p.Type, p.StartTimestamp, p.EndTimestamp, p.ModelName, p.Username, p.TokenName, p.Channel, p.Group)
+	if err != nil {
+		return dto.Fail[dto.LogStatData](err.Error())
+	}
+	return dto.Ok(dto.LogStatData{
+		Quota: int64(stat.Quota),
+		RPM:   stat.Rpm,
+		TPM:   stat.Tpm,
 	})
 }
 
-func GetLogsStat(c *gin.Context) {
-	logType, _ := strconv.Atoi(c.Query("type"))
-	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	tokenName := c.Query("token_name")
-	username := c.Query("username")
-	modelName := c.Query("model_name")
-	channel, _ := strconv.Atoi(c.Query("channel"))
-	group := c.Query("group")
-	stat, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group)
-	if err != nil {
-		common.ApiError(c, err)
-		return
+func GetLogsSelfStat(c fuego.ContextWithParams[dto.LogSelfStatParams]) (*dto.Response[dto.LogStatData], error) {
+	username := dto.GinCtx(c).GetString("username")
+	p, _ := dto.ParseParams[dto.LogSelfStatParams](c)
+	if logSpanTooWide(p.StartTimestamp, p.EndTimestamp) {
+		return dto.Fail[dto.LogStatData]("Time span cannot exceed 10 years")
 	}
-	//tokenNum := model.SumUsedToken(logType, startTimestamp, endTimestamp, modelName, username, "")
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data": gin.H{
-			"quota": stat.Quota,
-			"rpm":   stat.Rpm,
-			"tpm":   stat.Tpm,
-		},
+	quotaNum, err := model.SumUsedQuota(p.Type, p.StartTimestamp, p.EndTimestamp, p.ModelName, username, p.TokenName, p.Channel, p.Group)
+	if err != nil {
+		return dto.Fail[dto.LogStatData](err.Error())
+	}
+	return dto.Ok(dto.LogStatData{
+		Quota: int64(quotaNum.Quota),
+		RPM:   quotaNum.Rpm,
+		TPM:   quotaNum.Tpm,
 	})
-	return
 }
 
-func GetLogsSelfStat(c *gin.Context) {
-	username := c.GetString("username")
-	logType, _ := strconv.Atoi(c.Query("type"))
-	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	tokenName := c.Query("token_name")
-	modelName := c.Query("model_name")
-	channel, _ := strconv.Atoi(c.Query("channel"))
-	group := c.Query("group")
-	quotaNum, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group)
-	if err != nil {
-		common.ApiError(c, err)
-		return
+func DeleteHistoryLogs(c fuego.ContextWithParams[dto.DeleteHistoryLogsParams]) (*dto.Response[int64], error) {
+	p, _ := dto.ParseParams[dto.DeleteHistoryLogsParams](c)
+	if p.TargetTimestamp == 0 {
+		return dto.Fail[int64]("target timestamp is required")
 	}
-	//tokenNum := model.SumUsedToken(logType, startTimestamp, endTimestamp, modelName, username, tokenName)
-	c.JSON(200, gin.H{
-		"success": true,
-		"message": "",
-		"data": gin.H{
-			"quota": quotaNum.Quota,
-			"rpm":   quotaNum.Rpm,
-			"tpm":   quotaNum.Tpm,
-			//"token": tokenNum,
-		},
-	})
-	return
+	ctx := c.Request().Context()
+	const batchLimit = 100
+	var count int64
+	for {
+		if ctx.Err() != nil {
+			return dto.Fail[int64](ctx.Err().Error())
+		}
+		rowsAffected, err := model.DeleteOldLogBatch(ctx, p.TargetTimestamp, batchLimit)
+		if err != nil {
+			return dto.Fail[int64](err.Error())
+		}
+		count += rowsAffected
+		if rowsAffected < int64(batchLimit) {
+			break
+		}
+	}
+	return dto.Ok(count)
 }

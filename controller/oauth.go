@@ -9,11 +9,14 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 	"gorm.io/gorm"
 )
 
@@ -27,6 +30,7 @@ type oauthStateRequest struct {
 
 type oauthFlowPayload struct {
 	AffiliateCode string `json:"affiliate_code,omitempty"`
+	RedirectURI   string `json:"redirect_uri,omitempty"`
 }
 
 // providerParams returns map with Provider key for i18n templates
@@ -34,61 +38,83 @@ func providerParams(name string) map[string]any {
 	return map[string]any{"Provider": name}
 }
 
-// GenerateOAuthCode generates a state code for OAuth CSRF protection
-func GenerateOAuthCode(c *gin.Context) {
-	var request oauthStateRequest
-	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
-		return
+// GenerateOAuthCode generates a state code for OAuth CSRF protection.
+// State is tracked via the DB-backed auth flow. When redirect_uri is provided
+// (external frontend flow), it is validated and stored in the flow payload so the
+// callback can redirect back to the external frontend after login/bind.
+func GenerateOAuthCode(c fuego.ContextWithParams[dto.GenerateOAuthCodeParams]) (*dto.Response[string], error) {
+	ginCtx := dto.GinCtx(c)
+	p, _ := dto.ParseParams[dto.GenerateOAuthCodeParams](c)
+
+	provider := strings.TrimSpace(p.Provider)
+	intent := strings.TrimSpace(p.Intent)
+	aff := strings.TrimSpace(p.Aff)
+	if intent == "" {
+		if p.Action == "bind" {
+			intent = model.AuthFlowIntentBind
+		} else {
+			intent = model.AuthFlowIntentLogin
+		}
 	}
-	request.Provider = strings.TrimSpace(request.Provider)
-	request.Intent = strings.TrimSpace(request.Intent)
-	request.Aff = strings.TrimSpace(request.Aff)
-	if oauth.GetProvider(request.Provider) == nil ||
-		(request.Intent != model.AuthFlowIntentLogin && request.Intent != model.AuthFlowIntentBind) ||
-		len(request.Aff) > 32 ||
-		(request.Intent == model.AuthFlowIntentBind && request.Aff != "") {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
-		return
+	if oauth.GetProvider(provider) == nil ||
+		(intent != model.AuthFlowIntentLogin && intent != model.AuthFlowIntentBind) ||
+		len(aff) > 32 ||
+		(intent == model.AuthFlowIntentBind && aff != "") {
+		return dto.Fail[string](common.TranslateMessage(ginCtx, i18n.MsgInvalidParams))
 	}
+
+	redirectURI := strings.TrimSpace(p.RedirectURI)
+	if redirectURI != "" && !common.IsAllowedRedirectURI(redirectURI) {
+		return dto.Fail[string]("The redirect URI is not in the list of allowed origins")
+	}
+
 	userID := 0
 	sessionID := ""
-	if request.Intent == model.AuthFlowIntentBind {
-		identity, ok := middleware.GetSessionAuthIdentity(c)
-		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "绑定操作需要登录"})
-			return
+	if intent == model.AuthFlowIntentBind {
+		if redirectURI != "" {
+			// External frontend bind: the dashboard session cookie does not survive
+			// the cross-domain redirect, so the caller proves identity with its
+			// Authorization header instead. The identity MUST come from a verified
+			// credential: this route is public (only CORS + rate limiting), so
+			// trusting a plain New-Api-User header here let anyone mint a bind state
+			// for an arbitrary account and attach their own OAuth identity to it.
+			//
+			// A session token in that header resolves; a PAT does not. Binding adds a
+			// login method and OAuth login checks no second factor, so accepting a PAT
+			// here would let a bearer secret attach an identity it can then log in as.
+			user, err := middleware.ResolveDashboardSessionCredential(ginCtx)
+			if err != nil || user == nil || user.Status != common.UserStatusEnabled {
+				return dto.Fail[string]("Authentication required for bind")
+			}
+			userID = user.Id
+		} else {
+			identity, ok := middleware.GetSessionAuthIdentity(ginCtx)
+			if !ok {
+				return dto.Fail[string]("Authentication required for bind")
+			}
+			userID = identity.UserID
+			sessionID = identity.SessionID
 		}
-		userID = identity.UserID
-		sessionID = identity.SessionID
 	}
-	payload, err := common.Marshal(oauthFlowPayload{AffiliateCode: request.Aff})
+
+	payload, err := common.Marshal(oauthFlowPayload{AffiliateCode: aff, RedirectURI: redirectURI})
 	if err != nil {
-		common.ApiError(c, err)
-		return
+		return nil, err
 	}
 	expiresAt := time.Now().Add(oauthAuthFlowTTL)
 	state, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
 		Purpose:   model.AuthFlowPurposeOAuth,
-		Provider:  request.Provider,
-		Intent:    request.Intent,
+		Provider:  provider,
+		Intent:    intent,
 		UserId:    userID,
 		SessionId: sessionID,
 		Payload:   string(payload),
 		ExpiresAt: expiresAt,
 	})
 	if err != nil {
-		common.ApiError(c, err)
-		return
+		return dto.Fail[string](err.Error())
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data": gin.H{
-			"flow_token": state,
-			"expires_at": expiresAt.Unix(),
-		},
-	})
+	return dto.Ok(state)
 }
 
 // HandleOAuth handles OAuth callback for all standard OAuth providers
@@ -117,23 +143,37 @@ func HandleOAuth(c *gin.Context) {
 		return
 	}
 
+	// Extract the external-frontend redirect target stored when the flow was created.
+	var pendingPayload oauthFlowPayload
+	if err := common.UnmarshalJsonStr(pendingFlow.Payload, &pendingPayload); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	redirectURI := pendingPayload.RedirectURI
+
 	consumeMatch := model.AuthFlowMatch{
 		Purpose:  model.AuthFlowPurposeOAuth,
 		Provider: providerName,
 		Intent:   pendingFlow.Intent,
 	}
-	// 2. Bind flows are bound to the live dashboard Session that created them.
+	// 2. Bind flows are bound to the identity that created them. Same-origin binds carry a
+	// live dashboard session; external-frontend binds (redirect_uri present) are bound to a
+	// header-resolved user with no session id.
 	if pendingFlow.Intent == model.AuthFlowIntentBind {
-		identity, ok := middleware.GetSessionAuthIdentity(c)
-		if !ok || identity.UserID != pendingFlow.UserId || identity.SessionID != pendingFlow.SessionId {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"message": i18n.T(c, i18n.MsgOAuthStateInvalid),
-			})
-			return
+		if pendingFlow.SessionId != "" {
+			identity, ok := middleware.GetSessionAuthIdentity(c)
+			if !ok || identity.UserID != pendingFlow.UserId || identity.SessionID != pendingFlow.SessionId {
+				c.JSON(http.StatusForbidden, gin.H{
+					"success": false,
+					"message": i18n.T(c, i18n.MsgOAuthStateInvalid),
+				})
+				return
+			}
+			consumeMatch.UserId = identity.UserID
+			consumeMatch.SessionId = identity.SessionID
+		} else {
+			consumeMatch.UserId = pendingFlow.UserId
 		}
-		consumeMatch.UserId = identity.UserID
-		consumeMatch.SessionId = identity.SessionID
 	} else if pendingFlow.Intent != model.AuthFlowIntentLogin {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
@@ -156,6 +196,9 @@ func HandleOAuth(c *gin.Context) {
 		if errorDescription == "" {
 			errorDescription = errorCode
 		}
+		if setupOAuthErrorRedirect(c, redirectURI, errorDescription) {
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": errorDescription,
@@ -163,7 +206,7 @@ func HandleOAuth(c *gin.Context) {
 		return
 	}
 	if pendingFlow.Intent == model.AuthFlowIntentBind {
-		handleOAuthBind(c, provider, pendingFlow, state)
+		handleOAuthBind(c, provider, pendingFlow, state, redirectURI)
 		return
 	}
 
@@ -200,9 +243,9 @@ func HandleOAuth(c *gin.Context) {
 			return
 		}
 		switch err.(type) {
-		case *OAuthUserDeletedError:
+		case *types.OAuthUserDeletedError:
 			common.ApiErrorI18n(c, i18n.MsgOAuthUserDeleted)
-		case *OAuthRegistrationDisabledError:
+		case *types.OAuthRegistrationDisabledError:
 			common.ApiErrorI18n(c, i18n.MsgUserRegisterDisabled)
 		case *OAuthEmailAlreadyTakenError:
 			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
@@ -212,18 +255,29 @@ func HandleOAuth(c *gin.Context) {
 		return
 	}
 
-	// 8. Check user status
+	// 9. Check user status
 	if user.Status != common.UserStatusEnabled {
 		common.ApiErrorI18n(c, i18n.MsgOAuthUserBanned)
 		return
 	}
 
-	// 9. Setup login
+	// 10. External redirect or same-origin login
+	if redirectURI != "" {
+		setupLoginAndRedirect(user, c, redirectURI)
+		return
+	}
 	setupLogin(user, c)
 }
 
-// handleOAuthBind handles binding OAuth account to existing user
-func handleOAuthBind(c *gin.Context, provider oauth.Provider, pendingFlow *model.AuthFlow, flowToken string) {
+// handleOAuthBind handles binding OAuth account to existing user.
+// State is validated by consuming the auth flow. When redirectURI is non-empty,
+// it redirects back to the external frontend.
+func handleOAuthBind(c *gin.Context, provider oauth.Provider, pendingFlow *model.AuthFlow, flowToken string, redirectURI string) {
+	if !provider.IsEnabled() {
+		common.ApiErrorI18n(c, i18n.MsgOAuthNotEnabled, providerParams(provider.GetName()))
+		return
+	}
+
 	// Exchange code for token
 	code := c.Query("code")
 	token, err := provider.ExchangeToken(c.Request.Context(), code, c)
@@ -241,12 +295,20 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider, pendingFlow *model
 
 	// Check if this OAuth account is already bound (check both new ID and legacy ID)
 	if provider.IsUserIDTaken(oauthUser.ProviderUserID) {
+		alreadyBound := common.TranslateMessage(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
+		if setupOAuthErrorRedirect(c, redirectURI, alreadyBound) {
+			return
+		}
 		common.ApiErrorI18n(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
 		return
 	}
 	// Also check legacy ID to prevent duplicate bindings during migration period
 	if legacyID, ok := oauthUser.Extra["legacy_id"].(string); ok && legacyID != "" {
 		if provider.IsUserIDTaken(legacyID) {
+			alreadyBound := common.TranslateMessage(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
+			if setupOAuthErrorRedirect(c, redirectURI, alreadyBound) {
+				return
+			}
 			common.ApiErrorI18n(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
 			return
 		}
@@ -274,18 +336,53 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider, pendingFlow *model
 			return
 		}
 	} else {
-		// Built-in provider: 只更新绑定列。完整快照的 user.Update 会把读取时刻的
-		// role/status/group 一并写回，覆盖并发发生的封禁、降权或分组变更。
 		err = model.UpdateUserBindColumn(userId, provider.ProviderUserIDColumn(), oauthUser.ProviderUserID)
 		if err != nil {
 			common.ApiError(c, err)
 			return
 		}
 	}
+	// An attached identity is a login path that no password change or session
+	// revocation closes, so the attachment itself has to be on the record.
+	recordUserSecurityAudit(c, userId, "user.oauth_bind", map[string]interface{}{
+		"provider":         provider.GetName(),
+		"provider_user_id": oauthUser.ProviderUserID,
+	})
+
+	// Cross-domain bind: redirect back with exchange code
+	if redirectURI != "" {
+		user := &model.User{Id: userId}
+		if err = user.FillUserById(); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		setupBindAndRedirect(user, c, redirectURI)
+		return
+	}
 
 	common.ApiSuccessI18n(c, i18n.MsgOAuthBindSuccess, gin.H{
 		"action": "bind",
 	})
+}
+
+// backfillOAuthEmail adopts the provider's email for an account that has none.
+// The address is only captured at signup, so an account created before that (or
+// by a provider that withheld it) can never recover a password. An existing
+// address is never overwritten, and a collision is skipped rather than failing
+// the login, since the user came here to sign in, not to bind an email.
+func backfillOAuthEmail(user *model.User, oauthUser *oauth.OAuthUser) {
+	if user.Id == 0 || user.Email != "" || oauthUser.Email == "" {
+		return
+	}
+	email := model.NormalizeEmail(oauthUser.Email)
+	if email == "" || model.EnsureEmailAvailable(email, user.Id) != nil {
+		return
+	}
+	if err := user.UpdateEmail(email); err != nil {
+		common.SysError(fmt.Sprintf("[OAuth] failed to backfill email for user %d: %s", user.Id, err.Error()))
+		return
+	}
+	user.Email = email
 }
 
 // findOrCreateOAuthUser finds existing user or creates new user
@@ -300,8 +397,9 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		}
 		// Check if user has been deleted
 		if user.Id == 0 {
-			return nil, &OAuthUserDeletedError{}
+			return nil, &types.OAuthUserDeletedError{}
 		}
+		backfillOAuthEmail(user, oauthUser)
 		return user, nil
 	}
 
@@ -320,6 +418,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 					common.SysError(fmt.Sprintf("[OAuth] Failed to migrate user %d: %s", user.Id, err.Error()))
 					// Continue with login even if migration fails
 				}
+				backfillOAuthEmail(user, oauthUser)
 				return user, nil
 			}
 		}
@@ -327,7 +426,16 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 
 	// User doesn't exist, create new user if registration is enabled
 	if !common.RegisterEnabled {
-		return nil, &OAuthRegistrationDisabledError{}
+		return nil, &types.OAuthRegistrationDisabledError{}
+	}
+
+	registerIp := publicClientIp(c)
+	limited, err := registerIpLimited(registerIp)
+	if err != nil {
+		return nil, err
+	}
+	if limited {
+		return nil, &oauth.AccessDeniedError{Message: "An account has already been registered from this IP address"}
 	}
 
 	// Set up new user
@@ -360,6 +468,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	}
 	user.Role = common.RoleCommonUser
 	user.Status = common.UserStatusEnabled
+	user.RegisterIp = registerIp
 
 	// Handle affiliate code
 	inviterId := 0
@@ -428,19 +537,8 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	return user, nil
 }
 
-// Error types for OAuth
-type OAuthUserDeletedError struct{}
-
-func (e *OAuthUserDeletedError) Error() string {
-	return "user has been deleted"
-}
-
-type OAuthRegistrationDisabledError struct{}
-
-func (e *OAuthRegistrationDisabledError) Error() string {
-	return "registration is disabled"
-}
-
+// OAuthEmailAlreadyTakenError is returned when an OAuth signup email collides
+// with an existing account. The other OAuth error types live in the types package.
 type OAuthEmailAlreadyTakenError struct{}
 
 func (e *OAuthEmailAlreadyTakenError) Error() string {

@@ -12,15 +12,17 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/types"
 )
 
 const (
-	LangZhCN    = "zh-CN"
-	LangZhTW    = "zh-TW"
-	LangEn      = "en"
-	DefaultLang = LangEn // Fallback to English if language not supported
+	LangZhCN = "zh-CN"
+	LangZhTW = "zh-TW"
+	LangEn   = "en"
 )
+
+// DefaultLang is the runtime default language, overridden by DEFAULT_LANGUAGE env var in Init().
+var DefaultLang = LangEn
 
 //go:embed locales/*.yaml
 var localeFS embed.FS
@@ -36,11 +38,24 @@ var (
 func Init() error {
 	var initErr error
 	initOnce.Do(func() {
+		// Override default language from env var
+		if envLang := common.GetEnvOrDefaultString("DEFAULT_LANGUAGE", ""); envLang != "" {
+			normalized := normalizeLang(envLang)
+			for _, supported := range SupportedLanguages() {
+				if normalized == supported {
+					DefaultLang = normalized
+					break
+				}
+			}
+		}
+
 		bundle = i18n.NewBundle(language.Chinese)
 		bundle.RegisterUnmarshalFunc("yaml", yaml.Unmarshal)
 
 		// Load embedded translation files
-		files := []string{"locales/zh-CN.yaml", "locales/zh-TW.yaml", "locales/en.yaml"}
+		files := []string{
+			"locales/zh-CN.yaml", "locales/zh-TW.yaml", "locales/en.yaml",
+		}
 		for _, file := range files {
 			_, err := bundle.LoadMessageFileFS(localeFS, file)
 			if err != nil {
@@ -50,12 +65,13 @@ func Init() error {
 		}
 
 		// Pre-create localizers for supported languages
-		localizers[LangZhCN] = i18n.NewLocalizer(bundle, LangZhCN)
-		localizers[LangZhTW] = i18n.NewLocalizer(bundle, LangZhTW)
-		localizers[LangEn] = i18n.NewLocalizer(bundle, LangEn)
+		for _, lang := range SupportedLanguages() {
+			localizers[lang] = i18n.NewLocalizer(bundle, lang)
+		}
 
-		// Set the TranslateMessage function in common package
+		// Set translation functions in common package (breaks circular imports)
 		common.TranslateMessage = T
+		common.Translate = Translate
 	})
 	return initErr
 }
@@ -86,14 +102,26 @@ func GetLocalizer(lang string) *i18n.Localizer {
 	return loc
 }
 
-// T translates a message key using the language from gin context
+// T translates a message key using the language from gin context.
 func T(c *gin.Context, key string, args ...map[string]any) string {
-	lang := GetLangFromContext(c)
-	return Translate(lang, key, args...)
+	return translate(GetLangFromContext(c), key, args...)
 }
 
-// Translate translates a message key for the specified language
-func Translate(lang, key string, args ...map[string]any) string {
+// Translate translates a message key using the default language.
+func Translate(key string, args ...map[string]any) string {
+	return translate(DefaultLang, key, args...)
+}
+
+// TranslateLang translates a message key using the specified language.
+// Falls back to the default language when lang is empty or unsupported.
+func TranslateLang(lang, key string, args ...map[string]any) string {
+	if lang == "" {
+		lang = DefaultLang
+	}
+	return translate(lang, key, args...)
+}
+
+func translate(lang, key string, args ...map[string]any) string {
 	loc := GetLocalizer(lang)
 
 	config := &i18n.LocalizeConfig{
@@ -105,11 +133,19 @@ func Translate(lang, key string, args ...map[string]any) string {
 	}
 
 	msg, err := loc.Localize(config)
-	if err != nil {
-		// Return key as fallback if translation not found
-		return key
+	if err == nil {
+		return msg
 	}
-	return msg
+	// A locale with its own registered bundle does NOT fall through to the
+	// default one, so an English-only key would surface to the user as the raw
+	// key string. Retry against the default language before giving up.
+	if lang != DefaultLang {
+		if msg, err = GetLocalizer(DefaultLang).Localize(config); err == nil {
+			return msg
+		}
+	}
+	// Return key as fallback if translation not found
+	return key
 }
 
 // userLangLoaderFunc is a function that loads user language from database/cache
@@ -133,7 +169,7 @@ func GetLangFromContext(c *gin.Context) string {
 	}
 
 	// 1. Try to get language from user settings (if already loaded by TokenAuth or other middleware)
-	if userSetting, ok := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting); ok {
+	if userSetting, ok := common.GetContextKeyType[types.UserSetting](c, constant.ContextKeyUserSetting); ok {
 		if userSetting.Language != "" {
 			normalized := normalizeLang(userSetting.Language)
 			if IsSupported(normalized) {
@@ -203,7 +239,7 @@ func normalizeLang(lang string) string {
 
 	// Handle common variations
 	switch {
-	case strings.HasPrefix(lang, "zh-tw"):
+	case strings.HasPrefix(lang, "zh-tw"), strings.HasPrefix(lang, "zh-hant"):
 		return LangZhTW
 	case strings.HasPrefix(lang, "zh"):
 		return LangZhCN

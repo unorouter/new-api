@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +33,10 @@ var setupLogWorking bool
 var currentLogPath string
 var currentLogPathMu sync.RWMutex
 var currentLogFile *os.File
+
+// Rotated oneapi-*.log files were never deleted, so a busy instance filled the
+// disk. Retention is configurable via LOG_RETENTION_DAYS (0 disables cleanup).
+var logRetentionDays = common.GetEnvOrDefault("LOG_RETENTION_DAYS", 7)
 
 func GetCurrentLogPath() string {
 	currentLogPathMu.RLock()
@@ -70,6 +75,37 @@ func SetupLogger() {
 			_ = oldFile.Close()
 		}
 		common.LogWriterMu.Unlock()
+
+		cleanupOldLogs(*common.LogDir, logPath)
+	}
+}
+
+func cleanupOldLogs(dir string, keepPath string) {
+	if logRetentionDays <= 0 {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		log.Printf("log cleanup: read dir failed: %s", err.Error())
+		return
+	}
+	cutoff := time.Now().AddDate(0, 0, -logRetentionDays)
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, "oneapi-") || !strings.HasSuffix(name, ".log") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if path == keepPath {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			log.Printf("log cleanup: remove %s failed: %s", name, err.Error())
+		}
 	}
 }
 
@@ -129,7 +165,7 @@ func LogQuota(quota int) string {
 	case operation_setting.QuotaDisplayTypeCNY:
 		usd := q / common.QuotaPerUnit
 		cny := usd * operation_setting.USDExchangeRate
-		return fmt.Sprintf("¥%.6f 额度", cny)
+		return fmt.Sprintf("¥%.6f quota", cny)
 	case operation_setting.QuotaDisplayTypeCustom:
 		usd := q / common.QuotaPerUnit
 		rate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
@@ -141,11 +177,11 @@ func LogQuota(quota int) string {
 			rate = 1
 		}
 		v := usd * rate
-		return fmt.Sprintf("%s%.6f 额度", symbol, v)
+		return fmt.Sprintf("%s%.6f quota", symbol, v)
 	case operation_setting.QuotaDisplayTypeTokens:
-		return fmt.Sprintf("%d 点额度", quota)
+		return fmt.Sprintf("%d quota points", quota)
 	default: // USD
-		return fmt.Sprintf("＄%.6f 额度", q/common.QuotaPerUnit)
+		return fmt.Sprintf("＄%.6f quota", q/common.QuotaPerUnit)
 	}
 }
 

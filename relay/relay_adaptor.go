@@ -33,6 +33,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/palm"
 	"github.com/QuantumNous/new-api/relay/channel/perplexity"
 	"github.com/QuantumNous/new-api/relay/channel/replicate"
+	"github.com/QuantumNous/new-api/relay/channel/runware"
 	"github.com/QuantumNous/new-api/relay/channel/siliconflow"
 	"github.com/QuantumNous/new-api/relay/channel/sub2api"
 	"github.com/QuantumNous/new-api/relay/channel/submodel"
@@ -123,6 +124,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &sub2api.Adaptor{}
 	case constant.APITypeNewAPI:
 		return &newapi.Adaptor{}
+	case constant.APITypeRunware:
+		return &runware.Adaptor{}
 	}
 	return nil
 }
@@ -151,6 +154,10 @@ var taskPluginKeys = map[constant.TaskPlatform]string{
 	constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeSora)):        "sora",
 	constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeOpenAI)):      "sora",
 	constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeVertexAi)):    "vertex-ai",
+	// PROD-ONLY: channel types served by prod's own plugins. Without these the
+	// channel-type fallback (channel test, legacy tasks) resolves no adaptor.
+	constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeAIHorde)): "aihorde",
+	constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeXai)):     "xai",
 }
 
 func ResolveTaskPluginForPlatform(generation *pluginruntime.RoutingGeneration, platform constant.TaskPlatform) (*pluginruntime.LoadedPlugin, bool) {

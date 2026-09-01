@@ -55,10 +55,15 @@ const isValidJSON = (value: string | undefined) => {
       return false
     }
     for (const [, val] of Object.entries(parsed)) {
-      if (!Array.isArray(val) || val.length !== 2) return false
+      // [total, success] or [total, success, windowMinutes]
+      if (!Array.isArray(val) || val.length < 2 || val.length > 3) return false
       if (typeof val[0] !== 'number' || typeof val[1] !== 'number') return false
       if (val[0] < 0 || val[1] < 1) return false
       if (val[0] > 2147483647 || val[1] > 2147483647) return false
+      if (val.length === 3) {
+        if (typeof val[2] !== 'number' || val[2] < 1 || val[2] > 10080)
+          return false
+      }
     }
     return true
   } catch {
@@ -73,6 +78,12 @@ const createRateLimitSchema = (t: (key: string) => string) =>
     ModelRequestRateLimitCount: z.number().min(0).max(100000000),
     ModelRequestRateLimitSuccessCount: z.number().min(1).max(100000000),
     ModelRequestRateLimitGroup: z
+      .string()
+      .optional()
+      .refine(isValidJSON, {
+        message: t('Invalid JSON format or values out of allowed range'),
+      }),
+    ModelRequestRateLimitModels: z
       .string()
       .optional()
       .refine(isValidJSON, {
@@ -317,6 +328,30 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
               </FormItem>
             )}
           />
+
+          <FormField
+            control={form.control}
+            name='ModelRequestRateLimitModels'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Per-model rate limits')}</FormLabel>
+                <FormDescription>
+                  {t(
+                    'Per-user, per-model success-request caps. Keyed by exact model name (synced for :free models only; paid models are never limited). Shares the same period.'
+                  )}
+                </FormDescription>
+                <FormControl>
+                  <RateLimitVisualEditor
+                    value={field.value || ''}
+                    onChange={field.onChange}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+
         </SettingsForm>
       </Form>
     </SettingsSection>
