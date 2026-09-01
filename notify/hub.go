@@ -11,6 +11,9 @@ import (
 const maxTopicsPerConn = 100
 
 type wsConn struct {
+	// Server-assigned so a client cannot claim another connection's id and be
+	// addressed in its place. Rooms use it as the guest identity.
+	id           string
 	send         chan []byte
 	mu           sync.Mutex
 	topics       map[string]struct{}
@@ -83,9 +86,13 @@ func (c *wsConn) trySend(payload []byte) bool {
 type hub struct {
 	mu    sync.RWMutex
 	conns map[*wsConn]struct{}
+	byID  map[string]*wsConn
 }
 
-var globalHub = &hub{conns: make(map[*wsConn]struct{})}
+var globalHub = &hub{
+	conns: make(map[*wsConn]struct{}),
+	byID:  make(map[string]*wsConn),
+}
 
 func (h *hub) register(c *wsConn) bool {
 	h.mu.Lock()
@@ -94,6 +101,9 @@ func (h *hub) register(c *wsConn) bool {
 		return false
 	}
 	h.conns[c] = struct{}{}
+	if c.id != "" {
+		h.byID[c.id] = c
+	}
 	return true
 }
 
@@ -102,6 +112,11 @@ func (h *hub) unregister(c *wsConn) {
 	defer h.mu.Unlock()
 	if _, ok := h.conns[c]; ok {
 		delete(h.conns, c)
+		// Only drop the index entry when it still points at THIS connection, so
+		// a late unregister cannot evict a reconnect that reused the id.
+		if c.id != "" && h.byID[c.id] == c {
+			delete(h.byID, c.id)
+		}
 		c.mu.Lock()
 		if !c.closed {
 			c.closed = true
@@ -109,6 +124,22 @@ func (h *hub) unregister(c *wsConn) {
 		}
 		c.mu.Unlock()
 	}
+}
+
+// sendTo delivers to one connection by id. Connection ids are pod-local, so a
+// miss is the normal case on the replicas that do not hold the target.
+func (h *hub) sendTo(connID string, payload []byte) bool {
+	h.mu.RLock()
+	c := h.byID[connID]
+	h.mu.RUnlock()
+	if c == nil {
+		return false
+	}
+	if !c.trySend(payload) {
+		go h.unregister(c)
+		return false
+	}
+	return true
 }
 
 func (h *hub) broadcast(payload []byte, topics []string) {
@@ -142,6 +173,7 @@ func StartHub() {
 		}
 		globalHub.broadcast(frame, evt.Topics)
 	})
+	StartRoomSubscriber()
 	// Periodically refresh presence for all connected devices so the push
 	// sender keeps suppressing while a tab stays open.
 	go func() {

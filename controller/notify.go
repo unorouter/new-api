@@ -141,3 +141,27 @@ func GetNotifyEvents(c *gin.Context) {
 	events := notify.RecentEvents(since, topics)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": events})
 }
+
+// GetRoomHistory returns a multiplayer room's stored transcript.
+//
+// The room id is the only credential: it is 143 bits of client-generated
+// randomness, so knowing it is what proves membership, exactly as it does for
+// the join link itself. History is served over HTTP rather than the socket
+// because a long room exceeds both the 4096-byte frame limit and the 64-frame
+// outbound buffer, and overflowing that buffer drops the connection.
+func GetRoomHistory(c *gin.Context) {
+	if !notify.Enabled() {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "notifications disabled"})
+		return
+	}
+	topic := notify.RoomTopicPrefix + c.Query("room")
+	if !notify.ValidRoomTopic(topic) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "invalid room"})
+		return
+	}
+	meta, msgs := notify.ReadRoomHistory(topic)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    gin.H{"meta": meta, "messages": msgs},
+	})
+}
