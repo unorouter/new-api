@@ -44,7 +44,8 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 
 	// 强制上游流式：见 compatible_handler.go 同逻辑
 	if !info.ClientWantsStream &&
-		operation_setting.IsForceUpstreamStreamingEnabled() &&
+		(operation_setting.IsForceUpstreamStreamingEnabled() ||
+			info.ChannelSetting.ForceUpstreamStream) &&
 		isForceStreamEligibleClaude(request, info) {
 		request.Stream = common.GetPointer[bool](true)
 		info.IsStream = true

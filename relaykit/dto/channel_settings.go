@@ -24,13 +24,21 @@ type ChannelCapabilities struct {
 }
 
 type ChannelSettings struct {
-	ForceFormat            bool                 `json:"force_format,omitempty"`
-	ThinkingToContent      bool                 `json:"thinking_to_content,omitempty"`
-	Proxy                  string               `json:"proxy"`
-	PassThroughBodyEnabled bool                 `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt           string               `json:"system_prompt,omitempty"`
-	SystemPromptOverride   bool                 `json:"system_prompt_override,omitempty"`
-	Capabilities           *ChannelCapabilities `json:"capabilities,omitempty"`
+	ForceFormat            bool   `json:"force_format,omitempty"`
+	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
+	Proxy                  string `json:"proxy"`
+	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
+	// ForceUpstreamStream upgrades a client's stream=false to upstream SSE for
+	// THIS channel, aggregating the chunks back into one JSON body. Some reseller
+	// edges hold a ~60s response-header deadline, which a non-streaming request
+	// crosses whenever the generation runs long: a6 measured 20.9% failure on
+	// non-streamed paid traffic against 0.8% everywhere else. The global switch
+	// (general_setting.force_upstream_streaming_enabled) still forces it for all
+	// channels; this is the per-channel opt-in.
+	ForceUpstreamStream  bool                 `json:"force_upstream_stream,omitempty"`
+	SystemPrompt         string               `json:"system_prompt,omitempty"`
+	SystemPromptOverride bool                 `json:"system_prompt_override,omitempty"`
+	Capabilities         *ChannelCapabilities `json:"capabilities,omitempty"`
 	// HTTPProtocol controls outbound HTTP version negotiation for this channel.
 	// Accepted values: "", "auto" (default), "http1".
 	HTTPProtocol string `json:"http_protocol,omitempty"`
