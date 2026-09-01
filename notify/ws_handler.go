@@ -20,6 +20,15 @@ type clientFrame struct {
 	Op           string   `json:"op"`
 	Topics       []string `json:"topics,omitempty"`
 	EndpointHash string   `json:"endpoint_hash,omitempty"`
+
+	// Room relay. Topic fans out to the room; ConnID addresses one guest.
+	// MsgID and Meta drive storage so a guest who reloads gets the transcript.
+	Topic  string `json:"topic,omitempty"`
+	ConnID string `json:"conn_id,omitempty"`
+	Data   string `json:"data,omitempty"`
+	MsgID  string `json:"msg_id,omitempty"`
+	Meta   bool   `json:"meta,omitempty"`
+	Close  bool   `json:"close,omitempty"`
 }
 
 const (
@@ -35,7 +44,12 @@ func HandleWebSocket(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "notifications disabled"})
 		return
 	}
-	conn := &wsConn{send: make(chan []byte, 64), topics: make(map[string]struct{}), wildcards: make(map[string]struct{})}
+	conn := &wsConn{
+		id:        common.GetUUID(),
+		send:      make(chan []byte, 64),
+		topics:    make(map[string]struct{}),
+		wildcards: make(map[string]struct{}),
+	}
 	if !globalHub.register(conn) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "too many connections"})
 		return
@@ -81,7 +95,14 @@ func HandleWebSocket(c *gin.Context) {
 		_ = conn.trySend(payload)
 	}
 
-	sendFrame(map[string]interface{}{"op": "hello", "protocol": ProtocolVersion, "server_time": time.Now().Unix()})
+	// conn_id is how a room host addresses one guest. It is assigned here, never
+	// supplied by the client, so it cannot be used to impersonate another guest.
+	sendFrame(map[string]interface{}{
+		"op":          "hello",
+		"protocol":    ProtocolVersion,
+		"server_time": time.Now().Unix(),
+		"conn_id":     conn.id,
+	})
 
 	// Reader loop.
 	ws.SetReadLimit(wsMaxMsgSize)
@@ -96,6 +117,9 @@ func HandleWebSocket(c *gin.Context) {
 		globalHub.unregister(conn)
 		_ = ws.Close()
 	}()
+	// Per-connection floor between room frames. There is no inbound rate limit
+	// on this endpoint otherwise, and a room turn is typed by a human.
+	var lastRoomFrame time.Time
 	for {
 		_, raw, err := ws.ReadMessage()
 		if err != nil {
@@ -109,6 +133,11 @@ func HandleWebSocket(c *gin.Context) {
 		switch frame.Op {
 		case "subscribe":
 			topics := SanitizeTopics(frame.Topics, maxTopicsPerConn)
+			// A room id is the only thing protecting a room's contents, and
+			// ValidTopic would otherwise accept `room:*`, which matches every
+			// room on the platform. Drop any room subscription that is not an
+			// exact id.
+			topics = rejectRoomWildcards(topics)
 			if len(topics) == 0 && len(frame.Topics) > 0 {
 				sendFrame(map[string]interface{}{"op": "error", "message": "invalid topics"})
 				continue
@@ -122,6 +151,37 @@ func HandleWebSocket(c *gin.Context) {
 		case "unsubscribe":
 			current := conn.setTopics(SanitizeTopics(frame.Topics, maxTopicsPerConn), false)
 			sendFrame(map[string]interface{}{"op": "subscribed", "topics": current})
+		case "room":
+			if !ValidRoomTopic(frame.Topic) {
+				sendFrame(map[string]interface{}{"op": "error", "message": "invalid room"})
+				continue
+			}
+			// Only a member may relay into a room, so holding the id is not
+			// enough to speak into one you never joined.
+			if !conn.matches([]string{frame.Topic}) {
+				sendFrame(map[string]interface{}{"op": "error", "message": "not in room"})
+				continue
+			}
+			now := time.Now()
+			if now.Sub(lastRoomFrame) < roomMinFrameGap {
+				sendFrame(map[string]interface{}{"op": "error", "message": "too fast"})
+				continue
+			}
+			lastRoomFrame = now
+			if frame.Close {
+				DeleteRoom(frame.Topic)
+				continue
+			}
+			if frame.Meta {
+				SetRoomMeta(frame.Topic, frame.Data)
+			} else if frame.MsgID != "" {
+				AppendRoomMessage(frame.Topic, frame.MsgID, frame.Data)
+			}
+			PublishRoomFrame(RoomFrame{
+				Topic:  frame.Topic,
+				ConnID: frame.ConnID,
+				Data:   frame.Data,
+			})
 		case "ping":
 			RefreshPresence(conn.endpointHash)
 			sendFrame(map[string]interface{}{"op": "pong"})
