@@ -444,11 +444,19 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 			info.UpstreamModelName = baseModel
 			request.Model = baseModel
 		}
-		if canonicalEffort := kitreasoning.OpenAIEffort(kitreasoning.EffectiveEffort(currentIntent)); canonicalEffort != "" {
+		isOpenAIChannel := info.ChannelType == constant.ChannelTypeOpenAI || info.ChannelType == constant.ChannelTypeAzure
+		canonicalEffort := kitreasoning.OpenAIEffort(kitreasoning.EffectiveEffort(currentIntent))
+		if canonicalEffort == kitreasoning.EffortNone && !isOpenAIChannel {
+			// PROD-ONLY (fork): a disabled-reasoning intent (client `reasoning`
+			// object, `-none` suffix) must not become reasoning_effort:"none" on an
+			// OpenAI-compatible proxy; they accept low/medium/high only. Only real
+			// OpenAI knows "none", so leave the field exactly as the client sent it.
+			info.SetReasoningEffort("")
+		} else if canonicalEffort != "" {
 			request.ReasoningEffort = string(canonicalEffort)
 			info.SetReasoningEffort(string(canonicalEffort))
 		}
-		if info.ChannelType == constant.ChannelTypeOpenAI || info.ChannelType == constant.ChannelTypeAzure {
+		if isOpenAIChannel {
 			request.Reasoning = nil
 		}
 	}
