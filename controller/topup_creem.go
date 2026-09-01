@@ -315,11 +315,23 @@ func CreemWebhook(c *gin.Context) {
 		// charge is already handled by checkout.completed, so this path is the
 		// renewal driver (checkout.completed does not fire on auto-renewal).
 		handleSubscriptionPaid(c, &webhookEvent, string(bodyBytes))
-	case "refund.created", "subscription.canceled", "subscription.expired":
-		// Creem delivers all three already; until this branch existed they fell
+	case "refund.created", "subscription.expired":
+		// Creem delivers these already; until this branch existed they fell
 		// through to the default log, so a refunded customer kept a live
 		// subscription and its full quota pool until end_time.
+		//
+		// subscription.canceled is deliberately NOT here. Creem fires it the
+		// moment a customer turns off auto-renewal, not at the end of the paid
+		// period, so terminating on it destroys the month they already paid for:
+		// one customer lost his plan 15 minutes after paying $20 because he
+		// switched off renewal straight away. Cancelling stops the NEXT charge;
+		// subscription.expired is the event that ends access.
 		handleSubscriptionTerminated(c, &webhookEvent, string(bodyBytes))
+	case "subscription.canceled":
+		// Logged, not acted on: the paid period runs to end_time and Creem simply
+		// will not charge again.
+		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem subscription.canceled received (auto-renewal off, paid period left intact) event_id=%s sub_id=%s reference_id=%s customer=%s", webhookEvent.Id, webhookEvent.Object.Id, webhookEvent.Object.RequestId, webhookEvent.Object.Customer.Id))
+		c.Status(http.StatusOK)
 	default:
 		// Log the FULL raw payload for any event we don't handle yet, so the
 		// exact shape (e.g. subscription.active / past_due) is captured for
