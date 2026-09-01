@@ -257,7 +257,11 @@ export function parseTaskResult(ctx, body) {
     result.reason = trimmed(body.message) || "aihorde: request faulted";
     return result;
   }
-  if (body.is_possible === false) {
+  // Missing is_possible is a failure, exactly like the Go adaptor's zero-value
+  // bool: Horde's error envelope ({"message","rc":"RequestNotFound"}) for an
+  // expired or dropped job has no status fields at all, and treating it as
+  // "still queued" polls forever.
+  if (body.is_possible !== true) {
     result.status = "FAILURE";
     result.reason = trimmed(body.message) || "aihorde: no worker can fulfill this request";
     return result;

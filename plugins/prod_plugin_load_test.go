@@ -71,6 +71,7 @@ func TestAIHordeParseTaskResultStatuses(t *testing.T) {
 
 	done := callPlugin(t, "aihorde", "parseTaskResult", ctx, map[string]any{
 		"done":        true,
+		"is_possible": true,
 		"generations": []any{map[string]any{"img": "https://cdn.example/a.webp"}},
 	}).(map[string]any)
 	assert.Equal(t, "SUCCESS", done["status"])
@@ -79,14 +80,24 @@ func TestAIHordeParseTaskResultStatuses(t *testing.T) {
 	// r2:false workers return inline base64 rather than a link.
 	inline := callPlugin(t, "aihorde", "parseTaskResult", ctx, map[string]any{
 		"done":        true,
+		"is_possible": true,
 		"generations": []any{map[string]any{"img": "QUJD"}},
 	}).(map[string]any)
 	assert.Equal(t, "data:image/webp;base64,QUJD", inline["url"])
 
-	queued := callPlugin(t, "aihorde", "parseTaskResult", ctx, map[string]any{"processing": 0}).(map[string]any)
+	queued := callPlugin(t, "aihorde", "parseTaskResult", ctx, map[string]any{"is_possible": true, "processing": 0}).(map[string]any)
 	assert.Equal(t, "QUEUED", queued["status"])
 
-	running := callPlugin(t, "aihorde", "parseTaskResult", ctx, map[string]any{"processing": 1}).(map[string]any)
+	// Horde drops a job that no worker picked up; its error envelope carries no
+	// status fields. That is terminal, not "still queued" (a live probe polled
+	// one of these for 15 minutes before this case was added).
+	dropped := callPlugin(t, "aihorde", "parseTaskResult", ctx, map[string]any{
+		"message": "Image Waiting Prompt (Status) with ID 'x' not found.", "rc": "RequestNotFound",
+	}).(map[string]any)
+	assert.Equal(t, "FAILURE", dropped["status"])
+	assert.Contains(t, dropped["reason"], "not found")
+
+	running := callPlugin(t, "aihorde", "parseTaskResult", ctx, map[string]any{"is_possible": true, "processing": 1}).(map[string]any)
 	assert.Equal(t, "IN_PROGRESS", running["status"])
 }
 
