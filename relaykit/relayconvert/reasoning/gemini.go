@@ -88,7 +88,9 @@ func RenderGemini(model string, intent Intent, maxOutputTokens *uint, adapterBud
 	if capabilities.kind == geminiThinkingBudget {
 		if intent.Mode == ModeDisabled || intent.Effort == EffortNone {
 			if !capabilities.supportsDisable {
-				return GeminiRender{}, fmt.Errorf("%w for model %q", ErrThinkingNotDisabled, model)
+				// PROD-ONLY (fork): disable on a model that cannot disable means
+				// "model default", not a 400 (see RenderClaude).
+				return GeminiRender{}, nil
 			}
 			budget := 0
 			config.ThinkingBudget = &budget
@@ -136,7 +138,8 @@ func RenderGemini(model string, intent Intent, maxOutputTokens *uint, adapterBud
 	}
 
 	if intent.Mode == ModeDisabled || intent.Effort == EffortNone {
-		return GeminiRender{}, fmt.Errorf("%w for model %q", ErrThinkingNotDisabled, model)
+		// PROD-ONLY (fork): thinking-level models cannot disable; serve the default.
+		return GeminiRender{}, nil
 	}
 	effort := intent.Effort
 	if effort == "" && intent.BudgetTokens != nil {
