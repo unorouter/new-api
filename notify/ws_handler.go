@@ -180,6 +180,7 @@ func HandleWebSocket(c *gin.Context) {
 			PublishRoomFrame(RoomFrame{
 				Topic:  frame.Topic,
 				ConnID: frame.ConnID,
+				From:   conn.id,
 				Data:   frame.Data,
 			})
 		case "ping":
