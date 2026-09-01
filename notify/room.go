@@ -30,7 +30,10 @@ const (
 type RoomFrame struct {
 	Topic  string `json:"topic,omitempty"`
 	ConnID string `json:"conn_id,omitempty"`
-	Data   string `json:"data"`
+	// From is the sender's connection id, stamped by the server so the host can
+	// tell guests apart and address a reply back. A client cannot forge it.
+	From string `json:"from,omitempty"`
+	Data string `json:"data"`
 }
 
 // ValidRoomTopic reports whether a topic may be used for a room.
@@ -187,6 +190,7 @@ func StartRoomSubscriber() {
 		out, err := common.Marshal(map[string]interface{}{
 			"op":    "room",
 			"topic": frame.Topic,
+			"from":  frame.From,
 			"data":  frame.Data,
 		})
 		if err != nil {
