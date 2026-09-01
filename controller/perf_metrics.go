@@ -1,7 +1,11 @@
 package controller
 
 import (
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -50,7 +54,29 @@ func GetPerfMetrics(c fuego.ContextWithParams[dto.GetPerfMetricsParams]) (*dto.R
 	}
 
 	result.Groups = filterActiveGroups(result.Groups)
+	attachGroupUptime(&result, p.Model, hours)
 	return dto.Ok(result)
+}
+
+// Uptime comes from channel transition history, not from traffic, so it answers
+// a different question than success_rate: a group nobody called still has an
+// uptime. A failure here leaves the field nil rather than failing the request,
+// since the latency and success columns are still worth serving.
+func attachGroupUptime(result *perfmetrics.QueryResult, modelName string, hours int) {
+	if len(result.Groups) == 0 {
+		return
+	}
+	since := time.Now().Unix() - int64(hours)*3600
+	uptime, err := model.GroupUptimeForModel(modelName, since)
+	if err != nil {
+		common.SysLog("perf metrics: group uptime failed: " + err.Error())
+		return
+	}
+	for i := range result.Groups {
+		if pct, ok := uptime[result.Groups[i].Group]; ok {
+			result.Groups[i].UptimePercent = &pct
+		}
+	}
 }
 
 func filterActiveGroups(groups []perfmetrics.GroupResult) []perfmetrics.GroupResult {

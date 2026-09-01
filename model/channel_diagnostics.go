@@ -437,6 +437,56 @@ func ChannelDiagnosticStats(since int64, orderBy string, limit int) ([]*ChannelD
 	return rows, nil
 }
 
+type GroupUptimeRow struct {
+	Group       string `gorm:"column:group"`
+	SecondsUp   int64  `gorm:"column:seconds_up"`
+	SecondsDown int64  `gorm:"column:seconds_down"`
+}
+
+// GroupUptimeForModel returns uptime% keyed by ability group for one model, over
+// [since, now]. Same seconds_up/down attribution as ChannelDiagnosticStats (a
+// transition arriving AT enabled means the channel was DOWN for the preceding
+// span), joined through abilities so a channel's history counts toward every
+// group that publishes it.
+//
+// A group with no transitions in the window is absent from the result rather
+// than 0: silence means "never flipped", which is 100%, and the caller defaults
+// it. Deliberately omits the per-row last_to_status lookup that
+// ChannelDiagnosticStats does, since that is an N+1 and nothing here needs it.
+func GroupUptimeForModel(modelName string, since int64) (map[string]float64, error) {
+	enabled := common.ChannelStatusEnabled
+	autoDis := common.ChannelStatusAutoDisabled
+	manDis := common.ChannelStatusManuallyDisabled
+
+	var rows []*GroupUptimeRow
+	err := DB.Table("channel_diagnostics AS d").
+		Select(`
+			a.`+commonGroupCol+` AS `+commonGroupCol+`,
+			SUM(CASE WHEN d.to_status IN (?, ?) THEN d.seconds_in_prev_status ELSE 0 END) AS seconds_up,
+			SUM(CASE WHEN d.to_status = ? THEN d.seconds_in_prev_status ELSE 0 END) AS seconds_down
+		`, autoDis, manDis, enabled).
+		Joins("JOIN abilities AS a ON a.channel_id = d.channel_id").
+		Where("a.model = ?", modelName).
+		Where("d.created_at >= ?", since).
+		Where("d.probe_only = ?", false).
+		Group("a." + commonGroupCol).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]float64, len(rows))
+	for _, r := range rows {
+		total := r.SecondsUp + r.SecondsDown
+		if total <= 0 {
+			out[r.Group] = 100
+			continue
+		}
+		out[r.Group] = float64(r.SecondsUp) * 100 / float64(total)
+	}
+	return out, nil
+}
+
 func sortDiagnosticStatRows(rows []*ChannelDiagnosticStatRow, orderBy string) {
 	less := func(i, j int) bool { return rows[i].Transitions > rows[j].Transitions }
 	switch orderBy {
