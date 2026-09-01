@@ -128,7 +128,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	// 强制上游流式：客户端发送 stream=false 且请求合格时，将 stream 改写为 true 让上游走 SSE，
 	// 响应层会把 SSE 聚合成一次性 JSON 返回给客户端。用来规避上游 reseller 网关对长响应的 30s header timeout。
 	if !info.ClientWantsStream &&
-		operation_setting.IsForceUpstreamStreamingEnabled() &&
+		(operation_setting.IsForceUpstreamStreamingEnabled() ||
+			info.ChannelSetting.ForceUpstreamStream) &&
 		isForceStreamEligibleOpenAI(request, info) {
 		request.Stream = lo.ToPtr(true)
 		info.IsStream = true
