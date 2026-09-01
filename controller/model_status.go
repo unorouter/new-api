@@ -366,6 +366,20 @@ func GetModelStatusBuckets(c fuego.ContextWithParams[dto.GetModelStatusBucketsPa
 		componentId = comp.Id
 	}
 
+	// Incidents for the WHOLE window in one query, then bucketed in memory.
+	// This used to call ListIncidentsByComponentBetween once per bucket, and the
+	// cost tracked bucket count rather than data volume: 24h at 15m is 96 buckets
+	// and took 52s, while 720h at 1d is 30 buckets and took 10s -- more data, less
+	// time. Each lookup is only ~0.3ms in the database; the rest was waiting for a
+	// pool slot, 96 times, on a public uncached route where every anonymous caller
+	// could tie up that many connections at once.
+	var windowIncidents []*model.ModelStatusIncident
+	if componentId != 0 && len(rows) > 0 {
+		windowStart := rows[0].BucketStart
+		windowEnd := rows[len(rows)-1].BucketStart + bucketSec
+		windowIncidents, _ = model.ListIncidentsByComponentBetween(componentId, windowStart, windowEnd)
+	}
+
 	items := make([]StatusBarDataDTO, 0, len(rows))
 	for _, r := range rows {
 		bucketEnd := r.BucketStart + bucketSec
@@ -375,9 +389,16 @@ func GetModelStatusBuckets(c fuego.ContextWithParams[dto.GetModelStatusBucketsPa
 			Card:   buildCardItems(r),
 			Events: []EventDTO{},
 		}
-		if componentId != 0 {
-			incidents, _ := model.ListIncidentsByComponentBetween(componentId, r.BucketStart, bucketEnd)
-			for _, inc := range incidents {
+		// Same overlap test the per-bucket query used (started_at < to AND
+		// (resolved_at IS NULL OR resolved_at >= from)): an incident belongs to
+		// this bucket if it began before the bucket ended and had not resolved
+		// before the bucket started. A nil ResolvedAt is still open, so it
+		// overlaps every bucket after it began.
+		for _, inc := range windowIncidents {
+			if inc.StartedAt >= bucketEnd {
+				continue
+			}
+			if inc.ResolvedAt == nil || *inc.ResolvedAt >= r.BucketStart {
 				item.Events = append(item.Events, incidentToEvent(inc))
 			}
 		}
