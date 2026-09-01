@@ -36,6 +36,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 type Adaptor struct {
@@ -243,6 +244,21 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 	return nil
 }
 
+// clientSentReasoningEffort reports whether the client's own request body
+// carried reasoning_effort. Earlier relay steps write derived values into the
+// struct, so the struct alone cannot tell a client field from a synthesized one;
+// the cached raw body can. Without a cached body, the struct is all there is.
+func clientSentReasoningEffort(c *gin.Context, request *dto.GeneralOpenAIRequest) bool {
+	if c != nil && c.Request != nil {
+		if storage, err := common.GetBodyStorage(c); err == nil {
+			if raw, err := storage.Bytes(); err == nil && len(raw) > 0 {
+				return gjson.GetBytes(raw, "reasoning_effort").Exists()
+			}
+		}
+	}
+	return request.ReasoningEffort != ""
+}
+
 func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) (any, error) {
 	if request == nil {
 		return nil, errors.New("request is nil")
@@ -416,10 +432,13 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		if err != nil {
 			return nil, kitreasoning.AsClientError(err)
 		}
+		clientSentEffort := clientSentReasoningEffort(c, request)
+		suffixApplied := false
 		mergeSuffix := func(modelName, rawEffort string) error {
 			if rawEffort == "" {
 				return nil
 			}
+			suffixApplied = true
 			suffixEffort, err := kitreasoning.ParseEffort(rawEffort)
 			if err != nil {
 				return err
@@ -446,11 +465,17 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		}
 		isOpenAIChannel := info.ChannelType == constant.ChannelTypeOpenAI || info.ChannelType == constant.ChannelTypeAzure
 		canonicalEffort := kitreasoning.OpenAIEffort(kitreasoning.EffectiveEffort(currentIntent))
-		if canonicalEffort == kitreasoning.EffortNone && !isOpenAIChannel {
-			// PROD-ONLY (fork): a disabled-reasoning intent (client `reasoning`
-			// object, `-none` suffix) must not become reasoning_effort:"none" on an
-			// OpenAI-compatible proxy; they accept low/medium/high only. Only real
-			// OpenAI knows "none", so leave the field exactly as the client sent it.
+		synthesized := !clientSentEffort && !suffixApplied
+		if !isOpenAIChannel && (canonicalEffort == kitreasoning.EffortNone || synthesized) {
+			// PROD-ONLY (fork): on an OpenAI-compatible proxy, reasoning_effort is
+			// written only when the client sent it or the model suffix asked for it.
+			// An effort derived from the OpenRouter-style `reasoning` object, or a
+			// disabled intent rendered as "none", is rejected by most proxies (NVIDIA,
+			// non-reasoning grok); only real OpenAI understands those. The client's
+			// own fields pass through untouched, as before the 2026-09 sync.
+			if !clientSentEffort {
+				request.ReasoningEffort = ""
+			}
 			info.SetReasoningEffort("")
 		} else if canonicalEffort != "" {
 			request.ReasoningEffort = string(canonicalEffort)

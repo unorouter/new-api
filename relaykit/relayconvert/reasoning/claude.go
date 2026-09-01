@@ -113,7 +113,10 @@ func RenderClaude(model string, intent Intent, maxTokens *uint, adapterBudgetPer
 			return ClaudeRender{}, fmt.Errorf("model %q does not support effort %q while thinking is disabled", model, intent.Effort)
 		}
 		if !capabilities.supportsDisable {
-			return ClaudeRender{}, fmt.Errorf("%w for model %q", ErrThinkingNotDisabled, model)
+			// PROD-ONLY (fork): a client asking to turn reasoning off on a model
+			// that cannot is not an invalid request; serve the model's default
+			// instead of refusing it (clients send this for every model).
+			return ClaudeRender{ClearSampling: capabilities.strictSampling}, nil
 		}
 		return ClaudeRender{
 			Thinking:        &dto.Thinking{Type: "disabled"},
