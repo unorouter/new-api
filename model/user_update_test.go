@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -217,7 +217,7 @@ func TestUpdateUserSettingOnlyUpdatesSetting(t *testing.T) {
 		"request_count": gorm.Expr("request_count + ?", 1),
 	}).Error)
 
-	require.NoError(t, UpdateUserSetting(user.Id, dto.UserSetting{Language: "zh"}))
+	require.NoError(t, UpdateUserSetting(user.Id, types.UserSetting{Language: "zh"}))
 
 	var got User
 	require.NoError(t, DB.First(&got, user.Id).Error)
@@ -397,4 +397,44 @@ func TestResetUserPasswordByEmailRequiresSingleActiveMatch(t *testing.T) {
 
 	err = ResetUserPasswordByEmail("missing@example.com", "NewPassword123")
 	require.True(t, errors.Is(err, ErrEmailNotFound))
+}
+
+// The EditWithTx update map is a whitelist: a field missing from it saves
+// nothing and fails silently, which for a commercial discount means a partner
+// keeps paying full price with the admin UI showing the bonus as set.
+func TestEditWithTxPersistsAndClearsTopUpBonus(t *testing.T) {
+	setupUserUpdateTestState(t)
+
+	user := User{
+		Username:    "bonus-edit-user",
+		Password:    "unused-password-hash",
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		Group:       "default",
+		AuthVersion: 1,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	percent := 25.0
+	edit := user
+	edit.TopUpBonusPercent = &percent
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+		return edit.EditWithTx(tx, false)
+	}))
+
+	var stored User
+	require.NoError(t, DB.Where("id = ?", user.Id).First(&stored).Error)
+	require.NotNil(t, stored.TopUpBonusPercent, "the bonus must reach the database")
+	assert.Equal(t, 25.0, *stored.TopUpBonusPercent)
+
+	// nil must write NULL rather than being skipped, or a bonus can never be
+	// removed once granted.
+	clear := stored
+	clear.TopUpBonusPercent = nil
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+		return clear.EditWithTx(tx, false)
+	}))
+
+	require.NoError(t, DB.Where("id = ?", user.Id).First(&stored).Error)
+	assert.Nil(t, stored.TopUpBonusPercent, "clearing the field must null the column")
 }

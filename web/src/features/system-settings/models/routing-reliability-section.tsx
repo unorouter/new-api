@@ -69,7 +69,7 @@ const channelTestModes = [
   'passive_recovery',
 ] as const
 type ChannelTestMode = (typeof channelTestModes)[number]
-const MAX_CHANNEL_TEST_CONCURRENCY = 32
+const MAX_CHANNEL_TEST_CONCURRENCY = 128
 
 const createRoutingReliabilitySchema = (
   t: (key: string, options?: Record<string, unknown>) => string
@@ -77,6 +77,7 @@ const createRoutingReliabilitySchema = (
   z
     .object({
       RetryTimes: z.coerce.number().min(0).max(10),
+      MaxTotalRelayAttempts: z.coerce.number().int().min(1).max(50),
       ChannelDisableThreshold: numericString,
       AutomaticDisableChannelEnabled: z.boolean(),
       AutomaticEnableChannelEnabled: z.boolean(),
@@ -92,10 +93,10 @@ const createRoutingReliabilitySchema = (
         channel_test_concurrency: z.coerce
           .number()
           .int(t('Enter a positive integer'))
-          .min(1, t('Channel test concurrency must be between 1 and 32'))
+          .min(1, t('Channel test concurrency must be between 1 and 128'))
           .max(
             MAX_CHANNEL_TEST_CONCURRENCY,
-            t('Channel test concurrency must be between 1 and 32')
+            t('Channel test concurrency must be between 1 and 128')
           ),
         channel_test_mode: z.enum(channelTestModes),
       }),
@@ -137,6 +138,7 @@ type RoutingReliabilityFormInput = z.input<RoutingReliabilitySchema>
 type RoutingReliabilitySectionProps = {
   defaultValues: {
     RetryTimes: number
+    MaxTotalRelayAttempts: number
     ChannelDisableThreshold: string
     AutomaticDisableChannelEnabled: boolean
     AutomaticEnableChannelEnabled: boolean
@@ -156,6 +158,7 @@ function normalizeLineEndings(value: string) {
 
 type NormalizedRoutingReliabilityValues = {
   RetryTimes: number
+  MaxTotalRelayAttempts: number
   ChannelDisableThreshold: string
   AutomaticDisableChannelEnabled: boolean
   AutomaticEnableChannelEnabled: boolean
@@ -179,6 +182,7 @@ const buildFormDefaults = (
   defaults: RoutingReliabilitySectionProps['defaultValues']
 ): RoutingReliabilityFormInput => ({
   RetryTimes: defaults.RetryTimes ?? 0,
+  MaxTotalRelayAttempts: defaults.MaxTotalRelayAttempts ?? 6,
   ChannelDisableThreshold: defaults.ChannelDisableThreshold ?? '',
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
@@ -204,6 +208,7 @@ const normalizeDefaults = (
   defaults: RoutingReliabilitySectionProps['defaultValues']
 ): NormalizedRoutingReliabilityValues => ({
   RetryTimes: defaults.RetryTimes ?? 0,
+  MaxTotalRelayAttempts: defaults.MaxTotalRelayAttempts ?? 6,
   ChannelDisableThreshold: (defaults.ChannelDisableThreshold ?? '').trim(),
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
@@ -231,6 +236,7 @@ const normalizeFormValues = (
   values: RoutingReliabilityFormValues
 ): NormalizedRoutingReliabilityValues => ({
   RetryTimes: values.RetryTimes,
+  MaxTotalRelayAttempts: values.MaxTotalRelayAttempts,
   ChannelDisableThreshold: values.ChannelDisableThreshold.trim(),
   AutomaticDisableChannelEnabled: values.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: values.AutomaticEnableChannelEnabled,
@@ -359,6 +365,30 @@ export function RoutingReliabilitySection({
                     </FormControl>
                     <FormDescription>
                       {t('Number of times to retry failed requests (0-10)')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='MaxTotalRelayAttempts'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Max total attempts')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min='1'
+                        max='50'
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Hard ceiling on how many channels one request may try in total. Retry Times counts per group, so cross-group retry can otherwise try every group serving the model.'
+                      )}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

@@ -94,7 +94,7 @@ func TestGetOpenAIVideoRouteRendersJimengTask(t *testing.T) {
 	require.NoError(t, database.Create(task).Error)
 
 	engine := gin.New()
-	SetVideoRouter(engine)
+	SetVideoRouter(engine, newOpenAPIEngine())
 	SetTaskPluginProtocolRouter(engine)
 	request := httptest.NewRequest(http.MethodGet, "/v1/videos/task_jimeng_public", nil)
 	request.Header.Set("Authorization", "Bearer sk-jimengfetch")

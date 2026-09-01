@@ -46,6 +46,7 @@ import {
   formatModelName,
   getTieredBillingSummary,
   hasAnyCacheTokens,
+  getClientAttribution,
   parseLogOther,
   isViolationFeeLog,
   renderAuditContent,
@@ -630,6 +631,47 @@ export function useCommonLogsColumns(
       meta: { mobileTitle: true },
     },
     {
+      id: 'client',
+      header: t('Client'),
+      cell: ({ row }) => {
+        const log = row.original
+        if (!isDisplayableLogType(log.type)) return null
+
+        const client = getClientAttribution(parseLogOther(log.other))
+        // Blank when the caller sent nothing identifying. Showing a bare
+        // browser User-Agent here would read as a real app name.
+        if (!client) return null
+
+        return (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <div className='flex max-w-[160px] flex-col gap-0.5 text-xs leading-tight' />
+                }
+              >
+                <span className='truncate font-medium'>{client.label}</span>
+                {client.detail && (
+                  <span className='text-muted-foreground truncate'>
+                    {client.detail}
+                  </span>
+                )}
+              </TooltipTrigger>
+              <TooltipContent className='max-w-sm break-all'>
+                <div className='font-medium'>{client.label}</div>
+                {client.detail && (
+                  <div className='text-muted-foreground'>{client.detail}</div>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )
+      },
+      size: 160,
+      maxSize: 180,
+      meta: { label: t('Client') },
+    },
+    {
       accessorKey: 'is_stream',
       header: t('Stream'),
       cell: ({ row }) => {
@@ -710,8 +752,7 @@ export function useCommonLogsColumns(
 
         const quota = row.getValue('quota') as number
         const other = parseLogOther(log.other)
-        return <LogCostDisplay quota={quota} other={other} />
-      },
+        return <LogCostDisplay quota={quota} other={other} />      },
     },
 
     {

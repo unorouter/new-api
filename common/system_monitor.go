@@ -52,17 +52,20 @@ func StartSystemMonitor() {
 func updateSystemStatus() {
 	var status SystemStatus
 
-	// CPU
+	// CPU: prefer the container's own cgroup accounting, since gopsutil reads the
+	// HOST and reports the whole node (or nothing) for a containerized instance.
 	// 注意：cpu.Percent(0, false) 返回自上次调用以来的 CPU 使用率
 	// 如果是第一次调用，可能会返回错误或不准确的值，但在循环中会逐渐正常
-	percents, err := cpu.Percent(0, false)
-	if err == nil && len(percents) > 0 {
+	if pct, ok := cgroupCPUUsage(cgroupCPUQuota()); ok {
+		status.CPUUsage = pct
+	} else if percents, err := cpu.Percent(0, false); err == nil && len(percents) > 0 {
 		status.CPUUsage = percents[0]
 	}
 
-	// Memory
-	memInfo, err := mem.VirtualMemory()
-	if err == nil {
+	// Memory: same, relative to the container limit rather than host RAM.
+	if pct, ok := cgroupMemoryUsage(); ok {
+		status.MemoryUsage = pct
+	} else if memInfo, err := mem.VirtualMemory(); err == nil {
 		status.MemoryUsage = memInfo.UsedPercent
 	}
 

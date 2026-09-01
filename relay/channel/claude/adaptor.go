@@ -43,6 +43,12 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	if info.UpstreamModelName == "" {
 		info.UpstreamModelName = request.Model
 	}
+	// Anthropic removed assistant-message prefill from Claude 4.5/4.6, and the
+	// cloud deployments (Bedrock, Vertex) and their resellers reject it for
+	// every Claude model. Fold any trailing assistant turn into a user
+	// continuation so the request is accepted everywhere.
+	request.Messages, request.System = HandleUnsupportedAssistantPrefill(request.Messages, request.System)
+	relaycommon.EnsureDeepSeekReasoningContentClaude(request)
 	return request, nil
 }
 
@@ -151,6 +157,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		return ClaudeResponsesStreamHandler(c, resp, info)
 	}
 	if info.IsStream {
+		if info.ForceUpstreamStream {
+			return ClaudeStreamToJsonHandler(c, resp, info)
+		}
 		return ClaudeStreamHandler(c, resp, info)
 	} else {
 		return ClaudeHandler(c, resp, info)

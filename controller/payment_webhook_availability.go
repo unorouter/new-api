@@ -15,6 +15,9 @@ func isStripeTopUpEnabled() bool {
 	if !isPaymentComplianceConfirmed() {
 		return false
 	}
+	if !setting.StripeEnabled {
+		return false
+	}
 	return strings.TrimSpace(setting.StripeApiSecret) != "" &&
 		strings.TrimSpace(setting.StripeWebhookSecret) != "" &&
 		strings.TrimSpace(setting.StripePriceId) != ""
@@ -30,6 +33,9 @@ func isStripeWebhookEnabled() bool {
 
 func isCreemTopUpEnabled() bool {
 	if !isPaymentComplianceConfirmed() {
+		return false
+	}
+	if !setting.CreemEnabled {
 		return false
 	}
 	products := strings.TrimSpace(setting.CreemProducts)
@@ -107,4 +113,43 @@ func isEpayWebhookConfigured() bool {
 
 func isEpayWebhookEnabled() bool {
 	return isEpayTopUpEnabled()
+}
+
+func isNowPaymentsTopUpEnabled() bool {
+	if !isPaymentComplianceConfirmed() {
+		return false
+	}
+	if !setting.NowPaymentsEnabled {
+		return false
+	}
+	return strings.TrimSpace(setting.NowPaymentsApiKey) != "" &&
+		strings.TrimSpace(setting.NowPaymentsIpnSecret) != ""
+}
+
+func isNowPaymentsWebhookConfigured() bool {
+	return strings.TrimSpace(setting.NowPaymentsIpnSecret) != ""
+}
+
+func isNowPaymentsWebhookEnabled() bool {
+	return isNowPaymentsTopUpEnabled()
+}
+
+func isDeloPayTopUpEnabled() bool {
+	if !isPaymentComplianceConfirmed() {
+		return false
+	}
+	if !setting.DeloPayEnabled {
+		return false
+	}
+	return strings.TrimSpace(setting.DeloPayApiKey) != "" &&
+		strings.TrimSpace(setting.DeloPayProfileId) != "" &&
+		strings.TrimSpace(setting.DeloPayWebhookSecret) != ""
+}
+
+func isDeloPayWebhookConfigured() bool {
+	return strings.TrimSpace(setting.DeloPayWebhookSecret) != ""
+}
+
+func isDeloPayWebhookEnabled() bool {
+	return isDeloPayTopUpEnabled()
 }

@@ -134,14 +134,25 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       baseUrl: 'Default: https://api.replicate.com',
     },
   },
-  58: {
-    id: 58,
-    name: CHANNEL_TYPES[58],
-    icon: 'newapi',
+  62: {
+    id: 62,
+    name: CHANNEL_TYPES[62],
+    icon: 'openai',
     hints: {
       baseUrl: 'Fallback base URL',
       key: 'Used by route auth templates',
       models: 'Models exposed by this channel',
+    },
+  },
+  63: {
+    id: 63,
+    name: CHANNEL_TYPES[63],
+    icon: 'openai',
+    defaultBaseUrl: 'https://api.runware.ai',
+    hints: {
+      key: 'Runware API Key',
+      models: 'Model AIR identifiers, e.g. civitai:257749@290640',
+      baseUrl: 'Default: https://api.runware.ai',
     },
   },
   59: {

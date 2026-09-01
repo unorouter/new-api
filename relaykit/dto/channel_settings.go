@@ -10,20 +10,55 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
+// ChannelCapabilities describes tested capabilities of an upstream channel.
+// nil fields mean "unknown/not tested" and the channel is assumed capable.
+type ChannelCapabilities struct {
+	ToolCalling *bool `json:"tool_calling,omitempty"`
+	Streaming   *bool `json:"streaming,omitempty"`
+	HTTP        *bool `json:"http,omitempty"` // non-streaming request support
+	// Responses is false for an upstream that serves only /v1/chat/completions.
+	// Channel type cannot express this: a chat-only relay and a native Responses
+	// provider are both type 1, so the two are indistinguishable until the request
+	// comes back as a router-level 404 with no parseable body.
+	Responses *bool `json:"responses,omitempty"`
+}
+
 type ChannelSettings struct {
 	TaskPluginKey          string `json:"task_plugin_key,omitempty"`
 	ForceFormat            bool   `json:"force_format,omitempty"`
 	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
 	Proxy                  string `json:"proxy"`
 	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt           string `json:"system_prompt,omitempty"`
-	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	// ForceUpstreamStream upgrades a client's stream=false to upstream SSE for
+	// THIS channel, aggregating the chunks back into one JSON body. Some reseller
+	// edges hold a ~60s response-header deadline, which a non-streaming request
+	// crosses whenever the generation runs long: a6 measured 20.9% failure on
+	// non-streamed paid traffic against 0.8% everywhere else. The global switch
+	// (general_setting.force_upstream_streaming_enabled) still forces it for all
+	// channels; this is the per-channel opt-in.
+	ForceUpstreamStream  bool                 `json:"force_upstream_stream,omitempty"`
+	SystemPrompt         string               `json:"system_prompt,omitempty"`
+	SystemPromptOverride bool                 `json:"system_prompt_override,omitempty"`
+	Capabilities         *ChannelCapabilities `json:"capabilities,omitempty"`
 	// HTTPProtocol controls outbound HTTP version negotiation for this channel.
 	// Accepted values: "", "auto" (default), "http1".
 	HTTPProtocol string `json:"http_protocol,omitempty"`
 	// HTTP2ConnectionShards spreads HTTP/2 traffic across N independent transports
 	// (1-8). Zero/unset means 1. Ignored when HTTPProtocol is "http1".
 	HTTP2ConnectionShards int `json:"http2_connection_shards,omitempty"`
+	// AutoTestIntervalMinutes overrides the global scheduled-test cadence for this
+	// channel. Zero/unset uses the global monitor setting. Lanes metered per exit IP
+	// (a web reverse behind a rotating tunnel) spend a scarce per-IP request budget
+	// on every probe, so they are probed far less often than a commercial upstream.
+	AutoTestIntervalMinutes int `json:"auto_test_interval_minutes,omitempty"`
+	// AutoTestIntervalMaxMinutes turns the cadence into a window. When set above
+	// AutoTestIntervalMinutes, each channel picks its own due point inside
+	// [min,max] from a hash of its id, so sibling channels on one upstream spread
+	// across the window instead of coming due together. A shared upstream that
+	// serves N channels otherwise gets all N probes in the same cycle, which is
+	// what exhausts a per-IP budget or a slow captcha pool. Zero/unset = fixed
+	// interval at AutoTestIntervalMinutes.
+	AutoTestIntervalMaxMinutes int `json:"auto_test_interval_max_minutes,omitempty"`
 }
 
 const (
@@ -122,6 +157,18 @@ const (
 	advancedCustomConverterOpenAIResponsesToGemini     = "openai_responses_to_gemini_generate_content"
 	advancedCustomConverterGeminiContentToOpenAIChat   = "gemini_generate_content_to_openai_chat_completions"
 	advancedCustomConverterOpenAIChatToGeminiContent   = "openai_chat_completions_to_gemini_generate_content"
+)
+
+// Exported converter names for host code that persists or validates the
+// channel converter field outside this package.
+const (
+	AdvancedCustomConverterNone                                         = advancedCustomConverterNone
+	AdvancedCustomConverterAnthropicMessagesToOpenAIChatCompletions     = advancedCustomConverterClaudeMessagesToOpenAIChat
+	AdvancedCustomConverterOpenAIChatCompletionsToAnthropicMessages     = advancedCustomConverterOpenAIChatToClaudeMessages
+	AdvancedCustomConverterOpenAIChatCompletionsToOpenAIResponses       = advancedCustomConverterOpenAIChatToOpenAIResponses
+	AdvancedCustomConverterOpenAIResponsesToOpenAIChatCompletions       = advancedCustomConverterOpenAIResponsesToOpenAIChat
+	AdvancedCustomConverterGeminiGenerateContentToOpenAIChatCompletions = advancedCustomConverterGeminiContentToOpenAIChat
+	AdvancedCustomConverterOpenAIChatCompletionsToGeminiGenerateContent = advancedCustomConverterOpenAIChatToGeminiContent
 )
 
 const (

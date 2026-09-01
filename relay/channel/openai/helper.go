@@ -120,10 +120,34 @@ func sendGeminiStreamResults(c *gin.Context, results []relayconvert.ResponseResu
 	return nil
 }
 
-func ProcessStreamResponse(streamResponse dto.ChatCompletionsStreamResponse, responseTextBuilder *strings.Builder, toolCount *int) error {
+// StreamOutputStats separates what the user actually received from what merely
+// cost tokens. responseTextBuilder deliberately mixes content, reasoning and
+// tool calls because it feeds ResponseText2Usage for billing, so it cannot
+// answer "did the reader get an answer" - a stream that spends its whole budget
+// on reasoning_content leaves the builder full and the reply blank.
+type StreamOutputStats struct {
+	// Content deltas only, kept as text so a whitespace-only reply is still
+	// recognised as empty.
+	Content        strings.Builder
+	ReasoningChars int
+	// Last non-empty finish_reason seen. Empty means the upstream never sent
+	// one, which is not the same as "stop".
+	FinishReason string
+}
+
+func ProcessStreamResponse(streamResponse dto.ChatCompletionsStreamResponse, responseTextBuilder *strings.Builder, toolCount *int, stats *StreamOutputStats) error {
 	for _, choice := range streamResponse.Choices {
-		responseTextBuilder.WriteString(choice.Delta.GetContentString())
-		responseTextBuilder.WriteString(choice.Delta.GetReasoningContent())
+		content := choice.Delta.GetContentString()
+		reasoning := choice.Delta.GetReasoningContent()
+		responseTextBuilder.WriteString(content)
+		responseTextBuilder.WriteString(reasoning)
+		if stats != nil {
+			stats.Content.WriteString(content)
+			stats.ReasoningChars += len(reasoning)
+			if fr := choice.FinishReason; fr != nil && *fr != "" {
+				stats.FinishReason = *fr
+			}
+		}
 		if choice.Delta.ToolCalls != nil {
 			if len(choice.Delta.ToolCalls) > *toolCount {
 				*toolCount = len(choice.Delta.ToolCalls)
@@ -137,14 +161,14 @@ func ProcessStreamResponse(streamResponse dto.ChatCompletionsStreamResponse, res
 	return nil
 }
 
-func processTokenData(relayMode int, data string, responseTextBuilder *strings.Builder, toolCount *int) error {
+func processTokenData(relayMode int, data string, responseTextBuilder *strings.Builder, toolCount *int, stats *StreamOutputStats) error {
 	switch relayMode {
 	case relayconstant.RelayModeChatCompletions:
 		var streamResponse dto.ChatCompletionsStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
 			return err
 		}
-		return ProcessStreamResponse(streamResponse, responseTextBuilder, toolCount)
+		return ProcessStreamResponse(streamResponse, responseTextBuilder, toolCount, stats)
 	case relayconstant.RelayModeCompletions:
 		var streamResponse dto.CompletionsStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
@@ -195,7 +219,9 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		if info.ShouldIncludeUsage && !containStreamUsage {
+		// PROD-ONLY (fork): only synthesize the choices-empty final usage chunk when the
+		// client EXPLICITLY asked for it; otherwise fragile clients crash on choices[0].
+		if info.ClientRequestedStreamUsage && info.ShouldIncludeUsage && !containStreamUsage {
 			response := helper.GenerateFinalUsageResponse(responseId, createAt, model, *usage)
 			response.SetSystemFingerprint(systemFingerprint)
 			helper.ObjectData(c, response)

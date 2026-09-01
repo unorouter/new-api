@@ -3,15 +3,16 @@ package controller
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/go-fuego/fuego"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -48,7 +49,7 @@ export function parseTaskResult() { return {}; }
 		{
 			name:       "undeclared usage key",
 			expression: `tier("base", u("clips") * 0.1)`,
-			errorText:  `usage key \"clips\" is not declared`,
+			errorText:  `usage key "clips" is not declared`,
 		},
 	}
 
@@ -56,21 +57,20 @@ export function parseTaskResult() { return {}; }
 		t.Run(testCase.name, func(t *testing.T) {
 			expressions, marshalErr := common.Marshal(map[string]string{modelName: testCase.expression})
 			require.NoError(t, marshalErr)
-			body, marshalErr := common.Marshal(OptionUpdateRequest{
+			ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ginCtx.Request = httptest.NewRequest(http.MethodPut, "/api/option/", nil)
+			ctx := fuego.NewMockContext[dto.OptionUpdateRequest, any](dto.OptionUpdateRequest{
 				Key:   "billing_setting.billing_expr",
 				Value: string(expressions),
-			})
-			require.NoError(t, marshalErr)
-			recorder := httptest.NewRecorder()
-			context, _ := gin.CreateTestContext(recorder)
-			context.Request = httptest.NewRequest(http.MethodPut, "/api/option/", strings.NewReader(string(body)))
+			}, nil)
+			ctx.CommonCtx = ginCtx
 
-			UpdateOption(context)
+			payload, handlerErr := UpdateOption(ctx)
 
-			assert.Equal(t, http.StatusOK, recorder.Code)
-			assert.Contains(t, recorder.Body.String(), `"success":false`)
-			assert.Contains(t, recorder.Body.String(), modelName)
-			assert.Contains(t, recorder.Body.String(), testCase.errorText)
+			require.NoError(t, handlerErr)
+			assert.False(t, payload.Success)
+			assert.Contains(t, payload.Message, modelName)
+			assert.Contains(t, payload.Message, testCase.errorText)
 		})
 	}
 }
@@ -81,26 +81,21 @@ func TestUpdateOptionRejectsUsageExpressionWithoutTaskPlugin(t *testing.T) {
 		modelName: `u("mode") == "std" ? 1 : 2`,
 	})
 	require.NoError(t, err)
-	body, err := common.Marshal(OptionUpdateRequest{
+	ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ginCtx.Request = httptest.NewRequest(http.MethodPut, "/api/option/", nil)
+	ctx := fuego.NewMockContext[dto.OptionUpdateRequest, any](dto.OptionUpdateRequest{
 		Key:   "billing_setting.billing_expr",
 		Value: string(expressions),
-	})
-	require.NoError(t, err)
-	recorder := httptest.NewRecorder()
-	context, _ := gin.CreateTestContext(recorder)
-	context.Request = httptest.NewRequest(
-		http.MethodPut,
-		"/api/option/",
-		strings.NewReader(string(body)),
-	)
+	}, nil)
+	ctx.CommonCtx = ginCtx
 
-	UpdateOption(context)
+	payload, handlerErr := UpdateOption(ctx)
 
-	assert.Equal(t, http.StatusOK, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), `"success":false`)
-	assert.Contains(t, recorder.Body.String(), modelName)
-	assert.Contains(t, recorder.Body.String(), "mode")
-	assert.Contains(t, recorder.Body.String(), "no task plugin usage schema")
+	require.NoError(t, handlerErr)
+	assert.False(t, payload.Success)
+	assert.Contains(t, payload.Message, modelName)
+	assert.Contains(t, payload.Message, "mode")
+	assert.Contains(t, payload.Message, "no task plugin usage schema")
 }
 
 func setupBillingAliasOptionDB(t *testing.T) {
@@ -171,33 +166,30 @@ export function parseTaskResult() { return {}; }
 		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
 	})
 
-	putExpr := func(modelName, expression string) *httptest.ResponseRecorder {
+	putExpr := func(modelName, expression string) dto.MessageResponse {
 		t.Helper()
 		expressions, marshalErr := common.Marshal(map[string]string{modelName: expression})
 		require.NoError(t, marshalErr)
-		body, marshalErr := common.Marshal(OptionUpdateRequest{
+		ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ginCtx.Request = httptest.NewRequest(http.MethodPut, "/api/option/", nil)
+		ctx := fuego.NewMockContext[dto.OptionUpdateRequest, any](dto.OptionUpdateRequest{
 			Key:   "billing_setting.billing_expr",
 			Value: string(expressions),
-		})
-		require.NoError(t, marshalErr)
-		recorder := httptest.NewRecorder()
-		context, _ := gin.CreateTestContext(recorder)
-		context.Request = httptest.NewRequest(http.MethodPut, "/api/option/", strings.NewReader(string(body)))
-		UpdateOption(context)
-		return recorder
+		}, nil)
+		ctx.CommonCtx = ginCtx
+		payload, handlerErr := UpdateOption(ctx)
+		require.NoError(t, handlerErr)
+		return payload
 	}
 
 	accepted := putExpr("alias-model", `u("seconds")`)
-	assert.Equal(t, http.StatusOK, accepted.Code)
-	assert.Contains(t, accepted.Body.String(), `"success":true`)
+	assert.True(t, accepted.Success)
 
 	rejectedKey := putExpr("alias-model", `u("clips")`)
-	assert.Equal(t, http.StatusOK, rejectedKey.Code)
-	assert.Contains(t, rejectedKey.Body.String(), `"success":false`)
-	assert.Contains(t, rejectedKey.Body.String(), `usage key \"clips\" is not declared`)
+	assert.False(t, rejectedKey.Success)
+	assert.Contains(t, rejectedKey.Message, `usage key "clips" is not declared`)
 
 	unresolvable := putExpr("unknown-alias-model", `u("seconds")`)
-	assert.Equal(t, http.StatusOK, unresolvable.Code)
-	assert.Contains(t, unresolvable.Body.String(), `"success":false`)
-	assert.Contains(t, unresolvable.Body.String(), "no task plugin usage schema")
+	assert.False(t, unresolvable.Success)
+	assert.Contains(t, unresolvable.Message, "no task plugin usage schema")
 }

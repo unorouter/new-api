@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -29,6 +30,27 @@ var auditContentTemplates = map[string]string{
 	"user.passkey_delete":   "Deleted a passkey",
 	"user.reset_passkey":    "Reset the user passkey",
 	"option.update":         "Updated system setting ${key}",
+
+	"token.key_view":       "Revealed API key ${name} (ID: ${id})",
+	"token.key_view_batch": "Revealed ${count} API keys in bulk",
+	"token.create":         "Created API key ${name} (ID: ${id})",
+	"token.delete":         "Deleted API key ${name} (ID: ${id})",
+	"token.delete_batch":   "Deleted ${count} API keys in bulk",
+
+	"partner.redemption_create": "Minted a gift card ${name} worth ${quota} from own balance",
+	"partner.redemption_void":   "Voided gift card ${id} and refunded ${refunded}",
+	"partner.grant":             "Granted ${quota} to user ${recipient_id} from own balance",
+
+	"user.password_change": "Changed the account password",
+	"user.aff_transfer":    "Transferred ${quota} of affiliate commission to balance",
+
+	"user.email_bind":   "Bound email ${to} to the account (was ${from})",
+	"user.oauth_bind":   "Bound ${provider} identity ${provider_user_id} to the account",
+	"user.oauth_unbind": "Removed the ${provider} identity binding",
+
+	"read.user_list":   "Listed user accounts (page ${page}, ${count} returned)",
+	"read.user_search": "Searched user accounts for ${keyword} (${count} matched)",
+	"read.log_search":  "Searched all users' request logs (${count} returned)",
 
 	"channel.create":             "Created channel ${name} (type ${type}, count ${count})",
 	"channel.update":             "Updated channel ${name} (ID: ${id})",
@@ -110,6 +132,61 @@ func recordManageAuditFor(c *gin.Context, targetUserId int, action string, param
 
 // recordUserSecurityAudit 记录普通用户自己的安全敏感操作（如 passkey 绑定/解绑）。
 // 这类日志没有管理员操作者，不写 admin_info；同时不依赖 AdminAuth/RootAuth 的兜底。
+//
+// auth_method is still recorded: distinguishing a stolen access token from a
+// real session is what identified the 2026-08-26 intruder, and that question is
+// just as relevant for a user-level credential read as for an admin write.
 func recordUserSecurityAudit(c *gin.Context, userId int, action string, params map[string]interface{}) {
-	model.RecordOperationAuditLog(userId, auditContentEN(action, params), c.ClientIP(), action, params, nil, nil)
+	// The log store is absent before init and in handler tests, where the write
+	// panics on a nil handle.
+	if c == nil || model.LOG_DB == nil {
+		return
+	}
+	auditInfo := map[string]interface{}{
+		"auth_method": auditAuthMethod(c),
+		"route":       c.FullPath(),
+	}
+	// Recording the action must never be what fails it, and a context without a
+	// Request is real: handler tests build one, and the audit is not what they
+	// are exercising. ClientIP() reads the Request too, so it is guarded here
+	// rather than passed straight through.
+	clientIP := ""
+	if c.Request != nil {
+		auditInfo["path"] = c.Request.URL.Path
+		auditInfo["method"] = c.Request.Method
+		clientIP = c.ClientIP()
+	}
+	model.RecordOperationAuditLog(userId, auditContentEN(action, params), clientIP, action, params, nil, auditInfo)
+}
+
+// recordSensitiveRead audits a READ of bulk personal or operational data.
+//
+// The admin audit fallback only wraps writes (beginAdminAudit bails on anything
+// that is not POST/PUT/PATCH/DELETE), so browsing every user, searching all
+// logs or paging the channel list has always been invisible. After the
+// 2026-08-26 takeover the unanswerable question was not what the intruder
+// changed, which was fully recorded, but what they READ while sitting inside ten
+// hijacked accounts.
+//
+// Automation is skipped on purpose. new-api-sync pages the channel list on every
+// run and the BFF proxies dashboard reads, both from cluster addresses; logging
+// those would add thousands of rows a day to an 11GB table and bury the handful
+// that matter. An intruder arrives through Cloudflare with a public address,
+// which is the same reasoning the security-denial metric uses.
+func recordSensitiveRead(c *gin.Context, action string, params map[string]interface{}) {
+	if isInternalClient(c.ClientIP()) {
+		return
+	}
+	recordUserSecurityAudit(c, c.GetInt("id"), action, params)
+}
+
+// isInternalClient reports whether an address belongs to our own infrastructure
+// rather than a real external caller.
+func isInternalClient(ip string) bool {
+	switch ip {
+	case "", "unknown", "127.0.0.1", "::1":
+		return true
+	}
+	// k3s pod CIDR: the BFF, the bot and any in-cluster job.
+	return strings.HasPrefix(ip, "10.42.")
 }

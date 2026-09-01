@@ -1,0 +1,132 @@
+name: GHCR Image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ghcr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # One NATIVE runner per arch (no QEMU): the frontend `bun run build` + apt stage ran
+  # emulated on a single amd64 runner before = 22min. Native arm64 (ubuntu-24.04-arm) runs
+  # its leg at full speed, in parallel with amd64. Each pushes by DIGEST only (no tag);
+  # the manifest job stitches the multi-arch tag.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/unorouter/new-api,push-by-digest=true,name-canonical=true,push=true
+          # Per-arch cache scope so the amd64 and arm64 GHA caches never overwrite.
+          cache-from: type=gha,scope=new-api-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=new-api-${{ matrix.arch }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/${{ matrix.arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  # Stitch the two per-arch digests into one multi-arch manifest under the real tags.
+  manifest:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create + push manifest list
+        run: |
+          IMAGE=ghcr.io/unorouter/new-api
+          REFS=""
+          for f in /tmp/digests/*; do REFS="$REFS $IMAGE@$(cat "$f")"; done
+          for TAG in latest ${{ github.sha }}; do
+            docker buildx imagetools create -t "$IMAGE:$TAG" $REFS
+          done
+          docker buildx imagetools inspect "$IMAGE:${{ github.sha }}"
+
+  # Pin the new image in this repo's own k8s/ manifests. ArgoCD discovers this repo by its
+  # k8s/ directory and rolls the Deployment out, so nothing here talks to the cluster and no
+  # cross-repo token is needed -- the built-in GITHUB_TOKEN is enough.
+  #
+  # The tag is the git SHA, never :latest -- with a floating tag the manifest never changes,
+  # ArgoCD sees nothing to do, and the deploy silently never happens.
+  deploy:
+    runs-on: ubuntu-latest
+    needs: manifest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Pin new-api image to this commit
+        run: |
+          set -euo pipefail
+          F=k8s/deployment.yaml
+          OLD=$(grep -oP 'image: ghcr\.io/unorouter/new-api:\K\S+' "$F" | head -1)
+          if [ "$OLD" = "${{ github.sha }}" ]; then
+            echo "already pinned to ${{ github.sha }}, nothing to do"
+            exit 0
+          fi
+          # master AND slave share the image, so replace every occurrence
+          sed -i "s|image: ghcr.io/unorouter/new-api:.*|image: ghcr.io/unorouter/new-api:${{ github.sha }}|g" "$F"
+          git config user.name  "unorouter-ci"
+          git config user.email "ci@unorouter.com"
+          git add "$F"
+          git commit -m "deploy(new-api): ${{ github.sha }}
+
+          Was: $OLD"
+          # main can move between checkout and push (a concurrent push, or a human commit)
+          for i in 1 2 3; do
+            git push origin main && exit 0
+            echo "push rejected, rebasing (attempt $i)"
+            git pull --rebase origin main
+          done
+          echo "::error::could not push image pin after 3 attempts"
+          exit 1

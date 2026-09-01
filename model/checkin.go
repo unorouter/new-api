@@ -2,10 +2,12 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"math/rand"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"gorm.io/gorm"
 )
@@ -55,7 +57,7 @@ func HasCheckedInToday(userId int) (bool, error) {
 func UserCheckin(userId int) (*Checkin, error) {
 	setting := operation_setting.GetCheckinSetting()
 	if !setting.Enabled {
-		return nil, errors.New("签到功能未启用")
+		return nil, errors.New("Check-in feature is not enabled")
 	}
 
 	// 检查今天是否已签到
@@ -64,7 +66,7 @@ func UserCheckin(userId int) (*Checkin, error) {
 		return nil, err
 	}
 	if hasChecked {
-		return nil, errors.New("今日已签到")
+		return nil, errors.New("You have already checked in today")
 	}
 
 	// 计算随机额度奖励
@@ -82,13 +84,22 @@ func UserCheckin(userId int) (*Checkin, error) {
 	}
 
 	// 根据数据库类型选择不同的策略
+	var result *Checkin
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		// SQLite 不支持嵌套事务，使用顺序操作 + 手动回滚
-		return userCheckinWithoutTransaction(checkin, userId, quotaAwarded)
+		result, err = userCheckinWithoutTransaction(checkin, userId, quotaAwarded)
+	} else {
+		// MySQL 和 PostgreSQL 支持事务，使用事务保证原子性
+		result, err = userCheckinWithTransaction(checkin, userId, quotaAwarded)
 	}
-
-	// MySQL 和 PostgreSQL 支持事务，使用事务保证原子性
-	return userCheckinWithTransaction(checkin, userId, quotaAwarded)
+	if err != nil {
+		return nil, err
+	}
+	// Above the engine branch: every other way a balance grows writes a topup row,
+	// and a check-in that raises one with nothing to reconcile against is how a
+	// balance becomes unexplainable after the fact.
+	RecordLog(userId, LogTypeTopup, fmt.Sprintf("Check-in reward, quota: %s", logger.LogQuota(quotaAwarded)))
+	return result, nil
 }
 
 // userCheckinWithTransaction 使用事务执行签到（适用于 MySQL 和 PostgreSQL）
@@ -97,13 +108,13 @@ func userCheckinWithTransaction(checkin *Checkin, userId int, quotaAwarded int) 
 		// 步骤1: 创建签到记录
 		// 数据库有唯一约束 (user_id, checkin_date)，可以防止并发重复签到
 		if err := tx.Create(checkin).Error; err != nil {
-			return errors.New("签到失败，请稍后重试")
+			return errors.New("Check-in failed, please try again later")
 		}
 
 		// 步骤2: 在事务中增加用户额度
 		if err := tx.Model(&User{}).Where("id = ?", userId).
 			Update("quota", gorm.Expr("quota + ?", quotaAwarded)).Error; err != nil {
-			return errors.New("签到失败：更新额度出错")
+			return errors.New("Check-in failed: error updating quota")
 		}
 
 		return nil
@@ -126,7 +137,7 @@ func userCheckinWithoutTransaction(checkin *Checkin, userId int, quotaAwarded in
 	// 步骤1: 创建签到记录
 	// 数据库有唯一约束 (user_id, checkin_date)，可以防止并发重复签到
 	if err := DB.Create(checkin).Error; err != nil {
-		return nil, errors.New("签到失败，请稍后重试")
+		return nil, errors.New("Check-in failed, please try again later")
 	}
 
 	// 步骤2: 增加用户额度
@@ -134,9 +145,8 @@ func userCheckinWithoutTransaction(checkin *Checkin, userId int, quotaAwarded in
 	if err := IncreaseUserQuota(userId, quotaAwarded, true); err != nil {
 		// 如果增加额度失败，需要回滚签到记录
 		DB.Delete(checkin)
-		return nil, errors.New("签到失败：更新额度出错")
+		return nil, errors.New("Check-in failed: error updating quota")
 	}
-
 	return checkin, nil
 }
 

@@ -105,16 +105,18 @@ func (p *RetryParam) ResetRetryNextTry() {
 //
 //	Retry=3: GroupB, priority1 (startRetryIndex=2, priorityRetry=1)
 //	         分组B, 优先级1
-func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, error) {
+func CacheGetRandomSatisfiedChannel(param *RetryParam, skipIDs ...map[int]bool) (*model.Channel, string, error) {
 	var channel *model.Channel
 	var err error
 	selectGroup := param.TokenGroup
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
 	filters := GetChannelConstraints(param.Ctx).Filters
 
-	if param.TokenGroup == "auto" {
-		autoGroups := GetRequestAutoGroups(param.Ctx, userGroup)
-		if len(autoGroups) == 0 {
+	// A composite pinned group ("vip,discount") behaves like a scoped auto:
+	// iterate only the pinned groups, cheapest ratio first.
+	if param.TokenGroup == "auto" || IsCompositeTokenGroup(param.TokenGroup) {
+		autoGroups := GetTokenAutoGroups(param.Ctx, userGroup, param.TokenGroup)
+		if param.TokenGroup == "auto" && len(autoGroups) == 0 {
 			return nil, selectGroup, errors.New("auto groups is not enabled")
 		}
 
@@ -146,6 +148,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 				param.ModelName,
 				priorityRetry,
 				filters,
+				skipIDs...,
 			)
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
@@ -189,6 +192,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			param.ModelName,
 			param.GetRetry(),
 			filters,
+			skipIDs...,
 		)
 		if err != nil {
 			return nil, param.TokenGroup, err

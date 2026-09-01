@@ -17,28 +17,28 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
-
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/relaykit/dto"
+	relaydto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	"github.com/samber/lo"
 
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
+	"github.com/samber/lo"
 )
 
 const (
 	defaultTimeoutSeconds       = 10
-	defaultEndpoint             = "/api/pricing"
+	defaultEndpoint             = "/api/ratio_config"
 	maxConcurrentFetches        = 8
 	maxRatioConfigBytes         = 10 << 20 // 10MB
 	floatEpsilon                = 1e-9
 	officialRatioPresetID       = -100
-	officialRatioPresetName     = "官方倍率预设"
+	officialRatioPresetName     = "official ratio preset"
 	officialRatioPresetBaseURL  = "https://basellm.github.io"
 	modelsDevPresetID           = -101
-	modelsDevPresetName         = "models.dev 价格预设"
+	modelsDevPresetName         = "models.dev price preset"
 	modelsDevPresetBaseURL      = "https://models.dev"
 	modelsDevHost               = "models.dev"
 	modelsDevPath               = "/api.json"
@@ -61,18 +61,7 @@ func valuesEqual(a, b interface{}) bool {
 	return a == b
 }
 
-var pricingSyncFields = []string{
-	"model_ratio",
-	"completion_ratio",
-	"cache_ratio",
-	"create_cache_ratio",
-	"image_ratio",
-	"audio_ratio",
-	"audio_completion_ratio",
-	"model_price",
-	billing_setting.BillingModeField,
-	billing_setting.BillingExprField,
-}
+var ratioTypes = []string{"model_ratio", "completion_ratio", "cache_ratio", "create_cache_ratio", "image_ratio", "audio_ratio", "audio_completion_ratio", "model_price", billing_setting.BillingModeField, billing_setting.BillingExprField}
 
 var numericPricingSyncFields = map[string]bool{
 	"model_ratio":            true,
@@ -131,27 +120,20 @@ func normalizeSyncValue(field string, value any) any {
 	return value
 }
 
-func getLocalPricingSyncData() map[string]any {
-	data := billing_setting.GetPricingSyncData(map[string]any(ratio_setting.GetExposedData()))
-	data["image_ratio"] = ratio_setting.GetImageRatioCopy()
-	data["audio_ratio"] = ratio_setting.GetAudioRatioCopy()
-	data["audio_completion_ratio"] = ratio_setting.GetAudioCompletionRatioCopy()
-	return data
-}
+func FetchUpstreamRatios(c fuego.ContextWithBody[relaydto.UpstreamRequest]) (*dto.Response[dto.FetchUpstreamRatiosResult], error) {
+	reqCtx := c.Request().Context()
 
-func FetchUpstreamRatios(c *gin.Context) {
-	var req dto.UpstreamRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	req, err := c.Body()
+	if err != nil {
 		common.SysError("failed to bind upstream request: " + err.Error())
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "请求参数格式错误"})
-		return
+		return dto.Fail[dto.FetchUpstreamRatiosResult](common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
 	}
 
 	if req.Timeout <= 0 {
 		req.Timeout = defaultTimeoutSeconds
 	}
 
-	var upstreams []dto.UpstreamDTO
+	var upstreams []relaydto.UpstreamDTO
 
 	if len(req.Upstreams) > 0 {
 		for _, u := range req.Upstreams {
@@ -170,13 +152,12 @@ func FetchUpstreamRatios(c *gin.Context) {
 		}
 		dbChannels, err := model.GetChannelsByIds(intIds)
 		if err != nil {
-			logger.LogError(c.Request.Context(), "failed to query channels: "+err.Error())
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询渠道失败"})
-			return
+			logger.LogError(reqCtx, "failed to query channels: "+err.Error())
+			return dto.Fail[dto.FetchUpstreamRatiosResult]("Failed to query channel")
 		}
 		for _, ch := range dbChannels {
 			if base := ch.GetBaseURL(); strings.HasPrefix(base, "http") {
-				upstreams = append(upstreams, dto.UpstreamDTO{
+				upstreams = append(upstreams, relaydto.UpstreamDTO{
 					ID:       ch.Id,
 					Name:     ch.Name,
 					BaseURL:  strings.TrimRight(base, "/"),
@@ -187,8 +168,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 	}
 
 	if len(upstreams) == 0 {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "无有效上游渠道"})
-		return
+		return dto.Fail[dto.FetchUpstreamRatiosResult]("No valid upstream channel")
 	}
 
 	var wg sync.WaitGroup
@@ -219,7 +199,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 
 	for _, chn := range upstreams {
 		wg.Add(1)
-		go func(chItem dto.UpstreamDTO) {
+		go func(chItem relaydto.UpstreamDTO) {
 			defer wg.Done()
 
 			sem <- struct{}{}
@@ -248,12 +228,12 @@ func FetchUpstreamRatios(c *gin.Context) {
 				uniqueName = fmt.Sprintf("%s(%d)", chItem.Name, chItem.ID)
 			}
 
-			ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(req.Timeout)*time.Second)
+			ctx, cancel := context.WithTimeout(reqCtx, time.Duration(req.Timeout)*time.Second)
 			defer cancel()
 
 			httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 			if err != nil {
-				logger.LogWarn(c.Request.Context(), "build request failed: "+err.Error())
+				logger.LogWarn(reqCtx, "build request failed: "+err.Error())
 				ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 				return
 			}
@@ -291,25 +271,25 @@ func FetchUpstreamRatios(c *gin.Context) {
 				time.Sleep(time.Duration(200*(1<<attempt)) * time.Millisecond)
 			}
 			if lastErr != nil {
-				logger.LogWarn(c.Request.Context(), "http error on "+chItem.Name+": "+lastErr.Error())
+				logger.LogWarn(reqCtx, "http error on "+chItem.Name+": "+lastErr.Error())
 				ch <- upstreamResult{Name: uniqueName, Err: lastErr.Error()}
 				return
 			}
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusOK {
-				logger.LogWarn(c.Request.Context(), "non-200 from "+chItem.Name+": "+resp.Status)
+				logger.LogWarn(reqCtx, "non-200 from "+chItem.Name+": "+resp.Status)
 				ch <- upstreamResult{Name: uniqueName, Err: resp.Status}
 				return
 			}
 
 			// Content-Type 和响应体大小校验
 			if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "application/json") {
-				logger.LogWarn(c.Request.Context(), "unexpected content-type from "+chItem.Name+": "+ct)
+				logger.LogWarn(reqCtx, "unexpected content-type from "+chItem.Name+": "+ct)
 			}
 			limited := io.LimitReader(resp.Body, maxRatioConfigBytes)
 			bodyBytes, err := io.ReadAll(limited)
 			if err != nil {
-				logger.LogWarn(c.Request.Context(), "read response failed from "+chItem.Name+": "+err.Error())
+				logger.LogWarn(reqCtx, "read response failed from "+chItem.Name+": "+err.Error())
 				ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 				return
 			}
@@ -318,7 +298,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 			if isOpenRouter {
 				converted, err := convertOpenRouterToRatioData(bytes.NewReader(bodyBytes))
 				if err != nil {
-					logger.LogWarn(c.Request.Context(), "OpenRouter parse failed from "+chItem.Name+": "+err.Error())
+					logger.LogWarn(reqCtx, "OpenRouter parse failed from "+chItem.Name+": "+err.Error())
 					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 					return
 				}
@@ -330,7 +310,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 			if isModelsDev {
 				converted, err := convertModelsDevToRatioData(bytes.NewReader(bodyBytes))
 				if err != nil {
-					logger.LogWarn(c.Request.Context(), "models.dev parse failed from "+chItem.Name+": "+err.Error())
+					logger.LogWarn(reqCtx, "models.dev parse failed from "+chItem.Name+": "+err.Error())
 					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 					return
 				}
@@ -348,7 +328,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 			}
 
 			if err := common.DecodeJson(bytes.NewReader(bodyBytes), &body); err != nil {
-				logger.LogWarn(c.Request.Context(), "json decode failed from "+chItem.Name+": "+err.Error())
+				logger.LogWarn(reqCtx, "json decode failed from "+chItem.Name+": "+err.Error())
 				ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 				return
 			}
@@ -365,7 +345,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 			if err := common.Unmarshal(body.Data, &type1Data); err == nil {
 				// 如果包含至少一个 ratioTypes 字段，则认为是 type1
 				isType1 := false
-				for _, rt := range pricingSyncFields {
+				for _, rt := range ratioTypes {
 					if _, ok := type1Data[rt]; ok {
 						isType1 = true
 						break
@@ -379,65 +359,29 @@ func FetchUpstreamRatios(c *gin.Context) {
 
 			// 如果不是 type1，则尝试按 type2 (/api/pricing) 解析
 			var pricingItems []struct {
-				ModelName            string   `json:"model_name"`
-				QuotaType            int      `json:"quota_type"`
-				ModelRatio           float64  `json:"model_ratio"`
-				ModelPrice           float64  `json:"model_price"`
-				CompletionRatio      float64  `json:"completion_ratio"`
-				CacheRatio           *float64 `json:"cache_ratio"`
-				CreateCacheRatio     *float64 `json:"create_cache_ratio"`
-				ImageRatio           *float64 `json:"image_ratio"`
-				AudioRatio           *float64 `json:"audio_ratio"`
-				AudioCompletionRatio *float64 `json:"audio_completion_ratio"`
-				BillingMode          string   `json:"billing_mode"`
-				BillingExpr          string   `json:"billing_expr"`
+				ModelName       string  `json:"model_name"`
+				QuotaType       int     `json:"quota_type"`
+				ModelRatio      float64 `json:"model_ratio"`
+				ModelPrice      float64 `json:"model_price"`
+				CompletionRatio float64 `json:"completion_ratio"`
 			}
 			if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
-				logger.LogWarn(c.Request.Context(), "unrecognized data format from "+chItem.Name+": "+err.Error())
-				ch <- upstreamResult{Name: uniqueName, Err: "无法解析上游返回数据"}
+				logger.LogWarn(reqCtx, "unrecognized data format from "+chItem.Name+": "+err.Error())
+				ch <- upstreamResult{Name: uniqueName, Err: "failed to parse upstream response data"}
 				return
 			}
 
 			modelRatioMap := make(map[string]float64)
 			completionRatioMap := make(map[string]float64)
-			cacheRatioMap := make(map[string]float64)
-			createCacheRatioMap := make(map[string]float64)
-			imageRatioMap := make(map[string]float64)
-			audioRatioMap := make(map[string]float64)
-			audioCompletionRatioMap := make(map[string]float64)
 			modelPriceMap := make(map[string]float64)
-			billingModeMap := make(map[string]string)
-			billingExprMap := make(map[string]string)
 
 			for _, item := range pricingItems {
-				if item.ModelName == "" {
-					continue
-				}
-				if item.BillingMode == billing_setting.BillingModeTieredExpr && strings.TrimSpace(item.BillingExpr) != "" {
-					billingModeMap[item.ModelName] = billing_setting.BillingModeTieredExpr
-					billingExprMap[item.ModelName] = item.BillingExpr
-				}
 				if item.QuotaType == 1 {
 					modelPriceMap[item.ModelName] = item.ModelPrice
 				} else {
 					modelRatioMap[item.ModelName] = item.ModelRatio
 					// completionRatio 可能为 0，此时也直接赋值，保持与上游一致
 					completionRatioMap[item.ModelName] = item.CompletionRatio
-				}
-				if item.CacheRatio != nil {
-					cacheRatioMap[item.ModelName] = *item.CacheRatio
-				}
-				if item.CreateCacheRatio != nil {
-					createCacheRatioMap[item.ModelName] = *item.CreateCacheRatio
-				}
-				if item.ImageRatio != nil {
-					imageRatioMap[item.ModelName] = *item.ImageRatio
-				}
-				if item.AudioRatio != nil {
-					audioRatioMap[item.ModelName] = *item.AudioRatio
-				}
-				if item.AudioCompletionRatio != nil {
-					audioCompletionRatioMap[item.ModelName] = *item.AudioCompletionRatio
 				}
 			}
 
@@ -458,21 +402,6 @@ func FetchUpstreamRatios(c *gin.Context) {
 				}
 				converted["completion_ratio"] = compAny
 			}
-			if len(cacheRatioMap) > 0 {
-				converted["cache_ratio"] = valueMap(cacheRatioMap)
-			}
-			if len(createCacheRatioMap) > 0 {
-				converted["create_cache_ratio"] = valueMap(createCacheRatioMap)
-			}
-			if len(imageRatioMap) > 0 {
-				converted["image_ratio"] = valueMap(imageRatioMap)
-			}
-			if len(audioRatioMap) > 0 {
-				converted["audio_ratio"] = valueMap(audioRatioMap)
-			}
-			if len(audioCompletionRatioMap) > 0 {
-				converted["audio_completion_ratio"] = valueMap(audioCompletionRatioMap)
-			}
 
 			if len(modelPriceMap) > 0 {
 				priceAny := make(map[string]any, len(modelPriceMap))
@@ -480,12 +409,6 @@ func FetchUpstreamRatios(c *gin.Context) {
 					priceAny[k] = v
 				}
 				converted["model_price"] = priceAny
-			}
-			if len(billingModeMap) > 0 {
-				converted[billing_setting.BillingModeField] = valueMap(billingModeMap)
-			}
-			if len(billingExprMap) > 0 {
-				converted[billing_setting.BillingExprField] = valueMap(billingExprMap)
 			}
 
 			ch <- upstreamResult{Name: uniqueName, Data: converted}
@@ -495,9 +418,9 @@ func FetchUpstreamRatios(c *gin.Context) {
 	wg.Wait()
 	close(ch)
 
-	localData := getLocalPricingSyncData()
+	localData := ratio_setting.GetExposedData().ToMap()
 
-	var testResults []dto.TestResult
+	var testResults []relaydto.TestResult
 	var successfulChannels []struct {
 		name string
 		data map[string]any
@@ -505,13 +428,13 @@ func FetchUpstreamRatios(c *gin.Context) {
 
 	for r := range ch {
 		if r.Err != "" {
-			testResults = append(testResults, dto.TestResult{
+			testResults = append(testResults, relaydto.TestResult{
 				Name:   r.Name,
 				Status: "error",
 				Error:  r.Err,
 			})
 		} else {
-			testResults = append(testResults, dto.TestResult{
+			testResults = append(testResults, relaydto.TestResult{
 				Name:   r.Name,
 				Status: "success",
 			})
@@ -524,33 +447,36 @@ func FetchUpstreamRatios(c *gin.Context) {
 
 	differences := buildDifferences(localData, successfulChannels)
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"differences":  differences,
-			"test_results": testResults,
-		},
+	return dto.Ok(dto.FetchUpstreamRatiosResult{
+		Differences: differences,
+		TestResults: testResults,
 	})
 }
 
 func buildDifferences(localData map[string]any, successfulChannels []struct {
 	name string
 	data map[string]any
-}) map[string]map[string]dto.DifferenceItem {
-	differences := make(map[string]map[string]dto.DifferenceItem)
+}) map[string]map[string]relaydto.DifferenceItem {
+	differences := make(map[string]map[string]relaydto.DifferenceItem)
 
 	allModels := make(map[string]struct{})
 
-	for _, field := range pricingSyncFields {
-		for modelName := range valueMap(localData[field]) {
-			allModels[modelName] = struct{}{}
+	for _, ratioType := range ratioTypes {
+		if localRatioAny, ok := localData[ratioType]; ok {
+			if localRatio, ok := localRatioAny.(map[string]float64); ok {
+				for modelName := range localRatio {
+					allModels[modelName] = struct{}{}
+				}
+			}
 		}
 	}
 
 	for _, channel := range successfulChannels {
-		for _, field := range pricingSyncFields {
-			for modelName := range valueMap(channel.data[field]) {
-				allModels[modelName] = struct{}{}
+		for _, ratioType := range ratioTypes {
+			if upstreamRatio, ok := channel.data[ratioType].(map[string]any); ok {
+				for modelName := range upstreamRatio {
+					allModels[modelName] = struct{}{}
+				}
 			}
 		}
 	}
@@ -561,10 +487,10 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 	for _, channel := range successfulChannels {
 		confidenceMap[channel.name] = make(map[string]bool)
 
-		modelRatios := valueMap(channel.data["model_ratio"])
-		completionRatios := valueMap(channel.data["completion_ratio"])
+		modelRatios, hasModelRatio := channel.data["model_ratio"].(map[string]any)
+		completionRatios, hasCompletionRatio := channel.data["completion_ratio"].(map[string]any)
 
-		if len(modelRatios) > 0 && len(completionRatios) > 0 {
+		if hasModelRatio && hasCompletionRatio {
 			// 遍历所有模型，检查是否满足不可信条件
 			for modelName := range allModels {
 				// 默认为可信
@@ -574,10 +500,12 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 				if modelRatioVal, ok := modelRatios[modelName]; ok {
 					if completionRatioVal, ok := completionRatios[modelName]; ok {
 						// 转换为float64进行比较
-						modelRatioFloat, modelRatioOK := asFloat64(modelRatioVal)
-						completionRatioFloat, completionRatioOK := asFloat64(completionRatioVal)
-						if modelRatioOK && completionRatioOK && nearlyEqual(modelRatioFloat, 37.5) && nearlyEqual(completionRatioFloat, 1.0) {
-							confidenceMap[channel.name][modelName] = false
+						if modelRatioFloat, ok := modelRatioVal.(float64); ok {
+							if completionRatioFloat, ok := completionRatioVal.(float64); ok {
+								if modelRatioFloat == 37.5 && completionRatioFloat == 1.0 {
+									confidenceMap[channel.name][modelName] = false
+								}
+							}
 						}
 					}
 				}
@@ -591,10 +519,14 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 	}
 
 	for modelName := range allModels {
-		for _, ratioType := range pricingSyncFields {
+		for _, ratioType := range ratioTypes {
 			var localValue interface{} = nil
-			if val, exists := valueMap(localData[ratioType])[modelName]; exists {
-				localValue = normalizeSyncValue(ratioType, val)
+			if localRatioAny, ok := localData[ratioType]; ok {
+				if localRatio, ok := localRatioAny.(map[string]float64); ok {
+					if val, exists := localRatio[modelName]; exists {
+						localValue = val
+					}
+				}
 			}
 
 			upstreamValues := make(map[string]interface{})
@@ -605,14 +537,16 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 			for _, channel := range successfulChannels {
 				var upstreamValue interface{} = nil
 
-				if val, exists := valueMap(channel.data[ratioType])[modelName]; exists {
-					upstreamValue = normalizeSyncValue(ratioType, val)
-					hasUpstreamValue = true
+				if upstreamRatio, ok := channel.data[ratioType].(map[string]any); ok {
+					if val, exists := upstreamRatio[modelName]; exists {
+						upstreamValue = val
+						hasUpstreamValue = true
 
-					if localValue != nil && !valuesEqual(localValue, upstreamValue) {
-						hasDifference = true
-					} else if valuesEqual(localValue, upstreamValue) {
-						upstreamValue = "same"
+						if localValue != nil && !valuesEqual(localValue, val) {
+							hasDifference = true
+						} else if valuesEqual(localValue, val) {
+							upstreamValue = "same"
+						}
 					}
 				}
 				if upstreamValue == nil && localValue == nil {
@@ -642,9 +576,9 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 
 			if shouldInclude {
 				if differences[modelName] == nil {
-					differences[modelName] = make(map[string]dto.DifferenceItem)
+					differences[modelName] = make(map[string]relaydto.DifferenceItem)
 				}
-				differences[modelName][ratioType] = dto.DifferenceItem{
+				differences[modelName][ratioType] = relaydto.DifferenceItem{
 					Current:    localValue,
 					Upstreams:  upstreamValues,
 					Confidence: confidenceValues,
@@ -984,20 +918,16 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 	return converted, nil
 }
 
-func GetSyncableChannels(c *gin.Context) {
+func GetSyncableChannels(c fuego.ContextNoBody) (*dto.Response[[]relaydto.SyncableChannel], error) {
 	channels, err := model.GetAllChannels(0, 0, true, false)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
+		return dto.Fail[[]relaydto.SyncableChannel](err.Error())
 	}
 
-	var syncableChannels []dto.SyncableChannel
+	var syncableChannels []relaydto.SyncableChannel
 	for _, channel := range channels {
 		if channel.GetBaseURL() != "" {
-			syncableChannels = append(syncableChannels, dto.SyncableChannel{
+			syncableChannels = append(syncableChannels, relaydto.SyncableChannel{
 				ID:      channel.Id,
 				Name:    channel.Name,
 				BaseURL: channel.GetBaseURL(),
@@ -1007,23 +937,19 @@ func GetSyncableChannels(c *gin.Context) {
 		}
 	}
 
-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
+	syncableChannels = append(syncableChannels, relaydto.SyncableChannel{
 		ID:      officialRatioPresetID,
 		Name:    officialRatioPresetName,
 		BaseURL: officialRatioPresetBaseURL,
 		Status:  1,
 	})
 
-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
+	syncableChannels = append(syncableChannels, relaydto.SyncableChannel{
 		ID:      modelsDevPresetID,
 		Name:    modelsDevPresetName,
 		BaseURL: modelsDevPresetBaseURL,
 		Status:  1,
 	})
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    syncableChannels,
-	})
+	return dto.Ok(syncableChannels)
 }

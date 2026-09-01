@@ -33,12 +33,16 @@ type BucketPoint struct {
 }
 
 type GroupResult struct {
-	Group        string        `json:"group"`
-	AvgTtftMs    int64         `json:"avg_ttft_ms"`
-	AvgLatencyMs int64         `json:"avg_latency_ms"`
-	SuccessRate  float64       `json:"success_rate"`
-	AvgTps       float64       `json:"avg_tps"`
-	Series       []BucketPoint `json:"series"`
+	Group        string  `json:"group"`
+	AvgTtftMs    int64   `json:"avg_ttft_ms"`
+	AvgLatencyMs int64   `json:"avg_latency_ms"`
+	SuccessRate  float64 `json:"success_rate"`
+	AvgTps       float64 `json:"avg_tps"`
+	// Share of the window the group's channels were enabled, from channel
+	// transition history rather than traffic. Nil when uptime could not be
+	// resolved, so the UI can tell "no data" from a real 0%.
+	UptimePercent *float64      `json:"uptime_percent,omitempty"`
+	Series        []BucketPoint `json:"series"`
 }
 
 type QueryResult struct {
@@ -48,12 +52,16 @@ type QueryResult struct {
 }
 
 type ModelSummary struct {
-	ModelName          string    `json:"model_name"`
-	AvgLatencyMs       int64     `json:"avg_latency_ms"`
+	ModelName string `json:"model_name"`
+	// Whole-request duration, so it grows with answer length.
+	AvgLatencyMs int64 `json:"avg_latency_ms"`
+	// Wait before the first token. Only streamed requests contribute, so it is
+	// zero for a model nothing streamed in the window.
+	AvgTtftMs          int64     `json:"avg_ttft_ms"`
 	SuccessRate        float64   `json:"success_rate"`
 	AvgTps             float64   `json:"avg_tps"`
 	RecentSuccessRates []float64 `json:"recent_success_rates,omitempty"`
-	RequestCount       int64     `json:"-"`
+	RequestCount       int64     `json:"request_count"`
 }
 
 type SummaryAllResult struct {

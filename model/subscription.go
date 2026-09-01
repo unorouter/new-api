@@ -168,6 +168,7 @@ type SubscriptionPlan struct {
 	StripePriceId         string `json:"stripe_price_id" gorm:"type:varchar(128);default:''"`
 	CreemProductId        string `json:"creem_product_id" gorm:"type:varchar(128);default:''"`
 	WaffoPancakeProductId string `json:"waffo_pancake_product_id" gorm:"type:varchar(128);default:''"`
+	NowPaymentsPlanId     string `json:"nowpayments_plan_id" gorm:"type:varchar(128);default:''"`
 
 	// Max purchases per user (0 = unlimited)
 	MaxPurchasePerUser int `json:"max_purchase_per_user" gorm:"type:int;default:0"`
@@ -177,6 +178,11 @@ type SubscriptionPlan struct {
 
 	// Downgrade user group on expiry (empty = revert to the group held before purchase)
 	DowngradeGroup string `json:"downgrade_group" gorm:"type:varchar(64);default:''"`
+
+	// Percent shaved off the free-model rate-limit window while subscribed
+	// (0 = none, 100 = no wait). Shares one field on the user with the Discord
+	// server-tag perk, so the higher of the two applies.
+	FreeRateLimitWindowPct int `json:"free_rate_limit_window_pct" gorm:"type:int;default:0"`
 
 	// Total quota (amount in quota units, 0 = unlimited)
 	TotalAmount int64 `json:"total_amount" gorm:"type:bigint;not null;default:0"`
@@ -223,8 +229,10 @@ type SubscriptionOrder struct {
 	Status          string `json:"status"`
 	CreateTime      int64  `json:"create_time"`
 	CompleteTime    int64  `json:"complete_time"`
+	InvoiceUrl      string `json:"invoice_url" gorm:"type:varchar(512);default:''"`
 
-	ProviderPayload string `json:"provider_payload" gorm:"type:text"`
+	// Raw provider webhook event, includes customer email/name. Never serialized to clients.
+	ProviderPayload string `json:"-" gorm:"type:text"`
 }
 
 func (o *SubscriptionOrder) Insert() error {
@@ -247,6 +255,36 @@ func GetSubscriptionOrderByTradeNo(tradeNo string) *SubscriptionOrder {
 		return nil
 	}
 	return &order
+}
+
+func GetUserSubscriptionOrders(userId int, pageInfo *common.PageInfo) (orders []*SubscriptionOrder, total int64, err error) {
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return nil, 0, tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	err = tx.Model(&SubscriptionOrder{}).Where("user_id = ?", userId).Count(&total).Error
+	if err != nil {
+		tx.Rollback()
+		return nil, 0, err
+	}
+
+	err = tx.Where("user_id = ?", userId).Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&orders).Error
+	if err != nil {
+		tx.Rollback()
+		return nil, 0, err
+	}
+
+	if err = tx.Commit().Error; err != nil {
+		return nil, 0, err
+	}
+
+	return orders, total, nil
 }
 
 // User subscription instance
@@ -294,6 +332,7 @@ func (s *UserSubscription) BeforeUpdate(tx *gorm.DB) error {
 
 type SubscriptionSummary struct {
 	Subscription *UserSubscription `json:"subscription"`
+	PlanTitle    string            `json:"plan_title"`
 }
 
 type SubscriptionResetResult struct {
@@ -352,22 +391,11 @@ func calcNextResetTime(base time.Time, plan *SubscriptionPlan, endUnix int64) in
 	var next time.Time
 	switch period {
 	case SubscriptionResetDaily:
-		next = time.Date(base.Year(), base.Month(), base.Day(), 0, 0, 0, 0, base.Location()).
-			AddDate(0, 0, 1)
+		next = base.AddDate(0, 0, 1)
 	case SubscriptionResetWeekly:
-		// Align to next Monday 00:00
-		weekday := int(base.Weekday()) // Sunday=0
-		// Convert to Monday=1..Sunday=7
-		if weekday == 0 {
-			weekday = 7
-		}
-		daysUntil := 8 - weekday
-		next = time.Date(base.Year(), base.Month(), base.Day(), 0, 0, 0, 0, base.Location()).
-			AddDate(0, 0, daysUntil)
+		next = base.AddDate(0, 0, 7)
 	case SubscriptionResetMonthly:
-		// Align to first day of next month 00:00
-		next = time.Date(base.Year(), base.Month(), 1, 0, 0, 0, 0, base.Location()).
-			AddDate(0, 1, 0)
+		next = base.AddDate(0, 1, 0)
 	case SubscriptionResetCustom:
 		if plan.QuotaResetCustomSeconds <= 0 {
 			return 0
@@ -499,7 +527,7 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 			return nil, err
 		}
 		if count >= int64(plan.MaxPurchasePerUser) {
-			return nil, errors.New("已达到该套餐购买上限")
+			return nil, errors.New("purchase limit for this plan has been reached")
 		}
 	}
 	nowUnix := GetDBTimestamp()
@@ -578,6 +606,8 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 	var logPlanTitle string
 	var logMoney float64
 	var logPaymentMethod string
+	var logOrderId int
+	var logTopUpId int
 	var upgradeGroup string
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var order SubscriptionOrder
@@ -613,9 +643,11 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 		if subscription.PrevUserGroup != "" {
 			upgradeGroup = strings.TrimSpace(subscription.UpgradeGroup)
 		}
-		if err := upsertSubscriptionTopUpTx(tx, &order); err != nil {
+		ledgerTopUpId, err := upsertSubscriptionTopUpTx(tx, &order)
+		if err != nil {
 			return err
 		}
+		logTopUpId = ledgerTopUpId
 		order.Status = common.TopUpStatusSuccess
 		order.CompleteTime = common.GetTimestamp()
 		if providerPayload != "" {
@@ -631,6 +663,7 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 		logPlanTitle = plan.Title
 		logMoney = order.Money
 		logPaymentMethod = order.PaymentMethod
+		logOrderId = order.Id
 		return nil
 	})
 	if err != nil {
@@ -640,46 +673,68 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 		refreshSubscriptionUserGroupCache(logUserId, "subscription payment completion")
 	}
 	if logUserId > 0 {
-		msg := fmt.Sprintf("订阅购买成功，套餐: %s，支付金额: %.2f，支付方式: %s", logPlanTitle, logMoney, logPaymentMethod)
+		clearFreeBlockOnGrant(logUserId)
+		msg := fmt.Sprintf("subscription purchased successfully, plan: %s, amount paid: %.2f, payment method: %s", logPlanTitle, logMoney, logPaymentMethod)
 		RecordLog(logUserId, LogTypeTopup, msg)
+		common.CaptureSubscriptionSuccess(logUserId, logMoney, logPlanTitle, logPaymentMethod, logOrderId)
+
+		// Keyed on the top_ups row this order was mirrored into, NOT the order
+		// id: the commission uniqueness key is (invitee_id, top_up_id,
+		// payment_method), and the two tables share an id range.
+		if err := CreditReferralCommission(logUserId, logMoney, logPaymentMethod, logTopUpId); err != nil {
+			common.SysLog(fmt.Sprintf("subscription referral commission failed for user %d: %v", logUserId, err))
+		}
 	}
 	return nil
 }
 
-func upsertSubscriptionTopUpTx(tx *gorm.DB, order *SubscriptionOrder) error {
+// upsertSubscriptionTopUpTx mirrors the paid order into the top_ups ledger and
+// returns that row's id. The id is what the referral commission must be keyed
+// on: its uniqueness key is (invitee_id, top_up_id, payment_method), so keying
+// a subscription payout on the SubscriptionOrder id borrows an unrelated
+// table's id space and can silently collide with a genuine top-up of the same
+// number, suppressing a real payout.
+func upsertSubscriptionTopUpTx(tx *gorm.DB, order *SubscriptionOrder) (int, error) {
 	if tx == nil || order == nil {
-		return errors.New("invalid subscription order")
+		return 0, errors.New("invalid subscription order")
 	}
 	now := common.GetTimestamp()
 	var topup TopUp
 	if err := tx.Where("trade_no = ?", order.TradeNo).First(&topup).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			topup = TopUp{
-				UserId:        order.UserId,
-				Amount:        0,
-				Money:         order.Money,
-				TradeNo:       order.TradeNo,
-				PaymentMethod: order.PaymentMethod,
-				CreateTime:    order.CreateTime,
-				CompleteTime:  now,
-				Status:        common.TopUpStatusSuccess,
+				UserId:          order.UserId,
+				Amount:          0,
+				Money:           order.Money,
+				TradeNo:         order.TradeNo,
+				PaymentMethod:   order.PaymentMethod,
+				PaymentProvider: order.PaymentProvider,
+				CreateTime:      order.CreateTime,
+				CompleteTime:    now,
+				Status:          common.TopUpStatusSuccess,
 			}
-			return tx.Create(&topup).Error
+			if err := tx.Create(&topup).Error; err != nil {
+				return 0, err
+			}
+			return topup.Id, nil
 		}
-		return err
+		return 0, err
 	}
 	topup.Money = order.Money
 	if topup.PaymentMethod == "" {
 		topup.PaymentMethod = order.PaymentMethod
 	} else if topup.PaymentMethod != order.PaymentMethod {
-		return ErrPaymentMethodMismatch
+		return 0, ErrPaymentMethodMismatch
 	}
 	if topup.CreateTime == 0 {
 		topup.CreateTime = order.CreateTime
 	}
 	topup.CompleteTime = now
 	topup.Status = common.TopUpStatusSuccess
-	return tx.Save(&topup).Error
+	if err := tx.Save(&topup).Error; err != nil {
+		return 0, err
+	}
+	return topup.Id, nil
 }
 
 func ExpireSubscriptionOrder(tradeNo string, expectedPaymentProvider string) error {
@@ -734,7 +789,7 @@ func AdminBindSubscription(userId int, planId int, sourceNote string) (string, e
 	}
 	if groupChanged {
 		refreshSubscriptionUserGroupCache(userId, "admin subscription creation")
-		return fmt.Sprintf("用户分组将升级到 %s", plan.UpgradeGroup), nil
+		return fmt.Sprintf("user group will be upgraded to %s", plan.UpgradeGroup), nil
 	}
 	return "", nil
 }
@@ -744,7 +799,7 @@ func calcSubscriptionBalanceQuota(priceAmount float64) (int, error) {
 		return 0, nil
 	}
 	if common.QuotaPerUnit <= 0 {
-		return 0, errors.New("额度单位配置错误")
+		return 0, errors.New("quota unit configuration error")
 	}
 	quota := decimal.NewFromFloat(priceAmount).
 		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
@@ -768,13 +823,13 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 			return err
 		}
 		if !plan.Enabled {
-			return errors.New("套餐未启用")
+			return errors.New("plan is not enabled")
 		}
 		if plan.PriceAmount < 0 {
-			return errors.New("套餐价格不能为负数")
+			return errors.New("plan price cannot be negative")
 		}
 		if plan.AllowBalancePay != nil && !*plan.AllowBalancePay {
-			return errors.New("该套餐不允许使用余额兑换")
+			return errors.New("this plan cannot be redeemed with wallet balance")
 		}
 
 		requiredQuota, err := calcSubscriptionBalanceQuota(plan.PriceAmount)
@@ -787,7 +842,7 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 			return err
 		}
 		if requiredQuota > 0 && user.Quota < requiredQuota {
-			return errors.New("余额不足")
+			return errors.New("insufficient balance")
 		}
 		if requiredQuota > 0 {
 			if err := tx.Model(&User{}).Where("id = ?", userId).
@@ -839,7 +894,7 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 	if upgradeGroup != "" {
 		refreshSubscriptionUserGroupCache(userId, "subscription balance purchase")
 	}
-	msg := fmt.Sprintf("使用余额购买订阅成功，套餐: %s，支付金额: %.2f，扣除额度: %d", logPlanTitle, logMoney, chargedQuota)
+	msg := fmt.Sprintf("subscription purchased with wallet balance successfully, plan: %s, amount paid: %.2f, quota deducted: %d", logPlanTitle, logMoney, chargedQuota)
 	RecordLog(userId, LogTypeTopup, msg)
 	return nil
 }
@@ -916,8 +971,13 @@ func buildSubscriptionSummaries(subs []UserSubscription) []SubscriptionSummary {
 	result := make([]SubscriptionSummary, 0, len(subs))
 	for _, sub := range subs {
 		subCopy := sub
+		title := ""
+		if plan, err := GetSubscriptionPlanById(sub.PlanId); err == nil && plan != nil {
+			title = plan.Title
+		}
 		result = append(result, SubscriptionSummary{
 			Subscription: &subCopy,
+			PlanTitle:    title,
 		})
 	}
 	return result
@@ -963,7 +1023,7 @@ func AdminInvalidateUserSubscription(userSubscriptionId int) (string, error) {
 		refreshSubscriptionUserGroupCache(userId, "admin subscription update")
 	}
 	if downgradeGroup != "" {
-		return fmt.Sprintf("用户分组将回退到 %s", downgradeGroup), nil
+		return fmt.Sprintf("user group will be reverted to %s", downgradeGroup), nil
 	}
 	return "", nil
 }
@@ -1004,7 +1064,7 @@ func AdminDeleteUserSubscription(userSubscriptionId int) (string, error) {
 		refreshSubscriptionUserGroupCache(userId, "admin subscription deletion")
 	}
 	if downgradeGroup != "" {
-		return fmt.Sprintf("用户分组将回退到 %s", downgradeGroup), nil
+		return fmt.Sprintf("user group will be reverted to %s", downgradeGroup), nil
 	}
 	return "", nil
 }
@@ -1023,7 +1083,242 @@ func resetUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription, plan *Subscript
 			sub.LastResetTime = 0
 		}
 	}
-	return tx.Save(sub).Error
+	if err := tx.Save(sub).Error; err != nil {
+		return err
+	}
+	// Re-arm the low-balance warning: the reset refilled this subscription, so
+	// the next drain may warn once more. Key mirrors subscriptionWarnLatchKey in
+	// service/quota.go (literal here to avoid a model->service import cycle).
+	if common.RedisEnabled {
+		_ = common.RedisDel(fmt.Sprintf("subscription_quota_warned:%d", sub.Id))
+	}
+	clearFreeBlockOnGrant(sub.UserId)
+	return nil
+}
+
+// CreemRenewalInput carries the fields a Creem subscription.paid webhook needs to
+// extend a recurring subscription. ReferenceId is the original checkout order's
+// trade_no (from event metadata); CreemCustomerId / CreemProductId are fallbacks
+// when the metadata is absent on a renewal charge.
+type CreemRenewalInput struct {
+	ReferenceId       string
+	CreemCustomerId   string
+	CreemProductId    string
+	LastTransactionId string
+	CreemOrderId      string
+	ProviderPayload   string
+	Money             float64
+}
+
+// creemRenewalDedupKey guards against Creem's webhook retries (30s/1m/5m/1h)
+// double-extending a subscription: each renewal charge has a unique
+// last_transaction_id, so we process a given transaction at most once.
+func creemRenewalDedupKey(transactionId string) string {
+	return fmt.Sprintf("creem_renewal_done:%s", transactionId)
+}
+
+// RenewUserSubscriptionByCreem extends (or restarts) a user's recurring
+// subscription when Creem reports a successful renewal charge. It resolves the
+// plan + user from the original order (by ReferenceId) or from creem_customer /
+// creem_product_id fallbacks, then rolls the subscription forward one billing
+// period and refills its quota. Idempotent on LastTransactionId.
+//
+// Returns (userId, subscriptionId, nil) on success. ErrSubscriptionOrderNotFound
+// signals "could not map this renewal to a user" so the caller can log + 200
+// (Creem retries otherwise) without treating it as a server error.
+func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
+	dedupKeyHeld := ""
+	if in.LastTransactionId != "" && common.RedisEnabled {
+		key := creemRenewalDedupKey(in.LastTransactionId)
+		ok, err := common.RedisSetNX(key, "1", 30*24*time.Hour)
+		if err == nil && !ok {
+			// Already processed this renewal charge (webhook retry).
+			return 0, 0, nil
+		}
+		if err == nil {
+			dedupKeyHeld = key
+		}
+	}
+
+	// The dedup key is claimed BEFORE the work, so it has to be released when
+	// the work does not happen. Holding it for its full 30 day TTL after a
+	// failure makes every later retry report "already processed", so a renewal
+	// that failed once is suppressed forever and the customer's paid period is
+	// never extended.
+	renewed := false
+	defer func() {
+		if dedupKeyHeld != "" && !renewed {
+			_ = common.RedisDel(dedupKeyHeld)
+		}
+	}()
+
+	var resolvedUserId, resolvedSubId int
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		// 1) Resolve the plan + user. Prefer the original order (authoritative
+		//    plan + user), fall back to creem_customer / creem_product_id.
+		var planId, userId int
+		if in.ReferenceId != "" {
+			var order SubscriptionOrder
+			refCol := "`trade_no`"
+			if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+				refCol = `"trade_no"`
+			}
+			if err := tx.Where(refCol+" = ?", in.ReferenceId).First(&order).Error; err == nil {
+				planId = order.PlanId
+				userId = order.UserId
+			}
+		}
+		if userId == 0 && in.CreemCustomerId != "" {
+			var user User
+			if err := tx.Where("creem_customer = ?", in.CreemCustomerId).First(&user).Error; err == nil {
+				userId = user.Id
+			}
+		}
+		if planId == 0 && in.CreemProductId != "" {
+			var plan SubscriptionPlan
+			if err := tx.Where("creem_product_id = ?", in.CreemProductId).First(&plan).Error; err == nil {
+				planId = plan.Id
+			}
+		}
+		if userId == 0 || planId == 0 {
+			return ErrSubscriptionOrderNotFound
+		}
+
+		plan, err := getSubscriptionPlanByIdTx(tx, planId)
+		if err != nil {
+			return err
+		}
+
+		// 2) Find the user's subscription for this plan (newest), or create one
+		//    if none exists (edge case: sub row was pruned but user re-subscribed).
+		var sub UserSubscription
+		findErr := lockForUpdate(tx).
+			Where("user_id = ? AND plan_id = ?", userId, planId).
+			Order("id DESC").First(&sub).Error
+		if findErr != nil {
+			// Creem sends subscription.paid for the INITIAL charge as well, and it
+			// races checkout.completed (different webhooks, different lock keys). A
+			// still-pending order for this user+plan means the purchase path owns the
+			// grant, so creating here would hand out a second subscription for one
+			// payment. Leave it to CompleteSubscriptionOrder; this transaction is a
+			// no-op renewal.
+			pending, pendErr := hasPendingSubscriptionOrderTx(tx, userId, planId)
+			if pendErr != nil {
+				return pendErr
+			}
+			if pending {
+				return nil
+			}
+			created, cErr := CreateUserSubscriptionFromPlanTx(tx, userId, plan, "creem_renewal")
+			if cErr != nil {
+				return cErr
+			}
+			if err := recordCreemRenewalOrderTx(tx, userId, planId, in); err != nil {
+				return err
+			}
+			resolvedUserId, resolvedSubId = userId, created.Id
+			return nil
+		}
+
+		// 3) Roll forward one billing period. Stack onto the current end when the
+		//    sub is still active (renewed early), else restart from now so a
+		//    lapsed-then-renewed sub gets a full fresh period.
+		nowUnix := GetDBTimestamp()
+		now := time.Unix(nowUnix, 0)
+		periodStart := now
+		if sub.EndTime > nowUnix {
+			periodStart = time.Unix(sub.EndTime, 0)
+		}
+		endUnix, err := calcPlanEndTime(periodStart, plan)
+		if err != nil {
+			return err
+		}
+		nextReset := calcNextResetTime(periodStart, plan, endUnix)
+		lastReset := int64(0)
+		if nextReset > 0 {
+			lastReset = periodStart.Unix()
+		}
+
+		sub.Status = "active"
+		sub.AmountTotal = plan.TotalAmount
+		sub.AmountUsed = 0
+		sub.EndTime = endUnix
+		sub.NextResetTime = nextReset
+		sub.LastResetTime = lastReset
+		sub.UpdatedAt = common.GetTimestamp()
+		if err := tx.Save(&sub).Error; err != nil {
+			return err
+		}
+		if err := recordCreemRenewalOrderTx(tx, userId, planId, in); err != nil {
+			return err
+		}
+		resolvedUserId, resolvedSubId = userId, sub.Id
+		return nil
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	// Only a renewal that actually rolled a subscription forward may keep the
+	// dedup key; an unmappable charge returns (0, 0, nil) and must stay
+	// retryable once the missing order or customer link shows up.
+	renewed = resolvedSubId > 0
+
+	// Re-arm the low-balance warning for the refilled subscription.
+	if resolvedSubId > 0 && common.RedisEnabled {
+		_ = common.RedisDel(fmt.Sprintf("subscription_quota_warned:%d", resolvedSubId))
+	}
+	if resolvedUserId > 0 {
+		clearFreeBlockOnGrant(resolvedUserId)
+		refreshSubscriptionUserGroupCache(resolvedUserId, "creem subscription renewal")
+	}
+	return resolvedUserId, resolvedSubId, nil
+}
+
+// hasPendingSubscriptionOrderTx reports whether the user has an unfinished
+// checkout order for this plan, i.e. a purchase whose subscription is about to
+// be granted by CompleteSubscriptionOrder.
+func hasPendingSubscriptionOrderTx(tx *gorm.DB, userId, planId int) (bool, error) {
+	var count int64
+	if err := tx.Model(&SubscriptionOrder{}).
+		Where("user_id = ? AND plan_id = ? AND status = ?", userId, planId, common.TopUpStatusPending).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// recordCreemRenewalOrderTx writes a success SubscriptionOrder for a renewal
+// charge so the payment shows in the billing ledger (the initial signup already
+// has its checkout order; auto-renewals otherwise leave no order row). TradeNo
+// is the Creem transaction id, so a webhook retry that slips past the Redis
+// dedup still cannot double-insert (unique constraint). Best-effort on the
+// order id: renewals are identified by transaction, not our reference.
+func recordCreemRenewalOrderTx(tx *gorm.DB, userId, planId int, in CreemRenewalInput) error {
+	if in.LastTransactionId == "" {
+		// No stable idempotency key for the ledger row; skip rather than risk a
+		// duplicate. The subscription itself is already extended.
+		return nil
+	}
+	tradeNo := "creem_renewal:" + in.LastTransactionId
+	now := common.GetTimestamp()
+	order := SubscriptionOrder{
+		UserId:          userId,
+		PlanId:          planId,
+		Money:           in.Money,
+		TradeNo:         tradeNo,
+		PaymentMethod:   "creem",
+		PaymentProvider: PaymentProviderCreem,
+		Status:          common.TopUpStatusSuccess,
+		CreateTime:      now,
+		CompleteTime:    now,
+		ProviderPayload: in.ProviderPayload,
+	}
+	// Ignore duplicate-key: a retry that reaches here is a no-op ledger write.
+	if err := tx.Where("trade_no = ?", tradeNo).
+		Attrs(order).FirstOrCreate(&SubscriptionOrder{}).Error; err != nil {
+		return err
+	}
+	return nil
 }
 
 func buildSubscriptionResetResult(plan *SubscriptionPlan, subs []UserSubscription, advanceResetTime bool) *SubscriptionResetResult {
@@ -1059,7 +1354,7 @@ func adminResetUserSubscriptionsByPlanTx(tx *gorm.DB, userId int, plan *Subscrip
 		return nil, err
 	}
 	if len(subs) == 0 {
-		return nil, errors.New("该用户没有有效的此套餐订阅")
+		return nil, errors.New("the user has no active subscription for this plan")
 	}
 	for i := range subs {
 		if err := resetUserSubscriptionTx(tx, &subs[i], plan, now, advanceResetTime); err != nil {
@@ -1134,6 +1429,84 @@ type SubscriptionPreConsumeResult struct {
 	AmountTotal        int64
 	AmountUsedBefore   int64
 	AmountUsedAfter    int64
+}
+
+// ActiveSubscriberPerkTier is a user holding an active subscription, paired with
+// the best discount among the plans they hold.
+type ActiveSubscriberPerkTier struct {
+	UserId int `gorm:"column:user_id"`
+	Pct    int `gorm:"column:pct"`
+}
+
+// ActiveSubscribersForPerk lists users with an active subscription and the
+// highest free-model discount their plans grant, so holding two plans gives the
+// better of the two.
+//
+// Bounded by `startedSince` seconds so the routine tick only looks at recent
+// activations. Pass 0 to sweep every active subscriber, which is what a one-off
+// backfill wants.
+func ActiveSubscribersForPerk(limit int, startedSince int64) []ActiveSubscriberPerkTier {
+	if limit <= 0 {
+		limit = 200
+	}
+	now := GetDBTimestamp()
+	q := DB.Model(&UserSubscription{}).
+		Select("user_subscriptions.user_id AS user_id, MAX(subscription_plans.free_rate_limit_window_pct) AS pct").
+		Joins("JOIN subscription_plans ON subscription_plans.id = user_subscriptions.plan_id").
+		// Deleted accounts keep their subscription rows, and the grant then fails
+		// silently because the user cannot be loaded. Excluded here so the sweep
+		// count means what it says.
+		Joins("JOIN users ON users.id = user_subscriptions.user_id AND users.deleted_at IS NULL").
+		Where("user_subscriptions.status = ? AND (user_subscriptions.end_time = 0 OR user_subscriptions.end_time > ?)", "active", now).
+		Where("subscription_plans.free_rate_limit_window_pct > 0")
+	if startedSince > 0 {
+		q = q.Where("user_subscriptions.start_time >= ?", now-startedSince)
+	}
+	var rows []ActiveSubscriberPerkTier
+	if err := q.Group("user_subscriptions.user_id").Limit(limit).Scan(&rows).Error; err != nil {
+		return nil
+	}
+	return rows
+}
+
+// UsersWithLapsedSubscriptionPerk lists users holding a free-model rate limit
+// discount whose subscription lapsed inside the last `since` seconds and who
+// have no active one left. The discount lives on the user, not the subscription
+// row, so expiring the row does not revoke it.
+//
+// Scoped to RECENT expiries on purpose. Selecting every user who holds a
+// discount without a subscription would match every server-tag wearer forever
+// (147 of them today), and each one costs a lookup against the bot to conclude
+// nothing changed.
+//
+// Matched on the raw setting JSON so it works on SQLite, MySQL and PostgreSQL
+// alike: the field is only present when non-zero (omitempty).
+func UsersWithLapsedSubscriptionPerk(limit int, since int64) []int {
+	if limit <= 0 {
+		limit = 200
+	}
+	now := GetDBTimestamp()
+	var ids []int
+	err := DB.Model(&User{}).
+		Where("setting LIKE ?", "%free_rate_limit_window_pct%").
+		Where("EXISTS (?)",
+			DB.Model(&UserSubscription{}).
+				Select("1").
+				Where("user_subscriptions.user_id = users.id").
+				Where("status = ? AND updated_at >= ?", "expired", now-since),
+		).
+		Where("NOT EXISTS (?)",
+			DB.Model(&UserSubscription{}).
+				Select("1").
+				Where("user_subscriptions.user_id = users.id").
+				Where("status = ? AND (end_time = 0 OR end_time > ?)", "active", now),
+		).
+		Limit(limit).
+		Pluck("id", &ids).Error
+	if err != nil {
+		return nil
+	}
+	return ids
 }
 
 // ExpireDueSubscriptions marks expired subscriptions and handles group downgrade.
@@ -1286,12 +1659,23 @@ func maybeResetUserSubscriptionWithPlanTx(tx *gorm.DB, sub *UserSubscription, pl
 			sub.LastResetTime = base.Unix()
 			return tx.Save(sub).Error
 		}
+		if next > 0 && next != sub.NextResetTime {
+			sub.NextResetTime = next
+			return tx.Save(sub).Error
+		}
 		return nil
 	}
 	sub.AmountUsed = 0
 	sub.LastResetTime = base.Unix()
 	sub.NextResetTime = next
-	return tx.Save(sub).Error
+	if err := tx.Save(sub).Error; err != nil {
+		return err
+	}
+	if common.RedisEnabled {
+		_ = common.RedisDel(fmt.Sprintf("subscription_quota_warned:%d", sub.Id))
+	}
+	clearFreeBlockOnGrant(sub.UserId)
+	return nil
 }
 
 // PreConsumeUserSubscription pre-consumes from any active subscription total quota.
@@ -1334,7 +1718,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 		var subs []UserSubscription
 		if err := lockForUpdate(tx).
 			Where("user_id = ? AND status = ? AND end_time > ?", userId, "active", now).
-			Order("end_time asc, id asc").
+			Order("CASE WHEN next_reset_time > 0 THEN 0 ELSE 1 END asc, next_reset_time asc, end_time desc, id desc").
 			Find(&subs).Error; err != nil {
 			return errors.New("no active subscription")
 		}
@@ -1531,4 +1915,157 @@ func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error
 		sub.AmountUsed = newUsed
 		return tx.Save(&sub).Error
 	})
+}
+
+// CreemTerminationInput identifies the subscription a Creem lifecycle event
+// (refund.created / subscription.canceled / subscription.expired) refers to.
+type CreemTerminationInput struct {
+	ReferenceId     string
+	CreemCustomerId string
+	CreemProductId  string
+	Reason          string
+}
+
+// TerminateUserSubscriptionByCreem ends a user's subscription when Creem reports
+// a refund, cancellation or expiry. Creem delivers these events already, but
+// nothing consumed them: a refunded customer kept a live subscription and its
+// full quota pool until end_time, so the money went back and the access stayed.
+//
+// The subscription's own quota pool is zeroed rather than deducted from the
+// wallet: the pool is separate from the user's balance, so clearing it removes
+// exactly what the subscription granted and never touches credit the user
+// bought with a top-up.
+//
+// Idempotent: a subscription that is already terminated resolves to no rows.
+// Returns (userId, subscriptionId, nil); ErrSubscriptionOrderNotFound when the
+// event cannot be mapped, so the caller can log the payload and still 200.
+func TerminateUserSubscriptionByCreem(in CreemTerminationInput) (int, int, error) {
+	status := "cancelled"
+	if in.Reason == "subscription.expired" {
+		status = "expired"
+	}
+
+	var resolvedUserId, resolvedSubId int
+	var groupChanged bool
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		userId, err := resolveCreemSubscriptionUser(tx, in)
+		if err != nil {
+			return err
+		}
+
+		var sub UserSubscription
+		q := tx.Where("user_id = ? AND status = ?", userId, "active").
+			Order("end_time desc, id desc").Limit(1).Find(&sub)
+		if q.Error != nil {
+			return q.Error
+		}
+		if q.RowsAffected == 0 {
+			// Already terminated, or never active. Nothing to undo.
+			resolvedUserId = userId
+			return nil
+		}
+
+		if err := tx.Model(&UserSubscription{}).Where("id = ?", sub.Id).
+			Updates(map[string]interface{}{
+				"status":      status,
+				"end_time":    time.Now().Unix(),
+				"amount_used": sub.AmountTotal,
+			}).Error; err != nil {
+			return err
+		}
+
+		// Mark the originating order so it stops looking like a live purchase.
+		if in.ReferenceId != "" {
+			refCol := "`trade_no`"
+			if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+				refCol = `"trade_no"`
+			}
+			if err := tx.Model(&SubscriptionOrder{}).Where(refCol+" = ?", in.ReferenceId).
+				Update("status", status).Error; err != nil {
+				return err
+			}
+		}
+
+		changed, err := revertSubscriptionGroupTx(tx, userId, sub)
+		if err != nil {
+			return err
+		}
+		groupChanged = changed
+
+		resolvedUserId = userId
+		resolvedSubId = sub.Id
+		return nil
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	if resolvedSubId != 0 {
+		if groupChanged {
+			refreshSubscriptionUserGroupCache(resolvedUserId, "subscription termination")
+		}
+		if err := invalidateUserCache(resolvedUserId); err != nil {
+			common.SysLog(fmt.Sprintf("failed to invalidate user cache after subscription termination user_id=%d: %s", resolvedUserId, err.Error()))
+		}
+	}
+	return resolvedUserId, resolvedSubId, nil
+}
+
+// resolveCreemSubscriptionUser maps a Creem lifecycle event to a local user the
+// same way renewals do: the original order is authoritative, creem_customer is
+// the fallback for events that carry no reference id.
+func resolveCreemSubscriptionUser(tx *gorm.DB, in CreemTerminationInput) (int, error) {
+	if in.ReferenceId != "" {
+		var order SubscriptionOrder
+		refCol := "`trade_no`"
+		if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+			refCol = `"trade_no"`
+		}
+		if err := tx.Where(refCol+" = ?", in.ReferenceId).First(&order).Error; err == nil {
+			return order.UserId, nil
+		}
+	}
+	if in.CreemCustomerId != "" {
+		var user User
+		if err := tx.Where("creem_customer = ?", in.CreemCustomerId).First(&user).Error; err == nil {
+			return user.Id, nil
+		}
+	}
+	return 0, ErrSubscriptionOrderNotFound
+}
+
+// revertSubscriptionGroupTx mirrors the group handling in ExpireDueSubscriptions:
+// an explicit downgrade target wins, otherwise revert to the group held before
+// the subscription elevated the user. Reports whether the group actually moved.
+func revertSubscriptionGroupTx(tx *gorm.DB, userId int, sub UserSubscription) (bool, error) {
+	// Another live subscription still entitles the user; leave the group alone.
+	var other UserSubscription
+	q := tx.Where("user_id = ? AND status = ? AND id <> ? AND upgrade_group <> ''",
+		userId, "active", sub.Id).Limit(1).Find(&other)
+	if q.Error != nil {
+		return false, q.Error
+	}
+	if q.RowsAffected > 0 {
+		return false, nil
+	}
+
+	currentGroup, err := getUserGroupByIdTx(tx, userId)
+	if err != nil {
+		return false, err
+	}
+	target := strings.TrimSpace(sub.DowngradeGroup)
+	if target == "" {
+		upgradeGroup := strings.TrimSpace(sub.UpgradeGroup)
+		prevGroup := strings.TrimSpace(sub.PrevUserGroup)
+		if upgradeGroup == "" || prevGroup == "" || currentGroup != upgradeGroup {
+			return false, nil
+		}
+		target = prevGroup
+	}
+	if target == "" || target == currentGroup {
+		return false, nil
+	}
+	if err := tx.Model(&User{}).Where("id = ?", userId).Update("group", target).Error; err != nil {
+		return false, err
+	}
+	return true, nil
 }

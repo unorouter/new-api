@@ -43,6 +43,9 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	if _, err := claudeAdaptor.ConvertClaudeRequest(c, info, request); err != nil {
 		return nil, err
 	}
+	// Bedrock rejects trailing assistant-message prefill; rewrite it into a
+	// user continuation before any image normalization below.
+	request.Messages, request.System = claude.HandleUnsupportedAssistantPrefill(request.Messages, request.System)
 	for i, message := range request.Messages {
 		updated := false
 		if !message.IsStringContent() {

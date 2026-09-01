@@ -135,6 +135,11 @@ func StartSystemTaskRunner() {
 
 			var lastScheduler time.Time
 			var lastStaleLockCleanup time.Time
+			// forceScheduler makes the next pass run the scheduler regardless of the
+			// throttle. Set when a task FINISHES: a scheduled type is due the moment
+			// its previous run ended, and making it wait out the throttle first is
+			// pure idle time.
+			forceScheduler := false
 			runPass := func() {
 				// The scheduler/stale-lock pass is throttled independently of the
 				// claim pass: wakeups (e.g. a manual log cleanup) should claim
@@ -145,8 +150,13 @@ func StartSystemTaskRunner() {
 					if err := model.ExpireStaleSystemTaskLocks(common.GetTimestamp()); err != nil {
 						logger.LogWarn(context.Background(), fmt.Sprintf("system task stale lock cleanup failed: %v", err))
 					}
+					staleBefore := common.GetTimestamp() - int64((3 * systemTaskLockTTL).Seconds())
+					if err := model.ExpireOrphanedRunningSystemTasks(staleBefore); err != nil {
+						logger.LogWarn(context.Background(), fmt.Sprintf("system task orphan cleanup failed: %v", err))
+					}
 				}
-				if now.Sub(lastScheduler) >= systemTaskSchedulerInterval {
+				if forceScheduler || now.Sub(lastScheduler) >= systemTaskSchedulerInterval {
+					forceScheduler = false
 					lastScheduler = now
 					runSystemTaskScheduler()
 				}
@@ -158,6 +168,10 @@ func StartSystemTaskRunner() {
 				select {
 				case <-ticker.C:
 				case <-systemTaskWakeup:
+					// A wakeup means something changed (a task finished, or one was
+					// enqueued), so the scheduler runs on this pass rather than
+					// waiting out its throttle.
+					forceScheduler = true
 				}
 				runPass()
 			}
@@ -252,6 +266,11 @@ func runSystemTaskClaimPass(runnerID string) {
 			runWithLeaseHeartbeat(dispatchTask, runnerID, func(ctx context.Context) {
 				dispatchHandler.Run(ctx, dispatchTask, runnerID)
 			})
+			// A scheduled task is only due once the previous run FINISHED, so the
+			// moment one ends is the moment the next may be created. Without this
+			// the runner waits out its idle ticker first, which idled the channel
+			// probe for 60-90s between every 105s run.
+			notifySystemTaskRunner()
 		})
 	}
 }
@@ -323,10 +342,18 @@ func runWithLeaseHeartbeat(task *model.SystemTask, runnerID string, fn func(ctx 
 			case <-done:
 				return
 			case <-ticker.C:
-				if err := model.RenewSystemTaskLock(task.TaskID, runnerID, systemTaskLockUntil()); err != nil {
+				err := model.RenewSystemTaskLock(task.TaskID, runnerID, systemTaskLockUntil())
+				if err == nil {
+					continue
+				}
+				// Only a genuinely lost lock means another runner owns the task. A
+				// transient DB error must not abort an otherwise healthy run: the
+				// ticker fires well within the TTL, so a retry still lands in time.
+				if errors.Is(err, model.ErrSystemTaskLockLost) {
 					cancel()
 					return
 				}
+				logger.LogWarn(context.Background(), fmt.Sprintf("system task %s lease renew failed, will retry: %v", task.TaskID, err))
 			}
 		}
 	}()

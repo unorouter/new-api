@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/notify"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
@@ -58,6 +59,9 @@ func InitChannelCache() {
 		}
 		groups := strings.Split(channel.Group, ",")
 		for _, group := range groups {
+			if newGroup2model2channels[group] == nil {
+				newGroup2model2channels[group] = make(map[string][]int)
+			}
 			models := strings.Split(channel.Models, ",")
 			for _, model := range models {
 				if _, ok := newGroup2model2channels[group][model]; !ok {
@@ -104,6 +108,7 @@ func InitChannelCache() {
 	InvalidatePricingCache()
 	rebuildTaskAliasView()
 	common.SysLog("channels synced from database")
+	notify.MarkDirty("channel_cache")
 }
 
 func SyncChannelCache(frequency int) {
@@ -119,10 +124,11 @@ func GetRandomSatisfiedChannel(
 	model string,
 	retry int,
 	filters []dto.ChannelFilter,
+	skipIDs ...map[int]bool,
 ) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, filters)
+		return GetChannel(group, model, retry, filters, skipIDs...)
 	}
 
 	channelSyncLock.RLock()
@@ -141,11 +147,19 @@ func GetRandomSatisfiedChannel(
 		return nil, nil
 	}
 
+	// helper to check if a channel ID should be skipped
+	shouldSkip := func(id int) bool {
+		return len(skipIDs) > 0 && skipIDs[0] != nil && skipIDs[0][id]
+	}
+
 	if len(channels) == 1 {
+		if shouldSkip(channels[0]) {
+			return nil, nil
+		}
 		if channel, ok := channelsIDM[channels[0]]; ok {
 			return channel, nil
 		}
-		return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channels[0])
+		return nil, fmt.Errorf("database consistency error: channel# %d does not exist, please contact the administrator to fix", channels[0])
 	}
 
 	uniquePriorities := make(map[int]bool)
@@ -153,7 +167,7 @@ func GetRandomSatisfiedChannel(
 		if channel, ok := channelsIDM[channelId]; ok {
 			uniquePriorities[int(channel.GetPriority())] = true
 		} else {
-			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
+			return nil, fmt.Errorf("database consistency error: channel# %d does not exist, please contact the administrator to fix", channelId)
 		}
 	}
 	var sortedUniquePriorities []int
@@ -171,13 +185,16 @@ func GetRandomSatisfiedChannel(
 	var sumWeight = 0
 	var targetChannels []*Channel
 	for _, channelId := range channels {
+		if shouldSkip(channelId) {
+			continue
+		}
 		if channel, ok := channelsIDM[channelId]; ok {
 			if channel.GetPriority() == targetPriority {
 				sumWeight += channel.GetWeight()
 				targetChannels = append(targetChannels, channel)
 			}
 		} else {
-			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
+			return nil, fmt.Errorf("database consistency error: channel# %d does not exist, please contact the administrator to fix", channelId)
 		}
 	}
 
@@ -216,6 +233,125 @@ func GetRandomSatisfiedChannel(
 	return nil, errors.New("channel not found")
 }
 
+// GetChannelForLog resolves a channel serving the model for log attribution only,
+// used before the distributor has selected a channel (e.g. rate-limit rejections).
+// Unlike GetRandomSatisfiedChannel it is auto-group aware: when group is "auto" the
+// plain group2model2channels lookup misses, so scan every group for the model. Best
+// effort, no error surface: returns nil when nothing matches.
+func GetChannelForLog(group, model, requestPath string) *Channel {
+	pathFilters := []dto.ChannelFilter{{Kind: dto.FilterRequestPath, RequestPath: requestPath}}
+	if group != "auto" || !common.MemoryCacheEnabled {
+		ch, _ := GetRandomSatisfiedChannel(group, model, 0, pathFilters)
+		return ch
+	}
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+	normalizedModel := ratio_setting.FormatMatchingModelName(model)
+	for _, model2channels := range group2model2channels {
+		ids, _ := filterCandidateIDs(model2channels[model], model, pathFilters)
+		if len(ids) == 0 {
+			ids, _ = filterCandidateIDs(model2channels[normalizedModel], model, pathFilters)
+		}
+		for _, id := range ids {
+			if ch, ok := channelsIDM[id]; ok {
+				return ch
+			}
+		}
+	}
+	return nil
+}
+
+// GetCapabilitySkipSet returns channel IDs that are explicitly marked as not
+// supporting the requested capabilities. Channels with unknown/nil capabilities
+// are NOT skipped (assumed capable for backward compatibility).
+// When group is "auto", all groups are scanned so that the skip set covers
+// every channel the auto-group loop might encounter.
+func GetCapabilitySkipSet(group, model string, needsTools, needsStreaming, needsHTTP bool) map[int]bool {
+	if !needsTools && !needsStreaming && !needsHTTP {
+		return nil
+	}
+	if !common.MemoryCacheEnabled {
+		return nil
+	}
+
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+
+	// Collect channel IDs to inspect. For "auto", scan all groups.
+	var channelIDs []int
+	if group == "auto" {
+		seen := make(map[int]bool)
+		for _, modelChannels := range group2model2channels {
+			ids := modelChannels[model]
+			if len(ids) == 0 {
+				normalizedModel := ratio_setting.FormatMatchingModelName(model)
+				ids = modelChannels[normalizedModel]
+			}
+			for _, id := range ids {
+				if !seen[id] {
+					seen[id] = true
+					channelIDs = append(channelIDs, id)
+				}
+			}
+		}
+	} else {
+		channelIDs = group2model2channels[group][model]
+		if len(channelIDs) == 0 {
+			normalizedModel := ratio_setting.FormatMatchingModelName(model)
+			channelIDs = group2model2channels[group][normalizedModel]
+		}
+	}
+
+	skip := make(map[int]bool)
+	for _, id := range channelIDs {
+		ch, ok := channelsIDM[id]
+		if !ok {
+			continue
+		}
+		setting := ch.GetSetting()
+		if setting.Capabilities == nil {
+			continue // unknown = don't skip
+		}
+		if needsTools && setting.Capabilities.ToolCalling != nil && !*setting.Capabilities.ToolCalling {
+			skip[id] = true
+		}
+		if needsStreaming && setting.Capabilities.Streaming != nil && !*setting.Capabilities.Streaming {
+			skip[id] = true
+		}
+		if needsHTTP && setting.Capabilities.HTTP != nil && !*setting.Capabilities.HTTP {
+			skip[id] = true
+		}
+	}
+	return skip
+}
+
+// ModelHasAnyChannel reports whether any channel (enabled or disabled), in any
+// group, serves the model. Used to distinguish "all providers rate-limited"
+// (channel exists but is auto/manually disabled) from "model does not exist"
+// (typo / not offered) when channel selection returns nil. Group is intentionally
+// ignored: a model's only channel often lives in its own dedicated group that the
+// request's token group never matches, so a group-scoped check would wrongly
+// report a known-but-disabled model as unknown.
+func ModelHasAnyChannel(modelName string) bool {
+	normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
+	if !common.MemoryCacheEnabled {
+		var count int64
+		DB.Model(&Ability{}).Where("model = ? or model = ?", modelName, normalizedModel).Limit(1).Count(&count)
+		return count > 0
+	}
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+	for _, channel := range channelsIDM {
+		for _, m := range channel.GetModels() {
+			if m == modelName || m == normalizedModel {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+
 func CacheGetChannel(id int) (*Channel, error) {
 	if !common.MemoryCacheEnabled {
 		return GetChannelById(id, true)
@@ -225,7 +361,7 @@ func CacheGetChannel(id int) (*Channel, error) {
 
 	c, ok := channelsIDM[id]
 	if !ok {
-		return nil, fmt.Errorf("渠道# %d，已不存在", id)
+		return nil, fmt.Errorf("channel# %d no longer exists", id)
 	}
 	return c, nil
 }
@@ -243,7 +379,7 @@ func CacheGetChannelInfo(id int) (*ChannelInfo, error) {
 
 	c, ok := channelsIDM[id]
 	if !ok {
-		return nil, fmt.Errorf("渠道# %d，已不存在", id)
+		return nil, fmt.Errorf("channel# %d no longer exists", id)
 	}
 	return &c.ChannelInfo, nil
 }

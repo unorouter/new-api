@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -19,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 )
 
 type taskArtifactResponse struct {
@@ -371,27 +371,44 @@ func taskArtifactClientHeaders(headers http.Header) map[string]string {
 	Artifact projection is confined to the explicit endpoints above.
 */
 
-func GetAllTask(c *gin.Context) {
-	pageInfo := common.GetPageQuery(c)
-	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	queryParams := model.SyncTaskQueryParams{Platform: constant.TaskPlatform(c.Query("platform")), TaskID: c.Query("task_id"), Status: c.Query("status"), Action: c.Query("action"), StartTimestamp: startTimestamp, EndTimestamp: endTimestamp, ChannelID: c.Query("channel_id")}
+func GetAllTask(c fuego.ContextWithParams[dto.GetAllTaskParams]) (*dto.Response[dto.PageData[*dto.TaskDto]], error) {
+	p, _ := dto.ParseParams[dto.GetAllTaskParams](c)
+	pageInfo := dto.PageInfo(c)
+
+	// 解析其他查询参数
+	queryParams := model.SyncTaskQueryParams{
+		Platform:       constant.TaskPlatform(p.Platform),
+		TaskID:         p.TaskID,
+		Status:         p.Status,
+		Action:         p.Action,
+		StartTimestamp: p.StartTimestamp,
+		EndTimestamp:   p.EndTimestamp,
+		ChannelID:      p.ChannelID,
+	}
+
 	items := model.TaskGetAllTasks(pageInfo.GetStartIdx(), pageInfo.GetPageSize(), queryParams)
-	pageInfo.SetTotal(int(model.TaskCountAllTasks(queryParams)))
-	pageInfo.SetItems(tasksToDto(items, true, c.GetInt("role")))
-	common.ApiSuccess(c, pageInfo)
+	total := model.TaskCountAllTasks(queryParams)
+	return dto.OkPage(pageInfo, tasksToDto(items, true, dto.GinCtx(c).GetInt("role")), int(total))
 }
 
-func GetUserTask(c *gin.Context) {
-	pageInfo := common.GetPageQuery(c)
-	userID := c.GetInt("id")
-	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	queryParams := model.SyncTaskQueryParams{Platform: constant.TaskPlatform(c.Query("platform")), TaskID: c.Query("task_id"), Status: c.Query("status"), Action: c.Query("action"), StartTimestamp: startTimestamp, EndTimestamp: endTimestamp}
-	items := model.TaskGetAllUserTask(userID, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), queryParams)
-	pageInfo.SetTotal(int(model.TaskCountAllUserTask(userID, queryParams)))
-	pageInfo.SetItems(tasksToDto(items, false, common.RoleCommonUser))
-	common.ApiSuccess(c, pageInfo)
+func GetUserTask(c fuego.ContextWithParams[dto.GetUserTaskParams]) (*dto.Response[dto.PageData[*dto.TaskDto]], error) {
+	p, _ := dto.ParseParams[dto.GetUserTaskParams](c)
+	pageInfo := dto.PageInfo(c)
+
+	userId := dto.UserID(c)
+
+	queryParams := model.SyncTaskQueryParams{
+		Platform:       constant.TaskPlatform(p.Platform),
+		TaskID:         p.TaskID,
+		Status:         p.Status,
+		Action:         p.Action,
+		StartTimestamp: p.StartTimestamp,
+		EndTimestamp:   p.EndTimestamp,
+	}
+
+	items := model.TaskGetAllUserTask(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), queryParams)
+	total := model.TaskCountAllUserTask(userId, queryParams)
+	return dto.OkPage(pageInfo, tasksToDto(items, false, common.RoleCommonUser), int(total))
 }
 
 func tasksToDto(tasks []*model.Task, fillUser bool, viewerRole int) []*dto.TaskDto {

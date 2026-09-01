@@ -169,11 +169,10 @@ export async function createOAuthFlow(
   intent: 'login' | 'bind'
 ): Promise<string> {
   const aff = intent === 'login' ? getAffiliateCode() : ''
-  const res = await api.post(
-    '/api/oauth/state',
-    { provider, intent, aff: aff || undefined },
-    { skipAuthRefresh: intent === 'login' }
-  )
+  const res = await api.get('/api/oauth/state', {
+    params: { provider, intent, aff: aff || undefined },
+    skipAuthRefresh: intent === 'login',
+  })
   if (res.data?.success) {
     if (typeof res.data.data === 'string') return res.data.data
     if (typeof res.data.data?.flow_token === 'string') {

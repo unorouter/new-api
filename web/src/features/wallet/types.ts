@@ -41,6 +41,42 @@ export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
 export type StripePaymentResponse = ApiResponse<{ pay_link: string }>
 export type AffiliateCodeResponse = ApiResponse<string>
 export type AffiliateTransferResponse = ApiResponse
+
+export interface InvitedUser {
+  id: number
+  username: string
+  display_name: string
+  status: number
+  commission_count: number
+  total_earned: number
+}
+
+export interface InvitedUsersResponse {
+  items: InvitedUser[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface ReferralCommission {
+  id: number
+  inviter_id: number
+  invitee_id: number
+  invitee_username?: string
+  top_up_id: number
+  recharge_amount: number
+  commission_quota: number
+  commission_rate: number
+  payment_method: string
+  created_at: number
+}
+
+export interface ReferralCommissionsResponse {
+  items: ReferralCommission[]
+  total: number
+  page: number
+  page_size: number
+}
 export type CreemPaymentResponse = ApiResponse<{ checkout_url: string }>
 export type WaffoPaymentResponse = ApiResponse<
   { payment_url?: string } | string
@@ -150,6 +186,14 @@ export interface TopupInfo {
   enable_waffo_pancake_topup?: boolean
   /** Minimum topup amount for Waffo Pancake */
   waffo_pancake_min_topup?: number
+  /** Whether NowPayments crypto topup is enabled */
+  enable_nowpayments_topup?: boolean
+  /** Minimum topup amount for NowPayments */
+  nowpayments_min_topup?: number
+  /** Whether DeloPay (PayPal) topup is enabled */
+  enable_delopay_topup?: boolean
+  /** Minimum topup amount for DeloPay */
+  delopay_min_topup?: number
   /** Whether redemption code usage is enabled */
   enable_redemption?: boolean
   /** Whether compliance confirmation has been completed */
@@ -203,6 +247,40 @@ export interface WaffoPancakePaymentRequest {
   /** Topup amount */
   amount: number
 }
+
+/**
+ * NowPayments crypto payment request parameters
+ */
+export interface NowPaymentsPaymentRequest {
+  /** Topup amount */
+  amount: number
+  /** Payment method identifier ("nowpayments") */
+  payment_method: string
+  /** Optional success redirect URL */
+  success_url?: string
+  /** Optional cancel redirect URL */
+  cancel_url?: string
+}
+
+/**
+ * NowPayments crypto payment response
+ */
+export type NowPaymentsPaymentResponse = ApiResponse<{ pay_link: string }>
+
+/**
+ * DeloPay (PayPal) payment request parameters
+ */
+export interface DeloPayPaymentRequest {
+  /** Topup amount */
+  amount: number
+  /** Payment method identifier ("delopay") */
+  payment_method: string
+}
+
+/**
+ * DeloPay payment response
+ */
+export type DeloPayPaymentResponse = ApiResponse<{ pay_link: string }>
 
 /**
  * Amount calculation request

@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"strconv"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	common2 "github.com/QuantumNous/new-api/common"
+	constant2 "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
@@ -19,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
@@ -150,7 +153,7 @@ func shouldSkipPassthroughHeader(name string) bool {
 	return false
 }
 
-func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey string) (string, bool, error) {
+func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey string, userId int) (string, bool, error) {
 	trimmed := strings.TrimSpace(template)
 	if strings.HasPrefix(trimmed, clientHeaderPlaceholderPrefix) {
 		afterPrefix := trimmed[len(clientHeaderPlaceholderPrefix):]
@@ -177,6 +180,14 @@ func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey str
 	if strings.Contains(template, "{api_key}") {
 		template = strings.ReplaceAll(template, "{api_key}", apiKey)
 	}
+	// Upstreams that keep per-caller state need to tell our users apart. The
+	// OpenAI "user" field does not survive the relay, so the id is stamped here.
+	if strings.Contains(template, "{user_id}") {
+		if userId <= 0 {
+			return "", false, nil
+		}
+		template = strings.ReplaceAll(template, "{user_id}", strconv.Itoa(userId))
+	}
 	if strings.TrimSpace(template) == "" {
 		return "", false, nil
 	}
@@ -187,6 +198,7 @@ func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey str
 // Supported placeholders:
 //   - {api_key}: resolved to the channel API key
 //   - {client_header:<name>}: resolved to the incoming request header value
+//   - {user_id}: resolved to the requesting user's id (header dropped when absent)
 //
 // Header passthrough rules (keys only; values are ignored):
 //   - "*": passthrough all incoming headers by name (excluding unsafe headers)
@@ -280,7 +292,7 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 			continue
 		}
 
-		value, include, err := applyHeaderOverridePlaceholders(str, c, info.ApiKey)
+		value, include, err := applyHeaderOverridePlaceholders(str, c, info.ApiKey, info.UserId)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeChannelHeaderOverrideInvalid)
 		}
@@ -487,6 +499,38 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 
+// firstTokenDeadline returns how long this attempt may wait for the upstream's
+// first byte, or 0 when the user set no limit. Two opt-in per-user limits narrow
+// it: a per-attempt cap and what remains of a whole-chain cap. The tighter one
+// wins, and neither can loosen the global RESPONSE_HEADER_TIMEOUT, which still
+// applies underneath via the transport.
+//
+// Only the first byte is bounded. The returned deadline must be released the
+// moment headers arrive, or it would abort a generation already streaming.
+func firstTokenDeadline(c *gin.Context, info *common.RelayInfo) time.Duration {
+	if info == nil {
+		return 0
+	}
+	perAttempt := hosttypes.ClampFirstTokenSeconds(info.UserSetting.MaxFirstTokenSeconds)
+	chain := hosttypes.ClampFirstTokenSeconds(info.UserSetting.MaxChainFirstTokenSeconds)
+
+	deadline := time.Duration(perAttempt) * time.Second
+	if chain > 0 {
+		// The chain cap covers every attempt, so this one only gets what earlier
+		// attempts left. A chain already spent yields a tiny positive budget
+		// rather than zero: zero reads as "no limit" and would wait the full
+		// global ceiling, the opposite of what the setting asked for.
+		remaining := time.Duration(chain)*time.Second - time.Since(common2.GetContextKeyTime(c, constant2.ContextKeyRequestStartTime))
+		if remaining < time.Second {
+			remaining = time.Second
+		}
+		if deadline == 0 || remaining < deadline {
+			deadline = remaining
+		}
+	}
+	return deadline
+}
+
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
@@ -529,13 +573,74 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	// A per-user first-token limit is armed with a timer over a cancellable
+	// context rather than context.WithTimeout. The request context governs the
+	// response BODY too, and this function returns that body unread for the
+	// caller to stream, so a deadline still counting down here would truncate a
+	// long generation mid-stream. The timer is stopped as soon as Do returns,
+	// which confines the limit to the first byte. The context is deliberately
+	// NOT cancelled on success: cancelling it would close the very body being
+	// returned. It is cancelled only on the error path, where there is no body.
+	var stopFirstTokenTimer func()
+	if wait := firstTokenDeadline(c, info); wait > 0 {
+		headerCtx, cancelHeader := context.WithCancel(req.Context())
+		timer := time.AfterFunc(wait, cancelHeader)
+		stopFirstTokenTimer = func() {
+			timer.Stop()
+		}
+		defer func() {
+			// Reached only when Do failed or panicked: a returned body has already
+			// disarmed the timer and left this nil.
+			if stopFirstTokenTimer != nil {
+				timer.Stop()
+				cancelHeader()
+			}
+		}()
+		req = req.WithContext(headerCtx)
+	}
+
 	resp, err := relayClient.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
-		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
+		// PROD-ONLY (fork): an upstream first-byte/header timeout is a channel fault
+		// (fail over + disable via the channel:-prefixed code), NOT a client hangup.
+		//
+		// The Go error reads `Post "https://host/v1/chat/completions": http2: timeout
+		// awaiting response headers`, which tells a user nothing and leaks the route.
+		// The cause is already logged above for admins, so the returned message says
+		// what happened in plain terms instead.
+		// 429 rather than 5xx: chat frontends (JanitorAI and similar) replace the body
+		// of ANY 5xx with their own generic string, so the reason never reaches the
+		// person reading the chat and they see an opaque proxy error. 429 is the one
+		// status whose upstream text those clients render verbatim, and it is honest
+		// here: a provider that accepts the connection and then stalls on the first
+		// byte is saturated, and retrying is the correct action. Cloudflare also
+		// forwards 429 bodies untouched, unlike 502/504 which it replaces with its own
+		// error page.
+		// The real meaning stays in the error CODE, and failover is decided by
+		// IsChannelError before any status check, so routing is unchanged. 429 is in
+		// AutomaticDisableStatusCodes by design: the failure-rate guard in
+		// RecordChannelFailure still gates whether a channel is actually pulled, and
+		// the scheduled probe re-enables it once the upstream recovers.
+		if types.IsUpstreamTimeoutError(err) && !errors.Is(c.Request.Context().Err(), context.Canceled) {
+			return nil, types.NewOpenAIError(
+				errors.New("the upstream provider is saturated and did not respond in time. Please retry: the request has already been failed over to any other provider serving this model"),
+				types.ErrorCodeChannelResponseTimeExceeded, http.StatusTooManyRequests)
+		}
+		// Preserve the underlying cause (timeout, EOF, connection refused, etc.) so admins
+		// can see it in the error log panel. MaskSensitiveInfo (applied downstream) still
+		// anonymizes any host/path that appears inside the error string.
+		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed)
 	}
 	if resp == nil {
 		return nil, errors.New("resp is nil")
+	}
+	// Headers are in, so the first-token limit has been met. Disarm it here and
+	// leave the context live: the body below is returned unread and streams under
+	// StreamingTimeout from this point on.
+	if stopFirstTokenTimer != nil {
+		stopFirstTokenTimer()
+		stopFirstTokenTimer = nil
 	}
 	if common2.DebugEnabled {
 		policy := service.NormalizeHTTPTransportPolicy(info.ChannelSetting)

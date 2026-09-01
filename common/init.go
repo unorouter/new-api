@@ -51,7 +51,7 @@ func InitEnv() {
 		ss := os.Getenv("SESSION_SECRET")
 		if ss == "random_string" {
 			log.Println("WARNING: SESSION_SECRET is set to the default value 'random_string', please change it to a random string.")
-			log.Println("警告：SESSION_SECRET被设置为默认值'random_string'，请修改为随机字符串。")
+			log.Println("WARNING: SESSION_SECRET is set to the default value 'random_string', please change it to a random string.")
 			log.Fatal("Please set SESSION_SECRET to a random string.")
 		} else {
 			SessionSecret = ss
@@ -102,6 +102,16 @@ func InitEnv() {
 	SMTPStartTLSEnabled = GetEnvOrDefaultBool("SMTP_STARTTLS_ENABLE", GetEnvOrDefaultBool("SMTP_STARTTLS_ENABLED", false))
 	SMTPInsecureSkipVerify = GetEnvOrDefaultBool("SMTP_INSECURE_SKIP_VERIFY", GetEnvOrDefaultBool("SMTP_TLS_INSECURE_SKIP_VERIFY", false))
 
+	// Parse OAuth allowed redirect origins (comma-separated)
+	if origins := os.Getenv("OAUTH_ALLOWED_REDIRECT_ORIGINS"); origins != "" {
+		for _, origin := range strings.Split(origins, ",") {
+			origin = strings.TrimSpace(origin)
+			if origin != "" {
+				OAuthAllowedRedirectOrigins = append(OAuthAllowedRedirectOrigins, origin)
+			}
+		}
+	}
+
 	// Parse requestInterval and set RequestInterval
 	requestInterval, _ = strconv.Atoi(os.Getenv("POLLING_INTERVAL"))
 	RequestInterval = time.Duration(requestInterval) * time.Second
@@ -110,6 +120,7 @@ func InitEnv() {
 	SyncFrequency = GetEnvOrDefault("SYNC_FREQUENCY", 60)
 	BatchUpdateInterval = GetEnvOrDefault("BATCH_UPDATE_INTERVAL", 5)
 	RelayTimeout = GetEnvOrDefault("RELAY_TIMEOUT", 0)
+	ResponseHeaderTimeout = GetEnvOrDefault("RESPONSE_HEADER_TIMEOUT", 0)
 	RelayIdleConnTimeout = GetEnvOrDefault("RELAY_IDLE_CONN_TIMEOUT", 90)
 	RelayResponseHeaderTimeout = GetEnvOrDefault("RELAY_RESPONSE_HEADER_TIMEOUT", 1800)
 	RelayMaxIdleConns = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS", 500)
@@ -118,6 +129,7 @@ func InitEnv() {
 	// Initialize string variables with GetEnvOrDefaultString
 	GeminiSafetySetting = GetEnvOrDefaultString("GEMINI_SAFETY_SETTING", "BLOCK_NONE")
 	CohereSafetySetting = GetEnvOrDefaultString("COHERE_SAFETY_SETTING", "NONE")
+	SMTPBcc = GetEnvOrDefaultString("SMTP_BCC", "")
 
 	// Initialize rate limit variables
 	GlobalApiRateLimitEnable = GetEnvOrDefaultBool("GLOBAL_API_RATE_LIMIT_ENABLE", true)

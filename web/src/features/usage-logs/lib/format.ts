@@ -167,6 +167,46 @@ export function parseLogOther(other: string): LogOtherData | null {
   }
 }
 
+export interface ClientAttribution {
+  label: string
+  detail?: string
+}
+
+/**
+ * Which tool made a request, from the headers it volunteered. Ordered by how
+ * much each one actually identifies the caller: an explicit title is a
+ * deliberate self-declaration, then origin (browser-hosted frontends all send
+ * an indistinguishable browser User-Agent, so their origin is the only thing
+ * naming the platform), then referer, then the leading token of the User-Agent.
+ * Returns null when nothing identifying was sent.
+ */
+export function getClientAttribution(
+  other: LogOtherData | null
+): ClientAttribution | null {
+  const title = other?.client_title?.trim()
+  const origin = other?.client_origin?.trim()
+  const referer = other?.client_referer?.trim()
+  const userAgent = other?.client_user_agent?.trim()
+  if (!title && !origin && !referer && !userAgent) return null
+
+  const hostOf = (url: string): string => {
+    try {
+      return new URL(url).host || url
+    } catch {
+      return url
+    }
+  }
+
+  let label = title
+  if (!label && origin) label = hostOf(origin)
+  if (!label && referer) label = hostOf(referer)
+  if (!label && userAgent) label = userAgent.split(/[\s/]/)[0] || userAgent
+  if (!label) return null
+
+  const detail = origin ?? referer
+  return { label, detail: detail && detail !== label ? detail : undefined }
+}
+
 export function getReasoningEffortVariant(
   effort: string | undefined
 ): StatusBadgeProps['variant'] {
@@ -405,6 +445,11 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'user.topup_complete': 'Completed top-up order for the user',
   'user.reset_passkey': 'Reset the user passkey',
   'user.oauth_unbind': 'Removed an OAuth binding for the user',
+  'token.key_view': 'Revealed API key {{name}} (ID: {{id}})',
+  'token.key_view_batch': 'Revealed {{count}} API keys in bulk',
+  'read.user_list': 'Listed user accounts (page {{page}}, {{count}} returned)',
+  'read.user_search': 'Searched user accounts for {{keyword}} ({{count}} matched)',
+  'read.log_search': "Searched all users' request logs ({{count}} returned)",
   // System settings
   'option.update': 'Updated system setting {{key}}',
   'option.payment_compliance': 'Confirmed payment compliance',

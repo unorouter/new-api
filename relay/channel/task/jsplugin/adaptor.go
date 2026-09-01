@@ -22,12 +22,12 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
-	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
@@ -423,7 +423,14 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, bod
 		c.Request.Method = strings.ToUpper(a.submit.Method)
 		defer func() { c.Request.Method = originalMethod }()
 	}
-	return channel.DoTaskApiRequest(a, c, info, body)
+	resp, err := channel.DoTaskApiRequest(a, c, info, body)
+	// PROD-ONLY (fork): AI Horde answers an async submit with 202 Accepted and the
+	// task pipeline only treats 200 as a successful submit (relay_task.go). Real
+	// errors (4xx/5xx) pass through unchanged.
+	if resp != nil && resp.StatusCode == http.StatusAccepted {
+		resp.StatusCode = http.StatusOK
+	}
+	return resp, err
 }
 
 func (a *TaskAdaptor) ParseResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
@@ -1125,6 +1132,17 @@ func (a *TaskAdaptor) submitContext(c *gin.Context, info *relaycommon.RelayInfo)
 	ctx["upstreamModel"] = info.UpstreamModelName
 	ctx["baseUrl"] = info.ChannelBaseUrl
 	ctx["userSetting"] = info.UserSetting
+	// PROD-ONLY (fork): per-model plugin config, carried on the channel as
+	// workflow_templates JSON. AI Horde needs it to map a published model id to
+	// the checkpoint name Horde expects plus that model's default generation
+	// params; upstream has no channel-config channel for plugins.
+	if c != nil {
+		if raw, exists := c.Get(string(constant.ContextKeyChannelWorkflowTemplates)); exists {
+			if rawStr, ok := raw.(string); ok && strings.TrimSpace(rawStr) != "" {
+				ctx["channelConfig"] = rawStr
+			}
+		}
+	}
 	proxy := ""
 	proxy = info.ChannelSetting.Proxy
 	if auth, err := resolveAuth(a.plugin.Meta.Auth, info.ApiKey, proxy); err == nil {

@@ -1,0 +1,114 @@
+name: unorouter-new-api
+
+# Plain-compose datastores + sidecars for new-api (the app runs as a swarm stack
+# in docker-stack-traefik.yml). Singletons, not scaled; they join the same
+# --attachable overlay so the swarm app tasks reach them by container name.
+
+networks:
+  # Created --attachable in CI; external so compose never recreates it.
+  newapi-overlay:
+    external: true
+
+services:
+  # Hourly prune of the app's own oneapi-*.log files (new-api never deletes them);
+  # recursive find covers the master/ + slave/ subdirs the swarm apps write.
+  unorouter-new-api-logrotate:
+    image: alpine:latest
+    container_name: unorouter-new-api-logrotate
+    restart: always
+    environment:
+      - LOG_RETENTION_DAYS=2
+    volumes:
+      - ~/new-api/logs:/app/logs
+    command: >
+      sh -c 'while true; do
+        find /app/logs -name "oneapi-*.log" -type f -mtime +$${LOG_RETENTION_DAYS} -delete 2>/dev/null || true;
+        sleep 3600;
+      done'
+    networks:
+      - newapi-overlay
+
+  # Hosted MCP endpoint at mcp.unorouter.com (streamable HTTP, stateless,
+  # multi tenant: callers pass their own UnoRouter key as a Bearer token).
+  unorouter-mcp:
+    image: node:22-alpine
+    container_name: unorouter-mcp
+    restart: always
+    command: npx -y --package=unorouter-mcp@0.2.1 unorouter-mcp-http
+    environment:
+      - PORT=3000
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.unorouter-mcp.rule=Host(`mcp.unorouter.com`)"
+      - "traefik.http.routers.unorouter-mcp.entrypoints=websecure"
+      - "traefik.http.routers.unorouter-mcp.tls.certresolver=letsencrypt"
+      - "traefik.http.services.unorouter-mcp.loadbalancer.server.port=3000"
+    networks:
+      - newapi-overlay
+
+  unorouter-new-api-redis:
+    image: redis:latest
+    container_name: unorouter-new-api-redis
+    restart: always
+    networks:
+      - newapi-overlay
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  unorouter-new-api-postgres:
+    image: postgres:15
+    container_name: unorouter-new-api-postgres
+    restart: always
+    networks:
+      - newapi-overlay
+    ports:
+      - 5439:5432
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - unorouter_pg_data:/var/lib/postgresql/data
+    # Gates the app tasks on a ready DB: CI --wait blocks on this until pg_isready
+    # passes, so the master never migrates against a not-yet-accepting postgres.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  unorouter-new-api-pgbackup:
+    image: prodrigestivill/postgres-backup-local:15-alpine
+    container_name: unorouter-new-api-pgbackup
+    restart: always
+    networks:
+      - newapi-overlay
+    volumes:
+      - ~/duplicati-volume/source/unorouter-new-api-pgbackup:/backups
+    depends_on:
+      - unorouter-new-api-postgres
+    environment:
+      - POSTGRES_HOST=unorouter-new-api-postgres
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_EXTRA_OPTS=-Fc
+      - SCHEDULE=0 0,12 * * *
+      - BACKUP_KEEP_MINS=1440
+      - BACKUP_KEEP_DAYS=1
+      - BACKUP_KEEP_WEEKS=0
+      - BACKUP_KEEP_MONTHS=0
+      - HEALTHCHECK_PORT=8080
+
+volumes:
+  unorouter_pg_data:

@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,12 +16,70 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
+
+// openAIResponseHasOutput reports whether a non-stream OpenAI chat response
+// carries usable output in any choice: text content, reasoning, a tool call, or
+// a legacy text completion. Mirrors chatChoiceHasOutput in the channel autotest
+// so the live path and the scheduled test agree on "empty".
+func openAIResponseHasOutput(resp *dto.OpenAITextResponse) bool {
+	for i := range resp.Choices {
+		msg := &resp.Choices[i].Message
+		if strings.TrimSpace(msg.StringContent()) != "" {
+			return true
+		}
+		if len(msg.ParseToolCalls()) > 0 {
+			return true
+		}
+		// Reasoning-only counts as output only when the turn actually completed
+		// (a thinking model whose reasoning IS the answer, e.g. Qwen). A
+		// finish_reason=length with empty content means the model ran out of
+		// budget mid-reasoning and never produced an answer (GLM with thinking
+		// left on) - blank to the user, so treat it as empty and auto-disable.
+		if strings.TrimSpace(msg.GetReasoningContent()) != "" &&
+			resp.Choices[i].FinishReason != constant.FinishReasonLength {
+			return true
+		}
+	}
+	return false
+}
+
+// streamHadOutput is the streaming twin of openAIResponseHasOutput: reasoning
+// counts as the answer only when the turn actually completed (Qwen-style models
+// whose reasoning IS the reply). A stream that ends mid-reasoning - on a length
+// ceiling, or with no finish_reason at all because the upstream just stopped -
+// rendered blank to the reader, so it is an empty response no matter how many
+// reasoning tokens it burned.
+func streamHadOutput(stats *StreamOutputStats, toolCount int) bool {
+	if toolCount > 0 {
+		return true
+	}
+	if stats == nil {
+		return false
+	}
+	if strings.TrimSpace(stats.Content.String()) != "" {
+		return true
+	}
+	return stats.ReasoningChars > 0 && stats.FinishReason == constant.FinishReasonStop
+}
 
 func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {
 	if data == "" {
+		return nil
+	}
+
+	// PROD-ONLY (fork): some upstreams (yun's gemini-2.5-pro adaptor) always emit a
+	// trailing usage-only chunk with `"choices":[]`, even when the client did NOT send
+	// stream_options.include_usage. Fragile clients do chunk.choices[0].delta and crash
+	// ("Cannot read properties of undefined (reading 'delta')"). Drop the choices-empty
+	// usage chunk unless the client EXPLICITLY asked for usage (default is true but that
+	// is new-api's own default, not the client's intent).
+	if !info.ClientRequestedStreamUsage && gjson.Get(data, "choices").IsArray() &&
+		len(gjson.Get(data, "choices").Array()) == 0 {
 		return nil
 	}
 
@@ -100,6 +159,30 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 	return helper.ObjectData(c, lastStreamResponse)
 }
 
+// SendPendingThinkClose closes a `<think>` block left open when the stream died
+// during reasoning (budget exhausted before any answer text). The closing tag is
+// normally emitted on the reasoning-to-content transition, so a reasoning-only
+// stream never sends it, and tag-stripping clients (JanitorAI, SillyTavern)
+// cannot strip an unterminated block: the raw chain of thought renders as the
+// bot's reply.
+func SendPendingThinkClose(c *gin.Context, info *relaycommon.RelayInfo, responseId string, createAt int64) {
+	if !info.ChannelSetting.ThinkingToContent ||
+		!info.ThinkingContentInfo.HasSentThinkingContent ||
+		info.ThinkingContentInfo.SendLastThinkingContent {
+		return
+	}
+	response := dto.ChatCompletionsStreamResponse{
+		Id:      responseId,
+		Object:  "chat.completion.chunk",
+		Created: createAt,
+		Model:   info.UpstreamModelName,
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{}},
+	}
+	response.Choices[0].Delta.SetContentString("\n</think>\n")
+	info.ThinkingContentInfo.SendLastThinkingContent = true
+	_ = helper.ObjectData(c, &response)
+}
+
 func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	if resp == nil || resp.Body == nil {
 		logger.LogError(c, "invalid response or response body")
@@ -114,6 +197,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var systemFingerprint string
 	var containStreamUsage bool
 	var responseTextBuilder strings.Builder
+	var outputStats StreamOutputStats
 	var toolCount int
 	var usage = &dto.Usage{}
 	var lastStreamData string
@@ -121,26 +205,78 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	seenStreamToolCalls := make(map[string]struct{})
 	var streamFunctionCallNames []string
 
-	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+	// Hold the leading role/empty opener chunks until the first real content (or
+	// tool-call, or reasoning - responseTextBuilder counts all three) arrives, so a
+	// stream that produces nothing usable never commits a 200 to the client and can
+	// still fail over to a sibling channel. Once real content appears, the buffered
+	// openers are flushed in order and streaming proceeds normally. Guarded by the
+	// operator flag; disabled -> original passthrough behavior.
+	bufferEmptyOpener := info.RelayFormat == types.RelayFormatOpenAI &&
+		operation_setting.GetMonitorSetting().DisableOnEmptyResponse
+	streamingStarted := !bufferEmptyOpener
+	var pendingFlush []string
+	var streamErrChunk string // PROD-ONLY (fork): raw mid-stream error chunk; "" = none
+	sendChunk := func(sr *helper.StreamResult, data string) {
+		if err := HandleStreamFormat(c, info, data, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+			common.SysLog("error handling stream format: " + err.Error())
+			sr.Error(err)
+		}
+	}
+
+	if streamErr := helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if lastStreamData != "" {
-			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-				common.SysLog("error handling stream format: " + err.Error())
-				sr.Error(err)
+			if !streamingStarted && (responseTextBuilder.Len() > 0 || toolCount > 0) {
+				// First real content has landed: release the held openers, then stream live.
+				streamingStarted = true
+				for _, d := range pendingFlush {
+					sendChunk(sr, d)
+				}
+				pendingFlush = pendingFlush[:0]
+			}
+			if streamingStarted {
+				sendChunk(sr, lastStreamData)
+			} else {
+				pendingFlush = append(pendingFlush, lastStreamData)
 			}
 		}
 		if len(data) > 0 {
+			// PROD-ONLY (fork): an upstream that rejects mid-stream (Aliyun content
+			// moderation "data_inspection_failed", a provider 5xx after first byte)
+			// sends a top-level {"error":{...}} SSE chunk. The success DTO has no
+			// error field, so processTokenData would parse it to an empty struct and
+			// the chunk would forward verbatim - leaking the raw upstream body/URL to
+			// the client and never logging a type=5 row. Intercept it here, before it
+			// becomes lastStreamData or is forwarded; the post-stream block returns it
+			// as a real NewAPIError (masked + logged + failover).
+			if gjson.Get(data, "error").Exists() {
+				streamErrChunk = data
+				sr.Stop(errors.New("upstream stream error chunk"))
+				return
+			}
+
+			// 保留倒数第二个stream data；部分兼容网关把完整usage放在倒数第二个事件
 			if lastStreamData != "" {
 				secondLastStreamData = lastStreamData
 			}
 
 			lastStreamData = data
 			collectStreamFunctionCallNames(data, seenStreamToolCalls, &streamFunctionCallNames)
-			if err := processTokenData(info.RelayMode, data, &responseTextBuilder, &toolCount); err != nil {
+			if err := processTokenData(info.RelayMode, data, &responseTextBuilder, &toolCount, &outputStats); err != nil {
 				logger.LogError(c, "error processing stream token data: "+err.Error())
 				sr.Error(err)
 			}
 		}
-	})
+	}); streamErr != nil {
+		return nil, streamErr
+	}
+
+	// PROD-ONLY (fork): a mid-stream error chunk was intercepted. Return it as a
+	// real error BEFORE the empty-response classification and before any forward of
+	// lastStreamData, so it flows through processChannelError (masking + type=5 log
+	// + failover). usage is still the zero &dto.Usage{} - nothing billable.
+	if streamErrChunk != "" {
+		return usage, buildStreamErrorAPIError(streamErrChunk, streamingStarted)
+	}
 
 	// 处理最后的响应
 	shouldSendLastResp := true
@@ -176,6 +312,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		if shouldSendLastResp {
 			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 		}
+		SendPendingThinkClose(c, info, responseId, createAt)
 	}
 
 	if !containStreamUsage {
@@ -189,9 +326,116 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		info.CountBillableToolCall(dto.BuildInCallFunctionCall, name)
 	}
 
+	// A stream that finished with no usable output (empty content, no tool calls).
+	// Two shapes: (a) the upstream opened the SSE and closed it having flushed real
+	// content deltas that were all blank / reasoning-only (a dead reasoning channel,
+	// e.g. GLM with thinking left on that burned its budget on reasoning_content) -
+	// bytes are already on the wire, so we can't fail over; (b) the upstream accepted
+	// the request and sent ZERO usable data (a silent free-tier reseller under load).
+	// In case (b) nothing real was flushed, so we can still fail over to a sibling.
+	//
+	// Judged on outputStats, NOT responseTextBuilder: the builder also holds
+	// reasoning because it feeds billing, so testing it for emptiness only ever
+	// caught shape (b) and was blind to every reasoning-only stream.
+	emptyResponse := info.RelayFormat == types.RelayFormatOpenAI &&
+		operation_setting.GetMonitorSetting().DisableOnEmptyResponse &&
+		!streamHadOutput(&outputStats, toolCount) &&
+		!streamFinishedOnContentFilter(lastStreamData)
+
+	// Case (b): the opener chunks were buffered (streamingStarted stayed false), so
+	// nothing was flushed and the response is uncommitted. Return a retryable error -
+	// no [DONE], no skip-retry - so the outer loop fails over to another channel.
+	// 429, not 5xx: chat frontends replace any 5xx body with their own generic text,
+	// so the reason never reaches the reader. 429 is rendered verbatim by those
+	// clients and by Cloudflare, and it points at the correct action (retry).
+	if emptyResponse && !streamingStarted {
+		return usage, types.NewOpenAIError(
+			fmt.Errorf("the upstream provider returned an empty reply. The request has already been failed over to any other provider serving this model; retrying usually clears it"),
+			types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests,
+			emptyResponseDisableOption(info)...)
+	}
+
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
+	// Case (a): bytes were already streamed, so this can't fail over or re-write the
+	// client response; skip retry and let the outer defer skip the JSON error write
+	// (guarded on Written()). The error still runs processChannelError to disable.
+	if emptyResponse {
+		return usage, types.NewOpenAIError(
+			fmt.Errorf("the upstream provider returned an empty reply after the response had already started, so it could not be retried automatically. Send the message again"),
+			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable,
+			types.ErrOptionWithSkipRetry())
+	}
+
 	return usage, nil
+}
+
+// emptyResponseDisableOption returns ErrOptionWithSkipDisable while the channel is
+// below the empty-response disable threshold: a lone transient empty fails over
+// without banning the channel, but a dead channel still disables once it
+// accumulates enough empties (counted in Redis across replicas - required because
+// the autotest cron only probes DISABLED channels, so live disable is the only way
+// a dead-but-enabled channel leaves rotation).
+func emptyResponseDisableOption(info *relaycommon.RelayInfo) []types.NewAPIErrorOptions {
+	if service.RecordEmptyResponseFailure(info.ChannelId) {
+		return nil
+	}
+	return []types.NewAPIErrorOptions{types.ErrOptionWithSkipDisable()}
+}
+
+// buildStreamErrorAPIError turns an intercepted mid-stream {"error":{...}} chunk
+// into a NewAPIError. PROD-ONLY (fork). The message is left RAW: masking happens
+// downstream in processChannelError -> MaskSensitiveErrorWithStatusCode. A
+// moderation reject (inappropriate content / data_inspection_failed) is mapped to
+// 400 so IsUpstreamModerationError matches - failover to a sibling, do NOT disable
+// the channel. WithOpenAIError marks ErrorTypeOpenAIError (required for those
+// classifiers). When bytes were already committed (streamingStarted), skip retry
+// to avoid a double-send; the type=5 log still runs.
+func buildStreamErrorAPIError(errChunk string, streamingStarted bool) *types.NewAPIError {
+	e := gjson.Get(errChunk, "error")
+	msg := e.Get("message").String()
+	if msg == "" {
+		msg = "upstream returned an error mid-stream"
+	}
+	status := http.StatusBadGateway
+	if n := e.Get("code"); n.Type == gjson.Number && n.Int() >= 100 && n.Int() <= 599 {
+		status = int(n.Int())
+	} else {
+		lower := strings.ToLower(msg + " " + e.Get("code").String() + " " + e.Get("type").String())
+		if strings.Contains(lower, "inappropriate") || strings.Contains(lower, "data_inspection") ||
+			strings.Contains(lower, "datainspectionfailed") {
+			status = http.StatusBadRequest
+		}
+	}
+	oaiErr := types.OpenAIError{
+		Message: msg,
+		Type:    e.Get("type").String(),
+		Code:    e.Get("code").Value(),
+	}
+	var opts []types.NewAPIErrorOptions
+	if streamingStarted {
+		opts = append(opts, types.ErrOptionWithSkipRetry())
+	}
+	return types.WithOpenAIError(oaiErr, status, opts...)
+}
+
+// streamFinishedOnContentFilter reports whether the final stream chunk carried a
+// content_filter finish reason, i.e. a legitimate upstream refusal rather than a
+// dead/empty channel.
+func streamFinishedOnContentFilter(lastStreamData string) bool {
+	if lastStreamData == "" {
+		return false
+	}
+	payload := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lastStreamData), "data:"))
+	if payload == "" || payload == "[DONE]" || payload[0] != '{' {
+		return false
+	}
+	for _, choice := range gjson.Get(payload, "choices").Array() {
+		if choice.Get("finish_reason").String() == constant.FinishReasonContentFilter {
+			return true
+		}
+	}
+	return false
 }
 
 func collectStreamFunctionCallNames(data string, seen map[string]struct{}, names *[]string) {
@@ -246,7 +490,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
-	logger.LogDebug(c, "upstream response body: %s", responseBody)
+	logger.LogDebug(c, "upstream response body: %s", common.ElideBase64(string(responseBody)))
 	// Unmarshal to simpleResponse
 	if info.ChannelType == constant.ChannelTypeOpenRouter && info.ChannelOtherSettings.IsOpenRouterEnterprise() {
 		// 尝试解析为 openrouter enterprise
@@ -272,9 +516,11 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
+	contentFiltered := false
 	for _, choice := range simpleResponse.Choices {
 		if choice.FinishReason == constant.FinishReasonContentFilter {
 			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "openai_finish_reason=content_filter")
+			contentFiltered = true
 			break
 		}
 	}
@@ -285,24 +531,52 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		}
 	}
 
+	// A 200 with no usable output (empty choices / blank content, no tool call)
+	// means the channel is effectively dead (e.g. an upstream quota wall that still
+	// returns 200). Classify it as a channel-empty-response fault so the request fails
+	// over to a sibling. The full body is buffered here (nothing committed to the
+	// client yet), so failover is always clean.
+	// Guarded: only OpenAI-format chat, only when the operator flag is on, and never
+	// for a legitimate content-filter refusal (which is a valid non-empty verdict).
+	if info.RelayFormat == types.RelayFormatOpenAI && !contentFiltered &&
+		operation_setting.GetMonitorSetting().DisableOnEmptyResponse &&
+		!openAIResponseHasOutput(&simpleResponse) {
+		return nil, types.NewOpenAIError(
+			fmt.Errorf("upstream returned an empty response (no choices/content)"),
+			types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests,
+			emptyResponseDisableOption(info)...)
+	}
+
 	forceFormat := false
 	if info.ChannelSetting.ForceFormat {
 		forceFormat = true
 	}
 
 	usageModified := false
-	if simpleResponse.Usage.PromptTokens == 0 {
+	// Each side is repaired independently: an upstream can report a real prompt
+	// count alongside a stub completion count (some report every completion as
+	// 0 while all the output rides in reasoning), and nesting the completion
+	// repair under the prompt check billed those responses as free.
+	promptStubbed := service.IsStubTokenCount(simpleResponse.Usage.PromptTokens)
+	completionStubbed := service.IsStubTokenCount(simpleResponse.Usage.CompletionTokens)
+	if promptStubbed || completionStubbed {
+		promptTokens := simpleResponse.Usage.PromptTokens
+		if promptStubbed {
+			promptTokens = info.GetEstimatePromptTokens()
+		}
 		completionTokens := simpleResponse.Usage.CompletionTokens
-		if completionTokens == 0 {
+		if completionStubbed {
+			completionTokens = 0
 			for _, choice := range simpleResponse.Choices {
 				ctkm := service.CountTextToken(choice.Message.StringContent()+choice.Message.GetReasoningContent(), info.UpstreamModelName)
 				completionTokens += ctkm
 			}
+			common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
 		}
 		fallbackUsage := &dto.Usage{
 			PromptTokens:     info.GetEstimatePromptTokens(),
 			CompletionTokens: completionTokens,
-			TotalTokens:      info.GetEstimatePromptTokens() + completionTokens,
+			TotalTokens:      promptTokens + completionTokens,
 		}
 		simpleResponse.Usage = *fallbackUsage
 		usageModified = true

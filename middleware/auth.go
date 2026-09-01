@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net"
@@ -18,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -43,6 +45,47 @@ func validUserInfo(username string, role int) bool {
 	}
 	return true
 }
+
+// enforceRoleAndStatus validates that the user set on the gin context meets
+// the minimum role and is not disabled. Used by authHelper after the OAuth
+// bearer path populates the context; the legacy access-token/session path
+// keeps its inline checks for historical reasons.
+//
+// On failure the response is written, the request is aborted, and a non-nil
+// error is returned so the caller can bail immediately.
+func enforceRoleAndStatus(c *gin.Context, minRole int) error {
+	username, _ := c.Get("username")
+	role, _ := c.Get("role")
+
+	roleInt, ok := role.(int)
+	if !ok || !common.IsValidateRole(roleInt) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid),
+		})
+		c.Abort()
+		return errAuthInvalid
+	}
+	if roleInt < minRole {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
+		})
+		c.Abort()
+		return errAuthInvalid
+	}
+	if name, ok := username.(string); !ok || strings.TrimSpace(name) == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid),
+		})
+		c.Abort()
+		return errAuthInvalid
+	}
+	return nil
+}
+
+var errAuthInvalid = errors.New("auth: invalid user")
 
 func authHelper(c *gin.Context, minRole int) {
 	user, identity, useAccessToken, err := authenticateDashboardRequest(c)
@@ -97,6 +140,12 @@ func UserAuth() func(c *gin.Context) {
 	}
 }
 
+func ModAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		authHelper(c, common.RoleModUser)
+	}
+}
+
 func AdminAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleAdminUser)
@@ -106,6 +155,162 @@ func AdminAuth() func(c *gin.Context) {
 func RootAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleRootUser)
+	}
+}
+
+// SessionOnly rejects personal access tokens on routes that change the
+// credentials guarding an account.
+//
+// A PAT is a bearer credential with no second factor and no expiry short enough
+// to matter, so treating it as equivalent to a live browser session means the
+// weakest credential can rewrite the strongest. On 2026-08-26 a stolen PAT
+// changed the root password through the admin update route: UpdateSelf refuses
+// exactly that (it demands the current password AND a real session), but the
+// admin route accepts any caller who is already admin, so pointing it at your
+// own account skipped every check.
+//
+// A credential must never be able to change what revokes it.
+func SessionOnly() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		if !c.GetBool("use_access_token") {
+			c.Next()
+			return
+		}
+		recordSecurityDenial(c, auditActionPermissionDenied, "PAT_NOT_ALLOWED", map[string]interface{}{
+			"reason": "credential-changing route requires an interactive session",
+		})
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"code":    "PAT_NOT_ALLOWED",
+			"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
+		})
+	}
+}
+
+// BotServiceUsername identifies the Discord bot in audit rows. It is not a user
+// account, so it can never own tokens, log in, or be granted quota.
+const BotServiceUsername = "discord-bot"
+
+// BotServiceUserID is the audit actor id for the bot. Deliberately 0 rather
+// than a real user id: the bot authenticates as itself, so attributing its
+// writes to a human account would falsify the audit trail.
+const BotServiceUserID = 0
+
+const botAuthContextKey = "authenticated_via_bot_token"
+
+// AuthenticatedViaBotToken reports whether BotAuth accepted this request, so a
+// handler can restrict what a service credential may do beyond route access.
+// AuthenticatedViaPAT reports a personal access token specifically, as opposed to
+// the bot and sync service tokens, which also set use_access_token but are scoped
+// secrets held by our own automation. SessionOnly cannot make that distinction,
+// which is why routes the sync legitimately drives need this instead.
+func AuthenticatedViaPAT(c *gin.Context) bool {
+	return c.GetBool("use_access_token") && !AuthenticatedViaBotToken(c) && !AuthenticatedViaSyncToken(c)
+}
+
+func AuthenticatedViaBotToken(c *gin.Context) bool {
+	return c.GetBool(botAuthContextKey)
+}
+
+// BotAuth accepts the Discord bot's service token on the handful of routes it
+// needs, and otherwise defers to AdminAuth so the dashboard is unaffected.
+//
+// The bot previously held root's access token, which authorized every admin
+// route (channel writes, user deletion, upstream key reads) to perform four
+// operations. A service credential that leaks should cost what the service can
+// do, not what the platform can do.
+//
+// The token is NOT a user: it resolves to no account, so it cannot be promoted,
+// cannot own tokens, and cannot be reused to log in. It only sets the context
+// keys the downstream handlers and the admin auditor already read.
+func BotAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		secret := system_setting.BotServiceToken()
+		raw, ok := AuthorizationToken(c.GetHeader("Authorization"))
+		if !ok || secret == "" || subtle.ConstantTimeCompare([]byte(raw), []byte(secret)) != 1 {
+			authHelper(c, common.RoleAdminUser)
+			return
+		}
+
+		c.Set("id", BotServiceUserID)
+		c.Set("username", BotServiceUsername)
+		c.Set("role", common.RoleAdminUser)
+		c.Set("use_access_token", true)
+		c.Set(botAuthContextKey, true)
+
+		// Bot writes are audited on the same path as admin writes; skipping this
+		// would make the one credential that runs unattended the one that leaves
+		// no trace.
+		auditWriter := beginAdminAudit(c)
+		c.Next()
+		finishAdminAudit(c, auditWriter)
+	}
+}
+
+// SyncServiceUsername identifies new-api-sync in audit rows. Like the bot's
+// credential it is not a user account, so it can never own tokens, log in, or be
+// granted quota.
+const SyncServiceUsername = "new-api-sync"
+
+// SyncServiceUserID is the audit actor id for the sync. It owns no row in
+// `users`; the id exists so the sync has a stable casbin subject
+// (`user:900000001`) that can hold an explicit ChannelSensitiveWrite grant.
+//
+// Creating a channel means supplying its upstream key, so the sync genuinely
+// needs that permission, and it cannot come from the admin role: the boot
+// reconciler rebuilds casbin from each action's DefaultRoles, so a role grant
+// added by hand is deleted on the next restart, and adding it in code would
+// hand sensitive_write to every admin -- which router/channel_permissions_test.go
+// exists to forbid. Per-user grants are the supported path and survive restarts,
+// which is how user:1 holds the same permission today.
+//
+// Far above the users sequence (~24.7k) so it can never collide with a real
+// account, and positive because id is read as an int in paths that assume a
+// non-negative user.
+const SyncServiceUserID = 900000001
+
+const syncAuthContextKey = "authenticated_via_sync_token"
+
+// AuthenticatedViaSyncToken reports whether SyncAuth accepted this request, so a
+// handler can restrict what the sync credential may do beyond route access.
+func AuthenticatedViaSyncToken(c *gin.Context) bool {
+	return c.GetBool(syncAuthContextKey)
+}
+
+// SyncAuth accepts new-api-sync's service token on the routes it needs, and
+// otherwise defers to normal admin auth so the dashboard is unaffected.
+//
+// The sync previously held root's access token, which authorized every admin
+// route. What it actually needs is channel/model/vendor CRUD plus eighteen
+// pricing and routing keys in the options table -- none of them the
+// auth-hardening options a 2026-08-26 intruder used a stolen root PAT to
+// disable. Root was three orders of magnitude more authority than the job.
+//
+// Role is RoleAdminUser, NOT root: the option route is the only thing that ever
+// required root, and UpdateOption gates the sync to its own key list instead.
+// The token resolves to no account, so it cannot be promoted, cannot own tokens,
+// and cannot be reused to log in.
+func SyncAuth(minRole int) func(c *gin.Context) {
+	return func(c *gin.Context) {
+		secret := system_setting.SyncServiceToken()
+		raw, ok := AuthorizationToken(c.GetHeader("Authorization"))
+		if !ok || secret == "" || subtle.ConstantTimeCompare([]byte(raw), []byte(secret)) != 1 {
+			authHelper(c, minRole)
+			return
+		}
+
+		c.Set("id", SyncServiceUserID)
+		c.Set("username", SyncServiceUsername)
+		c.Set("role", common.RoleAdminUser)
+		c.Set("use_access_token", true)
+		c.Set(syncAuthContextKey, true)
+
+		// Sync writes are audited on the same path as admin writes; skipping this
+		// would make the one credential that runs unattended the one that leaves
+		// no trace.
+		auditWriter := beginAdminAudit(c)
+		c.Next()
+		finishAdminAudit(c, auditWriter)
 	}
 }
 
@@ -149,8 +354,46 @@ func authenticateDashboardRequest(c *gin.Context) (*model.UserBase, service.Auth
 	return user, identity, credentialKind == dashboardCredentialPAT, nil
 }
 
+// ResolveDashboardCredential returns the user behind the request's
+// Authorization header, or nil when it carries none that validates. It accepts
+// both credential kinds the dashboard issues: a login session token and a
+// personal access token.
+//
+// Exported for routes that must authenticate a caller themselves because they
+// cannot sit behind UserAuth, such as the OAuth bind flow, whose cross-domain
+// redirect drops the session cookie. Those routes must NOT re-implement this:
+// checking only model.ValidateAccessToken silently rejects every user without a
+// PAT, which is most of them.
+func ResolveDashboardCredential(c *gin.Context) (*model.UserBase, error) {
+	user, _, kind, err := classifyDashboardCredential(c)
+	if err != nil {
+		return nil, err
+	}
+	if kind == dashboardCredentialUnmatched {
+		return nil, nil
+	}
+	return user, nil
+}
+
+// ResolveDashboardSessionCredential is ResolveDashboardCredential minus the PAT
+// kind. Attaching an OAuth identity adds a way to log in, and OAuth login never
+// checks a second factor, so a PAT reaching that path manufactures a full
+// interactive session for an account whose password and 2FA it never held.
+// A session token presented in the Authorization header still resolves, which is
+// what the cross-domain bind actually needs.
+func ResolveDashboardSessionCredential(c *gin.Context) (*model.UserBase, error) {
+	user, _, kind, err := classifyDashboardCredential(c)
+	if err != nil {
+		return nil, err
+	}
+	if kind == dashboardCredentialUnmatched || kind == dashboardCredentialPAT {
+		return nil, nil
+	}
+	return user, nil
+}
+
 func classifyDashboardCredential(c *gin.Context) (*model.UserBase, service.AuthIdentity, dashboardCredentialKind, error) {
-	raw, ok := authorizationToken(c.GetHeader("Authorization"))
+	raw, ok := AuthorizationToken(c.GetHeader("Authorization"))
 	if !ok {
 		return nil, service.AuthIdentity{}, dashboardCredentialUnmatched, nil
 	}
@@ -179,7 +422,8 @@ func classifyDashboardCredential(c *gin.Context) (*model.UserBase, service.AuthI
 	return user, service.AuthIdentity{UserID: user.Id, UserAuthVersion: user.AuthVersion}, dashboardCredentialPAT, nil
 }
 
-func authorizationToken(header string) (string, bool) {
+// AuthorizationToken extracts a bearer credential from an Authorization header.
+func AuthorizationToken(header string) (string, bool) {
 	header = strings.TrimSpace(header)
 	if header == "" {
 		return "", false
@@ -218,6 +462,10 @@ func writeDashboardAuthError(c *gin.Context, err error) {
 		return
 	}
 	if errors.Is(err, service.ErrAuthTokenInvalid) {
+		// A rejected credential is the loudest signal we get that someone is
+		// probing with something they should not have. Previously this returned
+		// 401 and left no trace outside the edge log.
+		recordSecurityDenial(c, auditActionAuthRejected, "AUTH_UNAUTHORIZED", nil)
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_UNAUTHORIZED", "message": common.TranslateMessage(c, i18n.MsgAuthAccessTokenInvalid)})
 		return
 	}
@@ -233,6 +481,13 @@ func RequirePermission(permission authz.Permission) func(c *gin.Context) {
 			c.Next()
 			return
 		}
+		// Privilege escalation attempt: the caller authenticated but reached for
+		// something their role does not grant. Records which permission was
+		// wanted, so a credential probing beyond its owner's normal scope is
+		// visible rather than just a 403.
+		recordSecurityDenial(c, auditActionPermissionDenied, "INSUFFICIENT_PRIVILEGE", map[string]interface{}{
+			"permission": permission.Resource + ":" + permission.Action,
+		})
 		c.JSON(http.StatusForbidden, gin.H{
 			"success": false,
 			"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
@@ -249,7 +504,7 @@ func WssAuth(c *gin.Context) {
 // Used for endpoints that need to be accessible from both the dashboard and API clients.
 func TokenOrUserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		raw, ok := authorizationToken(c.GetHeader("Authorization"))
+		raw, ok := AuthorizationToken(c.GetHeader("Authorization"))
 		if ok {
 			identity, internal, err := service.ParseDashboardAccessToken(raw)
 			if !internal {
@@ -351,8 +606,39 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 	}
 }
 
+// OptionalTokenAuth runs TokenAuth only when the request carries a credential.
+// A caller with no key reaches the handler unauthenticated (user id 0), which
+// is how /v1/models answers anonymously the way other aggregators do; a caller
+// WITH a key is validated exactly as before, so a revoked or malformed one is
+// still rejected rather than silently downgraded to the public list.
+func OptionalTokenAuth() func(c *gin.Context) {
+	authed := TokenAuth()
+	return func(c *gin.Context) {
+		hasCredential := c.Request.Header.Get("Authorization") != "" ||
+			c.Request.Header.Get("x-api-key") != "" ||
+			c.Request.Header.Get("x-goog-api-key") != "" ||
+			c.Request.Header.Get("Sec-WebSocket-Protocol") != "" ||
+			c.Query("key") != ""
+		if !hasCredential {
+			c.Next()
+			return
+		}
+		authed(c)
+	}
+}
+
 func TokenAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		// OAuth 2.1 bearer JWT first. If the request carries a valid OAuth
+		// access token, the gin context is populated and we let it through;
+		// other branches still fall through to the legacy `sk-` path.
+		if matched, ok := tryOAuthBearerAuth(c); matched {
+			if !ok {
+				return
+			}
+			c.Next()
+			return
+		}
 		// 先检测是否为ws
 		if c.Request.Header.Get("Sec-WebSocket-Protocol") != "" {
 			// Sec-WebSocket-Protocol: realtime, openai-insecure-api-key.sk-xxx, openai-beta.realtime-v1
@@ -416,11 +702,21 @@ func TokenAuth() func(c *gin.Context) {
 			}
 		}
 		if err != nil {
-			if errors.Is(err, model.ErrDatabase) {
+			switch {
+			case errors.Is(err, model.ErrDatabase):
 				common.SysLog("TokenAuth ValidateUserToken database error: " + err.Error())
 				abortWithOpenAiMessage(c, http.StatusInternalServerError,
 					common.TranslateMessage(c, i18n.MsgDatabaseError))
-			} else {
+			case errors.Is(err, model.ErrTokenExhausted):
+				abortWithOpenAiMessage(c, http.StatusPaymentRequired,
+					common.TranslateMessage(c, i18n.MsgQuotaInsufficient))
+			case errors.Is(err, model.ErrTokenExpired):
+				abortWithOpenAiMessage(c, http.StatusUnauthorized,
+					common.TranslateMessage(c, i18n.MsgTokenExpired))
+			case errors.Is(err, model.ErrTokenDisabled):
+				abortWithOpenAiMessage(c, http.StatusUnauthorized,
+					common.TranslateMessage(c, i18n.MsgTokenStatusUnavailable))
+			default:
 				abortWithOpenAiMessage(c, http.StatusUnauthorized,
 					common.TranslateMessage(c, i18n.MsgTokenInvalid))
 			}
@@ -433,11 +729,11 @@ func TokenAuth() func(c *gin.Context) {
 			logger.LogDebug(c, "Token has IP restrictions, checking client IP %s", clientIp)
 			ip := net.ParseIP(clientIp)
 			if ip == nil {
-				abortWithOpenAiMessage(c, http.StatusForbidden, "无法解析客户端 IP 地址")
+				abortWithOpenAiMessage(c, http.StatusForbidden, "unable to parse client IP address")
 				return
 			}
 			if common.IsIpInCIDRList(ip, allowIps) == false {
-				abortWithOpenAiMessage(c, http.StatusForbidden, "您的 IP 不在令牌允许访问的列表中", types.ErrorCodeAccessDenied)
+				abortWithOpenAiMessage(c, http.StatusForbidden, "your IP is not in the token's allowed access list", types.ErrorCodeAccessDenied)
 				return
 			}
 			logger.LogDebug(c, "Client IP %s passed the token IP restrictions check", clientIp)
@@ -461,16 +757,19 @@ func TokenAuth() func(c *gin.Context) {
 		userGroup := userCache.Group
 		tokenGroup := token.Group
 		if tokenGroup != "" {
-			// check common.UserUsableGroups[userGroup]
-			if _, ok := service.GetUserUsableGroups(userGroup)[tokenGroup]; !ok {
-				abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("无权访问 %s 分组", tokenGroup))
-				return
-			}
-			// check group in common.GroupRatio
-			if !ratio_setting.ContainsGroupRatio(tokenGroup) {
-				if tokenGroup != "auto" {
-					abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("分组 %s 已被弃用", tokenGroup))
+			// A composite pinned group ("vip,discount") validates per element; the
+			// channel-select engine later resolves the concrete group per request.
+			for _, g := range service.ParseTokenGroups(tokenGroup) {
+				if !service.GroupInUserUsableGroups(userGroup, g) {
+					abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("No permission to access group %s", g))
 					return
+				}
+				// check group in common.GroupRatio
+				if !ratio_setting.ContainsGroupRatio(g) {
+					if g != "auto" {
+						abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("Group %s has been deprecated", g))
+						return
+					}
 				}
 			}
 			userGroup = tokenGroup
@@ -515,6 +814,9 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 			common.SetContextKey(c, constant.ContextKeyTokenAutoGroups, autoGroups)
 		}
 	}
+	if token.GroupMapping != "" {
+		common.SetContextKey(c, constant.ContextKeyTokenGroupMapping, token.GroupMapping)
+	}
 	if len(parts) > 1 {
 		if model.IsAdmin(token.UserId) {
 			id, err := strconv.Atoi(parts[1])
@@ -530,8 +832,8 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 			})
 		} else {
 			c.Header("specific_channel_version", "701e3ae1dc3f7975556d354e0675168d004891c8")
-			abortWithOpenAiMessage(c, http.StatusForbidden, "普通用户不支持指定渠道")
-			return fmt.Errorf("普通用户不支持指定渠道")
+			abortWithOpenAiMessage(c, http.StatusForbidden, "regular users cannot specify a channel")
+			return fmt.Errorf("regular users cannot specify a channel")
 		}
 	}
 	return nil

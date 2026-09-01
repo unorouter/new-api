@@ -84,11 +84,13 @@ export const CHANNEL_TYPES = {
   59: 'Sub2API',
   60: 'New API',
   61: 'Task Plugin',
+  62: 'AI Horde',
+  63: 'Runware',
 } as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
   1, 14, 33, 24, 43, 3, 41, 48, 60, 58, 61, 42, 34, 20, 4, 40, 27, 25, 17, 26,
-  15, 46, 23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 59, 22, 21,
+  15, 46, 23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 59, 62, 63, 22, 21,
   44, 2, 5, 36, 50, 51, 52, 53, 54, 55, 56,
 ]
 
@@ -143,7 +145,9 @@ export const CHANNEL_STATUS_LABELS = {
 export const CHANNEL_STATUS_OPTIONS = [
   { value: 'all', label: 'All Status' },
   { value: 'enabled', label: 'Enabled' },
-  { value: 'disabled', label: 'Disabled' },
+  { value: 'disabled', label: 'All Disabled' },
+  { value: 'manual_disabled', label: 'Disabled' },
+  { value: 'auto_disabled', label: 'Auto Disabled' },
 ] as const
 
 export const CHANNEL_STATUS_CONFIG = {

@@ -4,16 +4,17 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/go-fuego/fuego"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -43,17 +44,22 @@ func setupTaskPluginBindChannelTest(t *testing.T) {
 	})
 }
 
-func postAddChannel(t *testing.T, userID, role int, body string) *httptest.ResponseRecorder {
+func postAddChannel(t *testing.T, userID, role int, body string) dto.MessageResponse {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	recorder := httptest.NewRecorder()
-	context, _ := gin.CreateTestContext(recorder)
-	context.Set("id", userID)
-	context.Set("role", role)
-	context.Request = httptest.NewRequest(http.MethodPost, "/api/channel", strings.NewReader(body))
-	context.Request.Header.Set("Content-Type", "application/json")
-	AddChannel(context)
-	return recorder
+	ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ginCtx.Set("id", userID)
+	ginCtx.Set("role", role)
+	ginCtx.Request = httptest.NewRequest(http.MethodPost, "/api/channel", nil)
+
+	var request AddChannelRequest
+	require.NoError(t, common.UnmarshalJsonStr(body, &request))
+	ctx := fuego.NewMockContext[AddChannelRequest, any](request, nil)
+	ctx.CommonCtx = ginCtx
+
+	payload, err := AddChannel(ctx)
+	require.NoError(t, err)
+	return payload
 }
 
 func TestAddChannelTaskPluginRequiresBindPermission(t *testing.T) {
@@ -74,16 +80,16 @@ export function parseTaskResult() { return {}; }
 	openaiBody := `{"mode":"single","channel":{"type":1,"name":"openai-channel","key":"sk","models":"gpt","group":"default"}}`
 
 	adminDenied := postAddChannel(t, 2, common.RoleAdminUser, taskPluginBody)
-	assert.Contains(t, adminDenied.Body.String(), "task plugin channels require the task_plugin.bind permission")
-	assert.Contains(t, adminDenied.Body.String(), `"success":false`)
+	assert.False(t, adminDenied.Success)
+	assert.Contains(t, adminDenied.Message, "task plugin channels require the task_plugin.bind permission")
 
 	rootAllowed := postAddChannel(t, 1, common.RoleRootUser, taskPluginBody)
-	assert.Contains(t, rootAllowed.Body.String(), `"success":true`)
-	assert.NotContains(t, rootAllowed.Body.String(), "task_plugin.bind")
+	assert.True(t, rootAllowed.Success)
+	assert.NotContains(t, rootAllowed.Message, "task_plugin.bind")
 
 	adminOtherType := postAddChannel(t, 2, common.RoleAdminUser, openaiBody)
-	assert.Contains(t, adminOtherType.Body.String(), `"success":true`)
-	assert.NotContains(t, adminOtherType.Body.String(), "task_plugin.bind")
+	assert.True(t, adminOtherType.Success)
+	assert.NotContains(t, adminOtherType.Message, "task_plugin.bind")
 }
 
 func TestUpdateChannelTaskPluginRequiresBindPermission(t *testing.T) {
@@ -119,13 +125,18 @@ export function parseTaskResult() { return {}; }
 		channel.Id,
 	)
 	gin.SetMode(gin.TestMode)
-	recorder := httptest.NewRecorder()
-	context, _ := gin.CreateTestContext(recorder)
-	context.Set("id", 2)
-	context.Set("role", common.RoleAdminUser)
-	context.Request = httptest.NewRequest(http.MethodPut, "/api/channel", strings.NewReader(payload))
-	context.Request.Header.Set("Content-Type", "application/json")
-	UpdateChannel(context)
-	assert.Contains(t, recorder.Body.String(), "task plugin channels require the task_plugin.bind permission")
-	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ginCtx.Set("id", 2)
+	ginCtx.Set("role", common.RoleAdminUser)
+	ginCtx.Request = httptest.NewRequest(http.MethodPut, "/api/channel", nil)
+
+	var patch PatchChannel
+	require.NoError(t, common.UnmarshalJsonStr(payload, &patch))
+	ctx := fuego.NewMockContext[PatchChannel, any](patch, nil)
+	ctx.CommonCtx = ginCtx
+
+	response, err := UpdateChannel(ctx)
+	require.NoError(t, err)
+	assert.False(t, response.Success)
+	assert.Contains(t, response.Message, "task plugin channels require the task_plugin.bind permission")
 }

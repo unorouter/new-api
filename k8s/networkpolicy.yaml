@@ -1,0 +1,54 @@
+# Restricts who may open a connection to the gateway.
+#
+# new-api resolves the client address from CF-Connecting-IP and trusts that header
+# from the whole pod CIDR, because cloudflared's addresses are ephemeral. Pinning
+# TRUSTED_PROXIES to 10.42.0.0/16 narrowed nothing: the default it replaced was
+# 10.0.0.0/8, which CONTAINS the pod CIDR. So every workload in the cluster could
+# write an arbitrary source address into logs.ip, which is the field the takeover
+# was reconstructed from and the field every security alert keys on.
+#
+# A NetworkPolicy is L3/L4 and cannot stop an ALLOWED caller from setting the
+# header. What it does is shrink who can try, from ~97 pods to the three that
+# legitimately reach the gateway. The BFF can still forge for its own requests;
+# that is inherent to terminating TLS in front of an origin and is why the audit
+# trail records the BFF hop rather than pretending otherwise.
+#
+# Callers verified three ways before writing this: runtime env (unorouter's
+# INTERNAL_API_URL, unorouter-bot's NEW_API_URL), the cloudflared tunnel config
+# (api.unorouter.com -> new-api.services:3000), and observed Hubble flows.
+# uno-import and unorouter-mcp reference the gateway in neither their environment
+# nor any observed flow.
+#
+# Kubelet probes are unaffected: Cilium's allow-localhost defaults to `always`
+# precisely so liveness/readiness keep working under a default-deny ingress, and
+# this cluster does not override it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: new-api-ingress
+  namespace: services
+spec:
+  podSelector:
+    matchLabels:
+      app: new-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # The tunnel. Only route in from the internet.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cloudflared
+          podSelector:
+            matchLabels:
+              app: cloudflared
+        # Same-namespace callers: no namespaceSelector means `services`.
+        - podSelector:
+            matchLabels:
+              app: unorouter
+        - podSelector:
+            matchLabels:
+              app: unorouter-bot
+      ports:
+        - protocol: TCP
+          port: 3000

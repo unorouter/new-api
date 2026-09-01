@@ -283,3 +283,28 @@ custom_oauth.name_empty: "Provider name cannot be empty"
 custom_oauth.has_bindings: "Cannot delete provider with existing user bindings"
 custom_oauth.binding_not_found: "OAuth binding not found"
 custom_oauth.provider_id_field_invalid: "Could not extract user ID from provider response"
+
+# Web push notification messages (model availability/price events)
+notify.model_online.title: "{{.Model}} is back online"
+notify.model_online.body: "Available again at {{.Ratio}}x"
+notify.model_offline.title: "{{.Model}} is unavailable"
+notify.model_offline.body: "All providers are currently down"
+notify.model_price_change.title: "{{.Model}} price changed"
+notify.model_price_change.body: "Now {{.Ratio}}x, was {{.PrevRatio}}x"
+notify.model_added.title: "New model: {{.Model}}"
+notify.model_added.body: "Now available at {{.Ratio}}x"
+notify.model_removed.title: "{{.Model}} was removed"
+notify.model_removed.body: "No longer offered"
+
+# Collapsed digests: emitted instead of one push per model when a single
+# recompute cycle changes more models than NOTIFY_BURST_THRESHOLD.
+notify.bulk.model_online.title: "{{.Count}} models are back online"
+notify.bulk.model_online.body: "Including {{.Models}}"
+notify.bulk.model_offline.title: "{{.Count}} models went unavailable"
+notify.bulk.model_offline.body: "Including {{.Models}}"
+notify.bulk.model_added.title: "{{.Count}} new models added"
+notify.bulk.model_added.body: "Including {{.Models}}"
+notify.bulk.model_removed.title: "{{.Count}} models were removed"
+notify.bulk.model_removed.body: "Including {{.Models}}"
+notify.bulk.model_price_change.title: "{{.Count}} model prices changed"
+notify.bulk.model_price_change.body: "Including {{.Models}}"
