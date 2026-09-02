@@ -225,7 +225,10 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	if streamErr := helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if lastStreamData != "" {
-			if !streamingStarted && (responseTextBuilder.Len() > 0 || toolCount > 0) {
+			// Whitespace-only content must not count: a Vertex safety block streams a
+			// lone "\n" and would otherwise commit the response before it is judged empty.
+			if !streamingStarted && (toolCount > 0 || outputStats.ReasoningChars > 0 ||
+				strings.TrimSpace(outputStats.Content.String()) != "") {
 				// First real content has landed: release the held openers, then stream live.
 				streamingStarted = true
 				for _, d := range pendingFlush {
@@ -337,10 +340,13 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// Judged on outputStats, NOT responseTextBuilder: the builder also holds
 	// reasoning because it feeds billing, so testing it for emptiness only ever
 	// caught shape (b) and was blind to every reasoning-only stream.
+	// A content_filter finish with nothing behind it is still a blank reply for the
+	// reader (Vertex safety blocks look exactly like this), so it fails over like
+	// any other empty; it just must not count toward disabling the lane.
+	contentFiltered := streamFinishedOnContentFilter(lastStreamData)
 	emptyResponse := info.RelayFormat == types.RelayFormatOpenAI &&
 		operation_setting.GetMonitorSetting().DisableOnEmptyResponse &&
-		!streamHadOutput(&outputStats, toolCount) &&
-		!streamFinishedOnContentFilter(lastStreamData)
+		!streamHadOutput(&outputStats, toolCount)
 
 	// Case (b): the opener chunks were buffered (streamingStarted stayed false), so
 	// nothing was flushed and the response is uncommitted. Return a retryable error -
@@ -350,9 +356,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// clients and by Cloudflare, and it points at the correct action (retry).
 	if emptyResponse && !streamingStarted {
 		return usage, types.NewOpenAIError(
-			fmt.Errorf("the upstream provider returned an empty reply. The request has already been failed over to any other provider serving this model; retrying usually clears it"),
+			errors.New(emptyResponseMessage(contentFiltered)),
 			types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests,
-			emptyResponseDisableOption(info)...)
+			emptyResponseOptions(info, contentFiltered)...)
 	}
 
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
@@ -368,6 +374,22 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	return usage, nil
+}
+
+// emptyResponseOptions: a content-filter empty is the content being refused, not
+// the lane being dead, so it never feeds the empty-response disable counter.
+func emptyResponseOptions(info *relaycommon.RelayInfo, contentFiltered bool) []types.NewAPIErrorOptions {
+	if contentFiltered {
+		return []types.NewAPIErrorOptions{types.ErrOptionWithSkipDisable()}
+	}
+	return emptyResponseDisableOption(info)
+}
+
+func emptyResponseMessage(contentFiltered bool) string {
+	if contentFiltered {
+		return "the upstream provider blocked this content and returned nothing. The request has already been failed over to any other provider serving this model"
+	}
+	return "the upstream provider returned an empty reply. The request has already been failed over to any other provider serving this model; retrying usually clears it"
 }
 
 // emptyResponseDisableOption returns ErrOptionWithSkipDisable while the channel is
@@ -536,15 +558,16 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	// returns 200). Classify it as a channel-empty-response fault so the request fails
 	// over to a sibling. The full body is buffered here (nothing committed to the
 	// client yet), so failover is always clean.
-	// Guarded: only OpenAI-format chat, only when the operator flag is on, and never
-	// for a legitimate content-filter refusal (which is a valid non-empty verdict).
-	if info.RelayFormat == types.RelayFormatOpenAI && !contentFiltered &&
+	// Guarded: only OpenAI-format chat, only when the operator flag is on. A
+	// content-filter refusal WITH text is a real reply and passes; one with no
+	// text is blank to the reader and fails over, without counting against the lane.
+	if info.RelayFormat == types.RelayFormatOpenAI &&
 		operation_setting.GetMonitorSetting().DisableOnEmptyResponse &&
 		!openAIResponseHasOutput(&simpleResponse) {
 		return nil, types.NewOpenAIError(
-			fmt.Errorf("upstream returned an empty response (no choices/content)"),
+			errors.New(emptyResponseMessage(contentFiltered)),
 			types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests,
-			emptyResponseDisableOption(info)...)
+			emptyResponseOptions(info, contentFiltered)...)
 	}
 
 	forceFormat := false

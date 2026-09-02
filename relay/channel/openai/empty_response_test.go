@@ -1,12 +1,18 @@
 package openai
 
 import (
+	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/gin-gonic/gin"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -146,4 +152,48 @@ func TestStreamHadOutput(t *testing.T) {
 			assert.Equal(t, tc.wantBuilt, builder.String())
 		})
 	}
+}
+
+// A content_filter finish with no text is blank for the reader: it must fail over
+// like any other empty reply (Vertex safety blocks stream a lone "\n" and were
+// billed as a 200), but it is the content being refused, not the lane being
+// dead, so it never counts toward the channel's empty-response disable.
+func TestEmptyResponseContentFilterFailsOverWithoutDisable(t *testing.T) {
+	opts := emptyResponseOptions(nil, true)
+	apiErr := types.NewOpenAIError(errors.New(emptyResponseMessage(true)),
+		types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests, opts...)
+	assert.True(t, types.IsSkipDisableError(apiErr))
+	assert.NotEqual(t, emptyResponseMessage(true), emptyResponseMessage(false))
+	assert.Contains(t, emptyResponseMessage(true), "blocked this content")
+}
+
+func TestOaiStreamHandlerContentFilterBlankFailsOver(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+	ms := operation_setting.GetMonitorSetting()
+	oldFlag := ms.DisableOnEmptyResponse
+	ms.DisableOnEmptyResponse = true
+	t.Cleanup(func() { ms.DisableOnEmptyResponse = oldFlag })
+
+	// Vertex shape: role opener, a whitespace-only delta, then content_filter.
+	sse := `data: {"id":"chatcmpl-v","object":"chat.completion.chunk","created":100,"model":"glm-4.7","choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"\n"}}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"content_filter"}],"usage":{"prompt_tokens":3000,"completion_tokens":1,"total_tokens":3001}}
+
+data: [DONE]
+
+`
+	c, recorder, resp, info := newStreamTestContext(t, sse)
+	_, apiErr := OaiStreamHandler(c, info, resp)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, types.ErrorCodeChannelEmptyResponse, apiErr.GetErrorCode())
+	assert.Equal(t, http.StatusTooManyRequests, apiErr.StatusCode)
+	assert.True(t, types.IsSkipDisableError(apiErr), "content-filter empties must not disable the lane")
+	assert.Empty(t, recorder.Body.String(), "nothing may be committed to the client before failover")
 }
