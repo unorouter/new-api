@@ -64,6 +64,25 @@ spec:
       backup.velero.io/backup-volumes-excludes: pgdata,scratch-data,shm
   imageName: ghcr.io/cloudnative-pg/postgresql:15-standard-bookworm
   instances: 3
+  # 2026-09-02: five primary moves in 40 minutes. Four were manual promotes, but
+  # the reason they were being made is that node1 (4 cores, also etcd leader,
+  # Prometheus, ArgoCD) saturates within 90s of hosting the primary, and with no
+  # CPU request postgres carries the kernel-minimum CFS weight there, so it is the
+  # first thing starved. A request fixes the weight; there is deliberately still no
+  # limit (a cap makes postgres thrash, see the runbook's memory posture).
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 1000m
+  # A readiness blip of a few seconds used to become a full failover immediately
+  # (failoverDelay 0) and cost the app ~2 minutes of no-route-to-host. Waiting 30s
+  # lets a transient recover; a real crash still fails over.
+  failoverDelay: 30
+  probes:
+    readiness:
+      # 5s was the default; under load the instance manager's own check can take
+      # longer than that without postgres being unhealthy.
+      timeoutSeconds: 10
   # Surfaces the new-api audit trail (logs.ip, admin actions, key reveals, 2FA churn) as
   # Prometheus series so the security alerts in infra rules-security.yaml can fire. Added
   # after the 2026-08-26 takeover, which was fully recorded in `logs` and alerted on by
@@ -81,9 +100,6 @@ spec:
         key: queries
       - name: cnpg-newapi-security
         key: queries
-  resources:
-    requests:
-      memory: 1Gi
   # barman-cloud-backup runs in the postgres container -> the boto3 checksum-disable env must
   # be HERE (not just instanceSidecarConfiguration). Fixes the Hetzner Ceph multipart hang.
   env:
