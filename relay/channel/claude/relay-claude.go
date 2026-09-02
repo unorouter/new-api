@@ -671,28 +671,7 @@ func countClaudeStreamBillableTools(c *gin.Context, info *relaycommon.RelayInfo,
 }
 
 func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
-	if claudeInfo.Usage.PromptTokens == 0 {
-		//上游出错
-	}
-	if claudeInfo.Usage.CompletionTokens == 0 || !claudeInfo.Done {
-		if common.DebugEnabled {
-			common.SysLog("claude response usage is not complete, maybe upstream error")
-		}
-		// 只补缺失字段，不整份覆盖——保留 message_start 已拿到的 cache 字段
-		fallback := service.ResponseText2Usage(c, claudeInfo.ResponseText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
-		if claudeInfo.Usage.CompletionTokens == 0 ||
-			(!claudeInfo.Done && fallback.CompletionTokens > claudeInfo.Usage.CompletionTokens) {
-			claudeInfo.Usage.CompletionTokens = fallback.CompletionTokens
-		}
-		if claudeInfo.Usage.PromptTokens == 0 {
-			claudeInfo.Usage.PromptTokens = fallback.PromptTokens
-		}
-		claudeInfo.Usage.TotalTokens = claudeInfo.Usage.PromptTokens + claudeInfo.Usage.CompletionTokens
-	}
-	if claudeInfo.Usage != nil {
-		claudeInfo.Usage.UsageSemantic = "anthropic"
-	}
-	relayconvert.FinalizeClaudeStreamBillingUsage(claudeInfo)
+	finalizeClaudeStreamUsage(c, info, claudeInfo)
 
 	if info.RelayFormat == types.RelayFormatClaude {
 		//
@@ -718,6 +697,32 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 		}
 		helper.Done(c)
 	}
+}
+
+// finalizeClaudeStreamUsage fills usage fields the upstream stream did not
+// report, so a truncated or usage-less stream still bills from the text. It
+// writes nothing: ClaudeResponsesStreamHandler owns its own terminal events and
+// must not get the legacy chat-format trailer above.
+func finalizeClaudeStreamUsage(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
+	if claudeInfo.Usage.CompletionTokens == 0 || !claudeInfo.Done {
+		if common.DebugEnabled {
+			common.SysLog("claude response usage is not complete, maybe upstream error")
+		}
+		// 只补缺失字段，不整份覆盖——保留 message_start 已拿到的 cache 字段
+		fallback := service.ResponseText2Usage(c, claudeInfo.ResponseText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+		if claudeInfo.Usage.CompletionTokens == 0 ||
+			(!claudeInfo.Done && fallback.CompletionTokens > claudeInfo.Usage.CompletionTokens) {
+			claudeInfo.Usage.CompletionTokens = fallback.CompletionTokens
+		}
+		if claudeInfo.Usage.PromptTokens == 0 {
+			claudeInfo.Usage.PromptTokens = fallback.PromptTokens
+		}
+		claudeInfo.Usage.TotalTokens = claudeInfo.Usage.PromptTokens + claudeInfo.Usage.CompletionTokens
+	}
+	if claudeInfo.Usage != nil {
+		claudeInfo.Usage.UsageSemantic = "anthropic"
+	}
+	relayconvert.FinalizeClaudeStreamBillingUsage(claudeInfo)
 }
 
 func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
