@@ -1,19 +1,19 @@
 package relay
 
 import (
-	"bufio"
 	"bytes"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relay/channel"
+	openaichannel "github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,8 +21,12 @@ import (
 // responsesViaChatCompletions converts a Responses API request to a Chat
 // Completions request, sends it upstream via /v1/chat/completions, and
 // converts the response back to Responses format. This is the inverse of
-// chatCompletionsViaResponses and is used for models that do not support the
-// Responses API natively (e.g. image generation models on upstream proxies).
+// textRequestViaResponses and serves every OpenAI-chat upstream that does not
+// speak the Responses API natively. The response handler is chosen by what
+// the CLIENT asked for, not by what the upstream sent back: a client that
+// asked to stream gets Responses SSE even if the upstream answered with one
+// JSON body, and a client that did not gets one JSON body even if the
+// upstream streamed.
 func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, request *dto.OpenAIResponsesRequest) (*dto.Usage, *types.NewAPIError) {
 	chatReq, err := service.ResponsesRequestToChatCompletionsRequest(request)
 	if err != nil {
@@ -76,174 +80,32 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 
 	httpResp := resp.(*http.Response)
-	isStream := strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
+	clientStream := info.IsStream
+	upstreamStream := isResponsesEventStreamContentType(httpResp.Header.Get("Content-Type"))
+	info.IsStream = clientStream || upstreamStream
 	if httpResp.StatusCode != http.StatusOK {
 		newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 		service.ResetStatusCode(newApiErr, statusCodeMappingStr)
 		return nil, newApiErr
 	}
 
-	// The upstream responded with a chat completions response. Convert it
-	// back to the Responses API format before returning to the caller.
 	var usage *dto.Usage
 	var newApiErr *types.NewAPIError
-	if isStream {
-		usage, newApiErr = oaiChatStreamToResponsesHandler(c, info, httpResp)
-	} else {
-		usage, newApiErr = oaiChatToResponsesHandler(c, info, httpResp)
+	switch {
+	case upstreamStream && clientStream:
+		usage, newApiErr = openaichannel.OaiChatToResponsesStreamHandler(c, info, httpResp)
+	case upstreamStream:
+		info.IsStream = false
+		usage, newApiErr = openaichannel.OaiChatToResponsesBufferedStreamHandler(c, info, httpResp)
+	case clientStream:
+		usage, newApiErr = openaichannel.OaiChatToResponsesReplayHandler(c, info, httpResp)
+	default:
+		usage, newApiErr = openaichannel.OaiChatToResponsesHandler(c, info, httpResp)
 	}
 	if newApiErr != nil {
 		service.ResetStatusCode(newApiErr, statusCodeMappingStr)
 		return nil, newApiErr
 	}
-	return usage, nil
-}
-
-// oaiChatToResponsesHandler reads a non-streaming Chat Completions response
-// and re-emits it as a Responses API response.
-func oaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
-	if resp == nil || resp.Body == nil {
-		return nil, types.NewOpenAIError(nil, types.ErrorCodeBadResponse, http.StatusInternalServerError)
-	}
-	defer service.CloseResponseBodyGracefully(resp)
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
-	}
-
-	var chatResp dto.OpenAITextResponse
-	if err := common.Unmarshal(body, &chatResp); err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
-	}
-
-	responsesResp, _, err := service.ChatCompletionsResponseToResponsesResponse(&chatResp, info.UpstreamModelName)
-	if err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
-	}
-
-	usage := &dto.Usage{
-		PromptTokens:     chatResp.Usage.PromptTokens,
-		CompletionTokens: chatResp.Usage.CompletionTokens,
-		TotalTokens:      chatResp.Usage.TotalTokens,
-	}
-	if usage.TotalTokens == 0 {
-		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	}
-	usage.PromptTokensDetails = chatResp.Usage.PromptTokensDetails
-	usage.CompletionTokenDetails = chatResp.Usage.CompletionTokenDetails
-
-	responseBody, err := common.Marshal(responsesResp)
-	if err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
-	}
-
-	// Write the Responses API JSON back to the client using the original
-	// HTTP response wrapper so that content-type and status are set correctly.
-	service.IOCopyBytesGracefully(c, resp, responseBody)
-	return usage, nil
-}
-
-// isImageGenerationModelForResponses checks if a model is an image generation
-// model that should be routed through chat completions when called via the
-// Responses API. Uses the upstream model name (after mapping) to catch mapped
-// names like gpt-image-1.5-all.
-func isImageGenerationModelForResponses(modelName string) bool {
-	return common.IsImageGenerationModel(modelName)
-}
-
-// oaiChatStreamToResponsesHandler reads a streaming (SSE) Chat Completions
-// response, accumulates all chunks into a single message, then emits it as a
-// non-streaming Responses API JSON response. This handles upstreams that always
-// return SSE even when stream was not requested (common with image generation
-// proxies).
-func oaiChatStreamToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
-	if resp == nil || resp.Body == nil {
-		return nil, types.NewOpenAIError(nil, types.ErrorCodeBadResponse, http.StatusInternalServerError)
-	}
-	defer service.CloseResponseBodyGracefully(resp)
-
-	var (
-		contentBuilder strings.Builder
-		model          string
-		usage          = &dto.Usage{}
-		finishReason   = "stop"
-	)
-
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "[DONE]" || data == "" {
-			continue
-		}
-
-		var chunk dto.ChatCompletionsStreamResponse
-		if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
-			continue
-		}
-
-		if chunk.Model != "" {
-			model = chunk.Model
-		}
-
-		if chunk.Usage != nil {
-			usage = chunk.Usage
-		}
-
-		for _, choice := range chunk.Choices {
-			if choice.Delta.Content != nil {
-				contentBuilder.WriteString(*choice.Delta.Content)
-			}
-			if choice.FinishReason != nil {
-				finishReason = *choice.FinishReason
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
-	}
-
-	if model == "" {
-		model = info.UpstreamModelName
-	}
-
-	// Build a synthetic OpenAITextResponse from accumulated chunks
-	chatResp := &dto.OpenAITextResponse{
-		Id:     "chatcmpl-" + common.GetUUID(),
-		Object: "chat.completion",
-		Model:  model,
-		Choices: []dto.OpenAITextResponseChoice{{
-			Index:        0,
-			Message:      dto.Message{Role: "assistant", Content: contentBuilder.String()},
-			FinishReason: finishReason,
-		}},
-		Usage: *usage,
-	}
-
-	if usage.TotalTokens == 0 {
-		text := contentBuilder.String()
-		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
-		chatResp.Usage = *usage
-	}
-
-	responsesResp, _, err := service.ChatCompletionsResponseToResponsesResponse(chatResp, info.UpstreamModelName)
-	if err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
-	}
-
-	responseBody, err := common.Marshal(responsesResp)
-	if err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
-	}
-
-	service.IOCopyBytesGracefully(c, resp, responseBody)
 	return usage, nil
 }
 
@@ -263,13 +125,20 @@ func oaiChatStreamToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo
 //
 // A channel opts out with capabilities.responses=true, and channel types that
 // are Responses-native by definition (Codex, and relays that proxy the whole
-// OpenAI surface) never convert.
+// OpenAI surface) never convert. Adaptors that do not speak OpenAI chat on the
+// wire never convert either: the detour would parse a Claude or Gemini body as
+// OpenAI chat, and those adaptors already own Responses through their own
+// ConvertOpenAIResponsesRequest and DoResponse.
 func shouldResponsesUseChatCompletions(info *relaycommon.RelayInfo) bool {
+	switch info.ApiType {
+	case constant.APITypeAnthropic, constant.APITypeAws, constant.APITypeGemini, constant.APITypeVertexAi:
+		return false
+	}
 	modelToCheck := info.UpstreamModelName
 	if modelToCheck == "" {
 		modelToCheck = info.OriginModelName
 	}
-	if isImageGenerationModelForResponses(modelToCheck) {
+	if common.IsImageGenerationModel(modelToCheck) {
 		return true
 	}
 	if caps := info.ChannelSetting.Capabilities; caps != nil && caps.Responses != nil {

@@ -77,9 +77,8 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		return newConvertRequestFailedError(c, info, err)
 	}
 
-	// Image generation models may not be supported via /v1/responses on
-	// upstream proxies. Convert to /v1/chat/completions and convert the
-	// response back to Responses format.
+	// Upstreams that only speak chat completions get the request converted to
+	// /v1/chat/completions and the response converted back to Responses format.
 	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
 		!info.ChannelSetting.PassThroughBodyEnabled &&
 		shouldResponsesUseChatCompletions(info) {
