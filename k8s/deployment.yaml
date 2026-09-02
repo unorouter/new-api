@@ -25,6 +25,20 @@ spec:
     metadata:
       labels: { app: new-api, tier: master }
     spec:
+      affinity:
+        # keep the gateway off node1: it is the 4-core node carrying etcd's leader,
+        # Prometheus and ArgoCD, and it saturated within 90s every time it also
+        # hosted the pg primary on 2026-09-02. The slave that sat there drew ~0.9
+        # core on its own. Preferred, not required, so a two-node cluster still
+        # schedules.
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: [unorouter-node1]
       containers:
         - name: new-api
           # pinned by this repo's GHCR workflow (deploy job); ArgoCD rolls it out.
@@ -113,6 +127,19 @@ spec:
       labels: { app: new-api, tier: slave }
     spec:
       affinity:
+        # keep the gateway off node1: it is the 4-core node carrying etcd's leader,
+        # Prometheus and ArgoCD, and it saturated within 90s every time it also
+        # hosted the pg primary on 2026-09-02. The slave that sat there drew ~0.9
+        # core on its own. Preferred, not required, so a two-node cluster still
+        # schedules.
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: [unorouter-node1]
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
