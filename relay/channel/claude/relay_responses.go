@@ -161,7 +161,10 @@ func ClaudeResponsesStreamHandler(c *gin.Context, resp *http.Response, info *rel
 		return claudeInfo.Usage, nil
 	}
 
-	HandleStreamFinalResponse(c, info, claudeInfo)
+	// Usage fix-up only. HandleStreamFinalResponse would also replay the legacy
+	// chat-format trailer (a second response.created, in_progress, completed and
+	// a [DONE]) on top of the terminal events FinalizeStreamResponse emits below.
+	finalizeClaudeStreamUsage(c, info, claudeInfo)
 	openAIUsage := buildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
 	state.SetUsage(&openAIUsage)
 	finalResults, err := service.FinalizeStreamResponse(c, info, state)
