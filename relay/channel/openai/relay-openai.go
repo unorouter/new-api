@@ -22,11 +22,11 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// openAIResponseHasOutput reports whether a non-stream OpenAI chat response
+// OpenAIResponseHasOutput reports whether a non-stream OpenAI chat response
 // carries usable output in any choice: text content, reasoning, a tool call, or
 // a legacy text completion. Mirrors chatChoiceHasOutput in the channel autotest
 // so the live path and the scheduled test agree on "empty".
-func openAIResponseHasOutput(resp *dto.OpenAITextResponse) bool {
+func OpenAIResponseHasOutput(resp *dto.OpenAITextResponse) bool {
 	for i := range resp.Choices {
 		msg := &resp.Choices[i].Message
 		if strings.TrimSpace(msg.StringContent()) != "" {
@@ -48,7 +48,7 @@ func openAIResponseHasOutput(resp *dto.OpenAITextResponse) bool {
 	return false
 }
 
-// streamHadOutput is the streaming twin of openAIResponseHasOutput: reasoning
+// streamHadOutput is the streaming twin of OpenAIResponseHasOutput: reasoning
 // counts as the answer only when the turn actually completed (Qwen-style models
 // whose reasoning IS the reply). A stream that ends mid-reasoning - on a length
 // ceiling, or with no finish_reason at all because the upstream just stopped -
@@ -563,7 +563,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	// text is blank to the reader and fails over, without counting against the lane.
 	if info.RelayFormat == types.RelayFormatOpenAI &&
 		operation_setting.GetMonitorSetting().DisableOnEmptyResponse &&
-		!openAIResponseHasOutput(&simpleResponse) {
+		!OpenAIResponseHasOutput(&simpleResponse) {
 		return nil, types.NewOpenAIError(
 			errors.New(emptyResponseMessage(contentFiltered)),
 			types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests,

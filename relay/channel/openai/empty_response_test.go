@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// openAIResponseHasOutput gates the live empty-response auto-disable. These cases
+// OpenAIResponseHasOutput gates the live empty-response auto-disable. These cases
 // are real upstream shapes captured from Bailian/OpenAI so a normal reply is never
 // misread as empty, and a genuinely empty reply is.
 func TestOpenAIResponseHasOutput(t *testing.T) {
@@ -71,7 +71,7 @@ func TestOpenAIResponseHasOutput(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, openAIResponseHasOutput(parse(tc.body)))
+			assert.Equal(t, tc.want, OpenAIResponseHasOutput(parse(tc.body)))
 		})
 	}
 }

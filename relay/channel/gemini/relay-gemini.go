@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -259,9 +260,17 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 	finishReason := constant.FinishReasonStop
 	toolCallIndexByChoice := make(map[int]map[string]int)
 	nextToolCallIndexByChoice := make(map[int]int)
+	sawOutput := false
 
 	usage, err := geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) bool {
 		response, isStop := streamResponseGeminiChat2OpenAI(geminiResponse)
+		for choiceIdx := range response.Choices {
+			delta := &response.Choices[choiceIdx].Delta
+			if len(delta.ToolCalls) > 0 || strings.TrimSpace(delta.GetContentString()) != "" ||
+				strings.TrimSpace(delta.GetReasoningContent()) != "" {
+				sawOutput = true
+			}
+		}
 
 		response.Id = id
 		response.Created = createAt
@@ -345,6 +354,17 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 		return usage, err
 	}
 
+	// Bytes are already committed, so this cannot fail over (mirrors the OpenAI
+	// adapter's post-start case): surface it as an error so it is logged and not
+	// billed as a good reply, and let the client resend.
+	if !sawOutput && info.RelayFormat != types.RelayFormatGemini &&
+		operation_setting.GetMonitorSetting().DisableOnEmptyResponse {
+		return usage, types.NewOpenAIError(
+			errors.New("the upstream provider returned an empty reply after the response had already started, so it could not be retried automatically. Send the message again"),
+			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable,
+			types.ErrOptionWithSkipRetry(), types.ErrOptionWithSkipDisable())
+	}
+
 	response := helper.GenerateFinalUsageResponse(id, createAt, info.UpstreamModelName, *usage)
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo != nil && !info.ClaudeConvertInfo.Done {
 		response = helper.GenerateStopResponse(id, createAt, info.UpstreamModelName, finishReason)
@@ -425,6 +445,20 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	}
 
 	fullTextResponse.Usage = usage
+
+	// Same rule as the OpenAI adapter: a candidate made only of thought parts
+	// (MAX_TOKENS after thinking ate the budget, or a SAFETY stop) converts to
+	// empty content and reached the client as a billable 200. Images are real
+	// output with no text, so they are exempt. Skip-disable: it is the budget or
+	// the content being refused, never a dead lane.
+	if imageCount == 0 && info.RelayFormat != types.RelayFormatGemini &&
+		operation_setting.GetMonitorSetting().DisableOnEmptyResponse &&
+		!openai.OpenAIResponseHasOutput(fullTextResponse) {
+		return nil, types.NewOpenAIError(
+			errors.New("the upstream provider returned an empty reply. The request has already been failed over to any other provider serving this model; retrying usually clears it"),
+			types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests,
+			types.ErrOptionWithSkipDisable())
+	}
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
