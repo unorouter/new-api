@@ -16,7 +16,23 @@ import (
 	"github.com/go-fuego/fuego"
 )
 
+type codexWhamFetchFunc func(ctx context.Context, client *http.Client, baseURL, accessToken, accountID string) (int, []byte, error)
+
 func GetCodexChannelUsage(c fuego.ContextNoBody) (dto.CodexUsageData, error) {
+	return fetchCodexChannelWhamData(c, service.FetchCodexWhamUsage, "failed to fetch codex usage")
+}
+
+func GetCodexChannelRateLimitResetCredits(c fuego.ContextNoBody) (dto.CodexUsageData, error) {
+	return fetchCodexChannelWhamData(c, service.FetchCodexWhamRateLimitResetCredits, "failed to fetch codex reset credits")
+}
+
+func ResetCodexChannelUsage(c fuego.ContextNoBody) (dto.CodexUsageData, error) {
+	return fetchCodexChannelWhamData(c, service.ConsumeCodexWhamRateLimitResetCredit, "failed to reset codex usage")
+}
+
+// fetchCodexChannelWhamData resolves the channel's Codex OAuth credential, calls
+// one wham endpoint, and retries once after a token refresh on 401/403.
+func fetchCodexChannelWhamData(c fuego.ContextNoBody, fetch codexWhamFetchFunc, logPrefix string) (dto.CodexUsageData, error) {
 	channelId, err := c.PathParamIntErr("id")
 	if err != nil {
 		return dto.CodexUsageData{Success: false, Message: fmt.Sprintf("invalid channel id: %v", err)}, nil
@@ -59,9 +75,9 @@ func GetCodexChannelUsage(c fuego.ContextNoBody) (dto.CodexUsageData, error) {
 	ctx, cancel := context.WithTimeout(reqCtx, 15*time.Second)
 	defer cancel()
 
-	statusCode, body, err := service.FetchCodexWhamUsage(ctx, client, ch.GetBaseURL(), accessToken, accountID)
+	statusCode, body, err := fetch(ctx, client, ch.GetBaseURL(), accessToken, accountID)
 	if err != nil {
-		common.SysError("failed to fetch codex usage: " + err.Error())
+		common.SysError(logPrefix + ": " + err.Error())
 		return dto.CodexUsageData{Success: false, Message: "Please try again later"}, nil
 	}
 
@@ -87,9 +103,9 @@ func GetCodexChannelUsage(c fuego.ContextNoBody) (dto.CodexUsageData, error) {
 
 			ctx2, cancel2 := context.WithTimeout(reqCtx, 15*time.Second)
 			defer cancel2()
-			statusCode, body, err = service.FetchCodexWhamUsage(ctx2, client, ch.GetBaseURL(), oauthKey.AccessToken, accountID)
+			statusCode, body, err = fetch(ctx2, client, ch.GetBaseURL(), oauthKey.AccessToken, accountID)
 			if err != nil {
-				common.SysError("failed to fetch codex usage after refresh: " + err.Error())
+				common.SysError(logPrefix + " after refresh: " + err.Error())
 				return dto.CodexUsageData{Success: false, Message: "Please try again later"}, nil
 			}
 		}

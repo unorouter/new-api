@@ -123,6 +123,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		userPublicCritical.GinPost("/login/2fa", controller.Verify2FALogin, dto.GinResp[dto.Response[dto.LoginData]](), dto.GinBody[dto.Verify2FARequest]())
 		userPublicCritical.GinPost("/passkey/login/begin", controller.PasskeyLoginBegin, dto.GinResp[dto.Response[dto.PasskeyOptionsData]]())
 		userPublicCritical.GinPost("/passkey/login/finish", controller.PasskeyLoginFinish, dto.GinResp[dto.Response[dto.LoginData]]())
+		userGroup.GET("/login/encryption-key", middleware.DisableCache(), controller.GetPasswordEncryptionKey)
 		userGroup.POST("/auth/refresh", middleware.SessionCookieOriginGuard(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RefreshAuth)
 		userGroup.POST("/auth/logout", middleware.SessionCookieOriginGuard(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.AuthLogout)
 		userPublic := dto.NewRouter(engine, userGroup, "User", secPublic())
@@ -444,6 +445,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.PostB(chSens, "/:id/codex/oauth/complete", controller.CompleteCodexOAuthForChannel, option.Path("id", "Channel ID"))
 		dto.Post(chSens, "/:id/codex/refresh", controller.RefreshCodexChannelCredential, option.Path("id", "Channel ID"))
 		dto.Get(ch, "/:id/codex/usage", controller.GetCodexChannelUsage, option.Path("id", "Channel ID"))
+		dto.Get(ch, "/:id/codex/usage/reset-credits", controller.GetCodexChannelRateLimitResetCredits, option.Path("id", "Channel ID"))
+		dto.Post(chOp, "/:id/codex/usage/reset", controller.ResetCodexChannelUsage, option.Path("id", "Channel ID"))
 		dto.PostB(chSens, "/ollama/pull", controller.OllamaPullModel)
 		chSens.GinPost("/ollama/pull/stream", controller.OllamaPullModelStream, dto.GinResp[dto.MessageResponse]())
 		dto.DeleteB(chSens, "/ollama/delete", controller.OllamaDeleteModel)
@@ -570,6 +573,25 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.GetP(taskUser, "/self", controller.GetUserTask, dto.PageParams())
 		taskAdmin := dto.NewRouter(engine, taskGroup.Group("", middleware.ModAuth()), "Task", secDashboard())
 		dto.GetP(taskAdmin, "/", controller.GetAllTask, dto.PageParams())
+		taskGroup.GET("/:task_id/artifacts", middleware.UserAuth(), controller.GetDashboardTaskArtifacts)
+
+		// ---- Task plugin routes (upstream; handlers are plain gin) ----
+		taskPluginRoute := apiRouter.Group("/plugin/task", middleware.RootAuth())
+		{
+			taskPluginRoute.GET("", controller.ListTaskPlugins)
+			taskPluginRoute.POST("", controller.UploadTaskPlugin)
+			taskPluginRoute.PUT("", controller.UploadTaskPlugin)
+			taskPluginRoute.GET("/runtime/status", controller.GetTaskPluginRuntime)
+			taskPluginRoute.GET("/marketplace/sources", controller.GetTaskPluginMarketplaceSources)
+			taskPluginRoute.PUT("/marketplace/sources", controller.UpdateTaskPluginMarketplaceSources)
+			taskPluginRoute.GET("/:key", controller.GetTaskPlugin)
+			taskPluginRoute.GET("/:key/versions", controller.GetTaskPluginVersions)
+			taskPluginRoute.POST("/:key/activate", controller.ActivateTaskPlugin)
+			taskPluginRoute.POST("/:key/status", controller.SetTaskPluginStatus)
+			taskPluginRoute.POST("/:key/dryrun", controller.DryRunTaskPlugin)
+			taskPluginRoute.DELETE("/:key/versions/:version", controller.DeleteTaskPluginVersion)
+		}
+		apiRouter.GET("/task_plugin_options", middleware.AdminAuth(), middleware.RequirePermission(authz.TaskPluginBind), controller.GetTaskPluginOptions)
 
 		// ---- Vendor routes (admin) ----
 		vendorGroup := apiRouter.Group("/vendors", middleware.SyncAuth(common.RoleAdminUser))
