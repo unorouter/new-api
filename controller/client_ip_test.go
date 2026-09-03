@@ -40,13 +40,13 @@ func TestPublicClientIp(t *testing.T) {
 		{
 			name:         "no forwarding header falls back to nothing, never the peer",
 			trustedProxy: "10.0.0.0/8",
-			remoteAddr:   "116.202.14.228:1234",
+			remoteAddr:   "198.51.100.7:1234",
 			expected:     "",
 		},
 		{
 			name:         "untrusted proxy cannot inject a client ip",
 			trustedProxy: "192.168.0.0/16",
-			remoteAddr:   "116.202.14.228:1234",
+			remoteAddr:   "198.51.100.7:1234",
 			forwardedFor: "203.0.113.7",
 			expected:     "",
 		},
