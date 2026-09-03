@@ -5656,6 +5656,7 @@
     "Limits only the wait for the first token. A reply that has started streaming is never cut off.": "僅限制等待首個 token 的時間。已開始輸出的回覆不會被中斷。",
     "Per provider (seconds, 0 = off)": "每個服務商（秒，0 = 關閉）",
     "Whole chain (seconds, 0 = off)": "整條重試鏈（秒，0 = 關閉）",
-    "Client": "用戶端"
+    "Client": "用戶端",
+    "Negative quota": "負額度"
   }
 }

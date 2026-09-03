@@ -69,6 +69,21 @@ export function useUsersColumns(): ColumnDef<User>[] {
       size: 40,
     },
     {
+      id: 'row_number',
+      header: '#',
+      cell: ({ row, table }) => {
+        const { pageIndex, pageSize } = table.getState().pagination
+        return (
+          <span className='text-muted-foreground tabular-nums text-xs'>
+            {pageIndex * pageSize + row.index + 1}
+          </span>
+        )
+      },
+      enableSorting: false,
+      enableHiding: false,
+      size: 48,
+    },
+    {
       accessorKey: 'id',
       header: t('ID'),
       cell: ({ row }) => {
