@@ -286,15 +286,17 @@ func AddToken(c fuego.ContextWithBody[dto.CreateTokenRequest]) (dto.MessageRespo
 	if int(count) >= maxTokens {
 		return dto.FailMsg(fmt.Sprintf("maximum token limit reached (%d)", maxTokens))
 	}
-	if token.Group != "auto" {
-		token.CrossGroupRetry = false
+	crossGroupRetry := token.Group == "auto" && token.CrossGroupRetry != nil && *token.CrossGroupRetry
+	groupMapping := ""
+	if token.GroupMapping != nil {
+		groupMapping = *token.GroupMapping
 	}
 	key, err := common.GenerateKey()
 	if err != nil {
 		common.SysLog("failed to generate token key: " + err.Error())
 		return dto.FailMsg("Failed to generate token")
 	}
-	if err := validateTokenGroupMapping(dto.UserID(c), token.GroupMapping); err != nil {
+	if err := validateTokenGroupMapping(dto.UserID(c), groupMapping); err != nil {
 		return dto.FailMsg(err.Error())
 	}
 	cleanToken := model.Token{
@@ -310,8 +312,8 @@ func AddToken(c fuego.ContextWithBody[dto.CreateTokenRequest]) (dto.MessageRespo
 		ModelLimits:        token.ModelLimits,
 		AllowIps:           token.AllowIps,
 		Group:              token.Group,
-		CrossGroupRetry:    token.CrossGroupRetry,
-		GroupMapping:       token.GroupMapping,
+		CrossGroupRetry:    crossGroupRetry,
+		GroupMapping:       groupMapping,
 	}
 	if token.Group == "auto" && token.AutoGroups != nil {
 		if err := setTokenAutoGroups(dto.GinCtx(c), &cleanToken, *token.AutoGroups); err != nil {
@@ -385,11 +387,19 @@ func UpdateToken(c fuego.Context[dto.UpdateTokenRequest, dto.StatusOnlyParams]) 
 			return dto.Fail[TokenResponse]("Token quota is exhausted and cannot be enabled. Please modify the remaining quota or set it to unlimited")
 		}
 	}
+	before := map[string]interface{}{
+		"status":            cleanToken.Status,
+		"group":             cleanToken.Group,
+		"group_mapping":     cleanToken.GroupMapping,
+		"cross_group_retry": cleanToken.CrossGroupRetry,
+	}
 	if p.StatusOnly != "" {
 		cleanToken.Status = token.Status
 	} else {
-		if err := validateTokenGroupMapping(dto.UserID(c), token.GroupMapping); err != nil {
-			return dto.Fail[TokenResponse](err.Error())
+		if token.GroupMapping != nil {
+			if err := validateTokenGroupMapping(dto.UserID(c), *token.GroupMapping); err != nil {
+				return dto.Fail[TokenResponse](err.Error())
+			}
 		}
 		cleanToken.Name = token.Name
 		cleanToken.ExpiredTime = token.ExpiredTime
@@ -399,8 +409,12 @@ func UpdateToken(c fuego.Context[dto.UpdateTokenRequest, dto.StatusOnlyParams]) 
 		cleanToken.ModelLimits = token.ModelLimits
 		cleanToken.AllowIps = token.AllowIps
 		cleanToken.Group = token.Group
-		cleanToken.CrossGroupRetry = token.CrossGroupRetry
-		cleanToken.GroupMapping = token.GroupMapping
+		if token.CrossGroupRetry != nil {
+			cleanToken.CrossGroupRetry = *token.CrossGroupRetry
+		}
+		if token.GroupMapping != nil {
+			cleanToken.GroupMapping = *token.GroupMapping
+		}
 		if token.Group != "auto" {
 			cleanToken.CrossGroupRetry = false
 			_ = cleanToken.SetAutoGroups(nil)
@@ -413,6 +427,25 @@ func UpdateToken(c fuego.Context[dto.UpdateTokenRequest, dto.StatusOnlyParams]) 
 	err = cleanToken.Update()
 	if err != nil {
 		return dto.Fail[TokenResponse](err.Error())
+	}
+	after := map[string]interface{}{
+		"status":            cleanToken.Status,
+		"group":             cleanToken.Group,
+		"group_mapping":     cleanToken.GroupMapping,
+		"cross_group_retry": cleanToken.CrossGroupRetry,
+	}
+	changed := map[string]interface{}{}
+	for k, v := range after {
+		if before[k] != v {
+			changed[k] = map[string]interface{}{"from": before[k], "to": v}
+		}
+	}
+	if len(changed) > 0 {
+		recordUserSecurityAudit(dto.GinCtx(c), dto.UserID(c), "token.update", map[string]interface{}{
+			"id":      cleanToken.Id,
+			"name":    cleanToken.Name,
+			"changed": changed,
+		})
 	}
 	return dto.Ok(*buildMaskedTokenResponse(cleanToken))
 }

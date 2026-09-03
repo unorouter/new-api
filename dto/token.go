@@ -22,10 +22,12 @@ type CreateTokenRequest struct {
 	ModelLimitsEnabled bool    `json:"model_limits_enabled"`
 	ModelLimits        string  `json:"model_limits"`
 	AllowIps           *string `json:"allow_ips"`
-	Group              string    `json:"group"`
-	CrossGroupRetry    bool      `json:"cross_group_retry"`
-	GroupMapping       string    `json:"group_mapping"`
-	AutoGroups         *[]string `json:"auto_groups"`
+	Group              string  `json:"group"`
+	// Pointer fields: a client that predates them (or a hand-written PUT) must
+	// not wipe a pin by omitting the key. nil keeps the stored value.
+	CrossGroupRetry *bool     `json:"cross_group_retry"`
+	GroupMapping    *string   `json:"group_mapping"`
+	AutoGroups      *[]string `json:"auto_groups"`
 }
 
 // UpdateTokenRequest is the request body for PUT /api/token/.
@@ -39,10 +41,12 @@ type UpdateTokenRequest struct {
 	ModelLimitsEnabled bool    `json:"model_limits_enabled"`
 	ModelLimits        string  `json:"model_limits"`
 	AllowIps           *string `json:"allow_ips"`
-	Group              string    `json:"group"`
-	CrossGroupRetry    bool      `json:"cross_group_retry"`
-	GroupMapping       string    `json:"group_mapping"`
-	AutoGroups         *[]string `json:"auto_groups"`
+	Group              string  `json:"group"`
+	// Pointer fields: a client that predates them (or a hand-written PUT) must
+	// not wipe a pin by omitting the key. nil keeps the stored value.
+	CrossGroupRetry *bool     `json:"cross_group_retry"`
+	GroupMapping    *string   `json:"group_mapping"`
+	AutoGroups      *[]string `json:"auto_groups"`
 }
 
 // TokenAutoGroupsData is the response body for GET /api/token/auto_groups.
