@@ -161,6 +161,7 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 	// ---- Playground route ----
 	playgroundRouter := router.Group("/pg")
 	playgroundRouter.Use(middleware.RouteTag("relay"))
+	playgroundRouter.Use(middleware.InflightLimit(middleware.InflightRelay))
 	playgroundRouter.Use(middleware.SystemPerformanceCheck())
 	playgroundRouter.Use(middleware.UserAuth(), middleware.Distribute())
 	pg := dto.NewRouter(engine, playgroundRouter, "Playground", secDashboard())
@@ -171,6 +172,7 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 	// ---- Relay v1 routes ----
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))
+	relayV1Router.Use(middleware.InflightLimit(middleware.InflightRelay))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
 	relayV1Router.Use(middleware.TokenAuth())
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
@@ -241,17 +243,20 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 	// ---- Midjourney relay routes ----
 	relayMjRouter := router.Group("/mj")
 	relayMjRouter.Use(middleware.RouteTag("relay"))
+	relayMjRouter.Use(middleware.InflightLimit(middleware.InflightRelay))
 	relayMjRouter.Use(middleware.SystemPerformanceCheck())
 	registerMjRouterGroup(dto.NewRouter(engine, relayMjRouter, "Midjourney", secToken()), relayMjRouter)
 
 	relayMjModeRouter := router.Group("/:mode/mj")
 	relayMjModeRouter.Use(middleware.RouteTag("relay"))
+	relayMjModeRouter.Use(middleware.InflightLimit(middleware.InflightRelay))
 	relayMjModeRouter.Use(middleware.SystemPerformanceCheck())
 	registerMjRouterGroup(dto.NewRouter(engine, relayMjModeRouter, "Midjourney", secToken()), relayMjModeRouter)
 
 	// ---- Suno relay routes ----
 	relaySunoRouter := router.Group("/suno")
 	relaySunoRouter.Use(middleware.RouteTag("relay"))
+	relaySunoRouter.Use(middleware.InflightLimit(middleware.InflightRelay))
 	relaySunoRouter.Use(middleware.SystemPerformanceCheck())
 	relaySunoRouter.Use(middleware.TokenAuth(), middleware.Distribute())
 	suno := dto.NewRouter(engine, relaySunoRouter, "Suno", secToken())
@@ -264,6 +269,7 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 	// ---- Gemini relay routes ----
 	relayGeminiRouter := router.Group("/v1beta")
 	relayGeminiRouter.Use(middleware.RouteTag("relay"))
+	relayGeminiRouter.Use(middleware.InflightLimit(middleware.InflightRelay))
 	relayGeminiRouter.Use(middleware.SystemPerformanceCheck())
 	relayGeminiRouter.Use(middleware.TokenAuth())
 	relayGeminiRouter.Use(middleware.ModelRequestRateLimit())

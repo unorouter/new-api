@@ -46,7 +46,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		publicAdminSystem := dto.NewRouter(engine, apiRouter.Group("", middleware.AdminAuth()), "System", secDashboard())
 		dto.Get(publicAdminSystem, "/status/test", controller.TestStatus)
 
-		publicPricing := dto.NewRouter(engine, apiRouter.Group("", middleware.TryUserAuth()), "Pricing", secPublic())
+		publicPricing := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightPublic), middleware.TryUserAuth()), "Pricing", secPublic())
 		dto.Get(publicPricing, "/pricing", controller.GetPricing)
 		dto.Get(publicPricing, "/pricing/catalog", controller.GetPricingCatalog, dto.CatalogFullQuery(), dto.CatalogVendorQuery(), dto.CatalogEndpointQuery(), dto.CatalogTypeQuery())
 		dto.Get(publicPricing, "/pricing/vendors", controller.GetPricingVendors)
@@ -64,7 +64,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 
 		// Aggregate platform totals and model health, both rendered to anonymous
 		// visitors on the public stats and status pages. Neither reads user context.
-		publicStats := dto.NewRouter(engine, apiRouter.Group("", middleware.TryUserAuth()), "Stats", secPublic())
+		publicStats := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightPublic), middleware.TryUserAuth()), "Stats", secPublic())
 		dto.GetP(publicStats, "/data/summary", controller.GetQuotaDataSummary)
 		dto.Get(publicStats, "/model_status/components", controller.GetModelStatusComponents)
 		dto.GetP(publicStats, "/model_status/buckets", controller.GetModelStatusBuckets)

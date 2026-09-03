@@ -30,12 +30,14 @@ func StatsMiddleware() gin.HandlerFunc {
 
 // StatsInfo 统计信息结构
 type StatsInfo struct {
-	ActiveConnections int64 `json:"active_connections"`
+	ActiveConnections int64            `json:"active_connections"`
+	Inflight          map[string]int64 `json:"inflight"`
 }
 
 // GetStats 获取统计信息
 func GetStats() StatsInfo {
 	return StatsInfo{
 		ActiveConnections: atomic.LoadInt64(&globalStats.activeConnections),
+		Inflight:          inflightCounts(),
 	}
 }

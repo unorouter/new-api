@@ -132,6 +132,9 @@ func InitEnv() {
 	SMTPBcc = GetEnvOrDefaultString("SMTP_BCC", "")
 
 	// Initialize rate limit variables
+	// Per process. 2000 is ~6x the normal per-pod stream count and 1/18 of the 2026-09-03 flood peak.
+	InflightLimitRelay = GetEnvOrDefault("INFLIGHT_LIMIT_RELAY", 2000)
+	InflightLimitPublic = GetEnvOrDefault("INFLIGHT_LIMIT_PUBLIC", 32)
 	GlobalApiRateLimitEnable = GetEnvOrDefaultBool("GLOBAL_API_RATE_LIMIT_ENABLE", true)
 	GlobalApiRateLimitNum = GetEnvOrDefault("GLOBAL_API_RATE_LIMIT", 360)
 	GlobalApiRateLimitDuration = int64(GetEnvOrDefault("GLOBAL_API_RATE_LIMIT_DURATION", 180))
