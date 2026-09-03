@@ -381,17 +381,47 @@ func GetModelStatusBuckets(c fuego.ContextWithParams[dto.GetModelStatusBucketsPa
 	// Same cap as page_compact: this route is public and hours reaches 720, so an
 	// uncapped 1m bucket asks for 43,200 buckets per model in one anonymous request.
 	bucketSec := coarsenBucketToCap(resolveBucketSeconds(p.Bucket), int64(hours)*60*60)
-	since := time.Now().Unix() - int64(hours)*60*60
 
-	rows, err := model.AggregateBuckets(p.Model, bucketSec, since)
+	cacheKey := fmt.Sprintf("buckets|%s|%d|%d", p.Model, bucketSec, hours)
+	if cached, ok := statusPageCacheGet(cacheKey); ok {
+		if items, ok := cached.([]StatusBarDataDTO); ok {
+			return dtoOk(items)
+		}
+	}
+	built, err, _ := statusPageGroup.Do(cacheKey, func() (any, error) {
+		if cached, ok := statusPageCacheGet(cacheKey); ok {
+			if items, ok := cached.([]StatusBarDataDTO); ok {
+				return items, nil
+			}
+		}
+		items, err := buildBuckets(p.Model, bucketSec, hours)
+		if err != nil {
+			return nil, err
+		}
+		statusPageCacheSetTTL(cacheKey, items, statusPageTTLFor(bucketSec))
+		return items, nil
+	})
 	if err != nil {
 		return dto.Fail[[]StatusBarDataDTO](err.Error())
+	}
+	items, ok := built.([]StatusBarDataDTO)
+	if !ok {
+		return dto.Fail[[]StatusBarDataDTO]("buckets build returned an unexpected type")
+	}
+	return dtoOk(items)
+}
+
+func buildBuckets(modelName string, bucketSec int64, hours int) ([]StatusBarDataDTO, error) {
+	since := time.Now().Unix() - int64(hours)*60*60
+	rows, err := model.AggregateBuckets(modelName, bucketSec, since)
+	if err != nil {
+		return nil, err
 	}
 
 	// Look up the component once for incident overlay. Missing component =>
 	// no events (model not yet probed).
 	var componentId int
-	if comp, _ := model.GetComponentByModel(p.Model); comp != nil {
+	if comp, _ := model.GetComponentByModel(modelName); comp != nil {
 		componentId = comp.Id
 	}
 
@@ -433,7 +463,7 @@ func GetModelStatusBuckets(c fuego.ContextWithParams[dto.GetModelStatusBucketsPa
 		}
 		items = append(items, item)
 	}
-	return dtoOk(items)
+	return items, nil
 }
 
 // buildBarSegments converts a BucketRow into bar segments summing to 100.
