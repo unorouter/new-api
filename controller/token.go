@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -195,10 +196,14 @@ func GetTokenKey(c fuego.ContextNoBody) (*dto.Response[map[string]string], error
 	// and it sits under UserAuth, so the admin audit fallback never covers it.
 	// Without this an attacker inside a hijacked account can drain every key the
 	// account owns and leave no trace at all.
-	recordUserSecurityAudit(dto.GinCtx(c), dto.UserID(c), "token.key_view", map[string]interface{}{
-		"id":   token.Id,
-		"name": token.Name,
-	})
+	// The chat BFF resolving a key to relay a request is not a reveal to a
+	// person; see middleware.ResolvedByBFF for why that is a secret, not a flag.
+	if !middleware.ResolvedByBFF(dto.GinCtx(c)) {
+		recordUserSecurityAudit(dto.GinCtx(c), dto.UserID(c), "token.key_view", map[string]interface{}{
+			"id":   token.Id,
+			"name": token.Name,
+		})
+	}
 	return dto.Ok(map[string]string{
 		"key": token.GetFullKey(),
 	})
