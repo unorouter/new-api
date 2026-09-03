@@ -3,10 +3,10 @@ package controller
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
@@ -94,6 +94,7 @@ func auditOperatorInfo(c *gin.Context) map[string]interface{} {
 		"admin_username": c.GetString("username"),
 		"admin_role":     c.GetInt("role"),
 		"auth_method":    auditAuthMethod(c),
+		"trusted_network": middleware.IsTrustedNetwork(c.ClientIP()),
 	}
 }
 
@@ -155,6 +156,7 @@ func recordUserSecurityAudit(c *gin.Context, userId int, action string, params m
 		auditInfo["path"] = c.Request.URL.Path
 		auditInfo["method"] = c.Request.Method
 		clientIP = c.ClientIP()
+		auditInfo["trusted_network"] = middleware.IsTrustedNetwork(clientIP)
 	}
 	model.RecordOperationAuditLog(userId, auditContentEN(action, params), clientIP, action, params, nil, auditInfo)
 }
@@ -181,12 +183,7 @@ func recordSensitiveRead(c *gin.Context, action string, params map[string]interf
 }
 
 // isInternalClient reports whether an address belongs to our own infrastructure
-// rather than a real external caller.
+// rather than a real external caller. One definition, from TRUSTED_NETWORKS.
 func isInternalClient(ip string) bool {
-	switch ip {
-	case "", "unknown", "127.0.0.1", "::1":
-		return true
-	}
-	// k3s pod CIDR: the BFF, the bot and any in-cluster job.
-	return strings.HasPrefix(ip, "10.42.")
+	return middleware.IsTrustedNetwork(ip)
 }

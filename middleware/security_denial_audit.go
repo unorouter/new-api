@@ -36,6 +36,10 @@ const (
 // unauthenticated caller has none, and 0 is meaningful here (it says the
 // credential never resolved to a user).
 func recordSecurityDenial(c *gin.Context, action string, reason string, extra map[string]interface{}) {
+	if extra == nil {
+		extra = map[string]interface{}{}
+	}
+	extra["trusted_network"] = IsTrustedNetwork(c.ClientIP())
 	// The log store is absent before init and in unit tests, where the write
 	// panics on a nil handle. Refusing the request is the security-critical
 	// half; recording it must never be what takes the request down.
