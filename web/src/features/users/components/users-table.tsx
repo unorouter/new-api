@@ -83,6 +83,7 @@ export function UsersTable() {
       { columnId: 'status', searchKey: 'status', type: 'array' },
       { columnId: 'role', searchKey: 'role', type: 'array' },
       { columnId: 'group', searchKey: 'group', type: 'string' },
+      { columnId: 'quota', searchKey: 'quota', type: 'array' },
     ],
   })
   const statusFilter =
@@ -96,6 +97,12 @@ export function UsersTable() {
   const groupFilter =
     (columnFilters.find((filter) => filter.id === 'group')?.value as string) ??
     ''
+  const negativeQuotaFilter =
+    (
+      (columnFilters.find((filter) => filter.id === 'quota')?.value as
+        | string[]
+        | undefined) ?? []
+    )[0] === 'negative'
 
   const sortParams = useMemo(() => {
     const activeSort = sorting[0]
@@ -129,13 +136,17 @@ export function UsersTable() {
       statusFilter,
       roleFilter,
       groupFilter,
+      negativeQuotaFilter,
       sortParams,
       refreshTrigger,
     ],
     queryFn: async () => {
       const hasFilter = globalFilter?.trim()
       const hasColumnFilter =
-        statusFilter.length > 0 || roleFilter.length > 0 || Boolean(groupFilter)
+        statusFilter.length > 0 ||
+        roleFilter.length > 0 ||
+        Boolean(groupFilter) ||
+        negativeQuotaFilter
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
@@ -150,6 +161,7 @@ export function UsersTable() {
               status: statusFilter[0] ?? '',
               role: roleFilter[0] ?? '',
               group: groupFilter,
+              negative_quota: negativeQuotaFilter,
             })
           : await getUsers(params)
 
@@ -228,6 +240,12 @@ export function UsersTable() {
             columnId: 'role',
             title: t('Role'),
             options: getUserRoleOptions(t),
+            singleSelect: true,
+          },
+          {
+            columnId: 'quota',
+            title: t('Quota'),
+            options: [{ label: t('Negative quota'), value: 'negative' }],
             singleSelect: true,
           },
         ],

@@ -570,7 +570,7 @@ func SearchUsers(c fuego.ContextWithParams[dto.SearchUsersParams]) (*dto.Respons
 	p, _ := dto.ParseParams[dto.SearchUsersParams](c)
 	pageInfo := dto.PageInfo(c)
 	sortOptions := model.NewUserSortOptions(p.SortBy, p.SortOrder)
-	users, total, err := model.SearchUsers(p.Keyword, p.Group, p.Role, p.Status, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
+	users, total, err := model.SearchUsers(p.Keyword, p.Group, p.Role, p.Status, p.NegativeQuota, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
 	if err != nil {
 		return dto.FailPage[*model.User](err.Error())
 	}

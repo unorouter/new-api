@@ -114,6 +114,7 @@ export interface SearchUsersParams {
   group?: string
   role?: string
   status?: string
+  negative_quota?: boolean
   p?: number
   page_size?: number
   sort_by?: UserSortBy

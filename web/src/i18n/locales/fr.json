@@ -5636,6 +5636,7 @@
     "Limits only the wait for the first token. A reply that has started streaming is never cut off.": "Limite uniquement l'attente du premier token. Une réponse déjà en cours de diffusion n'est jamais interrompue.",
     "Per provider (seconds, 0 = off)": "Par fournisseur (secondes, 0 = désactivé)",
     "Whole chain (seconds, 0 = off)": "Chaîne entière (secondes, 0 = désactivé)",
-    "Client": "Client"
+    "Client": "Client",
+    "Negative quota": "Quota négatif"
   }
 }
