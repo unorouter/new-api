@@ -1,9 +1,9 @@
 package middleware
 
 import (
-	"time"
-	"sync"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
