@@ -60,7 +60,7 @@ func baseAutoTokenRequest(name string) dto.CreateTokenRequest {
 		RemainQuota:     0,
 		UnlimitedQuota:  true,
 		Group:           "auto",
-		CrossGroupRetry: true,
+		CrossGroupRetry: common.GetPointer(true),
 	}
 }
 
@@ -166,7 +166,7 @@ func TestUpdateTokenAutoGroupsTriStateAndNonAutoCleanup(t *testing.T) {
 				ExpiredTime:     -1,
 				UnlimitedQuota:  true,
 				Group:           test.group,
-				CrossGroupRetry: true,
+				CrossGroupRetry: common.GetPointer(true),
 				AutoGroups:      test.value,
 			}
 

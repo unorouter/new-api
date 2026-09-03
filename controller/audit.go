@@ -34,6 +34,7 @@ var auditContentTemplates = map[string]string{
 	"token.key_view":       "Revealed API key ${name} (ID: ${id})",
 	"token.key_view_batch": "Revealed ${count} API keys in bulk",
 	"token.create":         "Created API key ${name} (ID: ${id})",
+	"token.update":         "Changed routing or status of API key ${name} (ID: ${id})",
 	"token.delete":         "Deleted API key ${name} (ID: ${id})",
 	"token.delete_batch":   "Deleted ${count} API keys in bulk",
 
@@ -90,10 +91,10 @@ func auditContentEN(action string, params map[string]interface{}) string {
 // auditOperatorInfo 从上下文构建操作者身份信息（管理员 id/用户名/角色）。
 func auditOperatorInfo(c *gin.Context) map[string]interface{} {
 	return map[string]interface{}{
-		"admin_id":       c.GetInt("id"),
-		"admin_username": c.GetString("username"),
-		"admin_role":     c.GetInt("role"),
-		"auth_method":    auditAuthMethod(c),
+		"admin_id":        c.GetInt("id"),
+		"admin_username":  c.GetString("username"),
+		"admin_role":      c.GetInt("role"),
+		"auth_method":     auditAuthMethod(c),
 		"trusted_network": middleware.IsTrustedNetwork(c.ClientIP()),
 	}
 }
