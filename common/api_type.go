@@ -86,8 +86,10 @@ func ChannelType2APIType(channelType int) (int, bool) {
 	}
 	if apiType == -1 {
 		// Task plugin channels are served by the task relay and must never
-		// fall back to the OpenAI adaptor.
-		if channelType == constant.ChannelTypeTaskPlugin {
+		// fall back to the OpenAI adaptor. AI Horde is prod's own task plugin
+		// type; falling through posted chat completions to aihorde.net, which
+		// answered 404 for every model on that channel.
+		if channelType == constant.ChannelTypeTaskPlugin || channelType == constant.ChannelTypeAIHorde {
 			return -1, false
 		}
 		return constant.APITypeOpenAI, false
