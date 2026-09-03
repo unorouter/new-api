@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"time"
+	"sync"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -35,7 +37,35 @@ const (
 // recordSecurityDenial persists one refused attempt. userId is best-effort: an
 // unauthenticated caller has none, and 0 is meaningful here (it says the
 // credential never resolved to a user).
+// authRejectAuditBudget caps auth-rejection rows per process per minute. A junk-key flood
+// wrote 80k rows a minute on 2026-09-03; past the cap the refusal still happens, only the row does not.
+const authRejectAuditBudget = 600
+
+var authRejectAudit struct {
+	sync.Mutex
+	window int64
+	count  int
+}
+
+func authRejectAuditAllowed() bool {
+	now := time.Now().Unix() / 60
+	authRejectAudit.Lock()
+	defer authRejectAudit.Unlock()
+	if authRejectAudit.window != now {
+		authRejectAudit.window = now
+		authRejectAudit.count = 0
+	}
+	authRejectAudit.count++
+	return authRejectAudit.count <= authRejectAuditBudget
+}
+
 func recordSecurityDenial(c *gin.Context, action string, reason string, extra map[string]interface{}) {
+	if action == auditActionAuthRejected && c != nil {
+		// No credential presented is browsing, not probing: nothing to fingerprint or alert on.
+		if presentedCredentialKind(c) == "none" || !authRejectAuditAllowed() {
+			return
+		}
+	}
 	if extra == nil {
 		extra = map[string]interface{}{}
 	}
