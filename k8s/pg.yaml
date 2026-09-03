@@ -173,6 +173,11 @@ spec:
       shared_buffers: "512MB"
       work_mem: "12MB"
       effective_cache_size: "3GB"
+      # logs (11M rows, 18 indexes) never reached the default 20% dead-tuple trigger; per-table
+      # scale factors live on the table (see infra bootstrap/dr/README.md), these make the runs fast and visible.
+      autovacuum_vacuum_cost_limit: "1000"
+      autovacuum_naptime: "30s"
+      log_autovacuum_min_duration: "60s"
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
