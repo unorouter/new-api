@@ -35,7 +35,10 @@ const (
 	wsWriteWait  = 10 * time.Second
 	wsPongWait   = 60 * time.Second
 	wsPingPeriod = 30 * time.Second
-	wsMaxMsgSize = 4096
+	// A room relays whole assistant replies as single client frames, and a
+	// reply past this limit closes the host's socket mid-snapshot, so every
+	// guest admitted after a long turn never received its welcome.
+	wsMaxMsgSize = 65536
 )
 
 // HandleWebSocket upgrades the request and serves the notify protocol.
