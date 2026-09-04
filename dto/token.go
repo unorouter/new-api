@@ -49,6 +49,15 @@ type UpdateTokenRequest struct {
 	AutoGroups      *[]string `json:"auto_groups"`
 }
 
+// GuestTokenLimitsRequest is the body for PUT /api/token/guest-model-limits.
+// The token is addressed by its own key rather than an id: the sync knows the
+// guest key from its environment and must not be able to enumerate or edit any
+// other token.
+type GuestTokenLimitsRequest struct {
+	Key         string `json:"key"          description:"Full guest token key, with or without the sk- prefix"`
+	ModelLimits string `json:"model_limits" description:"Comma-separated model names the guest token may call"`
+}
+
 // TokenAutoGroupsData is the response body for GET /api/token/auto_groups.
 type TokenAutoGroupsData struct {
 	Groups   []string `json:"groups"`

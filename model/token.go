@@ -344,6 +344,20 @@ func (token *Token) Update() (err error) {
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "group_mapping", "auto_groups").Updates(token).Error
 }
 
+// UpdateModelLimitsOnly writes model_limits and nothing else. Token.Update()
+// would write a dozen columns from whatever the caller happened to load, which
+// is more authority than the guest-refresh route is allowed to have.
+func (token *Token) UpdateModelLimitsOnly(modelLimits string) error {
+	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
+		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
+	}
+	if err := DB.Model(token).Update("model_limits", modelLimits).Error; err != nil {
+		return err
+	}
+	token.ModelLimits = modelLimits
+	return nil
+}
+
 func (token *Token) SelectUpdate() (err error) {
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before status update: " + cacheErr.Error())

@@ -455,6 +455,53 @@ func UpdateToken(c fuego.Context[dto.UpdateTokenRequest, dto.StatusOnlyParams]) 
 	return dto.Ok(*buildMaskedTokenResponse(cleanToken))
 }
 
+// UpdateGuestTokenModelLimits sets ONLY model_limits on the token whose key is
+// supplied, and only for the sync credential.
+//
+// The guest token is the key the logged-out web chat runs on, and its allowlist
+// has to track the free catalogue: a free model added by a sync run 403s for
+// guests until the token lists it. The sync used to do this through
+// /api/token/search + PUT /api/token/, which need UserAuth; since the sync moved
+// to a service token that owns no account those calls 401 and the refresh
+// silently stopped (three free models were unreachable for guests before this).
+//
+// Restoring it must not restore admin reach, so this route exists instead of
+// widening the token group: it takes a key rather than an id (no enumeration),
+// writes one column, and refuses any caller that is not the sync.
+func UpdateGuestTokenModelLimits(c fuego.ContextWithBody[dto.GuestTokenLimitsRequest]) (*dto.Response[dto.MessageResponse], error) {
+	ginCtx := dto.GinCtx(c)
+	if !middleware.AuthenticatedViaSyncToken(ginCtx) {
+		return dto.Fail[dto.MessageResponse]("this route is limited to the sync service credential")
+	}
+	body, err := c.Body()
+	if err != nil {
+		return dto.Fail[dto.MessageResponse](err.Error())
+	}
+	key := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(body.Key), "sk-"))
+	if key == "" {
+		return dto.Fail[dto.MessageResponse]("token key is required")
+	}
+	token, err := model.GetTokenByKey(key, true)
+	if err != nil || token == nil {
+		return dto.Fail[dto.MessageResponse]("token not found")
+	}
+	before := token.ModelLimits
+	if before == body.ModelLimits {
+		return dto.Ok(dto.MessageResponse{Message: "unchanged"})
+	}
+	if err := token.UpdateModelLimitsOnly(body.ModelLimits); err != nil {
+		return dto.Fail[dto.MessageResponse](err.Error())
+	}
+	// The key itself never enters the audit row; the id and the sizes are what
+	// makes a surprise change legible later.
+	recordUserSecurityAudit(ginCtx, token.UserId, "token.guest_model_limits", map[string]interface{}{
+		"id":          token.Id,
+		"name":        token.Name,
+		"model_count": len(strings.Split(body.ModelLimits, ",")),
+	})
+	return dto.Ok(dto.MessageResponse{Message: "ok"})
+}
+
 func DeleteTokenBatch(c fuego.ContextWithBody[dto.TokenBatch]) (*dto.Response[int], error) {
 	tokenBatch, err := c.Body()
 	if err != nil || len(tokenBatch.Ids) == 0 {
