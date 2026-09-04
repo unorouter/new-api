@@ -249,7 +249,17 @@ func ParseTokenGroupMapping(mappingJSON string) map[string]TokenPinEntry {
 	}
 	var mapping map[string]TokenPinEntry
 	if err := common.UnmarshalJsonStr(mappingJSON, &mapping); err != nil {
-		return nil
+		// A client that predates the entry shape still sends {"model":["group"]}.
+		// Rejecting it would fail its saves and drop its pins on every request,
+		// so the legacy array is read as an entry with only its groups set.
+		var legacy map[string][]string
+		if legacyErr := common.UnmarshalJsonStr(mappingJSON, &legacy); legacyErr != nil {
+			return nil
+		}
+		mapping = make(map[string]TokenPinEntry, len(legacy))
+		for model, groups := range legacy {
+			mapping[model] = TokenPinEntry{Groups: groups}
+		}
 	}
 	if len(mapping) == 0 {
 		return nil
