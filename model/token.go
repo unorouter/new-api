@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -343,78 +342,6 @@ func (token *Token) Update() (err error) {
 	}
 	return DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "group_mapping", "auto_groups").Updates(token).Error
-}
-
-// PruneDeletedGroupsFromTokenPins drops group names that no longer exist from
-// every token's per-model pin, and returns how many tokens changed.
-//
-// A pin names groups by string. When a merchant leaves the marketplace the sync
-// deletes its channel and prunes the group from UserUsableGroups, but the pin
-// keeps naming it, and a pin whose groups are all gone fails EVERY request with
-// the pinned-group 503 until the owner edits the key by hand (one user lost a
-// day of glm-5.3-flash traffic to exactly this).
-//
-// Only groups absent from the live set are removed, never groups whose channels
-// are merely auto-disabled: those recover within minutes and dropping them would
-// silently discard a deliberate price pin. A model whose groups all disappear
-// loses its entry entirely, which restores auto routing for that model rather
-// than leaving an empty list that resolves to nothing.
-func PruneDeletedGroupsFromTokenPins(liveGroups map[string]bool) (int, error) {
-	if len(liveGroups) == 0 {
-		// An empty live set means the caller could not read the groups. Treating
-		// that as "every group is dead" would wipe every pin on the platform.
-		return 0, nil
-	}
-	var tokens []Token
-	if err := DB.Where("group_mapping IS NOT NULL AND group_mapping != ''").Find(&tokens).Error; err != nil {
-		return 0, err
-	}
-	changed := 0
-	for i := range tokens {
-		token := &tokens[i]
-		var mapping map[string][]string
-		if err := json.Unmarshal([]byte(token.GroupMapping), &mapping); err != nil {
-			continue
-		}
-		dirty := false
-		for modelName, groups := range mapping {
-			kept := make([]string, 0, len(groups))
-			for _, g := range groups {
-				if liveGroups[g] {
-					kept = append(kept, g)
-				}
-			}
-			if len(kept) == len(groups) {
-				continue
-			}
-			dirty = true
-			if len(kept) == 0 {
-				delete(mapping, modelName)
-			} else {
-				mapping[modelName] = kept
-			}
-		}
-		if !dirty {
-			continue
-		}
-		encoded := ""
-		if len(mapping) > 0 {
-			raw, err := json.Marshal(mapping)
-			if err != nil {
-				continue
-			}
-			encoded = string(raw)
-		}
-		if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
-			common.SysLog("failed to invalidate token cache before pin prune: " + cacheErr.Error())
-		}
-		if err := DB.Model(token).Update("group_mapping", encoded).Error; err != nil {
-			common.SysLog(fmt.Sprintf("failed to prune dead groups from token %d: %v", token.Id, err))
-			continue
-		}
-		changed++
-	}
-	return changed, nil
 }
 
 // UpdateModelLimitsOnly writes model_limits and nothing else. Token.Update()
