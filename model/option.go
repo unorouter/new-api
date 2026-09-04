@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
 )
 
@@ -27,6 +29,27 @@ func AllOption() ([]*Option, error) {
 	var err error
 	err = DB.Find(&options).Error
 	return options, err
+}
+
+// pruneTokenPinsForDeletedGroups drops group names that no longer exist from
+// every token's per-model pin. Runs off the request path: a sync writing the
+// options map should not wait on a table scan, and a failure here must not fail
+// the option write.
+func pruneTokenPinsForDeletedGroups() {
+	gopool.Go(func() {
+		live := make(map[string]bool)
+		for g := range setting.GetUserUsableGroupsCopy() {
+			live[g] = true
+		}
+		changed, err := PruneDeletedGroupsFromTokenPins(live)
+		if err != nil {
+			common.SysLog("failed to prune dead groups from token pins: " + err.Error())
+			return
+		}
+		if changed > 0 {
+			common.SysLog(fmt.Sprintf("pruned deleted groups from %d token pin(s)", changed))
+		}
+	})
 }
 
 func InitOptionMap() {
@@ -733,6 +756,14 @@ func updateOptionMap(key string, value string) (err error) {
 		err = ratio_setting.UpdateGroupGroupRatioByJSONString(value)
 	case "UserUsableGroups":
 		err = setting.UpdateUserUsableGroupsByJSONString(value)
+		if err == nil {
+			// The sync prunes a group from here the moment its last channel is
+			// deleted (merchant left the marketplace). Token pins name groups by
+			// string, so without this they keep pointing at a group that will
+			// never exist again and 503 every request until the owner notices.
+			// Groups that still exist but are auto-disabled are untouched.
+			pruneTokenPinsForDeletedGroups()
+		}
 	case "CompletionRatio":
 		err = ratio_setting.UpdateCompletionRatioByJSONString(value)
 		InvalidatePricingCache()
