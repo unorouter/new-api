@@ -75,6 +75,25 @@ func GroupsWithEnabledChannel() (map[string]bool, error) {
 	return live, nil
 }
 
+// GroupsServingModel returns every group with at least one enabled channel
+// serving this model. It backs the token price band, which selects lanes by
+// ratio rather than by name.
+//
+// The abilities primary key is (group, model, channel_id), so filtering on
+// model alone cannot use it and this is a sequential scan. Callers must keep it
+// off the unbanded request path and reuse one result per request.
+func GroupsServingModel(model string) ([]string, error) {
+	var groups []string
+	err := DB.Table("abilities").
+		Where("model = ? and enabled = ?", model, true).
+		Distinct(commonGroupCol).
+		Pluck(commonGroupCol, &groups).Error
+	if err != nil {
+		return nil, err
+	}
+	return groups, nil
+}
+
 func GetGroupEnabledModels(group string) []string {
 	var models []string
 	// Find distinct models

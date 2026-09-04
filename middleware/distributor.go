@@ -117,9 +117,32 @@ func Distribute() func(c *gin.Context) {
 				// explicit X-Group header below still wins.
 				if mappingJSON := common.GetContextKeyString(c, constant.ContextKeyTokenGroupMapping); mappingJSON != "" {
 					mapping := service.ParseTokenGroupMapping(mappingJSON)
-					mappedGroup := service.ResolveTokenGroupForModel(mapping, modelRequest.Model, "")
+					accountGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+					// Resolved at most once per request and shared by both lookups:
+					// expanding a price band is a sequential scan over abilities (the
+					// primary key leads with group, so a model filter cannot use it),
+					// and only an entry that actually sets a band ever calls this.
+					var candidates []string
+					var candidatesLoaded bool
+					candidatesFor := func(modelName string) func() []string {
+						return func() []string {
+							if candidatesLoaded {
+								return candidates
+							}
+							candidatesLoaded = true
+							groups, err := model.GroupsServingModel(modelName)
+							if err != nil {
+								common.SysError("failed to load groups serving model " + modelName + ": " + err.Error())
+								return nil
+							}
+							candidates = groups
+							return candidates
+						}
+					}
+					mappedGroup := service.ResolveTokenGroupForModel(mapping, accountGroup, modelRequest.Model, "", candidatesFor(modelRequest.Model))
 					if mappedGroup == "" {
-						mappedGroup = service.ResolveTokenGroupForModel(mapping, ratio_setting.FormatMatchingModelName(modelRequest.Model), "")
+						matchName := ratio_setting.FormatMatchingModelName(modelRequest.Model)
+						mappedGroup = service.ResolveTokenGroupForModel(mapping, accountGroup, matchName, "", candidatesFor(matchName))
 					}
 					if mappedGroup != "" {
 						usingGroup = mappedGroup
