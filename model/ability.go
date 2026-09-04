@@ -101,6 +101,31 @@ func GetGroupEnabledModels(group string) []string {
 	return models
 }
 
+// GetGroupsEnabledModels answers for the whole group list in one query per
+// chunk. The per-group form ran one query per group, and a token without an
+// explicit auto list resolves to every usable Auto group (3.8k): /v1/models
+// took 21s and SillyTavern gave up on it. Chunked so the IN list stays under
+// every dialect's parameter cap; sorted so the listing is stable.
+func GetGroupsEnabledModels(groups []string) []string {
+	seen := make(map[string]struct{})
+	models := make([]string, 0)
+	const chunk = 500
+	for start := 0; start < len(groups); start += chunk {
+		end := min(start+chunk, len(groups))
+		var part []string
+		DB.Table("abilities").Where(commonGroupCol+" IN ? and enabled = ?", groups[start:end], true).Distinct("model").Pluck("model", &part)
+		for _, m := range part {
+			if _, ok := seen[m]; ok {
+				continue
+			}
+			seen[m] = struct{}{}
+			models = append(models, m)
+		}
+	}
+	sort.Strings(models)
+	return models
+}
+
 func GetEnabledModels() []string {
 	var models []string
 	// Find distinct models
