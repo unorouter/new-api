@@ -66,7 +66,13 @@ func TestResolveTokenGroupForModel(t *testing.T) {
 	assert.Nil(t, ParseTokenGroupMapping(""))
 	assert.Nil(t, ParseTokenGroupMapping("{}"))
 	assert.Nil(t, ParseTokenGroupMapping("not json"))
-	assert.Nil(t, ParseTokenGroupMapping(`{"m":["legacy-array-no-longer-parses"]}`))
+	// A client older than the entry shape must keep working: its saves are
+	// validated through this parser and its pins resolved through it.
+	legacy := ParseTokenGroupMapping(`{"m":["a","b"]}`)
+	require.NotNil(t, legacy)
+	assert.Equal(t, []string{"a", "b"}, legacy["m"].Groups)
+	assert.False(t, legacy["m"].HasBand())
+	assert.Equal(t, "a,b", ResolveTokenGroupForModel(legacy, "default", "m", "auto", noCandidates))
 	assert.Equal(t, "auto", ResolveTokenGroupForModel(nil, "default", "any", "auto", noCandidates))
 }
 
