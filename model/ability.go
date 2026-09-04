@@ -52,6 +52,29 @@ func GetAllAbilityWithChannels() ([]AbilityWithChannel, error) {
 	return abilities, err
 }
 
+// GroupsWithEnabledChannel returns every group that currently has at least one
+// enabled channel behind it.
+//
+// UserUsableGroups is an options map and knows nothing about channel health, so
+// the key dialog offered groups whose channels were all auto-disabled. Pinning
+// to one of those fails every request with the pinned-group 503 until a channel
+// recovers, which is exactly the lockout the pin error was written for.
+func GroupsWithEnabledChannel() (map[string]bool, error) {
+	var groups []string
+	err := DB.Table("abilities").
+		Where("enabled = ?", true).
+		Distinct(commonGroupCol).
+		Pluck(commonGroupCol, &groups).Error
+	if err != nil {
+		return nil, err
+	}
+	live := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		live[g] = true
+	}
+	return live, nil
+}
+
 func GetGroupEnabledModels(group string) []string {
 	var models []string
 	// Find distinct models
