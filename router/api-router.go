@@ -478,6 +478,13 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		ms := dto.NewRouter(engine, modelStatusGroup, "ModelStatus", secDashboard())
 		dto.GetP(ms, "/incidents", controller.GetModelStatusIncidents)
 
+		// The sync refreshes the guest key's model_limits and touches nothing else
+		// about tokens, so it gets one route of its own rather than a seat in the
+		// user-auth token group. The handler re-checks the credential.
+		tokenSyncGroup := apiRouter.Group("/token", middleware.SyncAuth(common.RoleAdminUser))
+		tokSync := dto.NewRouter(engine, tokenSyncGroup, "Token", secDashboard())
+		dto.PutB(tokSync, "/guest-model-limits", controller.UpdateGuestTokenModelLimits)
+
 		// ---- Token routes (user auth) ----
 		tokenGroup := apiRouter.Group("/token", middleware.UserAuth())
 		// Reads are gated by `tokens:read` when the caller is an OAuth agent;
