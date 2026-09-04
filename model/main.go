@@ -397,6 +397,9 @@ func migrateDB() error {
 	ensureUserColumn("topup_bonus_percent", "decimal(5,2) NULL")
 	ensureTopUpColumn("paid_amount", "decimal NOT NULL DEFAULT 0")
 	backfillModelStatusLastUp()
+	if err := migrateTokenGroupMappingShape(DB); err != nil {
+		return err
+	}
 	return nil
 }
 

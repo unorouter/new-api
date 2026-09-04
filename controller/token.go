@@ -40,11 +40,23 @@ func validateTokenGroupMapping(userId int, mappingJSON string) error {
 		return err
 	}
 	usable := service.GetUserUsableGroups(userGroup)
-	for m, groups := range mapping {
+	for m, entry := range mapping {
 		if strings.TrimSpace(m) == "" {
 			return errors.New("group_mapping contains an empty model name")
 		}
-		for _, g := range groups {
+		if entry.Min != nil && *entry.Min < 0 {
+			return fmt.Errorf("model %q has a negative price band minimum", m)
+		}
+		if entry.Max != nil && *entry.Max < 0 {
+			return fmt.Errorf("model %q has a negative price band maximum", m)
+		}
+		if entry.Min != nil && entry.Max != nil && *entry.Min > *entry.Max {
+			return fmt.Errorf("model %q has a price band whose minimum exceeds its maximum", m)
+		}
+		if len(entry.Groups) == 0 && !entry.HasBand() && !entry.Auto {
+			return fmt.Errorf("model %q has neither pinned groups nor a price band", m)
+		}
+		for _, g := range entry.Groups {
 			g = strings.TrimSpace(g)
 			if g == "" || g == "auto" {
 				continue

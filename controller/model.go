@@ -234,8 +234,15 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 		}
 		seen := make(map[string]bool)
 		flat := make([]string, 0)
-		for _, groups := range service.ParseTokenGroupMapping(mappingJSON) {
-			for _, g := range groups {
+		// Only the explicitly pinned groups are unioned here. A price band is
+		// per model and would need one abilities scan per banded model to
+		// expand; the banded lanes already surface through the auto set below,
+		// so the model list stays correct without that cost on a page load.
+		for _, entry := range service.ParseTokenGroupMapping(mappingJSON) {
+			if entry.Auto {
+				continue
+			}
+			for _, g := range entry.Groups {
 				if g != "" && !seen[g] {
 					seen[g] = true
 					flat = append(flat, g)

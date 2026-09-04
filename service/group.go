@@ -223,14 +223,31 @@ func ParseTokenGroups(tokenGroup string) []string {
 	return groups
 }
 
+// TokenPinEntry is a token's per-model routing override: explicitly pinned
+// groups, an optional price band over the group ratio, or both. Min/Max are
+// pointers so "unset" stays distinct from a real 0 (free groups bill at 0).
+type TokenPinEntry struct {
+	Groups []string `json:"groups"`
+	Min    *float64 `json:"min,omitempty"`
+	Max    *float64 `json:"max,omitempty"`
+	Auto   bool     `json:"auto,omitempty"`
+}
+
+// HasBand reports whether the entry constrains price at all.
+func (e TokenPinEntry) HasBand() bool {
+	return e.Min != nil || e.Max != nil
+}
+
 // ParseTokenGroupMapping parses a token's per-model group mapping JSON
-// ({"model":["group",...]}). Returns nil on empty or invalid input.
-func ParseTokenGroupMapping(mappingJSON string) map[string][]string {
+// ({"model":{"groups":["group",...],"min":0.02,"max":0.05}}). Returns nil on
+// empty or invalid input; callers rely on nil meaning "invalid" (validation)
+// and on an absent key meaning "unmapped" (routing).
+func ParseTokenGroupMapping(mappingJSON string) map[string]TokenPinEntry {
 	mappingJSON = strings.TrimSpace(mappingJSON)
 	if mappingJSON == "" || mappingJSON == "{}" {
 		return nil
 	}
-	var mapping map[string][]string
+	var mapping map[string]TokenPinEntry
 	if err := common.UnmarshalJsonStr(mappingJSON, &mapping); err != nil {
 		return nil
 	}
@@ -241,20 +258,53 @@ func ParseTokenGroupMapping(mappingJSON string) map[string][]string {
 }
 
 // ResolveTokenGroupForModel returns the effective token group for a request:
-// when the token's per-model mapping pins groups for this model, they compose
-// into a comma-separated scoped-auto group; otherwise the base group is kept.
-func ResolveTokenGroupForModel(mapping map[string][]string, model, baseGroup string) string {
+// the union of the entry's pinned groups and, when a price band is set, every
+// candidate group whose ratio falls inside it. The result composes into the
+// same comma-separated scoped-auto group the channel-select engine already
+// handles, so every downstream consumer is unchanged.
+//
+// candidates supplies the groups that actually serve this model; it is only
+// consulted when a band is set, so the unbanded (pin-only) path stays free of
+// any lookup. An entry on auto returns the base group with its configuration
+// left stored but inert.
+func ResolveTokenGroupForModel(mapping map[string]TokenPinEntry, userGroup, model, baseGroup string, candidates func() []string) string {
 	if len(mapping) == 0 {
 		return baseGroup
 	}
-	groups, ok := mapping[model]
-	if !ok || len(groups) == 0 {
+	entry, ok := mapping[model]
+	if !ok || entry.Auto {
 		return baseGroup
 	}
-	cleaned := make([]string, 0, len(groups))
-	for _, g := range groups {
+	cleaned := make([]string, 0, len(entry.Groups))
+	seen := make(map[string]struct{}, len(entry.Groups))
+	for _, g := range entry.Groups {
 		g = strings.TrimSpace(g)
-		if g != "" {
+		if g == "" {
+			continue
+		}
+		if _, dup := seen[g]; dup {
+			continue
+		}
+		seen[g] = struct{}{}
+		cleaned = append(cleaned, g)
+	}
+	if entry.HasBand() && candidates != nil {
+		for _, g := range candidates() {
+			g = strings.TrimSpace(g)
+			if g == "" {
+				continue
+			}
+			if _, dup := seen[g]; dup {
+				continue
+			}
+			ratio := GetUserGroupRatio(userGroup, g)
+			if entry.Min != nil && ratio < *entry.Min {
+				continue
+			}
+			if entry.Max != nil && ratio > *entry.Max {
+				continue
+			}
+			seen[g] = struct{}{}
 			cleaned = append(cleaned, g)
 		}
 	}
