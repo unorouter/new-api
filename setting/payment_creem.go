@@ -20,9 +20,3 @@ var CreemFeePercent = 0.0
 // Above this the fixed cut is small enough relative to the top-up to absorb, so
 // no fee is added. 0 applies the fee to every custom amount.
 var CreemFeeThreshold = 2.0
-
-// Total a card can put onto an account during its first 24 hours, in USD.
-// A stolen card only pays for the thief if the first day is worth burning
-// through; fresh accounts here average a few dollars. Crypto is not capped
-// because it cannot be charged back. 0 disables the cap.
-var CreemNewAccountCapUSD = 25.0

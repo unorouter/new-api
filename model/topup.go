@@ -740,7 +740,8 @@ func RechargeCreem(referenceId string, customerEmail string, customerName string
 	return nil
 }
 
-type CreemReversalInput struct {
+type TopUpReversalInput struct {
+	Provider      string // PaymentProviderCreem or PaymentProviderStripe
 	EventId       string
 	Reference     string // our trade_no, when the payload carries it
 	OrderId       string
@@ -749,32 +750,36 @@ type CreemReversalInput struct {
 	PaidCents     int // what the buyer paid for the charge being reversed
 	ReversedCents int // how much of it went back
 	Dispute       bool
+	// MatchByAmount lets a customer-only match fall back to that customer's
+	// latest successful top-up of the paid amount. Only safe when the event is
+	// known to be about a one-time top-up.
+	MatchByAmount bool
 }
 
-type CreemReversalResult struct {
+type TopUpReversalResult struct {
 	UserId       int
 	TopUpId      int
 	QuotaRemoved int
 	AlreadyDone  bool
 }
 
-var ErrCreemReversalUnmatched = errors.New("creem reversal: no user matches the event")
+var ErrReversalUnmatched = errors.New("creem reversal: no user matches the event")
 
-// ReverseCreemTopUp takes back the quota a Creem one-time top-up granted once
-// Creem reports the charge refunded or disputed. Matched by our trade_no, then
-// by the Creem order or transaction id recorded at checkout, then by the Creem
-// customer plus the paid amount. A dispute reverses the whole top-up, a refund
+// ReverseTopUp takes back the quota a one-time card top-up granted once the
+// provider reports the charge refunded or disputed. Matched by our trade_no,
+// then by the provider's payment id recorded at checkout, then by the
+// provider's customer id plus the paid amount. A dispute reverses the whole top-up, a refund
 // reverses pro rata. The balance may go negative on purpose: spent credits are
 // a debt, not a floor. Idempotent on the top-up status, which is what makes
 // Creem's retries safe.
-func ReverseCreemTopUp(in CreemReversalInput) (CreemReversalResult, error) {
-	var res CreemReversalResult
+func ReverseTopUp(in TopUpReversalInput) (TopUpReversalResult, error) {
+	var res TopUpReversalResult
 	status := common.TopUpStatusRefunded
 	if in.Dispute {
 		status = common.TopUpStatusDisputed
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		topUp, userId, err := resolveCreemReversalTopUp(tx, in)
+		topUp, userId, err := resolveReversalTopUp(tx, in)
 		if err != nil {
 			return err
 		}
@@ -823,7 +828,7 @@ func ReverseCreemTopUp(in CreemReversalInput) (CreemReversalResult, error) {
 	return res, nil
 }
 
-func resolveCreemReversalTopUp(tx *gorm.DB, in CreemReversalInput) (*TopUp, int, error) {
+func resolveReversalTopUp(tx *gorm.DB, in TopUpReversalInput) (*TopUp, int, error) {
 	var t TopUp
 	if in.Reference != "" {
 		if err := lockForUpdate(tx).Where("trade_no = ?", in.Reference).First(&t).Error; err == nil {
@@ -834,24 +839,28 @@ func resolveCreemReversalTopUp(tx *gorm.DB, in CreemReversalInput) (*TopUp, int,
 		if id == "" {
 			continue
 		}
-		if err := lockForUpdate(tx).Where("provider_payment_id = ? AND payment_provider = ?", id, PaymentProviderCreem).First(&t).Error; err == nil {
+		if err := lockForUpdate(tx).Where("provider_payment_id = ? AND payment_provider = ?", id, in.Provider).First(&t).Error; err == nil {
 			return &t, t.UserId, nil
 		}
 	}
 	if in.CustomerId == "" {
-		return nil, 0, ErrCreemReversalUnmatched
+		return nil, 0, ErrReversalUnmatched
+	}
+	customerCol := "creem_customer"
+	if in.Provider == PaymentProviderStripe {
+		customerCol = "stripe_customer"
 	}
 	var user User
-	if err := tx.Where("creem_customer = ?", in.CustomerId).First(&user).Error; err != nil {
-		return nil, 0, ErrCreemReversalUnmatched
+	if err := tx.Where(customerCol+" = ?", in.CustomerId).First(&user).Error; err != nil {
+		return nil, 0, ErrReversalUnmatched
 	}
-	if in.PaidCents <= 0 {
+	if !in.MatchByAmount || in.PaidCents <= 0 {
 		return nil, user.Id, nil
 	}
 	paid := float64(in.PaidCents) / 100
 	err := lockForUpdate(tx).
 		Where("user_id = ? AND payment_provider = ? AND status = ? AND (abs(paid_amount - ?) < 0.011 OR abs(charged_money - ?) < 0.011 OR abs(money - ?) < 0.011)",
-			user.Id, PaymentProviderCreem, common.TopUpStatusSuccess, paid, paid, paid).
+			user.Id, in.Provider, common.TopUpStatusSuccess, paid, paid, paid).
 		Order("complete_time desc, id desc").First(&t).Error
 	if err != nil {
 		return nil, user.Id, nil
@@ -859,13 +868,13 @@ func resolveCreemReversalTopUp(tx *gorm.DB, in CreemReversalInput) (*TopUp, int,
 	return &t, t.UserId, nil
 }
 
-// CreemMoneyCommitted sums what an account has put through Creem: top-ups that
-// landed, plus checkouts opened in the last hour that may still land.
-func CreemMoneyCommitted(userId int) (float64, error) {
+// CardMoneyCommitted sums what an account has put through card processors:
+// top-ups that landed, plus checkouts opened in the last hour that may still land.
+func CardMoneyCommitted(userId int) (float64, error) {
 	var total float64
 	err := DB.Model(&TopUp{}).Select("coalesce(sum(money),0)").
-		Where("user_id = ? AND payment_provider = ? AND (status = ? OR (status = ? AND create_time >= ?))",
-			userId, PaymentProviderCreem, common.TopUpStatusSuccess, common.TopUpStatusPending, common.GetTimestamp()-3600).
+		Where("user_id = ? AND payment_provider IN ? AND (status = ? OR (status = ? AND create_time >= ?))",
+			userId, []string{PaymentProviderCreem, PaymentProviderStripe}, common.TopUpStatusSuccess, common.TopUpStatusPending, common.GetTimestamp()-3600).
 		Scan(&total).Error
 	return total, err
 }
