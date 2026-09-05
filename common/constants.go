@@ -321,4 +321,7 @@ const (
 	TopUpStatusSuccess = "success"
 	TopUpStatusFailed  = "failed"
 	TopUpStatusExpired = "expired"
+	// The charge behind a credited top-up went back to the buyer.
+	TopUpStatusRefunded = "refunded"
+	TopUpStatusDisputed = "disputed"
 )

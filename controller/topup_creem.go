@@ -190,6 +190,19 @@ func RequestCreemPay(c fuego.ContextWithBody[dto.CreemPayRequest]) (*dto.Respons
 	}
 
 	user, _ := model.GetUserById(id, false)
+	if user == nil {
+		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.create_failed"))
+	}
+
+	if capUSD := setting.CreemNewAccountCapUSD; capUSD > 0 && user.CreatedAt > 0 && time.Now().Unix()-user.CreatedAt < 86400 {
+		committed, err := model.CreemMoneyCommitted(id)
+		if err != nil {
+			return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.create_failed"))
+		}
+		if committed+payAmount > capUSD {
+			return dto.Fail[dto.CreemPayData](fmt.Sprintf("Card top-ups are limited to $%.0f in total during an account's first 24 hours. Please try again later or pay with crypto.", capUSD))
+		}
+	}
 
 	// 生成唯一的订单引用ID
 	reference := fmt.Sprintf("creem-api-ref-%d-%d-%s", user.Id, time.Now().UnixMilli(), randstr.String(4))
@@ -315,11 +328,15 @@ func CreemWebhook(c *gin.Context) {
 		// charge is already handled by checkout.completed, so this path is the
 		// renewal driver (checkout.completed does not fire on auto-renewal).
 		handleSubscriptionPaid(c, &webhookEvent, string(bodyBytes))
-	case "refund.created", "subscription.expired":
-		// Creem delivers these already; until this branch existed they fell
-		// through to the default log, so a refunded customer kept a live
-		// subscription and its full quota pool until end_time.
-		//
+	case "refund.created":
+		if webhookEvent.Object.Order.Type == "onetime" {
+			handleTopUpReversal(c, &webhookEvent, string(bodyBytes), false)
+		} else {
+			handleSubscriptionTerminated(c, &webhookEvent, string(bodyBytes))
+		}
+	case "dispute.created":
+		handleTopUpReversal(c, &webhookEvent, string(bodyBytes), true)
+	case "subscription.expired":
 		// subscription.canceled is deliberately NOT here. Creem fires it the
 		// moment a customer turns off auto-renewal, not at the end of the paid
 		// period, so terminating on it destroys the month they already paid for:
@@ -383,6 +400,101 @@ func handleSubscriptionTerminated(c *gin.Context, event *dto.CreemWebhookEvent, 
 	} else {
 		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem %s subscription ended event_id=%s user_id=%d subscription_id=%d", event.EventType, event.Id, userId, subId))
 	}
+	c.Status(http.StatusOK)
+}
+
+// handleTopUpReversal answers refund.created for a one-time top-up and every
+// dispute.created. The credits the charge bought are taken back. A dispute
+// also locks the account: a chargeback on a prepaid API balance is a stolen
+// card or a customer keeping both the credits and the money, and neither gets
+// to keep making requests. A refund we issued ourselves only reverses credit.
+func handleTopUpReversal(c *gin.Context, event *dto.CreemWebhookEvent, rawBody string, dispute bool) {
+	ctx := c.Request.Context()
+	kind := "refund"
+	if dispute {
+		kind = "dispute"
+	}
+	customerId := event.Object.Customer.Id
+	if customerId == "" {
+		customerId = event.Object.Order.Customer
+	}
+	paid := event.Object.Transaction.AmountPaid
+	if paid == 0 {
+		paid = event.Object.Order.AmountPaid
+	}
+	reversed := event.Object.RefundAmount
+	if dispute {
+		reversed = event.Object.Amount
+	}
+	in := model.CreemReversalInput{
+		EventId:       event.Id,
+		Reference:     event.CheckoutReference(),
+		OrderId:       event.Object.Order.Id,
+		TransactionId: event.Object.Transaction.Id,
+		CustomerId:    customerId,
+		PaidCents:     paid,
+		ReversedCents: reversed,
+		Dispute:       dispute,
+	}
+	lockKey := in.Reference
+	if lockKey == "" {
+		lockKey = in.OrderId
+	}
+	if lockKey == "" {
+		lockKey = event.Id
+	}
+	LockOrder(lockKey)
+	defer UnlockOrder(lockKey)
+
+	res, err := model.ReverseCreemTopUp(in)
+	matched := err == nil
+	switch {
+	case errors.Is(err, model.ErrCreemReversalUnmatched):
+		logger.LogWarn(ctx, fmt.Sprintf("Creem %s could not match user event_id=%s order_id=%s transaction_id=%s customer=%s body=%q", kind, event.Id, in.OrderId, in.TransactionId, customerId, rawBody))
+		c.Status(http.StatusOK)
+		return
+	case errors.Is(err, model.ErrTopUpNotFound):
+		logger.LogWarn(ctx, fmt.Sprintf("Creem %s matched user but no top-up event_id=%s user_id=%d order_id=%s transaction_id=%s amount_paid=%d body=%q", kind, event.Id, res.UserId, in.OrderId, in.TransactionId, paid, rawBody))
+	case err != nil:
+		logger.LogError(ctx, fmt.Sprintf("Creem %s processing failed event_id=%s order_id=%s error=%q", kind, event.Id, in.OrderId, err.Error()))
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	if dispute && event.Object.Order.Type != "onetime" {
+		_, subId, terr := model.TerminateUserSubscriptionByCreem(model.CreemTerminationInput{
+			ReferenceId:     in.Reference,
+			CreemCustomerId: customerId,
+			CreemProductId:  event.Object.Order.Product,
+			Reason:          event.EventType,
+		})
+		if terr != nil && !errors.Is(terr, model.ErrSubscriptionOrderNotFound) {
+			logger.LogError(ctx, fmt.Sprintf("Creem dispute subscription termination failed event_id=%s error=%q", event.Id, terr.Error()))
+		} else if subId != 0 {
+			logger.LogInfo(ctx, fmt.Sprintf("Creem dispute subscription ended event_id=%s user_id=%d subscription_id=%d", event.Id, res.UserId, subId))
+		}
+	}
+
+	if dispute {
+		if derr := model.DisableUserForFraud(res.UserId); derr != nil {
+			logger.LogError(ctx, fmt.Sprintf("Creem dispute failed to disable user event_id=%s user_id=%d error=%q", event.Id, res.UserId, derr.Error()))
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if matched && res.AlreadyDone {
+		logger.LogInfo(ctx, fmt.Sprintf("Creem %s already applied event_id=%s user_id=%d top_up_id=%d", kind, event.Id, res.UserId, res.TopUpId))
+		c.Status(http.StatusOK)
+		return
+	}
+
+	note := fmt.Sprintf("Creem %s: %d quota reversed, top-up %d, order %s, transaction %s, event %s", kind, res.QuotaRemoved, res.TopUpId, in.OrderId, in.TransactionId, event.Id)
+	if dispute {
+		note += ", account disabled"
+	}
+	model.RecordLog(res.UserId, model.LogTypeRefund, note)
+	logger.LogInfo(ctx, fmt.Sprintf("Creem %s applied event_id=%s user_id=%d top_up_id=%d quota_removed=%d disabled=%t", kind, event.Id, res.UserId, res.TopUpId, res.QuotaRemoved, dispute))
 	c.Status(http.StatusOK)
 }
 
@@ -513,6 +625,11 @@ func handleCheckoutCompleted(c *gin.Context, event *dto.CreemWebhookEvent) {
 		if err := model.SetTopUpPaidAmount(referenceId, float64(event.Object.Order.AmountPaid)/100); err != nil {
 			logger.LogError(c.Request.Context(), fmt.Sprintf("Creem failed to record paid amount trade_no=%s amount_paid=%d error=%q", referenceId, event.Object.Order.AmountPaid, err.Error()))
 		}
+	}
+
+	// The order id is the only key a later dispute event is sure to carry.
+	if err := model.SetTopUpProviderPaymentId(referenceId, event.Object.Order.Id); err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem failed to record order id trade_no=%s order_id=%s error=%q", referenceId, event.Object.Order.Id, err.Error()))
 	}
 
 	err := model.RechargeCreem(referenceId, customerEmail, customerName)
