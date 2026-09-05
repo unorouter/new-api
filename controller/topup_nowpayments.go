@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha512"
 	"encoding/hex"
@@ -285,7 +286,19 @@ func NowPaymentsWebhook(c *gin.Context) {
 }
 
 func handleNowPaymentsEvent(c *gin.Context, event *dto.NowPaymentsWebhookEvent, callerIp string) {
-	ctx := c.Request.Context()
+	status := settleNowPaymentsEvent(c.Request.Context(), event, "webhook client_ip="+callerIp)
+	if status >= http.StatusBadRequest {
+		c.AbortWithStatus(status)
+		return
+	}
+	c.Status(status)
+}
+
+// settleNowPaymentsEvent applies one NowPayments payment state to its order and
+// returns the HTTP status the webhook would answer with. The reconcile poller
+// feeds it the same shape read back from GET /v1/payment/{id}, so an order
+// whose IPN never arrived settles by exactly the rules an IPN would have used.
+func settleNowPaymentsEvent(ctx context.Context, event *dto.NowPaymentsWebhookEvent, source string) int {
 	orderId := event.OrderId
 	status := event.PaymentStatus
 
@@ -317,25 +330,22 @@ func handleNowPaymentsEvent(c *gin.Context, event *dto.NowPaymentsWebhookEvent, 
 			// Completion upserts a success top_ups ledger row under the same
 			// trade_no, so falling through to the top-up recharge would always
 			// fail on it. A subscription trade_no is never also a top-up.
-			logger.LogInfo(ctx, fmt.Sprintf("NowPayments subscription order processed successfully trade_no=%s client_ip=%s", orderId, callerIp))
-			c.Status(http.StatusOK)
-			return
+			logger.LogInfo(ctx, fmt.Sprintf("NowPayments subscription order processed successfully trade_no=%s %s", orderId, source))
+			return http.StatusOK
 		} else if !errors.Is(err, model.ErrSubscriptionOrderNotFound) {
 			logger.LogError(ctx, fmt.Sprintf("NowPayments subscription order processing failed trade_no=%s error=%q", orderId, err.Error()))
-			c.AbortWithStatus(http.StatusInternalServerError)
-			return
+			return http.StatusInternalServerError
 		}
 
 		if err := model.RechargeNowPayments(orderId, event.PayCurrency, event.ActuallyPaid); err != nil {
-			logger.LogError(ctx, fmt.Sprintf("NowPayments topup processing failed trade_no=%s client_ip=%s error=%q", orderId, callerIp, err.Error()))
-			c.AbortWithStatus(http.StatusInternalServerError)
-			return
+			logger.LogError(ctx, fmt.Sprintf("NowPayments topup processing failed trade_no=%s %s error=%q", orderId, source, err.Error()))
+			return http.StatusInternalServerError
 		}
 
 		if topUp := model.GetTopUpByTradeNo(orderId); topUp != nil {
 			go service.SendTopupConfirmationEmail(topUp.UserId, topUp.Money, event.ActuallyPaid, strings.ToUpper(event.PayCurrency), topUp.TradeNo)
 		}
-		c.Status(http.StatusOK)
+		return http.StatusOK
 
 	case "failed", "expired", "refunded":
 		LockOrder(orderId)
@@ -344,9 +354,9 @@ func handleNowPaymentsEvent(c *gin.Context, event *dto.NowPaymentsWebhookEvent, 
 		if err != nil && !errors.Is(err, model.ErrTopUpNotFound) && !errors.Is(err, model.ErrTopUpStatusInvalid) {
 			logger.LogError(ctx, fmt.Sprintf("NowPayments failed to mark failure status trade_no=%s status=%s error=%q", orderId, status, err.Error()))
 		} else {
-			logger.LogInfo(ctx, fmt.Sprintf("NowPayments topup order marked status=%s trade_no=%s", status, orderId))
+			logger.LogInfo(ctx, fmt.Sprintf("NowPayments topup order marked status=%s trade_no=%s %s", status, orderId, source))
 		}
-		c.Status(http.StatusOK)
+		return http.StatusOK
 
 	case "partially_paid":
 		// A crypto transfer almost never lands on the exact invoice amount: gas,
@@ -359,29 +369,59 @@ func handleNowPaymentsEvent(c *gin.Context, event *dto.NowPaymentsWebhookEvent, 
 			LockOrder(orderId)
 			defer UnlockOrder(orderId)
 
-			logger.LogInfo(ctx, fmt.Sprintf("NowPayments crediting partial payment within tolerance trade_no=%s pay_amount=%v actually_paid=%v", orderId, event.PayAmount, event.ActuallyPaid))
+			logger.LogInfo(ctx, fmt.Sprintf("NowPayments crediting partial payment within tolerance trade_no=%s pay_amount=%v actually_paid=%v %s", orderId, event.PayAmount, event.ActuallyPaid, source))
 			if err := model.RechargeNowPayments(orderId, event.PayCurrency, event.ActuallyPaid); err != nil {
-				logger.LogError(ctx, fmt.Sprintf("NowPayments partial topup processing failed trade_no=%s client_ip=%s error=%q", orderId, callerIp, err.Error()))
-				c.AbortWithStatus(http.StatusInternalServerError)
-				return
+				logger.LogError(ctx, fmt.Sprintf("NowPayments partial topup processing failed trade_no=%s %s error=%q", orderId, source, err.Error()))
+				return http.StatusInternalServerError
 			}
 			if topUp := model.GetTopUpByTradeNo(orderId); topUp != nil {
 				go service.SendTopupConfirmationEmail(topUp.UserId, topUp.Money, event.ActuallyPaid, strings.ToUpper(event.PayCurrency), topUp.TradeNo)
 			}
-			c.Status(http.StatusOK)
-			return
+			return http.StatusOK
 		}
-		logger.LogWarn(ctx, fmt.Sprintf("NowPayments underpaid beyond tolerance, left pending trade_no=%s pay_amount=%v actually_paid=%v", orderId, event.PayAmount, event.ActuallyPaid))
-		c.Status(http.StatusOK)
+		logger.LogWarn(ctx, fmt.Sprintf("NowPayments underpaid beyond tolerance, left pending trade_no=%s pay_amount=%v actually_paid=%v %s", orderId, event.PayAmount, event.ActuallyPaid, source))
+		return http.StatusOK
 
 	case "waiting", "confirming", "confirmed", "sending":
-		logger.LogInfo(ctx, fmt.Sprintf("NowPayments awaiting confirmation trade_no=%s status=%s", orderId, status))
-		c.Status(http.StatusOK)
+		logger.LogInfo(ctx, fmt.Sprintf("NowPayments awaiting confirmation trade_no=%s status=%s %s", orderId, status, source))
+		return http.StatusOK
 
 	default:
-		logger.LogWarn(ctx, fmt.Sprintf("NowPayments unknown status ignored trade_no=%s status=%s", orderId, status))
-		c.Status(http.StatusOK)
+		logger.LogWarn(ctx, fmt.Sprintf("NowPayments unknown status ignored trade_no=%s status=%s %s", orderId, status, source))
+		return http.StatusOK
 	}
+}
+
+// fetchNowPaymentsPayment reads a payment back from NowPayments. The response
+// carries the same field names as an IPN event, so it decodes into the event
+// shape and settles through the same path.
+func fetchNowPaymentsPayment(paymentId string) (*dto.NowPaymentsWebhookEvent, error) {
+	if setting.NowPaymentsApiKey == "" {
+		return nil, errors.New("NowPayments API key is not configured")
+	}
+	req, err := http.NewRequest("GET", nowPaymentsApiBase()+"/payment/"+paymentId, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("x-api-key", setting.NowPaymentsApiKey)
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("NowPayments payment lookup returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var event dto.NowPaymentsWebhookEvent
+	if err := common.Unmarshal(body, &event); err != nil {
+		return nil, err
+	}
+	return &event, nil
 }
 
 func getNowPaymentsPayMoney(amount float64, group string) float64 {
