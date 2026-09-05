@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -296,8 +297,11 @@ func perModelRateLimit(c *gin.Context) bool {
 		msg := fmt.Sprintf("Too many requests. The free tier allows %v request(s) every %v per account on %v - nothing is used up, retry in %vs. The paid %v has no per-minute limit.",
 			successMaxCount, windowLabel, mr.Model, retryAfter, paidName)
 		// Surface the rejection in the usage logs (aborting here skips the
-		// relay's own error logging entirely). DB guard keeps unit tests DB-free.
-		if model.DB != nil {
+		// relay's own error logging entirely), once per account, model and
+		// window: a client that retries in a loop otherwise writes one row per
+		// attempt (24k rows in an hour from one shared guest key). DB guard
+		// keeps unit tests DB-free.
+		if model.DB != nil && rateLimitRejectionLoggable(key, retryAfter) {
 			group := c.GetString("group")
 			// Rate limiting runs before the distributor selects a channel, so attach
 			// the channel the request would have been routed to for log attribution.
@@ -352,6 +356,31 @@ func settlePerModelRequest(c *gin.Context) {
 }
 
 // ModelRequestRateLimit 模型请求限流中间件
+var rateLimitRejectionLogged sync.Map
+
+// rateLimitRejectionLoggable reports whether a rejection on this rate-limit
+// key has not been logged yet within ttl seconds, and claims the slot if so.
+func rateLimitRejectionLoggable(key string, ttl int64) bool {
+	if key == "" {
+		return true
+	}
+	if ttl <= 0 {
+		ttl = 60
+	}
+	if common.RedisEnabled {
+		ok, err := common.RedisSetNX("rateLimit:logged:"+key, "1", time.Duration(ttl)*time.Second)
+		if err == nil {
+			return ok
+		}
+	}
+	now := time.Now().Unix()
+	if v, found := rateLimitRejectionLogged.Load(key); found && now-v.(int64) < ttl {
+		return false
+	}
+	rateLimitRejectionLogged.Store(key, now)
+	return true
+}
+
 func ModelRequestRateLimit() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		// 在每个请求时检查是否启用限流
