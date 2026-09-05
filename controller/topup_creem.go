@@ -194,8 +194,8 @@ func RequestCreemPay(c fuego.ContextWithBody[dto.CreemPayRequest]) (*dto.Respons
 		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.create_failed"))
 	}
 
-	if capUSD := setting.CreemNewAccountCapUSD; capUSD > 0 && user.CreatedAt > 0 && time.Now().Unix()-user.CreatedAt < 86400 {
-		committed, err := model.CreemMoneyCommitted(id)
+	if capUSD := setting.CardTopUpNewAccountCapUSD; capUSD > 0 && user.CreatedAt > 0 && time.Now().Unix()-user.CreatedAt < 86400 {
+		committed, err := model.CardMoneyCommitted(id)
 		if err != nil {
 			return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.create_failed"))
 		}
@@ -426,7 +426,8 @@ func handleTopUpReversal(c *gin.Context, event *dto.CreemWebhookEvent, rawBody s
 	if dispute {
 		reversed = event.Object.Amount
 	}
-	in := model.CreemReversalInput{
+	in := model.TopUpReversalInput{
+		Provider:      model.PaymentProviderCreem,
 		EventId:       event.Id,
 		Reference:     event.CheckoutReference(),
 		OrderId:       event.Object.Order.Id,
@@ -435,6 +436,7 @@ func handleTopUpReversal(c *gin.Context, event *dto.CreemWebhookEvent, rawBody s
 		PaidCents:     paid,
 		ReversedCents: reversed,
 		Dispute:       dispute,
+		MatchByAmount: true,
 	}
 	lockKey := in.Reference
 	if lockKey == "" {
@@ -446,10 +448,10 @@ func handleTopUpReversal(c *gin.Context, event *dto.CreemWebhookEvent, rawBody s
 	LockOrder(lockKey)
 	defer UnlockOrder(lockKey)
 
-	res, err := model.ReverseCreemTopUp(in)
+	res, err := model.ReverseTopUp(in)
 	matched := err == nil
 	switch {
-	case errors.Is(err, model.ErrCreemReversalUnmatched):
+	case errors.Is(err, model.ErrReversalUnmatched):
 		logger.LogWarn(ctx, fmt.Sprintf("Creem %s could not match user event_id=%s order_id=%s transaction_id=%s customer=%s body=%q", kind, event.Id, in.OrderId, in.TransactionId, customerId, rawBody))
 		c.Status(http.StatusOK)
 		return

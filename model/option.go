@@ -101,6 +101,7 @@ func InitOptionMap() {
 	common.OptionMap["StripePriceId"] = setting.StripePriceId
 	common.OptionMap["StripeUnitPrice"] = strconv.FormatFloat(setting.StripeUnitPrice, 'f', -1, 64)
 	common.OptionMap["StripePromotionCodesEnabled"] = strconv.FormatBool(setting.StripePromotionCodesEnabled)
+	common.OptionMap["StripeRequest3DS"] = strconv.FormatBool(setting.StripeRequest3DS)
 	common.OptionMap["StripeManagedPayments"] = strconv.FormatBool(setting.StripeManagedPayments)
 	common.OptionMap["StripeTextModerationEnabled"] = strconv.FormatBool(setting.StripeTextModerationEnabled)
 	common.OptionMap["CreemEnabled"] = strconv.FormatBool(setting.CreemEnabled)
@@ -109,7 +110,7 @@ func InitOptionMap() {
 	common.OptionMap["CreemTestMode"] = strconv.FormatBool(setting.CreemTestMode)
 	common.OptionMap["CreemFeeFixed"] = strconv.FormatFloat(setting.CreemFeeFixed, 'f', -1, 64)
 	common.OptionMap["CreemFeePercent"] = strconv.FormatFloat(setting.CreemFeePercent, 'f', -1, 64)
-	common.OptionMap["CreemNewAccountCapUSD"] = strconv.FormatFloat(setting.CreemNewAccountCapUSD, 'f', -1, 64)
+	common.OptionMap["CardTopUpNewAccountCapUSD"] = strconv.FormatFloat(setting.CardTopUpNewAccountCapUSD, 'f', -1, 64)
 	common.OptionMap["CreemFeeThreshold"] = strconv.FormatFloat(setting.CreemFeeThreshold, 'f', -1, 64)
 	common.OptionMap["CreemWebhookSecret"] = setting.CreemWebhookSecret
 	common.OptionMap["CreemModerationEnabled"] = strconv.FormatBool(setting.CreemModerationEnabled)
@@ -542,6 +543,8 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.StripeMinTopUp, _ = strconv.Atoi(value)
 	case "StripePromotionCodesEnabled":
 		setting.StripePromotionCodesEnabled = value == "true"
+	case "StripeRequest3DS":
+		setting.StripeRequest3DS = value == "true"
 	case "StripeManagedPayments":
 		setting.StripeManagedPayments = value == "true"
 	case "StripeTextModerationEnabled":
@@ -556,8 +559,8 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.CreemFeeFixed, _ = strconv.ParseFloat(value, 64)
 	case "CreemFeePercent":
 		setting.CreemFeePercent, _ = strconv.ParseFloat(value, 64)
-	case "CreemNewAccountCapUSD":
-		setting.CreemNewAccountCapUSD, _ = strconv.ParseFloat(value, 64)
+	case "CardTopUpNewAccountCapUSD":
+		setting.CardTopUpNewAccountCapUSD, _ = strconv.ParseFloat(value, 64)
 	case "CreemFeeThreshold":
 		setting.CreemFeeThreshold, _ = strconv.ParseFloat(value, 64)
 	case "CreemWebhookSecret":
