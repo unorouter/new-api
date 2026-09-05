@@ -104,6 +104,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 				acceptUnsetRatio = true
 			}
 			if !acceptUnsetRatio {
+				logger.LogWarn(c, fmt.Sprintf("model price not configured model=%s billing_model=%s user=%d group=%s", matchName, billingModelName, info.UserId, info.UsingGroup))
 				return hosttypes.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
 			}
 		}
@@ -206,6 +207,7 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 				acceptUnsetRatio = true
 			}
 			if !ratioSuccess && !acceptUnsetRatio {
+				logger.LogWarn(c, fmt.Sprintf("model price not configured model=%s origin_model=%s user=%d group=%s", matchName, info.OriginModelName, info.UserId, info.UsingGroup))
 				return hosttypes.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
 			}
 		}
