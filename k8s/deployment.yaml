@@ -183,6 +183,10 @@ spec:
           volumeMounts:
             - { name: data, mountPath: /data }
             - { name: logs, mountPath: /logs }
+          startupProbe:
+            httpGet: { path: /api/status, port: 3000 }
+            periodSeconds: 10
+            failureThreshold: 30   # liveness must not kill a slave that is still coming up
           readinessProbe:
             httpGet: { path: /api/status, port: 3000 }
             initialDelaySeconds: 10
