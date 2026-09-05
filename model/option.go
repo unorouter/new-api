@@ -3,6 +3,7 @@ package model
 import (
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -257,6 +258,34 @@ func loadOptionsFromDatabase() {
 			common.SysLog("failed to update option map: " + err.Error())
 		}
 	}
+}
+
+var pricingReloadAt atomic.Int64
+
+const pricingReloadMinInterval = 5 // seconds
+
+// ReloadPricingOptionsOnMiss re-reads the price maps from the database when a
+// request meets a model the in-memory copy does not price. The copies follow
+// the database only every SyncOptions tick, so a price written moments ago
+// would otherwise refuse requests until the next tick. Rate-limited so a
+// genuinely unpriced model cannot turn every request into a database read.
+func ReloadPricingOptionsOnMiss() bool {
+	now := time.Now().Unix()
+	last := pricingReloadAt.Load()
+	if now-last < pricingReloadMinInterval || !pricingReloadAt.CompareAndSwap(last, now) {
+		return false
+	}
+	var options []*Option
+	if err := DB.Where("key IN ?", []string{"ModelRatio", "ModelPrice", "CompletionRatio"}).Find(&options).Error; err != nil {
+		common.SysLog("pricing reload on miss failed: " + err.Error())
+		return false
+	}
+	for _, option := range options {
+		if err := updateOptionMap(option.Key, option.Value); err != nil {
+			common.SysLog("pricing reload on miss failed to update option map: " + err.Error())
+		}
+	}
+	return true
 }
 
 func SyncOptions(frequency int) {
