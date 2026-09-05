@@ -109,6 +109,7 @@ func InitOptionMap() {
 	common.OptionMap["CreemTestMode"] = strconv.FormatBool(setting.CreemTestMode)
 	common.OptionMap["CreemFeeFixed"] = strconv.FormatFloat(setting.CreemFeeFixed, 'f', -1, 64)
 	common.OptionMap["CreemFeePercent"] = strconv.FormatFloat(setting.CreemFeePercent, 'f', -1, 64)
+	common.OptionMap["CreemNewAccountCapUSD"] = strconv.FormatFloat(setting.CreemNewAccountCapUSD, 'f', -1, 64)
 	common.OptionMap["CreemFeeThreshold"] = strconv.FormatFloat(setting.CreemFeeThreshold, 'f', -1, 64)
 	common.OptionMap["CreemWebhookSecret"] = setting.CreemWebhookSecret
 	common.OptionMap["CreemModerationEnabled"] = strconv.FormatBool(setting.CreemModerationEnabled)
@@ -555,6 +556,8 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.CreemFeeFixed, _ = strconv.ParseFloat(value, 64)
 	case "CreemFeePercent":
 		setting.CreemFeePercent, _ = strconv.ParseFloat(value, 64)
+	case "CreemNewAccountCapUSD":
+		setting.CreemNewAccountCapUSD, _ = strconv.ParseFloat(value, 64)
 	case "CreemFeeThreshold":
 		setting.CreemFeeThreshold, _ = strconv.ParseFloat(value, 64)
 	case "CreemWebhookSecret":

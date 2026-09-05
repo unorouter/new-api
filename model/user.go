@@ -1711,6 +1711,28 @@ func decreaseUserQuota(id int, quota int) (err error) {
 	return err
 }
 
+// DisableUserForFraud locks an account whose payment was charged back: the
+// user and every enabled token are disabled, and both caches are dropped so
+// the next request already sees it. Root is never touched.
+func DisableUserForFraud(userId int) error {
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&User{}).Where("id = ? AND role <> ?", userId, common.RoleRootUser).Update("status", common.UserStatusDisabled).Error; err != nil {
+			return err
+		}
+		return tx.Model(&Token{}).Where("user_id = ? AND status = ?", userId, common.TokenStatusEnabled).Update("status", common.TokenStatusDisabled).Error
+	})
+	if err != nil {
+		return err
+	}
+	if cerr := invalidateUserCache(userId); cerr != nil {
+		common.SysLog("fraud disable: failed to drop user cache: " + cerr.Error())
+	}
+	if cerr := InvalidateUserTokensCache(userId); cerr != nil {
+		common.SysLog("fraud disable: failed to drop token cache: " + cerr.Error())
+	}
+	return nil
+}
+
 func DeltaUpdateUserQuota(id int, delta int) (err error) {
 	if delta == 0 {
 		return nil

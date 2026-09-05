@@ -77,7 +77,52 @@ type CreemWebhookEvent struct {
 			Status     string `json:"status"`
 			Order      string `json:"order"`
 		} `json:"last_transaction"`
+		// refund.created / dispute.created: object is the refund or dispute,
+		// the reversed charge sits in transaction and the checkout that
+		// created it carries our reference.
+		Amount       int    `json:"amount"`
+		RefundAmount int    `json:"refund_amount"`
+		Reason       string `json:"reason"`
+		Transaction  struct {
+			Id           string `json:"id"`
+			Amount       int    `json:"amount"`
+			AmountPaid   int    `json:"amount_paid"`
+			Currency     string `json:"currency"`
+			Status       string `json:"status"`
+			Order        string `json:"order"`
+			Subscription string `json:"subscription"`
+		} `json:"transaction"`
+		Checkout struct {
+			Id        string            `json:"id"`
+			RequestId string            `json:"request_id"`
+			Metadata  map[string]string `json:"metadata"`
+		} `json:"checkout"`
 	} `json:"object"`
+}
+
+// CheckoutReference returns our trade_no for the checkout an event refers to:
+// on the checkout object itself, on the nested checkout of a refund or
+// dispute, or in either one's metadata.
+func (e *CreemWebhookEvent) CheckoutReference() string {
+	if e == nil {
+		return ""
+	}
+	if e.Object.RequestId != "" {
+		return e.Object.RequestId
+	}
+	if e.Object.Checkout.RequestId != "" {
+		return e.Object.Checkout.RequestId
+	}
+	if v := e.ReferenceID(); v != "" {
+		return v
+	}
+	if m := e.Object.Checkout.Metadata; m != nil {
+		if v := m["referenceId"]; v != "" {
+			return v
+		}
+		return m["reference_id"]
+	}
+	return ""
 }
 
 // ReferenceID returns the checkout reference id (our order trade_no) from the
