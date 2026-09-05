@@ -257,6 +257,17 @@ func SetPaymentInvoiceUrl(tradeNo string, invoiceUrl string) error {
 // against a top-up. Stored on every webhook, including non-final statuses, so an
 // order that stalls (e.g. an underpayment that never reaches "finished") can
 // still be looked up with the provider afterwards and reconciled.
+// GetPendingTopUpsWithProviderPaymentId lists pending orders of one provider
+// that already carry the provider's payment id (the customer got as far as a
+// payment page), created within [newerThan, olderThan], oldest first.
+func GetPendingTopUpsWithProviderPaymentId(provider string, newerThan int64, olderThan int64, limit int) ([]*TopUp, error) {
+	var orders []*TopUp
+	err := DB.Where("payment_provider = ? AND status = ? AND provider_payment_id <> '' AND create_time BETWEEN ? AND ?",
+		provider, common.TopUpStatusPending, newerThan, olderThan).
+		Order("create_time asc").Limit(limit).Find(&orders).Error
+	return orders, err
+}
+
 func SetTopUpProviderPaymentId(tradeNo string, paymentId string) error {
 	if tradeNo == "" || paymentId == "" {
 		return nil
