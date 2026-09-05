@@ -28,14 +28,9 @@ import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { createOAuthFlow } from '@/features/auth/api'
 import {
-  OAUTH_BIND_CALLBACK_MESSAGE,
-  OAUTH_BIND_RESULT_MESSAGE,
-} from '@/features/auth/constants'
-import { watchOAuthPopupClosed } from '@/features/auth/lib/oauth-bind-window'
-import {
-  getOAuthSessionStorage,
-  markOAuthBindPopup,
-} from '@/features/auth/lib/oauth-callback-mode'
+  openOAuthPopup,
+  type OAuthPopupExchange,
+} from '@/features/auth/lib/oauth-popup'
 import type { CustomOAuthProviderInfo } from '@/features/auth/types'
 import { getSelfOAuthBindings, unbindCustomOAuth } from '@/features/profile/api'
 import type { UserProfile, BindingItem } from '@/features/profile/types'
@@ -43,13 +38,15 @@ import { useDialogs } from '@/hooks/use-dialog'
 import { useStatus } from '@/hooks/use-status'
 import { api } from '@/lib/api'
 import {
-  buildDiscordOAuthUrl,
-  buildGitHubOAuthUrl,
+  buildOAuthAuthorizationUrl,
   indexCustomOAuthBindings,
-  buildLinuxDOOAuthUrl,
-  buildOIDCOAuthUrl,
   type CustomOAuthBinding,
 } from '@/lib/oauth'
+import {
+  AuthOperationError,
+  authRequestOptions,
+  authResult,
+} from '@/lib/secure-verification'
 
 import { EmailBindDialog } from './dialogs/email-bind-dialog'
 import { TelegramBindDialog } from './dialogs/telegram-bind-dialog'
@@ -66,22 +63,6 @@ interface AccountBindingsProps {
 
 type DialogKey = 'email' | 'wechat' | 'telegram'
 
-interface PendingOAuthBinding {
-  provider: string
-  state: string
-  popup: Window
-  stopCloseWatcher: () => void
-}
-
-interface OAuthBindingCallback {
-  type: typeof OAUTH_BIND_CALLBACK_MESSAGE
-  provider: string
-  state: string
-  code?: string
-  error?: string
-  errorDescription?: string
-}
-
 export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
   const { t } = useTranslation()
   const dialogs = useDialogs<DialogKey>()
@@ -91,17 +72,7 @@ export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
     null
   )
   const [unbinding, setUnbinding] = useState(false)
-  const pendingOAuthBinding = useRef<PendingOAuthBinding | null>(null)
-
-  const clearPendingOAuthBinding = useCallback(
-    (expected?: PendingOAuthBinding) => {
-      const pending = pendingOAuthBinding.current
-      if (!pending || (expected && pending !== expected)) return
-      pending.stopCloseWatcher()
-      pendingOAuthBinding.current = null
-    },
-    []
-  )
+  const pendingOAuthBinding = useRef<AbortController | null>(null)
 
   const customProviders = status?.custom_oauth_providers as
     | CustomOAuthProviderInfo[]
@@ -152,143 +123,76 @@ export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
   }
 
   const startOAuthBinding = useCallback(
-    async (provider: string, buildUrl: (state: string) => string) => {
-      const previous = pendingOAuthBinding.current
-      if (previous) {
-        clearPendingOAuthBinding(previous)
-        if (!previous.popup.closed) previous.popup.close()
-      }
-
-      const popup = window.open('', '_blank')
-      if (!popup) {
-        toast.error(t('OAuth pop-up was blocked'))
-        return
-      }
-      const pending: PendingOAuthBinding = {
-        provider,
-        state: '',
-        popup,
-        stopCloseWatcher: () => undefined,
-      }
-      pending.stopCloseWatcher = watchOAuthPopupClosed(popup, () =>
-        clearPendingOAuthBinding(pending)
-      )
-      pendingOAuthBinding.current = pending
+    async (provider: string) => {
+      pendingOAuthBinding.current?.abort()
+      const controller = new AbortController()
+      pendingOAuthBinding.current = controller
+      let exchange: OAuthPopupExchange | undefined
       try {
-        const state = await createOAuthFlow(provider, 'bind')
-        if (pendingOAuthBinding.current !== pending || popup.closed) return
-        // Stamp the popup while it is still same-origin (about:blank). Tying
-        // the mark to this state prevents a stale popup from claiming a later
-        // login callback. If storage is blocked, do not navigate into a
-        // callback that cannot safely identify the bind flow.
-        if (
-          !markOAuthBindPopup(getOAuthSessionStorage(popup), provider, state)
-        ) {
-          throw new Error('OAuth bind popup storage is unavailable')
+        exchange = await openOAuthPopup({
+          provider,
+          intent: 'bind',
+          signal: controller.signal,
+          prepare: async (signal) => {
+            const state = await createOAuthFlow(
+              provider,
+              'bind',
+              undefined,
+              signal
+            )
+            return {
+              state,
+              url: buildOAuthAuthorizationUrl(provider, state, status ?? {}),
+            }
+          },
+        })
+        const callback = exchange.callback
+        await authResult(
+          api.get(`/api/oauth/${provider}`, {
+            ...authRequestOptions,
+            disableDuplicate: true,
+            signal: exchange.signal,
+            params: {
+              state: callback.state,
+              code: callback.code,
+              error: callback.error,
+              error_description: callback.errorDescription,
+            },
+          })
+        )
+        exchange.signal.throwIfAborted()
+        exchange.finish({ success: true })
+        toast.success(t('Binding successful!'))
+        onUpdate()
+        await fetchCustomBindings()
+      } catch (error) {
+        const failure = AuthOperationError.from(
+          exchange?.signal.aborted ? exchange.signal.reason : error
+        )
+        exchange?.finish({ success: false, message: failure.message })
+        if (!controller.signal.aborted && failure.code !== 'AUTH_CANCELLED') {
+          toast.error(t(failure.message))
         }
-        pending.state = state
-        popup.location.replace(buildUrl(state))
-      } catch {
-        const isCurrent = pendingOAuthBinding.current === pending
-        clearPendingOAuthBinding(pending)
-        popup.close()
-        if (isCurrent) toast.error(t('Failed to initialize OAuth'))
+      } finally {
+        if (pendingOAuthBinding.current === controller) {
+          pendingOAuthBinding.current = null
+        }
       }
     },
-    [clearPendingOAuthBinding, t]
+    [fetchCustomBindings, onUpdate, status, t]
   )
 
-  const handleBindCustomOAuth = async (provider: CustomOAuthProviderInfo) => {
-    await startOAuthBinding(provider.slug, (state) => {
-      const redirectUri = `${window.location.origin}/oauth/${provider.slug}`
-      const url = new URL(provider.authorization_endpoint)
-      url.searchParams.set('client_id', provider.client_id)
-      url.searchParams.set('redirect_uri', redirectUri)
-      url.searchParams.set('response_type', 'code')
-      url.searchParams.set('state', state)
-      if (provider.scopes) url.searchParams.set('scope', provider.scopes)
-      return url.toString()
-    })
-  }
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-
-    const handleMessage = async (event: MessageEvent<unknown>) => {
-      if (event.origin !== window.location.origin) return
-      const message = event.data as Partial<OAuthBindingCallback> | null
-      const pending = pendingOAuthBinding.current
-      if (
-        !message ||
-        message.type !== OAUTH_BIND_CALLBACK_MESSAGE ||
-        !pending ||
-        message.provider !== pending.provider ||
-        message.state !== pending.state ||
-        event.source !== pending.popup
-      ) {
-        return
-      }
-
-      clearPendingOAuthBinding(pending)
-      let success = false
-      let resultMessage = t('OAuth failed')
-      try {
-        if (!message.code && !message.error) {
-          throw new Error(t('Missing code'))
-        }
-        const params: Record<string, string> = { state: message.state }
-        if (message.code) params.code = message.code
-        if (message.error) params.error = message.error
-        if (message.errorDescription) {
-          params.error_description = message.errorDescription
-        }
-        const response = await api.get(`/api/oauth/${message.provider}`, {
-          params,
-          skipBusinessError: true,
-        })
-        success = Boolean(response.data?.success)
-        resultMessage = response.data?.message || resultMessage
-        if (success) {
-          toast.success(t('Binding successful!'))
-          onUpdate()
-          await fetchCustomBindings()
-        } else {
-          toast.error(resultMessage)
-        }
-      } catch (error: unknown) {
-        resultMessage =
-          (error as { response?: { data?: { message?: string } } }).response
-            ?.data?.message ||
-          (error instanceof Error ? error.message : resultMessage)
-        toast.error(resultMessage)
-      }
-
-      pending.popup.postMessage(
-        {
-          type: OAUTH_BIND_RESULT_MESSAGE,
-          provider: message.provider,
-          state: message.state,
-          success,
-          message: resultMessage,
-        },
-        window.location.origin
-      )
-    }
-
-    window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
-  }, [clearPendingOAuthBinding, fetchCustomBindings, onUpdate, t])
+  const handleBindCustomOAuth = (provider: CustomOAuthProviderInfo) =>
+    startOAuthBinding(provider.slug)
 
   useEffect(
     () => () => {
-      const pending = pendingOAuthBinding.current
-      clearPendingOAuthBinding(pending ?? undefined)
-      if (pending && !pending.popup.closed) pending.popup.close()
+      pendingOAuthBinding.current?.abort()
+      pendingOAuthBinding.current = null
     },
-    [clearPendingOAuthBinding]
+    []
   )
 
-  // Memoize bindings to prevent unnecessary recalculations
   const bindings: BindingItem[] = useMemo(() => {
     if (!profile || !status) return []
 
@@ -324,14 +228,7 @@ export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
           (profile as unknown as Record<string, unknown>).github_id
         ),
         isEnabled: status?.github_oauth || false,
-        onBind: () => {
-          const clientId = status?.github_client_id
-          if (clientId) {
-            void startOAuthBinding('github', (state) =>
-              buildGitHubOAuthUrl(clientId, state)
-            )
-          }
-        },
+        onBind: () => void startOAuthBinding('github'),
       },
       {
         id: 'discord',
@@ -344,14 +241,7 @@ export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
           (profile as unknown as Record<string, unknown>).discord_id
         ),
         isEnabled: status?.discord_oauth || false,
-        onBind: () => {
-          const clientId = status?.discord_client_id
-          if (clientId) {
-            void startOAuthBinding('discord', (state) =>
-              buildDiscordOAuthUrl(clientId, state)
-            )
-          }
-        },
+        onBind: () => void startOAuthBinding('discord'),
       },
       {
         id: 'oidc',
@@ -364,15 +254,7 @@ export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
           (profile as unknown as Record<string, unknown>).oidc_id
         ),
         isEnabled: status?.oidc_enabled || false,
-        onBind: () => {
-          const authorizationEndpoint = status?.oidc_authorization_endpoint
-          const clientId = status?.oidc_client_id
-          if (authorizationEndpoint && clientId) {
-            void startOAuthBinding('oidc', (state) =>
-              buildOIDCOAuthUrl(authorizationEndpoint, clientId, state)
-            )
-          }
-        },
+        onBind: () => void startOAuthBinding('oidc'),
       },
       {
         id: 'telegram',
@@ -398,18 +280,10 @@ export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
           (profile as unknown as Record<string, unknown>).linux_do_id
         ),
         isEnabled: status?.linuxdo_oauth || false,
-        onBind: () => {
-          const clientId = status?.linuxdo_client_id
-          if (clientId) {
-            void startOAuthBinding('linuxdo', (state) =>
-              buildLinuxDOOAuthUrl(clientId, state)
-            )
-          }
-        },
+        onBind: () => void startOAuthBinding('linuxdo'),
       },
     ].filter((binding) => binding.isEnabled)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, status, t])
+  }, [profile, status, startOAuthBinding, dialogs, t])
 
   if (!profile || loading) return null
 

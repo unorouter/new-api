@@ -16,12 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export type VerificationMethod = '2fa' | 'passkey'
-
+export type VerificationMethod = '2fa' | 'passkey' | 'password' | 'oauth'
 export type SecurityProofScope =
   | 'channel.key.read'
   | 'passkey.register'
   | 'passkey.delete'
+  | '2fa.setup'
+
+export type VerificationOperation =
+  | { scope: 'channel.key.read'; context: { channel_id: number } }
+  | {
+      scope: Exclude<SecurityProofScope, 'channel.key.read'>
+      context?: Record<string, never>
+    }
 
 export interface SecurityProof {
   proof_token: string
@@ -30,31 +37,32 @@ export interface SecurityProof {
   scope: SecurityProofScope
 }
 
-export interface VerificationMethods {
-  has2FA: boolean
-  hasPasskey: boolean
-  passkeySupported: boolean
-}
-
-export interface SecureVerificationState {
-  method: VerificationMethod | null
-  scope?: SecurityProofScope
-  loading: boolean
-  code: string
-  title?: string
-  description?: string
-}
-
-export interface UseSecureVerificationOptions {
-  onSuccess?: (result: unknown, method: VerificationMethod) => void
-  onError?: (error: unknown) => void
-  successMessage?: string
-  autoReset?: boolean
-}
-
-export interface StartVerificationOptions {
+export interface VerificationRequirements {
   scope: SecurityProofScope
-  preferredMethod?: VerificationMethod
+  methods: { method: VerificationMethod; available: boolean; reason?: string }[]
+  oauth_providers: { slug: string; name: string }[]
+  password_encryption_enabled: boolean
+}
+
+export type VerificationInput =
+  | { method: '2fa'; code: string }
+  | { method: 'password'; password: string }
+  | { method: 'passkey' }
+  | { method: 'oauth'; provider: string }
+
+export type RequestVerificationOptions = VerificationOperation & {
   title?: string
   description?: string
 }
+
+export type SecureVerificationState =
+  | { phase: 'idle' }
+  | { phase: 'loading'; request: RequestVerificationOptions }
+  | { phase: 'error'; request: RequestVerificationOptions; error: string }
+  | {
+      phase: 'ready' | 'verifying'
+      request: RequestVerificationOptions
+      requirements: VerificationRequirements
+      input: VerificationInput | null
+      error?: string
+    }

@@ -18,9 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Loader2 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 
 import { CopyButton } from '@/components/copy-button'
 import { Dialog } from '@/components/dialog'
@@ -28,8 +27,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { TwoFASetupData } from '@/features/profile/types'
-import { setup2FA, enable2FA } from '@/lib/api'
+
+import type { TwoFASetupData } from '../../api'
 
 // ============================================================================
 // Two-FA Setup Dialog Component
@@ -37,102 +36,29 @@ import { setup2FA, enable2FA } from '@/lib/api'
 
 interface TwoFASetupDialogProps {
   open: boolean
-  onOpenChange: (open: boolean) => void
-  onSuccess: () => void
+  setupData: TwoFASetupData | null
+  loading: boolean
+  initializing: boolean
+  error?: string
+  onCancel: () => void
+  onEnable: (code: string) => Promise<void>
 }
 
-export function TwoFASetupDialog({
-  open,
-  onOpenChange,
-  onSuccess,
-}: TwoFASetupDialogProps) {
+export function TwoFASetupDialog(props: TwoFASetupDialogProps) {
   const { t } = useTranslation()
-  const [loading, setLoading] = useState(false)
-  const [initializing, setInitializing] = useState(false)
   const [step, setStep] = useState(0)
-  const [setupData, setSetupData] = useState<TwoFASetupData | null>(null)
   const [code, setCode] = useState('')
   const stepLabels = [
     t('Scan QR Code'),
     t('Save Backup Codes'),
     t('Verify Setup'),
   ]
-
-  const handleSetup = useCallback(async () => {
-    try {
-      setInitializing(true)
-      const response = await setup2FA()
-
-      if (response.success && response.data) {
-        setSetupData(response.data)
-        setStep(0)
-      } else {
-        toast.error(response.message || t('Failed to setup 2FA'))
-        onOpenChange(false)
-      }
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Setup 2FA error:', error)
-      toast.error(t('Failed to setup 2FA'))
-      onOpenChange(false)
-    } finally {
-      setInitializing(false)
-    }
-  }, [onOpenChange, t])
-
-  const handleEnable = async () => {
-    if (!code) {
-      toast.error(t('Please enter the verification code'))
-      return
-    }
-
-    try {
-      setLoading(true)
-      const response = await enable2FA(code)
-
-      if (response.success) {
-        toast.success(t('Two-factor authentication enabled successfully!'))
-        onOpenChange(false)
-        onSuccess()
-        // Reset
-        setStep(0)
-        setCode('')
-        setSetupData(null)
-      } else {
-        toast.error(response.message || t('Failed to enable 2FA'))
-      }
-    } catch {
-      toast.error(t('Failed to enable 2FA'))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleOpenChange = (open: boolean) => {
-    if (!loading && !initializing) {
-      if (open && !setupData) {
-        handleSetup()
-      }
-      if (!open) {
-        setStep(0)
-        setCode('')
-        setSetupData(null)
-      }
-      onOpenChange(open)
-    }
-  }
-
-  // Initialize when dialog opens
-  useEffect(() => {
-    if (open && !setupData && !initializing) {
-      handleSetup()
-    }
-  }, [open, setupData, initializing, handleSetup])
-
   return (
     <Dialog
-      open={open}
-      onOpenChange={handleOpenChange}
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!open) props.onCancel()
+      }}
       title={t('Setup Two-Factor Authentication')}
       description={
         <>
@@ -151,7 +77,7 @@ export function TwoFASetupDialog({
             <Button
               variant='outline'
               onClick={() => setStep(step - 1)}
-              disabled={initializing || loading}
+              disabled={props.initializing || props.loading}
             >
               {t('Back')}
             </Button>
@@ -159,24 +85,31 @@ export function TwoFASetupDialog({
           {step < 2 ? (
             <Button
               onClick={() => setStep(step + 1)}
-              disabled={initializing || !setupData}
+              disabled={props.initializing || !props.setupData}
             >
               {t('Next')}
             </Button>
           ) : (
             <Button
-              onClick={handleEnable}
-              disabled={initializing || loading || !code}
+              onClick={() => void props.onEnable(code)}
+              disabled={props.initializing || props.loading || !code}
             >
-              {loading && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-              {loading ? t('Enabling...') : t('Enable 2FA')}
+              {props.loading && (
+                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+              )}
+              {props.loading ? t('Enabling...') : t('Enable 2FA')}
             </Button>
           )}
         </>
       }
     >
       <div className='space-y-4 py-4'>
-        {initializing && (
+        {props.error && (
+          <p role='alert' className='text-destructive text-sm'>
+            {t(props.error)}
+          </p>
+        )}
+        {props.initializing && (
           <div className='flex flex-col items-center justify-center gap-3 py-8'>
             <div className='border-primary h-8 w-8 animate-spin rounded-full border-4 border-t-transparent' />
             <div className='text-muted-foreground text-sm'>
@@ -184,14 +117,14 @@ export function TwoFASetupDialog({
             </div>
           </div>
         )}
-        {!initializing && !setupData && (
+        {!props.initializing && !props.setupData && (
           <div className='flex justify-center py-8'>
             <div className='text-muted-foreground'>
               {t('Failed to load setup data')}
             </div>
           </div>
         )}
-        {!initializing && setupData && (
+        {!props.initializing && props.setupData && (
           <>
             {/* Step 0: QR Code */}
             {step === 0 && (
@@ -202,7 +135,7 @@ export function TwoFASetupDialog({
                   )}
                 </p>
                 <div className='flex justify-center rounded-lg bg-white p-4'>
-                  <QRCodeSVG value={setupData.qr_code_data} size={200} />
+                  <QRCodeSVG value={props.setupData.qr_code_data} size={200} />
                 </div>
                 <div className='bg-muted rounded-lg p-3'>
                   <div className='flex items-center justify-between'>
@@ -211,11 +144,11 @@ export function TwoFASetupDialog({
                         {t('Or enter this key manually:')}
                       </p>
                       <code className='font-mono text-sm'>
-                        {setupData.secret}
+                        {props.setupData.secret}
                       </code>
                     </div>
                     <CopyButton
-                      value={setupData.secret}
+                      value={props.setupData.secret}
                       variant='ghost'
                       tooltip={t('Copy secret key')}
                       aria-label={t('Copy secret key')}
@@ -237,7 +170,7 @@ export function TwoFASetupDialog({
                 </Alert>
                 <div className='rounded-lg border p-4'>
                   <div className='grid grid-cols-2 gap-2'>
-                    {setupData.backup_codes.map((code) => (
+                    {props.setupData.backup_codes.map((code) => (
                       <div
                         key={code}
                         className='bg-muted rounded-md p-2 text-center font-mono text-sm'
@@ -248,7 +181,7 @@ export function TwoFASetupDialog({
                   </div>
                 </div>
                 <CopyButton
-                  value={setupData.backup_codes.join('\n')}
+                  value={props.setupData.backup_codes.join('\n')}
                   variant='outline'
                   size='default'
                   className='w-full'
@@ -272,7 +205,7 @@ export function TwoFASetupDialog({
                     onChange={(e) => setCode(e.target.value)}
                     placeholder={t('Enter 6-digit code')}
                     maxLength={6}
-                    disabled={loading}
+                    disabled={props.loading}
                   />
                   <p className='text-muted-foreground text-xs'>
                     {t('Enter the 6-digit code from your authenticator app')}

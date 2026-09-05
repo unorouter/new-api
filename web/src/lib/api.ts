@@ -93,25 +93,6 @@ export async function getNotice(): Promise<{
 // 2FA Management APIs
 // ============================================================================
 
-export async function get2FAStatus() {
-  const res = await api.get('/api/user/2fa/status')
-  return res.data
-}
-
-export async function setup2FA() {
-  const res = await api.post('/api/user/2fa/setup')
-  return res.data
-}
-
-export async function enable2FA(code: string) {
-  const res = await api.post(
-    '/api/user/2fa/enable',
-    { code },
-    { acceptAuthRotation: true }
-  )
-  return res.data
-}
-
 export async function disable2FA(code: string) {
   const res = await api.post(
     '/api/user/2fa/disable',

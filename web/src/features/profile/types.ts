@@ -179,15 +179,6 @@ export interface TwoFAStatus {
   backup_codes_remaining: number
 }
 
-/**
- * Two-Factor Authentication Setup Data
- */
-export interface TwoFASetupData {
-  secret: string
-  qr_code_data: string
-  backup_codes: string[]
-}
-
 // ============================================================================
 // Checkin Type Definitions
 // ============================================================================

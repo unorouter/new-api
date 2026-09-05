@@ -16,8 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ApiResponse } from '@/features/profile/types'
+import type { ApiResponse, TwoFAStatus } from '@/features/profile/types'
 import { api } from '@/lib/api'
+import { authRequestOptions, authResult } from '@/lib/secure-verification'
 
 export interface AccessTokenStatus {
   exists: boolean
@@ -50,4 +51,48 @@ export async function revokeAccessToken(): Promise<void> {
   if (!response.data.success) {
     throw new Error(response.data.message || 'Failed to revoke token')
   }
+}
+
+export interface TwoFASetupData {
+  secret: string
+  qr_code_data: string
+  backup_codes: string[]
+  flow_token: string
+  expires_at: number
+}
+
+export function get2FAStatus(): Promise<TwoFAStatus> {
+  return authResult(api.get('/api/user/2fa/status', authRequestOptions))
+}
+
+export function setup2FA(
+  proofToken: string,
+  signal: AbortSignal
+): Promise<TwoFASetupData> {
+  return authResult(
+    api.post('/api/user/2fa/setup', undefined, {
+      ...authRequestOptions,
+      signal,
+      headers: { 'X-Security-Proof': proofToken },
+    })
+  )
+}
+
+export function enable2FA(
+  code: string,
+  flowToken: string,
+  signal: AbortSignal
+): Promise<unknown> {
+  return authResult(
+    api.post(
+      '/api/user/2fa/enable',
+      { code, flow_token: flowToken },
+      {
+        ...authRequestOptions,
+        signal,
+        acceptAuthRotation: true,
+        singleUseAuthorization: true,
+      }
+    )
+  )
 }

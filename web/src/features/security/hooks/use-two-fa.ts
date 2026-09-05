@@ -19,7 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import { useState, useEffect, useCallback } from 'react'
 
 import type { TwoFAStatus } from '@/features/profile/types'
-import { get2FAStatus } from '@/lib/api'
+import { AuthOperationError } from '@/lib/secure-verification'
+
+import { get2FAStatus } from '../api'
 
 // ============================================================================
 // Two-FA Hook
@@ -34,19 +36,17 @@ const DEFAULT_STATUS: TwoFAStatus = {
 export function useTwoFA(enabled = true) {
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState<TwoFAStatus>(DEFAULT_STATUS)
+  const [error, setError] = useState<string>()
 
   const fetchStatus = useCallback(async () => {
     if (!enabled) return
 
     try {
       setLoading(true)
-      const response = await get2FAStatus()
-      if (response.success && response.data) {
-        setStatus(response.data)
-      }
+      setError(undefined)
+      setStatus(await get2FAStatus())
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch 2FA status:', error)
+      setError(AuthOperationError.from(error).message)
     } finally {
       setLoading(false)
     }
@@ -59,6 +59,7 @@ export function useTwoFA(enabled = true) {
   return {
     status,
     loading,
+    error,
     refetch: fetchStatus,
   }
 }

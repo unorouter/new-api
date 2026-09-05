@@ -579,4 +579,8 @@ export const STATIC_I18N_KEYS = [
   'This user account is disabled.',
   'Telegram binding failed. Please try again.',
   'Verification scope is missing',
+  'This verification has already been used. Please verify again.',
+  "Verification does not match this action's details. Please verify again.",
+  'The action details are invalid.',
+  'You do not have permission to perform this action.',
 ] as const

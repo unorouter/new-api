@@ -29,8 +29,8 @@ import { toast } from 'sonner'
 
 import { OAuthCallbackScreen } from '@/features/auth/components/oauth-callback-screen'
 import {
-  OAUTH_BIND_CALLBACK_MESSAGE,
-  OAUTH_BIND_RESULT_MESSAGE,
+  OAUTH_POPUP_CALLBACK_MESSAGE,
+  OAUTH_POPUP_RESULT_MESSAGE,
 } from '@/features/auth/constants'
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
 import {
@@ -49,8 +49,9 @@ type OAuthRequestConfig = AxiosRequestConfig & {
   skipBusinessError?: boolean
 }
 
-interface OAuthBindingResult {
-  type: typeof OAUTH_BIND_RESULT_MESSAGE
+interface OAuthPopupResult {
+  intent: 'bind' | 'verify'
+  type: typeof OAUTH_POPUP_RESULT_MESSAGE
   provider: string
   state: string
   success: boolean
@@ -76,7 +77,7 @@ function OAuthCallback() {
   const isTelegramBindCallback =
     provider === 'telegram' &&
     (search.telegram_bind === 'success' || search.telegram_bind === 'error')
-  let mode: 'login' | 'bind' = 'login'
+  let mode: 'login' | 'bind' | 'verify' = 'login'
   if (isTelegramBindCallback) {
     mode = 'bind'
   } else if (typeof window !== 'undefined') {
@@ -116,10 +117,10 @@ function OAuthCallback() {
       return
     }
 
-    if (mode === 'bind') {
+    if (mode === 'bind' || mode === 'verify') {
       const opener = window.opener
       if (!opener || opener.closed) {
-        toast.error(i18next.t('OAuth binding window is no longer available'))
+        toast.error(i18next.t('OAuth window is no longer available.'))
         return
       }
 
@@ -132,10 +133,11 @@ function OAuthCallback() {
         ) {
           return
         }
-        const result = event.data as Partial<OAuthBindingResult> | null
+        const result = event.data as Partial<OAuthPopupResult> | null
         if (
           !result ||
-          result.type !== OAUTH_BIND_RESULT_MESSAGE ||
+          result.type !== OAUTH_POPUP_RESULT_MESSAGE ||
+          result.intent !== mode ||
           result.provider !== provider ||
           result.state !== state
         ) {
@@ -143,7 +145,7 @@ function OAuthCallback() {
         }
         cancelResultTimeout()
         if (result.success) {
-          toast.success(i18next.t('Binding successful!'))
+          if (mode === 'bind') toast.success(i18next.t('Binding successful!'))
           window.close()
           return
         }
@@ -153,12 +155,15 @@ function OAuthCallback() {
 
       window.addEventListener('message', handleBindingResult)
       cancelResultTimeout = startOAuthBindResponseDeadline(() => {
-        toast.error(i18next.t('OAuth binding timed out. Please try again.'))
+        toast.error(
+          i18next.t('OAuth authorization timed out. Please try again.')
+        )
         delayedClose = window.setTimeout(() => window.close(), 1500)
       })
       opener.postMessage(
         {
-          type: OAUTH_BIND_CALLBACK_MESSAGE,
+          type: OAUTH_POPUP_CALLBACK_MESSAGE,
+          intent: mode,
           provider,
           code,
           state,

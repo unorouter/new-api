@@ -30,9 +30,11 @@ import {
 } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { SecureVerificationDialog } from '@/features/auth/secure-verification'
 import { useDialogs } from '@/hooks/use-dialog'
 
 import { useTwoFA } from '../hooks/use-two-fa'
+import { useTwoFASetup } from '../hooks/use-two-fa-setup'
 import { TwoFABackupDialog } from './dialogs/two-fa-backup-dialog'
 import { TwoFADisableDialog } from './dialogs/two-fa-disable-dialog'
 import { TwoFASetupDialog } from './dialogs/two-fa-setup-dialog'
@@ -45,12 +47,13 @@ interface TwoFACardProps {
   loading: boolean
 }
 
-type DialogKey = 'setup' | 'disable' | 'backup'
+type DialogKey = 'disable' | 'backup'
 
 export function TwoFACard({ loading: pageLoading }: TwoFACardProps) {
   const { t } = useTranslation()
-  const { status, loading, refetch } = useTwoFA(!pageLoading)
+  const { status, loading, error, refetch } = useTwoFA(!pageLoading)
   const dialogs = useDialogs<DialogKey>()
+  const setup = useTwoFASetup(refetch)
 
   if (pageLoading || loading) {
     return (
@@ -61,6 +64,20 @@ export function TwoFACard({ loading: pageLoading }: TwoFACardProps) {
         </CardHeader>
         <CardContent className='p-3 sm:p-5'>
           <Skeleton className='h-20 w-full' />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('Two-Factor Authentication')}</CardTitle>
+        </CardHeader>
+        <CardContent className='space-y-3'>
+          <p role='alert'>{t(error)}</p>
+          <Button onClick={() => void refetch()}>{t('Retry')}</Button>
         </CardContent>
       </Card>
     )
@@ -126,7 +143,8 @@ export function TwoFACard({ loading: pageLoading }: TwoFACardProps) {
               {!status.enabled && (
                 <Button
                   className='w-full sm:w-auto xl:w-full 2xl:w-auto'
-                  onClick={() => dialogs.open('setup')}
+                  onClick={setup.start}
+                  disabled={setup.active}
                 >
                   {t('Enable')}
                 </Button>
@@ -159,12 +177,10 @@ export function TwoFACard({ loading: pageLoading }: TwoFACardProps) {
       </Card>
 
       {/* Dialogs */}
+      <SecureVerificationDialog {...setup.verificationDialogProps} />
       <TwoFASetupDialog
-        open={dialogs.isOpen('setup')}
-        onOpenChange={(open) =>
-          open ? dialogs.open('setup') : dialogs.close('setup')
-        }
-        onSuccess={refetch}
+        key={setup.setupDialogProps.setupData?.flow_token ?? 'initializing'}
+        {...setup.setupDialogProps}
       />
 
       <TwoFADisableDialog
