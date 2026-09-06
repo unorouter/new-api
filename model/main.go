@@ -393,62 +393,15 @@ func migrateDB() error {
 			return err
 		}
 	}
-	ensureSubscriptionPlanColumn("nowpayments_plan_id", "varchar(128) DEFAULT ''")
-	ensureUserColumn("topup_bonus_percent", "decimal(5,2) NULL")
-	ensureTopUpColumn("paid_amount", "decimal NOT NULL DEFAULT 0")
+	ensureColumn("subscription_plans", &SubscriptionPlan{}, "nowpayments_plan_id", "varchar(128) DEFAULT ''")
+	ensureColumn("users", &User{}, "topup_bonus_percent", "decimal(5,2) NULL")
+	ensureColumn("top_ups", &TopUp{}, "paid_amount", "decimal NOT NULL DEFAULT 0")
+	ensureColumn("subscription_orders", &SubscriptionOrder{}, "provider_payment_id", "varchar(64) NOT NULL DEFAULT ''")
 	backfillModelStatusLastUp()
 	if err := migrateTokenGroupMappingShape(DB); err != nil {
 		return err
 	}
 	return nil
-}
-
-// ensureUserColumn adds a column to users if it is missing, for the same reason
-// as ensureSubscriptionPlanColumn: AutoMigrate has been observed to skip new
-// optional columns on long-lived tables, and users is the longest-lived table
-// here. Nullable with no default, so existing rows read as "unset".
-// ensureTopUpColumn mirrors ensureUserColumn for the top_ups table: AutoMigrate
-// has been observed to skip new optional columns on long-lived tables.
-func ensureTopUpColumn(columnName, columnDDL string) {
-	tableName := "top_ups"
-	if !DB.Migrator().HasTable(tableName) {
-		return
-	}
-	if DB.Migrator().HasColumn(&TopUp{}, columnName) {
-		return
-	}
-	quote := "`"
-	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
-		quote = `"`
-	}
-	sql := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s%s%s %s",
-		tableName, quote, columnName, quote, columnDDL)
-	if err := DB.Exec(sql).Error; err != nil {
-		common.SysLog(fmt.Sprintf("failed to add %s.%s: %v", tableName, columnName, err))
-	} else {
-		common.SysLog(fmt.Sprintf("added column %s.%s", tableName, columnName))
-	}
-}
-
-func ensureUserColumn(columnName, columnDDL string) {
-	tableName := "users"
-	if !DB.Migrator().HasTable(tableName) {
-		return
-	}
-	if DB.Migrator().HasColumn(&User{}, columnName) {
-		return
-	}
-	quote := "`"
-	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
-		quote = `"`
-	}
-	sql := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s%s%s %s",
-		tableName, quote, columnName, quote, columnDDL)
-	if err := DB.Exec(sql).Error; err != nil {
-		common.SysLog(fmt.Sprintf("failed to add %s.%s: %v", tableName, columnName, err))
-	} else {
-		common.SysLog(fmt.Sprintf("added column %s.%s", tableName, columnName))
-	}
 }
 
 // backfillModelStatusLastUp seeds the last_up_at column (added Jul 2026) from
@@ -466,15 +419,13 @@ func backfillModelStatusLastUp() {
 	}
 }
 
-// ensureSubscriptionPlanColumn adds a column to subscription_plans if it is
-// missing. AutoMigrate has been observed to silently skip new optional
-// columns on long-lived prod tables; this is the belt-and-braces guard.
-func ensureSubscriptionPlanColumn(columnName, columnDDL string) {
-	tableName := "subscription_plans"
+// ensureColumn adds a column when AutoMigrate skipped it: that has been observed
+// for new optional columns on long-lived tables.
+func ensureColumn(tableName string, modelPtr interface{}, columnName, columnDDL string) {
 	if !DB.Migrator().HasTable(tableName) {
 		return
 	}
-	if DB.Migrator().HasColumn(&SubscriptionPlan{}, columnName) {
+	if DB.Migrator().HasColumn(modelPtr, columnName) {
 		return
 	}
 	quote := "`"

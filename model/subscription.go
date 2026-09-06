@@ -230,6 +230,8 @@ type SubscriptionOrder struct {
 	CreateTime      int64  `json:"create_time"`
 	CompleteTime    int64  `json:"complete_time"`
 	InvoiceUrl      string `json:"invoice_url" gorm:"type:varchar(512);default:''"`
+	// Provider-side payment id, the only handle a stalled order can be polled by.
+	ProviderPaymentId string `json:"-" gorm:"type:varchar(64);default:'';index"`
 
 	// Raw provider webhook event, includes customer email/name. Never serialized to clients.
 	ProviderPayload string `json:"-" gorm:"type:text"`
@@ -255,6 +257,23 @@ func GetSubscriptionOrderByTradeNo(tradeNo string) *SubscriptionOrder {
 		return nil
 	}
 	return &order
+}
+
+func SetSubscriptionOrderProviderPaymentId(tradeNo string, paymentId string) error {
+	if tradeNo == "" || paymentId == "" {
+		return nil
+	}
+	return DB.Model(&SubscriptionOrder{}).
+		Where("trade_no = ? AND provider_payment_id = ?", tradeNo, "").
+		Update("provider_payment_id", paymentId).Error
+}
+
+func GetPendingSubscriptionOrdersWithProviderPaymentId(provider string, newerThan int64, olderThan int64, limit int) ([]*SubscriptionOrder, error) {
+	var orders []*SubscriptionOrder
+	err := DB.Where("payment_provider = ? AND status = ? AND provider_payment_id <> '' AND create_time BETWEEN ? AND ?",
+		provider, common.TopUpStatusPending, newerThan, olderThan).
+		Order("create_time asc").Limit(limit).Find(&orders).Error
+	return orders, err
 }
 
 func GetUserSubscriptionOrders(userId int, pageInfo *common.PageInfo) (orders []*SubscriptionOrder, total int64, err error) {
