@@ -187,6 +187,10 @@ spec:
       pgaudit.log: "none"
       pgaudit.role: "auditor"
       pgaudit.log_parameter: "off"
+      # statement text off: a hand-typed UPDATE would put the new secret into the pod log
+      # (the app's own writes are parameterised). relation on so the table name survives.
+      pgaudit.log_statement: "off"
+      pgaudit.log_relation: "on"
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
