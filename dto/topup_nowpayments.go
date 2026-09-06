@@ -29,41 +29,6 @@ type NowPaymentsInvoiceResponse struct {
 	OrderId    string `json:"order_id"`
 }
 
-type NowPaymentsPlanRequest struct {
-	Title            string  `json:"title"`
-	IntervalDay      string  `json:"interval_day"`
-	Amount           float64 `json:"amount"`
-	Currency         string  `json:"currency"`
-	IpnCallbackURL   string  `json:"ipn_callback_url"`
-	SuccessURL       string  `json:"success_url"`
-	CancelURL        string  `json:"cancel_url"`
-	PartiallyPaidURL string  `json:"partially_paid_url"`
-}
-
-type NowPaymentsPlanResponse struct {
-	Result struct {
-		Id          string  `json:"id"`
-		Title       string  `json:"title"`
-		IntervalDay string  `json:"interval_day"`
-		Amount      float64 `json:"amount"`
-		Currency    string  `json:"currency"`
-	} `json:"result"`
-}
-
-type NowPaymentsEmailSubRequest struct {
-	SubscriptionPlanId string `json:"subscription_plan_id"`
-	Email              string `json:"email"`
-}
-
-type NowPaymentsEmailSubResponse struct {
-	Result []struct {
-		Id                 string `json:"id"`
-		SubscriptionPlanId string `json:"subscription_plan_id"`
-		EmailAddress       string `json:"email_address"`
-		Status             string `json:"status"`
-	} `json:"result"`
-}
-
 type NowPaymentsWebhookEvent struct {
 	PaymentId        int64   `json:"payment_id"`
 	PaymentStatus    string  `json:"payment_status"`

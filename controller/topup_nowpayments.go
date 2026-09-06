@@ -306,7 +306,14 @@ func settleNowPaymentsEvent(ctx context.Context, event *dto.NowPaymentsWebhookEv
 	// NowPayments can only be queried by payment_id, so an order left stalled in
 	// a non-final status is otherwise impossible to reconcile later.
 	if event.PaymentId != 0 {
-		if err := model.SetTopUpProviderPaymentId(orderId, strconv.FormatInt(event.PaymentId, 10)); err != nil {
+		paymentId := strconv.FormatInt(event.PaymentId, 10)
+		var err error
+		if strings.HasPrefix(orderId, NowPaymentsSubOrderRefPrefx) {
+			err = model.SetSubscriptionOrderProviderPaymentId(orderId, paymentId)
+		} else {
+			err = model.SetTopUpProviderPaymentId(orderId, paymentId)
+		}
+		if err != nil {
 			logger.LogError(ctx, fmt.Sprintf("NowPayments failed to record payment id trade_no=%s payment_id=%d error=%q", orderId, event.PaymentId, err.Error()))
 		}
 	}
@@ -350,6 +357,14 @@ func settleNowPaymentsEvent(ctx context.Context, event *dto.NowPaymentsWebhookEv
 	case "failed", "expired", "refunded":
 		LockOrder(orderId)
 		defer UnlockOrder(orderId)
+		if strings.HasPrefix(orderId, NowPaymentsSubOrderRefPrefx) {
+			if err := model.ExpireSubscriptionOrder(orderId, model.PaymentProviderNowPayments); err != nil && !errors.Is(err, model.ErrSubscriptionOrderNotFound) {
+				logger.LogError(ctx, fmt.Sprintf("NowPayments failed to expire subscription order trade_no=%s status=%s error=%q", orderId, status, err.Error()))
+			} else {
+				logger.LogInfo(ctx, fmt.Sprintf("NowPayments subscription order marked status=%s trade_no=%s %s", status, orderId, source))
+			}
+			return http.StatusOK
+		}
 		err := model.UpdatePendingTopUpStatus(orderId, model.PaymentProviderNowPayments, common.TopUpStatusFailed)
 		if err != nil && !errors.Is(err, model.ErrTopUpNotFound) && !errors.Is(err, model.ErrTopUpStatusInvalid) {
 			logger.LogError(ctx, fmt.Sprintf("NowPayments failed to mark failure status trade_no=%s status=%s error=%q", orderId, status, err.Error()))
@@ -370,6 +385,13 @@ func settleNowPaymentsEvent(ctx context.Context, event *dto.NowPaymentsWebhookEv
 			defer UnlockOrder(orderId)
 
 			logger.LogInfo(ctx, fmt.Sprintf("NowPayments crediting partial payment within tolerance trade_no=%s pay_amount=%v actually_paid=%v %s", orderId, event.PayAmount, event.ActuallyPaid, source))
+			if err := model.CompleteSubscriptionOrder(orderId, common.GetJsonString(event), model.PaymentProviderNowPayments, ""); err == nil {
+				logger.LogInfo(ctx, fmt.Sprintf("NowPayments subscription order processed successfully trade_no=%s %s", orderId, source))
+				return http.StatusOK
+			} else if !errors.Is(err, model.ErrSubscriptionOrderNotFound) {
+				logger.LogError(ctx, fmt.Sprintf("NowPayments subscription order processing failed trade_no=%s error=%q", orderId, err.Error()))
+				return http.StatusInternalServerError
+			}
 			if err := model.RechargeNowPayments(orderId, event.PayCurrency, event.ActuallyPaid); err != nil {
 				logger.LogError(ctx, fmt.Sprintf("NowPayments partial topup processing failed trade_no=%s %s error=%q", orderId, source, err.Error()))
 				return http.StatusInternalServerError
