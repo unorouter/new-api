@@ -143,7 +143,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	scanner.Split(bufio.ScanLines)
 	copyCodexSSEHeaders(c, resp)
-	SetEventStreamHeaders(c)
+	if !info.ForceUpstreamStream {
+		SetEventStreamHeaders(c)
+	}
 
 	ctx = context.WithValue(ctx, "stop_chan", stopChan)
 
