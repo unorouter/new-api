@@ -344,8 +344,6 @@ export type BillingSettings = {
   NowPaymentsFeePaidByUser: boolean
   NowPaymentsIsFixedRate: boolean
   NowPaymentsSubscriptionEnabled: boolean
-  NowPaymentsEmail: string
-  NowPaymentsPassword: string
   DeloPayEnabled: boolean
   DeloPayApiKey: string
   DeloPayProfileId: string

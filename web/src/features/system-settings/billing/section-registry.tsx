@@ -198,8 +198,6 @@ const BILLING_SECTIONS = [
           NowPaymentsIsFixedRate: settings.NowPaymentsIsFixedRate ?? true,
           NowPaymentsSubscriptionEnabled:
             settings.NowPaymentsSubscriptionEnabled ?? false,
-          NowPaymentsEmail: settings.NowPaymentsEmail ?? '',
-          NowPaymentsPassword: settings.NowPaymentsPassword ?? '',
           DeloPayEnabled: settings.DeloPayEnabled ?? false,
           DeloPayApiKey: settings.DeloPayApiKey ?? '',
           DeloPayProfileId: settings.DeloPayProfileId ?? '',
