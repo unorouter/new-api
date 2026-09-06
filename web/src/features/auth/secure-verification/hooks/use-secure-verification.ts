@@ -19,10 +19,19 @@ For commercial licensing, please contact support@quantumnous.com
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 
 import { AuthOperationError } from '@/lib/secure-verification'
+import type { AuthBundle } from '@/stores/auth-store'
 
-import { checkVerificationMethods, verify } from '../api'
+import {
+  checkVerificationMethods,
+  getLoginVerificationRequirements,
+  verify,
+  verifyLogin,
+} from '../api'
 import type {
   RequestVerificationOptions,
+  RequestLoginVerificationOptions,
+  VerificationRequest,
+  LoginChallenge,
   SecureVerificationState,
   SecurityProof,
   VerificationInput,
@@ -31,7 +40,7 @@ import type {
 
 type VerificationAction =
   | { type: 'reset' }
-  | { type: 'loading'; request: RequestVerificationOptions }
+  | { type: 'loading'; request: VerificationRequest }
   | { type: 'loaded'; requirements: VerificationRequirements }
   | { type: 'input'; input: VerificationInput }
   | { type: 'submit' }
@@ -106,14 +115,27 @@ function verificationReducer(
   }
 }
 
-interface PendingVerification {
-  request: RequestVerificationOptions
+interface PendingVerificationBase {
   controller: AbortController
-  resolve: (proof: SecurityProof | null) => void
   reject: (error: unknown) => void
-  initialPassword?: string
   submitting: boolean
 }
+
+type PendingVerification = PendingVerificationBase &
+  (
+    | {
+        kind: 'operation'
+        request: RequestVerificationOptions
+        resolve: (proof: SecurityProof | null) => void
+        initialPassword?: string
+      }
+    | {
+        kind: 'login'
+        request: RequestLoginVerificationOptions
+        resolve: (bundle: AuthBundle | null) => void
+        initialPassword?: never
+      }
+  )
 
 export function useSecureVerification() {
   const [state, dispatch] = useReducer(verificationReducer, { phase: 'idle' })
@@ -133,14 +155,21 @@ export function useSecureVerification() {
   const loadRequirements = useCallback(async (current: PendingVerification) => {
     dispatch({ type: 'loading', request: current.request })
     try {
-      const requirements = await checkVerificationMethods(
-        current.request.scope,
-        current.controller.signal
-      )
+      const requirements =
+        current.kind === 'login'
+          ? await getLoginVerificationRequirements(
+              current.request.challenge,
+              current.controller.signal
+            )
+          : await checkVerificationMethods(
+              current.request.scope,
+              current.controller.signal
+            )
       if (pending.current !== current) return
       const initialPassword = current.initialPassword
       current.initialPassword = undefined
       if (
+        current.kind === 'operation' &&
         initialPassword !== undefined &&
         requirements.methods.length === 1 &&
         requirements.methods[0].method === 'password' &&
@@ -166,6 +195,7 @@ export function useSecureVerification() {
         return
       }
       if (
+        current.kind === 'operation' &&
         requirements.methods.length === 1 &&
         requirements.methods[0].method === 'session' &&
         requirements.methods[0].available
@@ -203,10 +233,33 @@ export function useSecureVerification() {
       if (pending.current) return Promise.resolve(null)
       return new Promise((resolve, reject) => {
         const current: PendingVerification = {
+          kind: 'operation',
           request: structuredClone(request),
           resolve,
           reject,
           initialPassword,
+          controller: new AbortController(),
+          submitting: false,
+        }
+        pending.current = current
+        void loadRequirements(current)
+      })
+    },
+    [loadRequirements]
+  )
+
+  const requestLoginVerification = useCallback(
+    (challenge: LoginChallenge): Promise<AuthBundle | null> => {
+      if (pending.current) return Promise.resolve(null)
+      return new Promise((resolve, reject) => {
+        const current: PendingVerification = {
+          kind: 'login',
+          request: {
+            scope: 'auth.login',
+            challenge: structuredClone(challenge),
+          },
+          resolve,
+          reject,
           controller: new AbortController(),
           submitting: false,
         }
@@ -231,16 +284,26 @@ export function useSecureVerification() {
     const input = state.input
     dispatch({ type: 'submit' })
     try {
-      const proof = await verify(
-        input,
-        current.request,
-        state.requirements.password_encryption_enabled,
-        current.controller.signal
-      )
-      if (pending.current !== current) return
+      if (current.kind === 'login') {
+        const bundle = await verifyLogin(
+          input,
+          current.request.challenge,
+          current.controller.signal
+        )
+        if (pending.current !== current) return
+        current.resolve(bundle)
+      } else {
+        const proof = await verify(
+          input,
+          current.request,
+          state.requirements.password_encryption_enabled,
+          current.controller.signal
+        )
+        if (pending.current !== current) return
+        current.resolve(proof)
+      }
       pending.current = null
       dispatch({ type: 'reset' })
-      current.resolve(proof)
     } catch (error) {
       if (pending.current !== current) return
       const failure = AuthOperationError.from(error)
@@ -266,6 +329,7 @@ export function useSecureVerification() {
 
   return {
     requestVerification,
+    requestLoginVerification,
     cancel,
     isActive: state.phase !== 'idle',
     dialogProps: {

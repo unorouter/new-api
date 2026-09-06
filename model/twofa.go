@@ -155,7 +155,22 @@ func replaceBackupCodesWithTx(tx *gorm.DB, userId int, codes []string) error {
 // ReplaceBackupCodesWithAuthVersion atomically replaces the factor's recovery
 // credentials and advances the user's authentication version.
 func ReplaceBackupCodesWithAuthVersion(userId int, codes []string) error {
+	return replaceBackupCodesWithAuthVersion(userId, codes, nil)
+}
+
+func ReplaceBackupCodesForSession(identity AuthSessionIdentity, codes []string) error {
+	return replaceBackupCodesWithAuthVersion(identity.UserID, codes, &identity)
+}
+
+func replaceBackupCodesWithAuthVersion(userId int, codes []string, identity *AuthSessionIdentity) error {
 	if err := DB.Transaction(func(tx *gorm.DB) error {
+		if identity != nil {
+			if err := ValidateAuthSessionWithTx(tx, *identity); err != nil {
+				return err
+			}
+		} else if err := lockForUpdate(tx).Select("id").First(&User{}, userId).Error; err != nil {
+			return err
+		}
 		var enabled TwoFA
 		if err := lockForUpdate(tx).Where("user_id = ? AND is_enabled = ?", userId, true).First(&enabled).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -217,7 +232,22 @@ func GetUnusedBackupCodeCount(userId int) (int, error) {
 // DisableTwoFAWithAuthVersion atomically removes the factor and invalidates
 // every access token issued against the previous security configuration.
 func DisableTwoFAWithAuthVersion(userId int) error {
+	return disableTwoFAWithAuthVersion(userId, nil)
+}
+
+func DisableTwoFAForSession(identity AuthSessionIdentity) error {
+	return disableTwoFAWithAuthVersion(identity.UserID, &identity)
+}
+
+func disableTwoFAWithAuthVersion(userId int, identity *AuthSessionIdentity) error {
 	if err := DB.Transaction(func(tx *gorm.DB) error {
+		if identity != nil {
+			if err := ValidateAuthSessionWithTx(tx, *identity); err != nil {
+				return err
+			}
+		} else if err := lockForUpdate(tx).Select("id").First(&User{}, userId).Error; err != nil {
+			return err
+		}
 		var twoFA TwoFA
 		if err := lockForUpdate(tx).Where("user_id = ? AND is_enabled = ?", userId, true).First(&twoFA).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {

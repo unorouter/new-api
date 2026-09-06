@@ -43,6 +43,30 @@ import type { SecurityProof } from '../types'
 const originalAdapter = api.defaults.adapter
 const originalLocation = window.location.href
 
+it('allows a security key when the browser has WebAuthn but no platform authenticator', async () => {
+  vi.stubGlobal(
+    'PublicKeyCredential',
+    class {
+      static isUserVerifyingPlatformAuthenticatorAvailable() {
+        return Promise.resolve(false)
+      }
+    }
+  )
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        scope: 'passkey.delete',
+        methods: [{ method: 'passkey', available: true }],
+        oauth_providers: [],
+        password_encryption_enabled: false,
+      },
+    },
+  })
+  const requirements = await checkVerificationMethods('passkey.delete')
+  expect(requirements.methods).toEqual([{ method: 'passkey', available: true }])
+})
+
 it.each([false, true])(
   'retains the Telegram verification request after popup close and honors caller cancellation: %s',
   async (cancel) => {

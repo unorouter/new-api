@@ -57,6 +57,9 @@ export function SecureVerificationDialog(props: SecureVerificationDialogProps) {
     state.phase === 'ready' || state.phase === 'verifying' ? state : null
   const input = ready?.input
   const verifying = state.phase === 'verifying'
+  const login = state.request.scope === 'auth.login'
+  const acceptsBackupCode =
+    state.request.scope !== '2fa.backup_codes.regenerate'
   let canVerify = state.phase === 'ready' && Boolean(input)
   if (input?.method === 'password') {
     canVerify = canVerify && input.password.length > 0
@@ -99,12 +102,15 @@ export function SecureVerificationDialog(props: SecureVerificationDialogProps) {
       title={
         <>
           <ShieldCheck className='size-5' />
-          {state.request.title ?? t('Security verification')}
+          {state.request.title ??
+            (login ? t('Complete sign-in') : t('Security verification'))}
         </>
       }
       description={
         state.request.description ??
-        t('Confirm your identity before accessing this sensitive action.')
+        (login
+          ? t('Verify your identity to finish signing in.')
+          : t('Confirm your identity before accessing this sensitive action.'))
       }
       contentClassName='sm:max-w-md'
       contentHeight='auto'
@@ -191,12 +197,14 @@ export function SecureVerificationDialog(props: SecureVerificationDialogProps) {
               </TabsContent>
               <TabsContent value='2fa' className='space-y-2'>
                 <Label htmlFor={inputId}>
-                  {t('Authenticator code or backup code')}
+                  {acceptsBackupCode
+                    ? t('Authenticator code or backup code')
+                    : t('Authenticator code')}
                 </Label>
                 <Input
                   id={inputId}
                   autoComplete='one-time-code'
-                  maxLength={9}
+                  maxLength={acceptsBackupCode ? 9 : 6}
                   autoFocus
                   disabled={verifying}
                   value={input.method === '2fa' ? input.code : ''}
@@ -208,9 +216,11 @@ export function SecureVerificationDialog(props: SecureVerificationDialogProps) {
                   }
                 />
                 <p className='text-muted-foreground text-sm'>
-                  {t(
-                    'Enter the 6-digit authenticator code or an unused backup code.'
-                  )}
+                  {acceptsBackupCode
+                    ? t(
+                        'Enter the 6-digit authenticator code or an unused backup code.'
+                      )
+                    : t('Enter the 6-digit authenticator code.')}
                 </p>
               </TabsContent>
               <TabsContent value='passkey'>

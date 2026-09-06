@@ -201,9 +201,16 @@ func TestSecurityEnrollmentAccessTokenMethodPolicy(t *testing.T) {
 				service.VerificationScopeAccountBind, service.VerificationScopeAccountUnbind, passwordScope} {
 				requirements, err := service.GetVerificationRequirements(identity, scope)
 				require.NoError(t, err)
-				require.Len(t, requirements.Methods, 1)
+				count := 1
+				if test.twoFA && test.passkey {
+					count = 2
+				}
+				require.Len(t, requirements.Methods, count)
 				assert.Equal(t, test.method, requirements.Methods[0].Method)
 				assert.Equal(t, test.available, requirements.Methods[0].Available)
+				if count == 2 {
+					assert.Equal(t, service.VerificationMethodOption{Method: "passkey", Available: true}, requirements.Methods[1])
+				}
 				if test.wechat {
 					input := service.VerificationInput{Scope: scope, Method: "session"}
 					switch scope {
@@ -354,7 +361,7 @@ func authorizeSecurityEnrollment(t *testing.T, identity service.AuthIdentity) *m
 
 // securityPasskeyResponse acts as a software authenticator at the browser boundary.
 // The handlers still validate the real WebAuthn challenge, origin and signature.
-func securityPasskeyResponse(t *testing.T, key *ecdsa.PrivateKey, challenge string, registration bool, counter uint32) json.RawMessage {
+func securityPasskeyResponse(t *testing.T, key *ecdsa.PrivateKey, challenge string, registration bool, counter uint32, userVerified ...bool) json.RawMessage {
 	t.Helper()
 	ceremony := "webauthn.get"
 	if registration {
@@ -367,7 +374,11 @@ func securityPasskeyResponse(t *testing.T, key *ecdsa.PrivateKey, challenge stri
 	authData := append([]byte{}, rpIDHash[:]...)
 	response := map[string]any{"clientDataJSON": base64.RawURLEncoding.EncodeToString(clientData)}
 	if registration {
-		authData = append(authData, 0x45) // user present, user verified, attested credential
+		flags := byte(0x45) // user present, user verified, attested credential
+		if len(userVerified) > 0 && !userVerified[0] {
+			flags = 0x41
+		}
+		authData = append(authData, flags)
 		authData = append(authData, make([]byte, 4+16)...)
 		authData = binary.BigEndian.AppendUint16(authData, uint16(len(credentialID)))
 		authData = append(authData, credentialID[:]...)
@@ -380,7 +391,11 @@ func securityPasskeyResponse(t *testing.T, key *ecdsa.PrivateKey, challenge stri
 		require.NoError(t, err)
 		response["attestationObject"] = base64.RawURLEncoding.EncodeToString(attestation)
 	} else {
-		authData = append(authData, 0x05) // user present and verified
+		flags := byte(0x05) // user present and verified
+		if len(userVerified) > 0 && !userVerified[0] {
+			flags = 0x01
+		}
+		authData = append(authData, flags)
 		authData = binary.BigEndian.AppendUint32(authData, counter)
 		clientHash := sha256.Sum256(clientData)
 		signedData := append(append([]byte{}, authData...), clientHash[:]...)
@@ -433,8 +448,8 @@ func TestSecurityEnrollmentMethodPolicy(t *testing.T) {
 	}{
 		{name: "first factor uses password", password: true, method: "password", available: true},
 		{name: "existing passkey takes precedence", password: true, passkey: true, method: "passkey", available: true},
-		{name: "twofa takes precedence over passkey", password: true, passkey: true, twoFA: true, method: "2fa", available: true},
-		{name: "locked twofa does not fall back", password: true, passkey: true, twoFA: true, locked: true, method: "2fa"},
+		{name: "twofa and passkey are alternatives", password: true, passkey: true, twoFA: true, method: "2fa", available: true},
+		{name: "locked twofa permits passkey", password: true, passkey: true, twoFA: true, locked: true, method: "2fa"},
 		{name: "disabled passkey does not fall back", password: true, passkey: true, disabledPasskey: true, method: "passkey"},
 		{name: "disabled registration does not request a password", password: true, disabledPasskey: true, method: "password"},
 		{name: "passwordless account without providers is unavailable", method: "oauth"},
@@ -458,9 +473,16 @@ func TestSecurityEnrollmentMethodPolicy(t *testing.T) {
 			system_setting.GetPasskeySettings().Enabled = !test.disabledPasskey
 			requirements, err := service.GetVerificationRequirements(identity, "passkey.register")
 			require.NoError(t, err)
-			require.Len(t, requirements.Methods, 1)
+			count := 1
+			if test.twoFA && test.passkey {
+				count = 2
+			}
+			require.Len(t, requirements.Methods, count)
 			assert.Equal(t, test.method, requirements.Methods[0].Method)
 			assert.Equal(t, test.available, requirements.Methods[0].Available)
+			if count == 2 {
+				assert.Equal(t, service.VerificationMethodOption{Method: "passkey", Available: true}, requirements.Methods[1])
+			}
 			if test.passkey && !test.twoFA {
 				requirements, err = service.GetVerificationRequirements(identity, "2fa.setup")
 				require.NoError(t, err)
@@ -1145,7 +1167,11 @@ func TestSecurityEnrollmentTwoFAFailureAccountingAndStorageErrors(t *testing.T) 
 		var body securityEnrollmentResponse
 		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
 		assert.False(t, body.Success, endpoint.path)
-		assert.Equal(t, "参数错误", body.Message, endpoint.path)
+		if endpoint.path == "/api/user/login/2fa" {
+			assert.Equal(t, "参数错误", body.Message, endpoint.path)
+		} else {
+			assert.Equal(t, "SECURITY_PROOF_REQUIRED", body.Code, endpoint.path)
+		}
 	}
 	stored, err := model.GetTwoFAByUserId(user.Id)
 	require.NoError(t, err)

@@ -20,10 +20,6 @@ type Verify2FARequest struct {
 	FlowToken string `json:"flow_token,omitempty"`
 }
 
-type twoFALoginFlowPayload struct {
-	AuthVersion int64 `json:"auth_version"`
-}
-
 func Setup2FA(c *gin.Context) {
 	authorization := middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeTwoFASetup})
 	if authorization == nil {
@@ -65,43 +61,12 @@ func Enable2FA(c *gin.Context) {
 
 // Disable2FA 禁用2FA
 func Disable2FA(c *gin.Context) {
-	var req Verify2FARequest
-	if err := common.DecodeJsonWithValidation(c.Request.Body, &req); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "参数错误",
-		})
+	if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeTwoFADisable}) == nil {
 		return
 	}
-
-	userId := c.GetInt("id")
-
-	// 获取2FA记录
-	twoFA, err := model.GetTwoFAByUserId(userId)
-	if err != nil {
-		writeSecurityOperationError(c, err)
-		return
-	}
-	if twoFA == nil || !twoFA.IsEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "用户未启用2FA",
-		})
-		return
-	}
-
-	if err := service.VerifyTwoFactorCode(twoFA, req.Code); err != nil {
-		writeSecurityOperationError(c, err)
-		return
-	}
-
-	identity, ok := middleware.GetSessionAuthIdentity(c)
-	if !ok {
-		common.ApiErrorMsg(c, "当前认证方式不支持安全验证")
-		return
-	}
-	// 禁用2FA并原子推进用户鉴权版本
-	if err := model.DisableTwoFAWithAuthVersion(userId); err != nil {
+	identity, _ := middleware.GetSessionAuthIdentity(c)
+	userId := identity.UserID
+	if err := model.DisableTwoFAForSession(identity); err != nil {
 		writeSecurityOperationError(c, err)
 		return
 	}
@@ -159,43 +124,11 @@ func Get2FAStatus(c *gin.Context) {
 
 // RegenerateBackupCodes 重新生成备用码
 func RegenerateBackupCodes(c *gin.Context) {
-	var req Verify2FARequest
-	if err := common.DecodeJsonWithValidation(c.Request.Body, &req); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "参数错误",
-		})
+	if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeTwoFABackupCodes}) == nil {
 		return
 	}
-
-	userId := c.GetInt("id")
-
-	// 获取2FA记录
-	twoFA, err := model.GetTwoFAByUserId(userId)
-	if err != nil {
-		writeSecurityOperationError(c, err)
-		return
-	}
-	if twoFA == nil || !twoFA.IsEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "用户未启用2FA",
-		})
-		return
-	}
-
-	// 验证TOTP验证码
-	cleanCode, err := common.ValidateNumericCode(req.Code)
-	if err != nil {
-		common.ApiErrorMsg(c, "验证码必须是6位数字")
-		return
-	}
-
-	if err := service.VerifyTwoFactorCode(twoFA, cleanCode); err != nil {
-		writeSecurityOperationError(c, err)
-		return
-	}
-
+	identity, _ := middleware.GetSessionAuthIdentity(c)
+	userId := identity.UserID
 	// 生成新的备用码
 	backupCodes, err := common.GenerateBackupCodes()
 	if err != nil {
@@ -207,13 +140,8 @@ func RegenerateBackupCodes(c *gin.Context) {
 		return
 	}
 
-	identity, ok := middleware.GetSessionAuthIdentity(c)
-	if !ok {
-		common.ApiErrorMsg(c, "当前认证方式不支持安全验证")
-		return
-	}
 	// 保存新的备用码并原子推进用户鉴权版本
-	if err := model.ReplaceBackupCodesWithAuthVersion(userId, backupCodes); err != nil {
+	if err := model.ReplaceBackupCodesForSession(identity, backupCodes); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": "保存备用码失败",
@@ -241,79 +169,7 @@ func RegenerateBackupCodes(c *gin.Context) {
 
 // Verify2FALogin 登录时验证2FA
 func Verify2FALogin(c *gin.Context) {
-	var req Verify2FARequest
-	if err := common.DecodeJsonWithValidation(c.Request.Body, &req); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "参数错误",
-		})
-		return
-	}
-
-	flow, err := model.GetAuthFlow(req.FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeTwoFALogin})
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "会话已过期，请重新登录",
-		})
-		return
-	}
-	// 获取用户信息
-	user, err := model.GetUserById(flow.UserId, false)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "用户不存在",
-		})
-		return
-	}
-	if user.Status != common.UserStatusEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "用户已被禁用",
-		})
-		return
-	}
-	var flowPayload twoFALoginFlowPayload
-	if err := common.UnmarshalJsonStr(flow.Payload, &flowPayload); err != nil || flowPayload.AuthVersion <= 0 || flowPayload.AuthVersion != user.AuthVersion {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "会话已过期，请重新登录",
-		})
-		return
-	}
-
-	// 获取2FA记录
-	twoFA, err := model.GetTwoFAByUserId(user.Id)
-	if err != nil {
-		writeSecurityOperationError(c, err)
-		return
-	}
-	if twoFA == nil || !twoFA.IsEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "用户未启用2FA",
-		})
-		return
-	}
-
-	if err := service.VerifyTwoFactorCode(twoFA, req.Code); err != nil {
-		writeSecurityOperationError(c, err)
-		return
-	}
-
-	if _, err := model.ConsumeAuthFlow(req.FlowToken, model.AuthFlowMatch{
-		Purpose: model.AuthFlowPurposeTwoFALogin,
-		UserId:  user.Id,
-	}); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "会话已过期，请重新登录",
-		})
-		return
-	}
-
-	setupLoginAtAuthVersion(user, flowPayload.AuthVersion, c)
+	VerifyLogin(c)
 }
 
 // Admin2FAStats 管理员获取2FA统计信息

@@ -16,22 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { AlertTriangle, Loader2 } from 'lucide-react'
-import { useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { Dialog } from '@/components/dialog'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SecureVerificationDialog } from '@/features/auth/secure-verification'
 import { disable2FA } from '@/lib/api'
 
-// ============================================================================
-// Two-FA Disable Dialog Component
-// ============================================================================
+import { useAccountSecurity } from '../../hooks/use-account-security'
 
 interface TwoFADisableDialogProps {
   open: boolean
@@ -39,133 +36,76 @@ interface TwoFADisableDialogProps {
   onSuccess: () => void
 }
 
-export function TwoFADisableDialog({
-  open,
-  onOpenChange,
-  onSuccess,
-}: TwoFADisableDialogProps) {
+export function TwoFADisableDialog(props: TwoFADisableDialogProps) {
   const { t } = useTranslation()
-  const [loading, setLoading] = useState(false)
-  const [code, setCode] = useState('')
+  const confirmId = useId()
   const [confirmed, setConfirmed] = useState(false)
+  const security = useAccountSecurity()
+  const cancel = security.cancel
 
-  const handleDisable = async () => {
-    if (!code) {
-      toast.error(t('Please enter your verification code or backup code'))
-      return
-    }
-
-    if (!confirmed) {
-      toast.error(t('Please confirm that you understand the consequences'))
-      return
-    }
-
-    try {
-      setLoading(true)
-      const response = await disable2FA(code)
-
-      if (response.success) {
-        toast.success(t('Two-factor authentication disabled'))
-        onOpenChange(false)
-        onSuccess()
-        // Reset
-        setCode('')
-        setConfirmed(false)
-      } else {
-        toast.error(response.message || t('Failed to disable 2FA'))
-      }
-    } catch {
-      toast.error(t('Failed to disable 2FA'))
-    } finally {
-      setLoading(false)
-    }
-  }
+  useEffect(() => {
+    setConfirmed(false)
+    if (!props.open) cancel()
+  }, [props.open, security.sessionKey, cancel])
 
   const handleOpenChange = (open: boolean) => {
-    if (!loading) {
-      if (!open) {
-        setCode('')
-        setConfirmed(false)
-      }
-      onOpenChange(open)
+    if (!open) {
+      security.cancel()
+      setConfirmed(false)
     }
+    props.onOpenChange(open)
+  }
+  const handleDisable = async () => {
+    if (!confirmed) return
+    const result = await security.run(async (signal) => {
+      const proof = await security.verify({ scope: '2fa.disable' }, signal)
+      return disable2FA(proof, signal)
+    })
+    if (!result) return
+    toast.success(t('Two-factor authentication disabled'))
+    props.onOpenChange(false)
+    props.onSuccess()
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={handleOpenChange}
-      title={
-        <>
-          <AlertTriangle className='h-5 w-5' />
-          {t('Disable Two-Factor Authentication')}
-        </>
-      }
-      description={t(
-        'This action will permanently remove 2FA protection from your account.'
-      )}
-      contentClassName='sm:max-w-md'
-      titleClassName='text-destructive flex items-center gap-2'
-      contentHeight='auto'
-      bodyClassName='space-y-4'
-      footer={
-        <>
-          <Button
-            variant='outline'
-            onClick={() => handleOpenChange(false)}
-            disabled={loading}
-          >
-            {t('Cancel')}
-          </Button>
-          <Button
-            variant='destructive'
-            onClick={handleDisable}
-            disabled={loading || !code || !confirmed}
-          >
-            {loading && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-            {loading ? t('Disabling...') : t('Disable 2FA')}
-          </Button>
-        </>
-      }
-    >
-      <div className='space-y-4 py-4'>
+    <>
+      <ConfirmDialog
+        open={props.open && !security.showVerification}
+        onOpenChange={handleOpenChange}
+        title={t('Disable Two-Factor Authentication')}
+        desc={t(
+          'This action will permanently remove 2FA protection from your account.'
+        )}
+        confirmText={t('Disable 2FA')}
+        destructive
+        disabled={!confirmed || security.pending}
+        isLoading={security.pending}
+        handleConfirm={handleDisable}
+      >
         <Alert variant='destructive'>
-          <AlertTriangle className='h-4 w-4' />
+          <AlertTriangle className='size-4' />
           <AlertDescription>
             {t('Warning: Disabling 2FA will make your account less secure.')}
           </AlertDescription>
         </Alert>
-
-        <div className='space-y-2'>
-          <Label htmlFor='code'>{t('Verification Code')}</Label>
-          <Input
-            id='code'
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder={t('Enter code or backup code')}
-            disabled={loading}
-          />
-          <p className='text-muted-foreground text-xs'>
-            {t('Enter your authenticator code or a backup code')}
-          </p>
-        </div>
-
-        <div className='flex items-start space-x-2'>
+        <div className='flex items-start gap-2'>
           <Checkbox
-            id='confirm'
+            id={confirmId}
             checked={confirmed}
-            onCheckedChange={(checked) => setConfirmed(checked as boolean)}
+            disabled={security.pending}
+            onCheckedChange={(checked) => setConfirmed(checked === true)}
           />
           <Label
-            htmlFor='confirm'
+            htmlFor={confirmId}
             className='text-sm leading-tight font-normal'
           >
             {t(
-              'I understand that disabling 2FA will remove all protection and backup codes'
+              'I understand that disabling 2FA removes its authenticator and backup codes.'
             )}
           </Label>
         </div>
-      </div>
-    </Dialog>
+      </ConfirmDialog>
+      <SecureVerificationDialog {...security.verificationDialogProps} />
+    </>
   )
 }

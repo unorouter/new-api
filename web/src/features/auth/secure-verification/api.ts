@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { api } from '@/lib/api'
+import { api, isAuthBundle } from '@/lib/api'
 import { buildOAuthAuthorizationUrl } from '@/lib/oauth'
 import {
   buildAssertionResult,
@@ -28,6 +28,7 @@ import {
   authRequestOptions,
   authResult,
 } from '@/lib/secure-verification'
+import type { AuthBundle } from '@/stores/auth-store'
 
 import { createOAuthAuthorization } from '../api'
 import { openOAuthPopup } from '../lib/oauth-popup'
@@ -39,6 +40,7 @@ import {
 import type { SystemStatus } from '../types'
 import type {
   SecurityProof,
+  LoginChallenge,
   SecurityProofScope,
   VerificationInput,
   VerificationOperation,
@@ -60,6 +62,13 @@ export async function checkVerificationMethods(
     ),
     isPasskeySupported(),
   ])
+  return withDeviceAvailability(requirements, passkeySupported)
+}
+
+function withDeviceAvailability(
+  requirements: VerificationRequirements,
+  passkeySupported: boolean
+): VerificationRequirements {
   return {
     ...requirements,
     methods: requirements.methods.map((option) => {
@@ -77,6 +86,107 @@ export async function checkVerificationMethods(
       return option
     }),
   }
+}
+
+export function isLoginChallenge(value: unknown): value is LoginChallenge {
+  if (!value || typeof value !== 'object') return false
+  const challenge = value as Partial<LoginChallenge>
+  return (
+    challenge.require_verification === true &&
+    typeof challenge.flow_token === 'string' &&
+    challenge.flow_token.length > 0 &&
+    typeof challenge.expires_at === 'number' &&
+    Number.isFinite(challenge.expires_at) &&
+    Array.isArray(challenge.methods) &&
+    challenge.methods.length > 0 &&
+    challenge.methods.every(
+      (option) =>
+        option &&
+        (option.method === '2fa' || option.method === 'passkey') &&
+        typeof option.available === 'boolean'
+    )
+  )
+}
+
+export async function getLoginVerificationRequirements(
+  challenge: LoginChallenge,
+  signal: AbortSignal
+): Promise<VerificationRequirements> {
+  if (challenge.expires_at * 1000 <= Date.now()) {
+    throw new AuthOperationError(
+      'Login flow expired. Please sign in again.',
+      'AUTH_FLOW_INVALID'
+    )
+  }
+  const supported = await isPasskeySupported()
+  signal.throwIfAborted()
+  return withDeviceAvailability(
+    {
+      scope: 'auth.login',
+      methods: challenge.methods,
+      oauth_providers: [],
+      password_encryption_enabled: false,
+    },
+    supported
+  )
+}
+
+export async function verifyLogin(
+  input: VerificationInput,
+  challenge: LoginChallenge,
+  signal: AbortSignal
+): Promise<AuthBundle> {
+  if (challenge.expires_at * 1000 <= Date.now()) {
+    throw new AuthOperationError(
+      'Login flow expired. Please sign in again.',
+      'AUTH_FLOW_INVALID'
+    )
+  }
+  const options = { ...authRequestOptions, skipAuthRefresh: true, signal }
+  let result: unknown
+  if (input.method === '2fa') {
+    result = await authResult(
+      api.post(
+        '/api/user/login/verify',
+        {
+          flow_token: challenge.flow_token,
+          method: '2fa',
+          code: input.code.trim(),
+        },
+        options
+      )
+    )
+  } else if (input.method === 'passkey') {
+    const begin = await authResult<{ flow_token: string; options: unknown }>(
+      api.post(
+        '/api/user/login/passkey/begin',
+        { flow_token: challenge.flow_token },
+        options
+      )
+    )
+    if (!begin.flow_token) {
+      throw new AuthOperationError('Verification flow expired')
+    }
+    const assertion = await requestPasskeyAssertion(begin.options, signal)
+    result = await authResult(
+      api.post(
+        '/api/user/login/passkey/finish',
+        {
+          flow_token: challenge.flow_token,
+          passkey_flow_token: begin.flow_token,
+          credential: assertion,
+        },
+        options
+      )
+    )
+  } else {
+    throw new AuthOperationError(
+      'This verification method is not allowed for this action.'
+    )
+  }
+  signal.throwIfAborted()
+  if (!isAuthBundle(result)) throw new AuthOperationError('Login failed')
+  return result
 }
 
 export async function verify(
@@ -161,7 +271,18 @@ async function verifyPasskey(
   if (!begin.flow_token) {
     throw new AuthOperationError('Verification flow expired')
   }
-  const publicKey = prepareCredentialRequestOptions(begin.options ?? begin)
+  const assertion = await requestPasskeyAssertion(
+    begin.options ?? begin,
+    signal
+  )
+  return finishPasskeyVerification(begin.flow_token, assertion, signal)
+}
+
+async function requestPasskeyAssertion(
+  options: unknown,
+  signal: AbortSignal
+): Promise<Record<string, unknown>> {
+  const publicKey = prepareCredentialRequestOptions(options)
   let credential: PublicKeyCredential | null
   try {
     credential = (await navigator.credentials.get({
@@ -187,7 +308,7 @@ async function verifyPasskey(
   if (!assertion) {
     throw new AuthOperationError('Unable to build Passkey assertion')
   }
-  return finishPasskeyVerification(begin.flow_token, assertion, signal)
+  return assertion
 }
 
 async function verifyOAuth(

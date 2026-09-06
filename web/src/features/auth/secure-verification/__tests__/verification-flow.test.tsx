@@ -21,6 +21,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
+import type { AuthBundle } from '@/stores/auth-store'
 
 import { SecureVerificationDialog } from '../components/secure-verification-dialog'
 import { useSecureVerification } from '../hooks/use-secure-verification'
@@ -74,6 +75,84 @@ function pendingResponse<T>() {
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+})
+
+function LoginHarness(props: {
+  onResult: (bundle: AuthBundle | null) => void
+}) {
+  const verification = useSecureVerification()
+  return (
+    <>
+      <button
+        type='button'
+        onClick={async () =>
+          props.onResult(
+            await verification.requestLoginVerification({
+              require_verification: true,
+              flow_token: 'pending-login',
+              expires_at: Math.floor(Date.now() / 1000) + 300,
+              methods: [
+                { method: '2fa', available: true },
+                { method: 'passkey', available: true },
+              ],
+            })
+          )
+        }
+      >
+        Continue sign-in
+      </button>
+      <SecureVerificationDialog {...verification.dialogProps} />
+    </>
+  )
+}
+
+it('lets a pending login switch from Passkey to 2FA without using authenticated verification endpoints', async () => {
+  vi.stubGlobal('PublicKeyCredential', class {})
+  const get = vi.spyOn(api, 'get')
+  const bundle: AuthBundle = {
+    access_token: 'verified-login',
+    token_type: 'Bearer',
+    access_expires_at: Math.floor(Date.now() / 1000) + 900,
+    user: { id: 42, username: 'user', role: 1 },
+    session: {
+      sid: 'new-session',
+      current: true,
+      login_method: 'password',
+      ip: '',
+      user_agent: '',
+      created_at: 1,
+      last_active_at: 1,
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+    },
+  }
+  const post = vi
+    .spyOn(api, 'post')
+    .mockResolvedValue({ data: { success: true, data: bundle } })
+  const result = vi.fn()
+  const user = userEvent.setup()
+  render(<LoginHarness onResult={result} />)
+  await user.click(screen.getByRole('button', { name: 'Continue sign-in' }))
+  expect(await screen.findByRole('tab', { name: 'Passkey' })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  )
+  expect(result).not.toHaveBeenCalled()
+  await user.click(screen.getByRole('tab', { name: 'Authenticator code' }))
+  await user.type(
+    screen.getByLabelText('Authenticator code or backup code'),
+    '123456'
+  )
+  await user.click(screen.getByRole('button', { name: 'Verify' }))
+  await waitFor(() => expect(result).toHaveBeenCalledExactlyOnceWith(bundle))
+  expect(post).toHaveBeenCalledExactlyOnceWith(
+    '/api/user/login/verify',
+    { flow_token: 'pending-login', method: '2fa', code: '123456' },
+    expect.objectContaining({
+      skipAuthRefresh: true,
+      signal: expect.any(AbortSignal),
+    })
+  )
+  expect(get).not.toHaveBeenCalled()
 })
 
 it.each(['success', 'cancel', 'retry'] as const)(

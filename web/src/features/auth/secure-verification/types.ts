@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { AuthBundle } from '@/stores/auth-store'
+
 export type VerificationMethod =
   | '2fa'
   | 'passkey'
@@ -27,12 +29,15 @@ export type SecurityProofScope =
   | 'passkey.register'
   | 'passkey.delete'
   | '2fa.setup'
+  | '2fa.disable'
+  | '2fa.backup_codes.regenerate'
   | 'access_token.generate'
   | 'access_token.revoke'
   | 'account.binding.bind'
   | 'account.binding.unbind'
   | 'account.password.set'
   | 'account.password.change'
+  | 'account.delete'
 
 export type VerificationOperation =
   | { scope: 'channel.key.read'; context: { channel_id: number } }
@@ -57,7 +62,7 @@ export interface SecurityProof {
 }
 
 export interface VerificationRequirements {
-  scope: SecurityProofScope
+  scope: SecurityProofScope | 'auth.login'
   methods: { method: VerificationMethod; available: boolean; reason?: string }[]
   oauth_providers: { slug: string; name: string }[]
   password_encryption_enabled: boolean
@@ -75,13 +80,32 @@ export type RequestVerificationOptions = VerificationOperation & {
   description?: string
 }
 
+export interface LoginChallenge {
+  require_verification: true
+  flow_token: string
+  expires_at: number
+  methods: VerificationRequirements['methods']
+}
+
+export interface RequestLoginVerificationOptions {
+  scope: 'auth.login'
+  challenge: LoginChallenge
+  title?: string
+  description?: string
+}
+
+export type VerificationRequest =
+  | RequestVerificationOptions
+  | RequestLoginVerificationOptions
+export type LoginResult = AuthBundle | LoginChallenge
+
 export type SecureVerificationState =
   | { phase: 'idle' }
-  | { phase: 'loading'; request: RequestVerificationOptions }
-  | { phase: 'error'; request: RequestVerificationOptions; error: string }
+  | { phase: 'loading'; request: VerificationRequest }
+  | { phase: 'error'; request: VerificationRequest; error: string }
   | {
       phase: 'ready' | 'verifying'
-      request: RequestVerificationOptions
+      request: VerificationRequest
       requirements: VerificationRequirements
       input: VerificationInput | null
       error?: string

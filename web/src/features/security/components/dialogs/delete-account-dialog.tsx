@@ -17,23 +17,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
-import { AlertTriangle, Loader2 } from 'lucide-react'
-import { useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { Dialog } from '@/components/dialog'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { logout } from '@/features/auth/api'
+import { SecureVerificationDialog } from '@/features/auth/secure-verification'
 import { deleteUserAccount } from '@/features/profile/api'
 import { clearAuthentication } from '@/lib/api'
 
-// ============================================================================
-// Delete Account Dialog Component
-// ============================================================================
+import { useAccountSecurity } from '../../hooks/use-account-security'
 
 interface DeleteAccountDialogProps {
   open: boolean
@@ -41,119 +38,80 @@ interface DeleteAccountDialogProps {
   username: string
 }
 
-export function DeleteAccountDialog({
-  open,
-  onOpenChange,
-  username,
-}: DeleteAccountDialogProps) {
+export function DeleteAccountDialog(props: DeleteAccountDialogProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(false)
+  const confirmationId = useId()
   const [confirmation, setConfirmation] = useState('')
+  const security = useAccountSecurity()
+  const cancel = security.cancel
 
-  const handleDelete = async () => {
-    if (confirmation !== username) {
-      toast.error(t('Username confirmation does not match'))
-      return
-    }
-
-    try {
-      setLoading(true)
-      const response = await deleteUserAccount()
-
-      if (response.success) {
-        toast.success(t('Account deleted successfully'))
-
-        // Logout and redirect
-        try {
-          await logout()
-        } catch {
-          // Ignore logout errors
-        }
-
-        clearAuthentication()
-        navigate({ to: '/sign-in' })
-      } else {
-        toast.error(response.message || t('Failed to delete account'))
-      }
-    } catch {
-      toast.error(t('Failed to delete account'))
-    } finally {
-      setLoading(false)
-    }
-  }
+  useEffect(() => {
+    setConfirmation('')
+    if (!props.open) cancel()
+  }, [props.open, props.username, security.sessionKey, cancel])
 
   const handleOpenChange = (open: boolean) => {
-    if (!loading) {
-      onOpenChange(open)
-      if (!open) {
-        setConfirmation('')
-      }
+    if (!open) {
+      security.cancel()
+      setConfirmation('')
     }
+    props.onOpenChange(open)
+  }
+
+  const handleDelete = async () => {
+    if (confirmation !== props.username) return
+    const result = await security.run(async (signal) => {
+      const proof = await security.verify(
+        { scope: 'account.delete', title: t('Delete Account') },
+        signal
+      )
+      return deleteUserAccount(proof, signal)
+    })
+    if (!result) return
+    toast.success(t('Account deleted successfully'))
+    props.onOpenChange(false)
+    clearAuthentication()
+    navigate({ to: '/sign-in' })
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={handleOpenChange}
-      title={
-        <>
-          <AlertTriangle className='h-5 w-5' />
-          {t('Delete Account')}
-        </>
-      }
-      description={t(
-        'This action cannot be undone. This will permanently delete your account and remove all your data from our servers.'
-      )}
-      contentClassName='sm:max-w-md'
-      titleClassName='text-destructive flex items-center gap-2'
-      contentHeight='auto'
-      bodyClassName='space-y-4'
-      footer={
-        <>
-          <Button
-            type='button'
-            variant='outline'
-            onClick={() => handleOpenChange(false)}
-            disabled={loading}
-          >
-            {t('Cancel')}
-          </Button>
-          <Button
-            type='button'
-            variant='destructive'
-            onClick={handleDelete}
-            disabled={loading || confirmation !== username}
-          >
-            {loading && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-            {loading ? t('Deleting...') : t('Delete Account')}
-          </Button>
-        </>
-      }
-    >
-      <div className='my-6 space-y-4'>
+    <>
+      <ConfirmDialog
+        open={props.open && !security.showVerification}
+        onOpenChange={handleOpenChange}
+        title={t('Delete Account')}
+        desc={t(
+          'This action cannot be undone. This will permanently delete your account and remove all your data from our servers.'
+        )}
+        confirmText={security.pending ? t('Deleting...') : t('Delete Account')}
+        destructive
+        disabled={confirmation !== props.username || security.pending}
+        isLoading={security.pending}
+        handleConfirm={handleDelete}
+      >
         <Alert variant='destructive'>
-          <AlertTriangle className='h-4 w-4' />
+          <AlertTriangle className='size-4' />
           <AlertDescription>
             {t('Warning: This action is permanent and irreversible!')}
           </AlertDescription>
         </Alert>
-
         <div className='space-y-2'>
-          <Label htmlFor='confirmation'>
-            {t('Type')} <strong>{username}</strong> {t('to confirm')}
+          <Label htmlFor={confirmationId}>
+            {t('Type')} <strong>{props.username}</strong> {t('to confirm')}
           </Label>
           <Input
-            id='confirmation'
+            id={confirmationId}
             type='text'
             value={confirmation}
-            onChange={(e) => setConfirmation(e.target.value)}
-            disabled={loading}
-            placeholder={username}
+            onChange={(event) => setConfirmation(event.target.value)}
+            disabled={security.pending}
+            placeholder={props.username}
             autoComplete='off'
           />
         </div>
-      </div>
-    </Dialog>
+      </ConfirmDialog>
+      <SecureVerificationDialog {...security.verificationDialogProps} />
+    </>
   )
 }

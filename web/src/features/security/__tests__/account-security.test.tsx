@@ -24,11 +24,375 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { ChangePasswordDialog } from '../components/dialogs/change-password-dialog'
+import { DeleteAccountDialog } from '../components/dialogs/delete-account-dialog'
 import { EmailBindDialog } from '../components/dialogs/email-bind-dialog'
+import { TwoFABackupDialog } from '../components/dialogs/two-fa-backup-dialog'
+import { TwoFADisableDialog } from '../components/dialogs/two-fa-disable-dialog'
+
+const { navigate } = vi.hoisted(() => ({ navigate: vi.fn() }))
+vi.mock('@tanstack/react-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@tanstack/react-router')>()),
+  useNavigate: () => navigate,
+}))
 
 afterEach(() => {
+  navigate.mockReset()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   useAuthStore.getState().auth.reset('idle')
+})
+
+it('requires verification after username confirmation and cancels without deleting the account', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        scope: 'account.delete',
+        methods: [{ method: '2fa', available: true }],
+        oauth_providers: [],
+        password_encryption_enabled: false,
+      },
+    },
+  })
+  const remove = vi.spyOn(api, 'delete').mockResolvedValue({
+    data: { success: true, data: {} },
+  })
+  const user = userEvent.setup()
+  render(<DeleteAccountDialog open username='user' onOpenChange={vi.fn()} />)
+  expect(screen.getByRole('button', { name: 'Delete Account' })).toBeDisabled()
+  await user.type(screen.getByRole('textbox'), 'user')
+  await user.click(screen.getByRole('button', { name: 'Delete Account' }))
+  expect(
+    await screen.findByRole('textbox', {
+      name: 'Authenticator code or backup code',
+    })
+  ).toBeVisible()
+  expect(remove).not.toHaveBeenCalled()
+  await user.keyboard('{Escape}')
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Delete Account' })).toBeVisible()
+  )
+  expect(remove).not.toHaveBeenCalled()
+  expect(navigate).not.toHaveBeenCalled()
+})
+
+it.each(['2fa', 'passkey'])(
+  'deletes the account only after %s verification and clears authentication',
+  async (method) => {
+    useAuthStore.getState().auth.setUser({ id: 1, username: 'user', role: 1 })
+    vi.stubGlobal('PublicKeyCredential', class {})
+    vi.stubGlobal('navigator', {
+      credentials: {
+        get: vi.fn().mockResolvedValue({
+          id: 'passkey',
+          rawId: new ArrayBuffer(1),
+          type: 'public-key',
+          response: {
+            authenticatorData: new ArrayBuffer(1),
+            clientDataJSON: new ArrayBuffer(1),
+            signature: new ArrayBuffer(1),
+            userHandle: null,
+          },
+          getClientExtensionResults: () => ({}),
+        }),
+      },
+    })
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          scope: 'account.delete',
+          methods: [
+            { method: '2fa', available: true },
+            { method: 'passkey', available: true },
+          ],
+          oauth_providers: [],
+          password_encryption_enabled: false,
+        },
+      },
+    })
+    const post = vi.spyOn(api, 'post').mockImplementation(async (url) => {
+      if (url === '/api/user/passkey/verify/begin') {
+        return {
+          data: {
+            success: true,
+            data: {
+              flow_token: 'passkey-flow',
+              options: { publicKey: { challenge: 'Y2hhbGxlbmdl' } },
+            },
+          },
+        }
+      }
+      return {
+        data: {
+          success: true,
+          data: {
+            proof_token: 'delete-proof',
+            scope: 'account.delete',
+            method,
+            expires_at: Math.floor(Date.now() / 1000) + 60,
+          },
+        },
+      }
+    })
+    const remove = vi
+      .spyOn(api, 'delete')
+      .mockResolvedValue({ data: { success: true, data: {} } })
+    const close = vi.fn()
+    const user = userEvent.setup()
+    render(<DeleteAccountDialog open username='user' onOpenChange={close} />)
+    await user.type(screen.getByRole('textbox'), 'user')
+    await user.click(screen.getByRole('button', { name: 'Delete Account' }))
+    expect(await screen.findByRole('tab', { name: 'Passkey' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    if (method === '2fa') {
+      await user.click(screen.getByRole('tab', { name: 'Authenticator code' }))
+      await user.type(
+        screen.getByRole('textbox', {
+          name: 'Authenticator code or backup code',
+        }),
+        '123456'
+      )
+    }
+    expect(remove).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Verify' }))
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({ to: '/sign-in' })
+    )
+    expect(remove).toHaveBeenCalledExactlyOnceWith(
+      '/api/user/self',
+      expect.objectContaining({
+        headers: { 'X-Security-Proof': 'delete-proof' },
+        singleUseAuthorization: true,
+        signal: expect.any(AbortSignal),
+      })
+    )
+    expect(close).toHaveBeenCalledWith(false)
+    expect(useAuthStore.getState().auth.user).toBeNull()
+    expect(post.mock.calls.map(([url]) => url)).not.toContain(
+      '/api/user/logout'
+    )
+  }
+)
+
+it.each(['unmount', 'account change'])(
+  'ignores a late deletion response after %s and prevents duplicate requests',
+  async (reason) => {
+    useAuthStore.getState().auth.setUser({ id: 1, username: 'user', role: 1 })
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          scope: 'account.delete',
+          methods: [{ method: 'password', available: true }],
+          oauth_providers: [],
+          password_encryption_enabled: false,
+        },
+      },
+    })
+    vi.spyOn(api, 'post').mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          scope: 'account.delete',
+          method: 'password',
+          proof_token: 'delete-proof',
+          expires_at: Math.floor(Date.now() / 1000) + 60,
+        },
+      },
+    })
+    const response = { data: { success: true, data: {} } }
+    let resolveDeletion!: (result: typeof response) => void
+    const remove = vi.spyOn(api, 'delete').mockReturnValue(
+      new Promise<typeof response>((resolve) => {
+        resolveDeletion = resolve
+      })
+    )
+    const user = userEvent.setup()
+    const view = render(
+      <DeleteAccountDialog open username='user' onOpenChange={vi.fn()} />
+    )
+    await user.type(screen.getByRole('textbox'), 'user')
+    await user.click(screen.getByRole('button', { name: 'Delete Account' }))
+    await user.type(
+      await screen.findByLabelText('Password', { selector: 'input' }),
+      'account-password'
+    )
+    await user.click(screen.getByRole('button', { name: 'Verify' }))
+    await waitFor(() => expect(remove).toHaveBeenCalledOnce())
+    const submit = await screen.findByRole('button', { name: 'Deleting...' })
+    expect(submit).toBeDisabled()
+    await user.dblClick(submit)
+    if (reason === 'unmount') {
+      view.unmount()
+    } else {
+      act(() =>
+        useAuthStore
+          .getState()
+          .auth.setUser({ id: 2, username: 'second-user', role: 1 })
+      )
+      expect(screen.getByRole('textbox')).toHaveValue('')
+    }
+    expect(remove.mock.calls[0][1]?.signal?.aborted).toBe(true)
+    await act(async () => resolveDeletion(response))
+    expect(remove).toHaveBeenCalledOnce()
+    expect(navigate).not.toHaveBeenCalled()
+    expect(useAuthStore.getState().auth.user?.id).toBe(
+      reason === 'unmount' ? 1 : 2
+    )
+  }
+)
+
+it('disables 2FA through a Passkey proof without asking for an authenticator code', async () => {
+  vi.stubGlobal('PublicKeyCredential', class {})
+  const credential = {
+    id: 'passkey',
+    rawId: new ArrayBuffer(1),
+    type: 'public-key',
+    response: {
+      authenticatorData: new ArrayBuffer(1),
+      clientDataJSON: new ArrayBuffer(1),
+      signature: new ArrayBuffer(1),
+      userHandle: null,
+    },
+    getClientExtensionResults: () => ({}),
+  }
+  vi.stubGlobal('navigator', {
+    credentials: { get: vi.fn().mockResolvedValue(credential) },
+  })
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        scope: '2fa.disable',
+        methods: [
+          { method: '2fa', available: true },
+          { method: 'passkey', available: true },
+        ],
+        oauth_providers: [],
+        password_encryption_enabled: false,
+      },
+    },
+  })
+  const post = vi.spyOn(api, 'post').mockImplementation(async (url) => {
+    if (url === '/api/user/passkey/verify/begin') {
+      return {
+        data: {
+          success: true,
+          data: {
+            flow_token: 'passkey-flow',
+            options: { publicKey: { challenge: 'Y2hhbGxlbmdl' } },
+          },
+        },
+      }
+    }
+    if (url === '/api/user/passkey/verify/finish') {
+      return {
+        data: {
+          success: true,
+          data: {
+            proof_token: 'disable-proof',
+            scope: '2fa.disable',
+            method: 'passkey',
+            expires_at: Math.floor(Date.now() / 1000) + 60,
+          },
+        },
+      }
+    }
+    return { data: { success: true, data: {} } }
+  })
+  const close = vi.fn()
+  const success = vi.fn()
+  const user = userEvent.setup()
+  render(<TwoFADisableDialog open onOpenChange={close} onSuccess={success} />)
+  await user.click(screen.getByRole('checkbox'))
+  await user.click(screen.getByRole('button', { name: 'Disable 2FA' }))
+  expect(await screen.findByRole('tab', { name: 'Passkey' })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  )
+  expect(
+    screen.queryByLabelText('Authenticator code or backup code')
+  ).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Verify' }))
+  await waitFor(() => expect(success).toHaveBeenCalledTimes(1))
+  expect(post).toHaveBeenLastCalledWith(
+    '/api/user/2fa/disable',
+    {},
+    expect.objectContaining({
+      headers: { 'X-Security-Proof': 'disable-proof' },
+      signal: expect.any(AbortSignal),
+      acceptAuthRotation: true,
+    })
+  )
+  expect(close).toHaveBeenCalledWith(false)
+})
+
+it('regenerates backup codes through scoped verification and keeps the result visible until dismissed', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        scope: '2fa.backup_codes.regenerate',
+        methods: [{ method: '2fa', available: true }],
+        oauth_providers: [],
+        password_encryption_enabled: false,
+      },
+    },
+  })
+  const post = vi.spyOn(api, 'post').mockImplementation(async (url) => {
+    if (url === '/api/verify') {
+      return {
+        data: {
+          success: true,
+          data: {
+            proof_token: 'backup-proof',
+            scope: '2fa.backup_codes.regenerate',
+            method: '2fa',
+            expires_at: Math.floor(Date.now() / 1000) + 60,
+          },
+        },
+      }
+    }
+    return {
+      data: {
+        success: true,
+        data: { backup_codes: ['ABCD-1234', 'EFGH-5678'] },
+      },
+    }
+  })
+  const close = vi.fn()
+  const success = vi.fn()
+  const user = userEvent.setup()
+  render(<TwoFABackupDialog open onOpenChange={close} onSuccess={success} />)
+  await user.click(screen.getByRole('button', { name: 'Generate New Codes' }))
+  const input = await screen.findByRole('textbox', {
+    name: 'Authenticator code',
+  })
+  expect(input).toHaveAttribute('maxlength', '6')
+  expect(
+    screen.queryByLabelText('Authenticator code or backup code')
+  ).not.toBeInTheDocument()
+  await user.type(input, '123456')
+  await user.click(screen.getByRole('button', { name: 'Verify' }))
+  expect(await screen.findByText('ABCD-1234')).toBeVisible()
+  expect(
+    screen.getByRole('button', { name: 'Copy all backup codes' })
+  ).toBeEnabled()
+  expect(post).toHaveBeenLastCalledWith(
+    '/api/user/2fa/backup_codes',
+    {},
+    expect.objectContaining({
+      headers: { 'X-Security-Proof': 'backup-proof' },
+      acceptAuthRotation: true,
+    })
+  )
+  expect(success).not.toHaveBeenCalled()
+  await user.click(screen.getByRole('button', { name: 'Done' }))
+  expect(close).toHaveBeenCalledWith(false)
+  expect(success).toHaveBeenCalledTimes(1)
 })
 
 it('allows a common new password after verifying the current password once', async () => {

@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -25,10 +26,214 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestSecurityAccountDeletionRequiresScopedProof(t *testing.T) {
+	for _, scenario := range []string{"missing", "wrong scope", "expired", "consumed", "other session", "other account", "password disabled", "factor added"} {
+		t.Run(scenario, func(t *testing.T) {
+			user, identity := setupSecurityEnrollmentTest(t)
+			originalIdentity := identity
+			operation := service.VerificationOperation{Scope: service.VerificationScopeAccountDelete}
+			proof := ""
+			if scenario != "missing" {
+				proof = issueSecurityEnrollmentProof(t, identity, operation, service.VerificationMethodPassword)
+			}
+			if scenario == "wrong scope" {
+				proof = issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopePasswordChange}, service.VerificationMethodPassword)
+			}
+			switch scenario {
+			case "expired":
+				require.NoError(t, model.DB.Model(&model.AuthFlow{}).Where("purpose = ?", model.AuthFlowPurposeSecurityProof).Update("expires_at", time.Now().Add(-time.Minute)).Error)
+			case "consumed":
+				_, err := service.ConsumeOperationProof(proof, identity, operation)
+				require.NoError(t, err)
+			case "other session", "other account":
+				userID := user.Id
+				if scenario == "other account" {
+					other := &model.User{Username: "other", AffCode: "other", Group: "default", Password: user.Password, Status: common.UserStatusEnabled, Role: common.RoleCommonUser, AuthVersion: 1}
+					require.NoError(t, model.DB.Create(other).Error)
+					userID = other.Id
+				}
+				bundle, err := service.CreateLoginSession(userID, "password", "127.0.0.1", scenario)
+				require.NoError(t, err)
+				identity, err = service.ParseAccessToken(bundle.AccessToken)
+				require.NoError(t, err)
+			case "password disabled":
+				previous := common.PasswordLoginEnabled
+				common.PasswordLoginEnabled = false
+				t.Cleanup(func() { common.PasswordLoginEnabled = previous })
+			case "factor added":
+				require.NoError(t, model.DB.Create(&model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
+			}
+			response := securityEnrollmentRequest("DELETE", "/api/user/self", "", proof, identity, DeleteSelf)
+			assert.Equal(t, http.StatusForbidden, response.Code, response.Body.String())
+			stored, err := model.GetUserById(user.Id, false)
+			require.NoError(t, err)
+			assert.Equal(t, identity.UserAuthVersion, stored.AuthVersion)
+			_, _, err = service.ValidateLoginSession(originalIdentity)
+			assert.NoError(t, err)
+			var audit model.AuditLog
+			require.NoError(t, model.LOG_DB.Where("action = ?", "user.account_delete").Last(&audit).Error)
+			assert.False(t, audit.Success)
+			auditJSON, err := common.Marshal(audit)
+			require.NoError(t, err)
+			if proof != "" {
+				assert.NotContains(t, string(auditJSON), proof)
+			}
+		})
+	}
+}
+
+func TestSecurityAccountDeletionAcceptsEitherFactorAndRevokesSessions(t *testing.T) {
+	for _, method := range []string{"password", "oauth", "2fa", "passkey"} {
+		t.Run(method, func(t *testing.T) {
+			user, identity := setupSecurityEnrollmentTest(t)
+			if method == "oauth" {
+				require.NoError(t, model.DB.Model(user).Updates(map[string]any{"password": "", "github_id": "linked-user"}).Error)
+				oauth.Register("account-delete-oauth", &enrollmentOAuthProvider{externalID: "linked-user"})
+				t.Cleanup(func() { oauth.Unregister("account-delete-oauth") })
+			}
+			if method == "2fa" || method == "passkey" {
+				newSecurityLoginPasskey(t, user.Id)
+				factor := &model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
+				if method == "passkey" {
+					locked := time.Now().Add(time.Minute)
+					factor.LockedUntil = &locked
+				} else {
+					system_setting.GetPasskeySettings().Enabled = false
+				}
+				require.NoError(t, model.DB.Create(factor).Error)
+			}
+			requirements, err := service.GetVerificationRequirements(identity, service.VerificationScopeAccountDelete)
+			require.NoError(t, err)
+			_, err = service.RequireVerificationMethod(identity, service.VerificationScopeAccountDelete, method)
+			require.NoError(t, err)
+			if method == "2fa" || method == "passkey" {
+				assert.Len(t, requirements.Methods, 2)
+				_, err = service.RequireVerificationMethod(identity, service.VerificationScopeAccountDelete, "password")
+				assert.ErrorIs(t, err, service.ErrProofMethod)
+			}
+			proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopeAccountDelete}, method)
+			if method == "password" || method == "2fa" {
+				input := service.VerificationInput{Scope: service.VerificationScopeAccountDelete, Method: method, Password: "enrollment-password"}
+				if method == "2fa" {
+					input.Code, err = totp.GenerateCode("JBSWY3DPEHPK3PXP", time.Now())
+					require.NoError(t, err)
+				}
+				verified, err := service.VerifySecurityInput(identity, input)
+				require.NoError(t, err)
+				proof = verified.ProofToken
+			}
+			otherSession, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "second-session")
+			require.NoError(t, err)
+			require.NoError(t, model.UpdateUserAccessToken(user.Id, "account-delete-access-token"))
+			response := securityEnrollmentRequest("DELETE", "/api/user/self", "", proof, identity, DeleteSelf)
+			var result securityEnrollmentResponse
+			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+			require.True(t, result.Success, response.Body.String())
+			assert.Contains(t, response.Header().Get("Set-Cookie"), "Max-Age=0")
+			assert.Contains(t, response.Header().Get("Cache-Control"), "no-store")
+			var deleted model.User
+			require.NoError(t, model.DB.Unscoped().First(&deleted, user.Id).Error)
+			assert.True(t, deleted.DeletedAt.Valid)
+			assert.Equal(t, user.AuthVersion+1, deleted.AuthVersion)
+			_, _, err = service.ValidateLoginSession(identity)
+			assert.Error(t, err)
+			otherIdentity, err := service.ParseAccessToken(otherSession.AccessToken)
+			require.NoError(t, err)
+			_, _, err = service.ValidateLoginSession(otherIdentity)
+			assert.Error(t, err)
+			_, _, err = service.RefreshLoginSession(otherSession.RefreshToken, otherIdentity.SessionID, "127.0.0.1", "second-session")
+			assert.Error(t, err)
+			count, err := model.CountActiveUserSessions(user.Id, time.Now().Unix())
+			require.NoError(t, err)
+			assert.Zero(t, count)
+			tokenUser, err := model.ValidateAccessToken("account-delete-access-token")
+			require.NoError(t, err)
+			assert.Nil(t, tokenUser)
+			var audit model.AuditLog
+			require.NoError(t, model.LOG_DB.Where("action = ?", "user.account_delete").Last(&audit).Error)
+			assert.True(t, audit.Success)
+		})
+	}
+}
+
+func TestSecurityAccountDeletionRechecksTransactionAndConsumesFailedProof(t *testing.T) {
+	for _, scenario := range []string{"revoked session", "auth version", "root", "write failure"} {
+		t.Run(scenario, func(t *testing.T) {
+			user, identity := setupSecurityEnrollmentTest(t)
+			operation := service.VerificationOperation{Scope: service.VerificationScopeAccountDelete}
+			proof := issueSecurityEnrollmentProof(t, identity, operation, "password")
+			if scenario != "write failure" {
+				_, err := service.ConsumeOperationProof(proof, identity, operation)
+				require.NoError(t, err)
+			}
+			switch scenario {
+			case "revoked session":
+				_, err := model.RevokeAllUserSessions(user.Id, "test")
+				require.NoError(t, err)
+			case "auth version":
+				require.NoError(t, model.DB.Model(user).Update("auth_version", user.AuthVersion+1).Error)
+			case "root":
+				require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
+				_, err := service.GetVerificationRequirements(identity, service.VerificationScopeAccountDelete)
+				assert.ErrorIs(t, err, service.ErrVerificationForbidden)
+			case "write failure":
+				require.NoError(t, model.DB.Callback().Delete().Before("gorm:delete").Register("account-delete-failure", func(tx *gorm.DB) {
+					if tx.Statement.Table == "users" {
+						_ = tx.AddError(errors.New("injected deletion failure"))
+					}
+				}))
+				response := securityEnrollmentRequest("DELETE", "/api/user/self", "", proof, identity, DeleteSelf)
+				assert.Contains(t, response.Body.String(), `"success":false`)
+				require.NoError(t, model.DB.Callback().Delete().Remove("account-delete-failure"))
+				response = securityEnrollmentRequest("DELETE", "/api/user/self", "", proof, identity, DeleteSelf)
+				assert.Contains(t, response.Body.String(), "SECURITY_PROOF_CONSUMED")
+			}
+			if scenario != "write failure" {
+				assert.Error(t, model.DeleteUserForSession(identity))
+			}
+			_, err := model.GetUserById(user.Id, false)
+			require.NoError(t, err)
+			if scenario == "write failure" {
+				_, _, err = service.ValidateLoginSession(identity)
+				assert.NoError(t, err, "failed deletion must roll back the account version and preserve sessions")
+			}
+		})
+	}
+}
+
+func TestSecurityAccountDeletionConcurrentRequestsHaveOneWinner(t *testing.T) {
+	user, identity := setupSecurityEnrollmentTest(t)
+	proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopeAccountDelete}, "password")
+	start := make(chan struct{})
+	responses := make(chan string, 2)
+	for range 2 {
+		go func() {
+			<-start
+			response := securityEnrollmentRequest("DELETE", "/api/user/self", "", proof, identity, DeleteSelf)
+			responses <- response.Body.String()
+		}()
+	}
+	close(start)
+	succeeded := 0
+	for range 2 {
+		var response securityEnrollmentResponse
+		require.NoError(t, common.UnmarshalJsonStr(<-responses, &response))
+		if response.Success {
+			succeeded++
+		}
+	}
+	assert.Equal(t, 1, succeeded)
+	var deleted model.User
+	require.NoError(t, model.DB.Unscoped().First(&deleted, user.Id).Error)
+	assert.True(t, deleted.DeletedAt.Valid)
+	assert.Equal(t, identity.UserAuthVersion+1, deleted.AuthVersion)
+}
 
 type securityMailbox struct {
 	mutex sync.Mutex

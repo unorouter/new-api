@@ -20,16 +20,22 @@ type flowPayload struct {
 
 type FlowSecurity struct {
 	model.AuthSessionIdentity
-	Scope         string                       `json:"scope"`
-	ContextHash   string                       `json:"context_hash"`
-	Authorization *model.AuthFlowAuthorization `json:"authorization,omitempty"`
+	Scope          string                       `json:"scope"`
+	ContextHash    string                       `json:"context_hash"`
+	Authorization  *model.AuthFlowAuthorization `json:"authorization,omitempty"`
+	LoginFlowID    int64                        `json:"login_flow_id,omitempty"`
+	LoginExpiresAt int64                        `json:"login_expires_at,omitempty"`
 }
 
 func CreateSessionDataFlow(purpose string, security FlowSecurity, data *webauthn.SessionData) (string, int64, error) {
 	if data == nil {
 		return "", 0, errors.New("Passkey 会话数据不能为空")
 	}
-	if purpose != model.AuthFlowPurposePasskeyLogin && (security.UserID <= 0 || security.SessionID == "" || security.Scope == "" || security.ContextHash == "" || security.UserAuthVersion <= 0 || security.SessionVersion <= 0) {
+	if purpose == model.AuthFlowPurposeLoginPasskey {
+		if security.UserID <= 0 || security.UserAuthVersion <= 0 || security.LoginFlowID <= 0 || security.LoginExpiresAt <= time.Now().Unix() || security.SessionID != "" || security.SessionVersion != 0 {
+			return "", 0, model.ErrAuthFlowInvalid
+		}
+	} else if purpose != model.AuthFlowPurposePasskeyLogin && (security.UserID <= 0 || security.SessionID == "" || security.Scope == "" || security.ContextHash == "" || security.UserAuthVersion <= 0 || security.SessionVersion <= 0) {
 		return "", 0, model.ErrAuthFlowInvalid
 	}
 	if purpose == model.AuthFlowPurposePasskeyRegister && (security.Authorization == nil || security.Authorization.ProofID <= 0 || security.Authorization.AuthSessionIdentity != security.AuthSessionIdentity) {
@@ -40,6 +46,9 @@ func CreateSessionDataFlow(purpose string, security FlowSecurity, data *webauthn
 		return "", 0, err
 	}
 	expiresAt := time.Now().Add(passkeyFlowTTL)
+	if purpose == model.AuthFlowPurposeLoginPasskey && security.LoginExpiresAt < expiresAt.Unix() {
+		expiresAt = time.Unix(security.LoginExpiresAt, 0)
+	}
 	token, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
 		Purpose:   purpose,
 		UserId:    security.UserID,
@@ -67,6 +76,12 @@ func PopSessionDataFlow(token, purpose string, identity model.AuthSessionIdentit
 			return nil
 		}
 		security := payload.Security
+		if purpose == model.AuthFlowPurposeLoginPasskey {
+			if security.AuthSessionIdentity != identity || identity.UserID <= 0 || identity.UserAuthVersion <= 0 || identity.SessionID != "" || identity.SessionVersion != 0 || security.LoginFlowID <= 0 || security.LoginExpiresAt <= time.Now().Unix() {
+				return model.ErrAuthFlowInvalid
+			}
+			return nil
+		}
 		if security.AuthSessionIdentity != identity || security.Scope == "" || security.ContextHash == "" {
 			return model.ErrAuthFlowInvalid
 		}

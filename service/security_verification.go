@@ -24,12 +24,16 @@ const (
 	VerificationScopePasskeyRegister     = "passkey.register"
 	VerificationScopePasskeyDelete       = "passkey.delete"
 	VerificationScopeTwoFASetup          = "2fa.setup"
+	VerificationScopeTwoFADisable        = "2fa.disable"
+	VerificationScopeTwoFABackupCodes    = "2fa.backup_codes.regenerate"
+	VerificationScopeLogin               = "auth.login"
 	VerificationScopeAccessTokenGenerate = "access_token.generate"
 	VerificationScopeAccessTokenRevoke   = "access_token.revoke"
 	VerificationScopeAccountBind         = "account.binding.bind"
 	VerificationScopeAccountUnbind       = "account.binding.unbind"
 	VerificationScopePasswordSet         = "account.password.set"
 	VerificationScopePasswordChange      = "account.password.change"
+	VerificationScopeAccountDelete       = "account.delete"
 )
 
 var (
@@ -114,8 +118,9 @@ func BindVerificationOperation(operation VerificationOperation) (VerificationBin
 		}
 		normalized = context
 	case VerificationScopePasskeyRegister, VerificationScopePasskeyDelete, VerificationScopeTwoFASetup,
+		VerificationScopeTwoFADisable, VerificationScopeTwoFABackupCodes,
 		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenRevoke,
-		VerificationScopePasswordSet, VerificationScopePasswordChange:
+		VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete:
 		if len(fields) != 0 {
 			return VerificationBinding{}, ErrVerificationContextInvalid
 		}
@@ -162,51 +167,41 @@ type VerificationRequirements struct {
 	PasswordEncryptionEnabled bool                        `json:"password_encryption_enabled"`
 }
 
-type verificationAccountState struct {
-	HasPassword      bool
-	HasTwoFA         bool
-	TwoFALocked      bool
-	HasPasskey       bool
-	PasskeyEnabled   bool
-}
-
 // securityVerificationPolicy is the only operation-to-method policy. Device
 // support and disabled providers never turn an enrolled factor into an absent one.
-func securityVerificationPolicy(scope string, state verificationAccountState) ([]VerificationMethodOption, error) {
+func securityVerificationPolicy(scope string, state model.UserVerificationState) ([]VerificationMethodOption, error) {
 	var methods []string
+	if state.HasTwoFA {
+		methods = append(methods, VerificationMethodTwoFA)
+	}
+	if state.HasPasskey {
+		methods = append(methods, VerificationMethodPasskey)
+	}
 	switch scope {
-	case VerificationScopeChannelKeyRead:
-		if state.HasTwoFA {
-			methods = append(methods, VerificationMethodTwoFA)
-		}
-		if state.HasPasskey {
-			methods = append(methods, VerificationMethodPasskey)
-		}
-	case VerificationScopePasskeyDelete:
-		if state.HasTwoFA {
-			methods = []string{VerificationMethodTwoFA}
-		} else if state.HasPasskey {
-			methods = []string{VerificationMethodPasskey}
+	case VerificationScopeChannelKeyRead, VerificationScopePasskeyDelete, VerificationScopeLogin:
+	case VerificationScopeTwoFADisable, VerificationScopeTwoFABackupCodes:
+		if !state.HasTwoFA {
+			return nil, model.ErrTwoFANotEnabled
 		}
 	case VerificationScopePasskeyRegister, VerificationScopeTwoFASetup,
 		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenRevoke,
 		VerificationScopeAccountBind, VerificationScopeAccountUnbind,
-		VerificationScopePasswordSet, VerificationScopePasswordChange:
+		VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete:
+		if scope == VerificationScopeAccountDelete && state.Role == common.RoleRootUser {
+			return nil, ErrVerificationForbidden
+		}
 		if scope == VerificationScopeTwoFASetup && state.HasTwoFA {
 			return nil, model.ErrTwoFAAlreadyEnabled
 		}
 		if (scope == VerificationScopePasswordSet && state.HasPassword) || (scope == VerificationScopePasswordChange && !state.HasPassword) {
 			return nil, ErrVerificationForbidden
 		}
-		switch {
-		case state.HasTwoFA:
-			methods = []string{VerificationMethodTwoFA}
-		case state.HasPasskey:
-			methods = []string{VerificationMethodPasskey}
-		case state.HasPassword:
-			methods = []string{VerificationMethodPassword}
-		default:
-			methods = []string{VerificationMethodOAuth}
+		if len(methods) == 0 {
+			if state.HasPassword {
+				methods = []string{VerificationMethodPassword}
+			} else {
+				methods = []string{VerificationMethodOAuth}
+			}
 		}
 	default:
 		return nil, ErrProofScope
@@ -217,7 +212,7 @@ func securityVerificationPolicy(scope string, state verificationAccountState) ([
 		if method == VerificationMethodTwoFA && state.TwoFALocked {
 			option.Available, option.Reason = false, ErrVerificationLocked.Error()
 		}
-		if !state.PasskeyEnabled && (method == VerificationMethodPasskey || scope == VerificationScopePasskeyRegister) {
+		if !system_setting.GetPasskeySettings().Enabled && (method == VerificationMethodPasskey || scope == VerificationScopePasskeyRegister) {
 			option.Available, option.Reason = false, "Passkey authentication is disabled."
 		}
 		options = append(options, option)
@@ -226,31 +221,20 @@ func securityVerificationPolicy(scope string, state verificationAccountState) ([
 }
 
 func GetVerificationRequirements(identity AuthIdentity, scope string) (*VerificationRequirements, error) {
-	user, err := model.GetUserById(identity.UserID, true)
+	if scope == VerificationScopeLogin {
+		return nil, ErrProofScope
+	}
+	state, err := model.GetUserVerificationState(identity.UserID)
 	if err != nil {
 		return nil, err
 	}
-	if user.Status != common.UserStatusEnabled || user.AuthVersion != identity.UserAuthVersion {
+	if state.Status != common.UserStatusEnabled || state.AuthVersion != identity.UserAuthVersion {
 		return nil, ErrAuthTokenInvalid
 	}
-	if scope == VerificationScopeChannelKeyRead && user.Role != common.RoleRootUser {
+	if scope == VerificationScopeChannelKeyRead && state.Role != common.RoleRootUser {
 		return nil, ErrVerificationForbidden
 	}
-	twoFA, err := model.GetTwoFAByUserId(user.Id)
-	if err != nil {
-		return nil, err
-	}
-	_, err = model.GetPasskeyByUserID(user.Id)
-	if err != nil && !errors.Is(err, model.ErrPasskeyNotFound) {
-		return nil, err
-	}
-	state := verificationAccountState{
-		HasPassword: user.Password != "", HasTwoFA: twoFA != nil && twoFA.IsEnabled,
-		TwoFALocked: twoFA != nil && twoFA.IsLocked(), HasPasskey: err == nil,
-		PasskeyEnabled: system_setting.GetPasskeySettings().Enabled,
-	}
-
-	methods, err := securityVerificationPolicy(scope, state)
+	methods, err := securityVerificationPolicy(scope, *state)
 	if err != nil {
 		return nil, err
 	}
@@ -258,12 +242,16 @@ func GetVerificationRequirements(identity AuthIdentity, scope string) (*Verifica
 	for i := range methods {
 		if methods[i].Method == VerificationMethodPassword && !common.PasswordLoginEnabled {
 			switch scope {
-			case VerificationScopeAccountBind, VerificationScopeAccountUnbind, VerificationScopePasswordSet, VerificationScopePasswordChange:
+			case VerificationScopeAccountBind, VerificationScopeAccountUnbind, VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete:
 				methods[i].Available, methods[i].Reason = false, "Password authentication is disabled."
 			}
 		}
 		if methods[i].Method != VerificationMethodOAuth {
 			continue
+		}
+		user, err := model.GetUserById(identity.UserID, false)
+		if err != nil {
+			return nil, err
 		}
 		requirements.OAuthProviders, err = verificationOAuthProviders(user)
 		if err != nil {
@@ -449,6 +437,11 @@ func VerifySecurityInput(identity AuthIdentity, input VerificationInput) (*Secur
 			return nil, ErrVerificationFailed
 		}
 	case VerificationMethodTwoFA:
+		if input.Scope == VerificationScopeTwoFABackupCodes {
+			if _, err := common.ValidateNumericCode(input.Code); err != nil {
+				return nil, ErrVerificationFailed
+			}
+		}
 		twoFA, err := model.GetTwoFAByUserId(identity.UserID)
 		if err != nil {
 			return nil, err

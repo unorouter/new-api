@@ -27,7 +27,6 @@ import type {
   UserProfile,
   UpdateUserRequest,
   UpdateUserSettingsRequest,
-  DeleteAccountRequest,
   CheckinStatusResponse,
   CheckinResponse,
   AccountSecurityResult,
@@ -102,11 +101,19 @@ export async function updateUserLanguage(
 /**
  * Delete user account
  */
-export async function deleteUserAccount(
-  data?: DeleteAccountRequest
-): Promise<ApiResponse> {
-  const res = await api.delete('/api/user/self', { data })
-  return res.data
+export function deleteUserAccount(
+  proof: string,
+  signal: AbortSignal
+): Promise<AccountSecurityResult> {
+  return authResult(
+    api.delete('/api/user/self', {
+      ...authRequestOptions,
+      headers: { 'X-Security-Proof': proof },
+      singleUseAuthorization: true,
+      signal,
+    }),
+    'Failed to delete account'
+  )
 }
 
 // ============================================================================

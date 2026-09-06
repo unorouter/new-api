@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/http-client'
+import { authRequestOptions, authResult } from '@/lib/secure-verification'
 
 export {
   applyAuthBundle,
@@ -93,20 +94,40 @@ export async function getNotice(): Promise<{
 // 2FA Management APIs
 // ============================================================================
 
-export async function disable2FA(code: string) {
-  const res = await api.post(
-    '/api/user/2fa/disable',
-    { code },
-    { acceptAuthRotation: true }
+export function disable2FA(
+  proofToken: string,
+  signal?: AbortSignal
+): Promise<{ notification_warning?: boolean }> {
+  return authResult(
+    api.post(
+      '/api/user/2fa/disable',
+      {},
+      {
+        ...authRequestOptions,
+        headers: { 'X-Security-Proof': proofToken },
+        acceptAuthRotation: true,
+        singleUseAuthorization: true,
+        signal,
+      }
+    )
   )
-  return res.data
 }
 
-export async function regenerate2FABackupCodes(code: string) {
-  const res = await api.post(
-    '/api/user/2fa/backup_codes',
-    { code },
-    { acceptAuthRotation: true }
+export function regenerate2FABackupCodes(
+  proofToken: string,
+  signal?: AbortSignal
+): Promise<{ backup_codes: string[]; notification_warning?: boolean }> {
+  return authResult(
+    api.post(
+      '/api/user/2fa/backup_codes',
+      {},
+      {
+        ...authRequestOptions,
+        headers: { 'X-Security-Proof': proofToken },
+        acceptAuthRotation: true,
+        singleUseAuthorization: true,
+        signal,
+      }
+    )
   )
-  return res.data
 }

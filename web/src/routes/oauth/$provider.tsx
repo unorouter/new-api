@@ -24,7 +24,7 @@ import {
 } from '@tanstack/react-router'
 import type { AxiosRequestConfig } from 'axios'
 import i18next from 'i18next'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 
 import { OAuthCallbackScreen } from '@/features/auth/components/oauth-callback-screen'
@@ -32,6 +32,7 @@ import {
   OAUTH_POPUP_CALLBACK_MESSAGE,
   OAUTH_POPUP_RESULT_MESSAGE,
 } from '@/features/auth/constants'
+import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
 import {
   parseTelegramBindCallback,
@@ -43,11 +44,13 @@ import {
   consumeOAuthLoginRedirect,
   resolveOAuthCallbackMode,
 } from '@/features/auth/lib/oauth-callback-mode'
-import { api, applyAuthBundle, isAuthBundle } from '@/lib/api'
+import type { LoginResponse } from '@/features/auth/types'
+import { api } from '@/lib/api'
 import { getServerErrorMessageKey } from '@/lib/server-error-message'
 
 type OAuthRequestConfig = AxiosRequestConfig & {
   skipBusinessError?: boolean
+  skipAuthRefresh?: boolean
 }
 
 interface OAuthPopupResult {
@@ -61,6 +64,12 @@ interface OAuthPopupResult {
 
 function OAuthCallback() {
   const navigate = useNavigate()
+  const { handleLoginResult } = useAuthRedirect()
+  const loginExchange = useRef<{
+    key: string
+    request: Promise<{ data: LoginResponse }>
+  } | null>(null)
+  const completedLogin = useRef<string | null>(null)
   const { provider } = useParams({ from: '/oauth/$provider' }) as {
     provider: string
   }
@@ -192,6 +201,9 @@ function OAuthCallback() {
       return
     }
 
+    const loginKey = `${provider}:${state}:${code}`
+    if (completedLogin.current === loginKey) return
+    let active = true
     void (async () => {
       try {
         const config: OAuthRequestConfig = {
@@ -202,12 +214,26 @@ function OAuthCallback() {
             error_description: search.error_description,
           },
           skipBusinessError: true,
+          skipAuthRefresh: true,
         }
-        const response = await api.get(`/api/oauth/${provider}`, config)
-        if (response.data?.success && isAuthBundle(response.data?.data)) {
-          applyAuthBundle(response.data.data)
-          safeNavigate(search.redirect ?? consumeOAuthLoginRedirect(state))
-          toast.success(i18next.t('Signed in successfully!'))
+        if (loginExchange.current?.key !== loginKey) {
+          loginExchange.current = {
+            key: loginKey,
+            request: api.get<LoginResponse>(`/api/oauth/${provider}`, config),
+          }
+        }
+        const response = await loginExchange.current.request
+        if (!active) return
+        if (response.data?.success) {
+          completedLogin.current = loginKey
+          if (
+            await handleLoginResult(
+              response.data.data,
+              search.redirect ?? consumeOAuthLoginRedirect(state) ?? undefined
+            )
+          ) {
+            toast.success(i18next.t('Signed in successfully!'))
+          }
           return
         }
         const messageKey = getServerErrorMessageKey(response.data)
@@ -217,6 +243,7 @@ function OAuthCallback() {
             : response.data?.message || i18next.t('OAuth failed')
         )
       } catch (error: unknown) {
+        if (!active) return
         const messageKey = getServerErrorMessageKey(error)
         const responseMessage = (
           error as { response?: { data?: { message?: string } } }
@@ -232,10 +259,14 @@ function OAuthCallback() {
       }
       safeNavigate('/sign-in', '/sign-in')
     })()
+    return () => {
+      active = false
+    }
   }, [
     callbackState,
     mode,
     navigate,
+    handleLoginResult,
     provider,
     search.code,
     search.error,
