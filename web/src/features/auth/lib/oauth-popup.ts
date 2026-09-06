@@ -126,6 +126,9 @@ export function openOAuthPopup(
         return
       }
       received = true
+      stopCloseWatcher()
+      clearTimeout(deadline)
+      window.removeEventListener('message', onMessage)
       resolve({
         callback: {
           provider: options.provider,

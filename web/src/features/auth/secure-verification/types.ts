@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export type VerificationMethod = '2fa' | 'passkey' | 'password' | 'oauth'
+export type VerificationMethod =
+  | '2fa'
+  | 'passkey'
+  | 'password'
+  | 'oauth'
+  | 'session'
 export type SecurityProofScope =
   | 'channel.key.read'
   | 'passkey.register'
@@ -49,6 +54,7 @@ export type VerificationInput =
   | { method: 'password'; password: string }
   | { method: 'passkey' }
   | { method: 'oauth'; provider: string }
+  | { method: 'session' }
 
 export type RequestVerificationOptions = VerificationOperation & {
   title?: string

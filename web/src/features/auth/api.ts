@@ -20,6 +20,7 @@ import axios from 'axios'
 
 import { api, refreshAuthentication, type RefreshOutcome } from '@/lib/api'
 import { AuthOperationError } from '@/lib/secure-verification'
+import { getServerErrorMessageKey } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -166,12 +167,12 @@ export async function githubOAuthStart(clientId: string, state: string) {
 }
 
 // Get OAuth state for CSRF protection
-export async function createOAuthFlow(
+export async function createOAuthAuthorization(
   provider: string,
   intent: 'login' | 'bind' | 'verify',
   operation?: VerificationOperation,
   signal?: AbortSignal
-): Promise<string> {
+): Promise<{ state: string; authorizationUrl?: string }> {
   const aff = intent === 'login' ? getAffiliateCode() : ''
   const res = await api.post(
     '/api/oauth/state',
@@ -190,15 +191,30 @@ export async function createOAuthFlow(
     }
   )
   if (res.data?.success) {
-    if (typeof res.data.data === 'string') return res.data.data
+    if (typeof res.data.data === 'string') return { state: res.data.data }
     if (typeof res.data.data?.flow_token === 'string') {
-      return res.data.data.flow_token
+      return {
+        state: res.data.data.flow_token,
+        authorizationUrl: res.data.data.authorization_url,
+      }
     }
   }
   throw new AuthOperationError(
-    res.data?.message || 'Failed to initialize OAuth',
+    getServerErrorMessageKey(res.data) ||
+      res.data?.message ||
+      'Failed to initialize OAuth',
     res.data?.code
   )
+}
+
+export async function createOAuthFlow(
+  provider: string,
+  intent: 'login' | 'bind' | 'verify',
+  operation?: VerificationOperation,
+  signal?: AbortSignal
+): Promise<string> {
+  return (await createOAuthAuthorization(provider, intent, operation, signal))
+    .state
 }
 
 // WeChat login by authorization code

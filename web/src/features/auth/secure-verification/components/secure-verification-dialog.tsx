@@ -45,6 +45,7 @@ const methodLabels: Record<VerificationMethod, string> = {
   passkey: 'Passkey',
   password: 'Password',
   oauth: 'Linked account',
+  session: 'Login session',
 }
 
 export function SecureVerificationDialog(props: SecureVerificationDialogProps) {

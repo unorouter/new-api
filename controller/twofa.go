@@ -6,11 +6,13 @@ import (
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type Verify2FARequest struct {
@@ -333,7 +335,7 @@ func Admin2FAStats(c *gin.Context) {
 func AdminDisable2FA(c *gin.Context) {
 	userIdStr := c.Param("id")
 	userId, err := strconv.Atoi(userIdStr)
-	if err != nil {
+	if err != nil || userId <= 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": "用户ID格式错误",
@@ -343,6 +345,10 @@ func AdminDisable2FA(c *gin.Context) {
 
 	// 检查目标用户权限
 	targetUser, err := model.GetUserById(userId, false)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiErrorI18n(c, i18n.MsgUserNotExists)
+		return
+	}
 	if err != nil {
 		writeSecurityOperationError(c, err)
 		return

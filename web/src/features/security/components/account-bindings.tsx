@@ -26,7 +26,7 @@ import { IconDiscord } from '@/assets/brand-icons'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
-import { createOAuthFlow } from '@/features/auth/api'
+import { createOAuthAuthorization } from '@/features/auth/api'
 import {
   openOAuthPopup,
   type OAuthPopupExchange,
@@ -49,7 +49,6 @@ import {
 } from '@/lib/secure-verification'
 
 import { EmailBindDialog } from './dialogs/email-bind-dialog'
-import { TelegramBindDialog } from './dialogs/telegram-bind-dialog'
 import { WeChatBindDialog } from './dialogs/wechat-bind-dialog'
 
 // ============================================================================
@@ -61,7 +60,7 @@ interface AccountBindingsProps {
   onUpdate: () => void
 }
 
-type DialogKey = 'email' | 'wechat' | 'telegram'
+type DialogKey = 'email' | 'wechat'
 
 export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
   const { t } = useTranslation()
@@ -134,15 +133,21 @@ export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
           intent: 'bind',
           signal: controller.signal,
           prepare: async (signal) => {
-            const state = await createOAuthFlow(
+            const authorization = await createOAuthAuthorization(
               provider,
               'bind',
               undefined,
               signal
             )
             return {
-              state,
-              url: buildOAuthAuthorizationUrl(provider, state, status ?? {}),
+              state: authorization.state,
+              url:
+                authorization.authorizationUrl ??
+                buildOAuthAuthorizationUrl(
+                  provider,
+                  authorization.state,
+                  status ?? {}
+                ),
             }
           },
         })
@@ -267,7 +272,7 @@ export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
           (profile as unknown as Record<string, unknown>).telegram_id
         ),
         isEnabled: status?.telegram_oauth || false,
-        onBind: () => dialogs.open('telegram'),
+        onBind: () => void startOAuthBinding('telegram'),
       },
       {
         id: 'linuxdo',
@@ -441,18 +446,6 @@ export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
         }
         onSuccess={onUpdate}
       />
-
-      {/* Telegram Bind Dialog */}
-      {status?.telegram_bot_name && (
-        <TelegramBindDialog
-          open={dialogs.isOpen('telegram')}
-          onOpenChange={(open) =>
-            open ? dialogs.open('telegram') : dialogs.close('telegram')
-          }
-          botName={status.telegram_bot_name as string}
-          onSuccess={onUpdate}
-        />
-      )}
     </>
   )
 }

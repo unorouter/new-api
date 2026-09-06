@@ -134,6 +134,24 @@ export function useSecureVerification() {
         current.request.scope,
         current.controller.signal
       )
+      if (pending.current !== current) return
+      if (
+        requirements.methods.length === 1 &&
+        requirements.methods[0].method === 'session' &&
+        requirements.methods[0].available
+      ) {
+        const proof = await verify(
+          { method: 'session' },
+          current.request,
+          requirements.password_encryption_enabled,
+          current.controller.signal
+        )
+        if (pending.current !== current) return
+        pending.current = null
+        dispatch({ type: 'reset' })
+        current.resolve(proof)
+        return
+      }
       if (pending.current === current) {
         dispatch({ type: 'loaded', requirements })
       }

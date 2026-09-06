@@ -233,10 +233,11 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	case "TelegramOAuthEnabled":
-		if option.Value == "true" && common.TelegramBotToken == "" {
+		if option.Value == "true" && !system_setting.GetTelegramSettings().IsConfigured() {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "无法启用 Telegram OAuth，请先填入 Telegram Bot Token！",
+				"code":    "TELEGRAM_OAUTH_NOT_CONFIGURED",
+				"message": "Telegram OAuth is not configured or enabled. Please contact your administrator.",
 			})
 			return
 		}

@@ -30,8 +30,10 @@ type oauthStateRequest struct {
 }
 
 type oauthFlowPayload struct {
-	AffiliateCode string                         `json:"affiliate_code,omitempty"`
-	Verification  *service.OAuthVerificationFlow `json:"verification,omitempty"`
+	AffiliateCode   string                         `json:"affiliate_code,omitempty"`
+	Verification    *service.OAuthVerificationFlow `json:"verification,omitempty"`
+	Telegram        *oauth.TelegramOAuthFlow       `json:"telegram,omitempty"`
+	SessionIdentity *service.AuthIdentity          `json:"session_identity,omitempty"`
 }
 
 // providerParams returns map with Provider key for i18n templates
@@ -60,6 +62,14 @@ func GenerateOAuthCode(c *gin.Context) {
 	userID := 0
 	sessionID := ""
 	flowPayload := oauthFlowPayload{AffiliateCode: request.Aff}
+	if request.Provider == "telegram" {
+		telegramFlow, err := oauth.NewTelegramOAuthFlow()
+		if err != nil {
+			writeSecurityOperationError(c, err)
+			return
+		}
+		flowPayload.Telegram = telegramFlow
+	}
 	if request.Intent == model.AuthFlowIntentBind || request.Intent == model.AuthFlowIntentVerify {
 		identity, ok := middleware.GetSessionAuthIdentity(c)
 		if !ok {
@@ -68,6 +78,13 @@ func GenerateOAuthCode(c *gin.Context) {
 		}
 		userID = identity.UserID
 		sessionID = identity.SessionID
+		if flowPayload.Telegram != nil {
+			if _, _, err := service.ValidateLoginSession(identity); err != nil {
+				writeSecurityOperationError(c, err)
+				return
+			}
+			flowPayload.SessionIdentity = &identity
+		}
 		if request.Intent == model.AuthFlowIntentVerify {
 			verification, err := service.StartOAuthVerification(identity, service.VerificationOperation{Scope: request.Scope, Context: request.Context}, request.Provider)
 			if err != nil {
@@ -96,13 +113,14 @@ func GenerateOAuthCode(c *gin.Context) {
 		writeSecurityOperationError(c, err)
 		return
 	}
+	data := gin.H{"flow_token": state, "expires_at": expiresAt.Unix()}
+	if flowPayload.Telegram != nil {
+		data["authorization_url"] = flowPayload.Telegram.AuthorizationURL(state)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data": gin.H{
-			"flow_token": state,
-			"expires_at": expiresAt.Unix(),
-		},
+		"data":    data,
 	})
 }
 
@@ -155,6 +173,29 @@ func HandleOAuth(c *gin.Context) {
 	}
 
 	// 3. Check if provider is enabled
+	var telegramPayload oauthFlowPayload
+	if providerName == "telegram" {
+		if err := oauth.TelegramConfigurationError(); err != nil {
+			writeSecurityOperationError(c, err)
+			return
+		}
+		if err := common.UnmarshalJsonStr(pendingFlow.Payload, &telegramPayload); err != nil || telegramPayload.Telegram == nil {
+			writeSecurityOperationError(c, model.ErrAuthFlowInvalid)
+			return
+		}
+		if pendingFlow.Intent != model.AuthFlowIntentLogin {
+			identity, _ := middleware.GetSessionAuthIdentity(c)
+			if telegramPayload.SessionIdentity == nil || *telegramPayload.SessionIdentity != identity {
+				writeSecurityOperationError(c, model.ErrAuthFlowInvalid)
+				return
+			}
+			if _, _, err := service.ValidateLoginSession(identity); err != nil {
+				writeSecurityOperationError(c, err)
+				return
+			}
+		}
+		c.Set(oauth.TelegramOAuthFlowContextKey, telegramPayload.Telegram)
+	}
 	if !provider.IsEnabled() {
 		common.ApiErrorI18n(c, i18n.MsgOAuthNotEnabled, providerParams(provider.GetName()))
 		return
@@ -181,6 +222,10 @@ func HandleOAuth(c *gin.Context) {
 	code := c.Query("code")
 	token, err := provider.ExchangeToken(c.Request.Context(), code, c)
 	if err != nil {
+		if providerName == "telegram" {
+			writeSecurityOperationError(c, err)
+			return
+		}
 		handleOAuthError(c, err)
 		return
 	}
@@ -188,7 +233,22 @@ func HandleOAuth(c *gin.Context) {
 	// 6. Get user info
 	oauthUser, err := provider.GetUserInfo(c.Request.Context(), token)
 	if err != nil {
+		if providerName == "telegram" {
+			writeSecurityOperationError(c, err)
+			return
+		}
 		handleOAuthError(c, err)
+		return
+	}
+	if providerName == "telegram" && pendingFlow.Intent == model.AuthFlowIntentBind {
+		_, err := model.ConsumeAuthFlowWithAction(state, consumeMatch, func(tx *gorm.DB, _ *model.AuthFlow) error {
+			return model.BindTelegramForSessionWithTx(tx, *telegramPayload.SessionIdentity, oauthUser.ProviderUserID)
+		})
+		if err != nil {
+			writeSecurityOperationError(c, err)
+			return
+		}
+		common.ApiSuccessI18n(c, i18n.MsgOAuthBindSuccess, gin.H{"action": "bind"})
 		return
 	}
 	flow, err := model.ConsumeAuthFlow(state, consumeMatch)
@@ -303,6 +363,13 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider, oauthUser *oauth.O
 // findOrCreateOAuthUser finds existing user or creates new user
 func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, affiliateCode string) (*model.User, error) {
 	user := &model.User{}
+	if provider.ProviderUserIDColumn() == "telegram_id" {
+		err := provider.FillUserByProviderID(user, oauthUser.ProviderUserID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, oauth.ErrTelegramAccountNotBound
+		}
+		return user, err
+	}
 
 	// Check if user already exists with new ID
 	if provider.IsUserIDTaken(oauthUser.ProviderUserID) {

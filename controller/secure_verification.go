@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/go-webauthn/webauthn/protocol"
@@ -33,6 +34,16 @@ func writeSecurityOperationError(c *gin.Context, err error) {
 	var code, message string
 	var protocolError *protocol.Error
 	switch {
+	case errors.Is(err, oauth.ErrTelegramOAuthNotConfigured):
+		code, message = "TELEGRAM_OAUTH_NOT_CONFIGURED", oauth.ErrTelegramOAuthNotConfigured.Error()
+	case errors.Is(err, oauth.ErrTelegramOAuthConflict):
+		code, message = "TELEGRAM_OAUTH_CONFLICT", oauth.ErrTelegramOAuthConflict.Error()
+	case errors.Is(err, oauth.ErrTelegramOAuthFailed):
+		code, message = "TELEGRAM_OAUTH_FAILED", oauth.ErrTelegramOAuthFailed.Error()
+	case errors.Is(err, oauth.ErrTelegramAccountNotBound):
+		code, message = "TELEGRAM_ACCOUNT_NOT_BOUND", oauth.ErrTelegramAccountNotBound.Error()
+	case errors.Is(err, model.ErrExternalIdentityAlreadyClaimed):
+		code, message = "TELEGRAM_BIND_ALREADY_BOUND", "This Telegram account is already bound."
 	case errors.Is(err, service.ErrVerificationContextInvalid):
 		status = http.StatusBadRequest
 		code, message = "SECURITY_CONTEXT_INVALID", service.ErrVerificationContextInvalid.Error()

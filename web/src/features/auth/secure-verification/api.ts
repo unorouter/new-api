@@ -29,7 +29,7 @@ import {
   authResult,
 } from '@/lib/secure-verification'
 
-import { createOAuthFlow } from '../api'
+import { createOAuthAuthorization } from '../api'
 import { openOAuthPopup } from '../lib/oauth-popup'
 import { encryptPassword } from '../lib/password-encryption'
 import {
@@ -92,6 +92,18 @@ export async function verify(
     }
     let proof: SecurityProof
     switch (input.method) {
+      case 'session':
+        proof = await authResult<SecurityProof>(
+          api.post(
+            '/api/verify',
+            { method: 'session', ...operationFields },
+            {
+              ...authRequestOptions,
+              signal,
+            }
+          )
+        )
+        break
       case '2fa':
         proof = await authResult<SecurityProof>(
           api.post(
@@ -188,8 +200,8 @@ async function verifyOAuth(
     intent: 'verify',
     signal,
     prepare: async (popupSignal) => {
-      const [state, status] = await Promise.all([
-        createOAuthFlow(provider, 'verify', operation, popupSignal),
+      const [authorization, status] = await Promise.all([
+        createOAuthAuthorization(provider, 'verify', operation, popupSignal),
         authResult<SystemStatus>(
           api.get('/api/status', {
             ...authRequestOptions,
@@ -198,7 +210,12 @@ async function verifyOAuth(
           })
         ),
       ])
-      return { state, url: buildOAuthAuthorizationUrl(provider, state, status) }
+      return {
+        state: authorization.state,
+        url:
+          authorization.authorizationUrl ??
+          buildOAuthAuthorizationUrl(provider, authorization.state, status),
+      }
     },
   })
   try {

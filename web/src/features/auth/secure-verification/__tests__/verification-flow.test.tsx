@@ -76,6 +76,67 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it.each(['success', 'cancel', 'retry'] as const)(
+  'automatically obtains the first-enrollment session proof and handles %s',
+  async (outcome) => {
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          ...passwordRequirements,
+          methods: [{ method: 'session', available: true }],
+        },
+      },
+    })
+    const proof: SecurityProof = {
+      proof_token: 'session-proof',
+      method: 'session',
+      scope: 'passkey.register',
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+    }
+    const reply = pendingResponse<{
+      data: { success: boolean; data: SecurityProof }
+    }>()
+    const post = vi.spyOn(api, 'post').mockReturnValue(reply.promise)
+    if (outcome === 'retry') {
+      post.mockRejectedValueOnce(new Error('Session check failed'))
+    }
+    const result = vi.fn()
+    const user = userEvent.setup()
+    render(<Harness onResult={result} />)
+    await user.click(screen.getByText('Protected action'))
+    if (outcome === 'retry') {
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Session check failed'
+      )
+      await user.click(screen.getByRole('button', { name: 'Retry' }))
+    }
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledTimes(outcome === 'retry' ? 2 : 1)
+    )
+    expect(post).toHaveBeenLastCalledWith(
+      '/api/verify',
+      { method: 'session', scope: 'passkey.register' },
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    )
+    expect(screen.getByRole('button', { name: 'Verify' })).toBeDisabled()
+    if (outcome === 'cancel') {
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(post.mock.calls[0][2]?.signal?.aborted).toBe(true)
+    }
+    await act(async () => {
+      reply.resolve({ data: { success: true, data: proof } })
+      await reply.promise
+    })
+    await waitFor(() =>
+      expect(result).toHaveBeenCalledExactlyOnceWith(
+        outcome === 'cancel' ? null : proof
+      )
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  }
+)
+
 it('keeps the requested channel context fixed while verification is open', async () => {
   vi.spyOn(api, 'get').mockResolvedValue({
     data: {

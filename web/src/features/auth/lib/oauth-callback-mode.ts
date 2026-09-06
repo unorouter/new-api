@@ -19,6 +19,29 @@ For commercial licensing, please contact support@quantumnous.com
 
 const OAUTH_POPUP_FLOW_KEY_PREFIX = 'oauth_popup_flow:'
 
+export function rememberOAuthLoginRedirect(
+  state: string,
+  redirect?: string
+): void {
+  if (!redirect) return
+  try {
+    window.sessionStorage.setItem(`oauth_login_redirect:${state}`, redirect)
+  } catch {
+    // Login can still complete using the default destination.
+  }
+}
+
+export function consumeOAuthLoginRedirect(state: string): string | null {
+  try {
+    const key = `oauth_login_redirect:${state}`
+    const redirect = window.sessionStorage.getItem(key)
+    window.sessionStorage.removeItem(key)
+    return redirect
+  } catch {
+    return null
+  }
+}
+
 /** Minimal shape of `sessionStorage`, kept structural so tests can fake it. */
 export interface OAuthModeStorage {
   getItem: (key: string) => string | null

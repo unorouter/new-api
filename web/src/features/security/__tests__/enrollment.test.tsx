@@ -16,13 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { toast } from 'sonner'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import { OAUTH_POPUP_CALLBACK_MESSAGE } from '@/features/auth/constants'
+import type { UserProfile } from '@/features/profile/types'
 import { api } from '@/lib/api'
 
+import { AccountBindings } from '../components/account-bindings'
 import { PasskeyCard } from '../components/passkey-card'
 import { TwoFACard } from '../components/two-fa-card'
 
@@ -69,6 +73,140 @@ afterEach(() => {
   if (credentialsDescriptor) {
     Object.defineProperty(navigator, 'credentials', credentialsDescriptor)
   } else Reflect.deleteProperty(navigator, 'credentials')
+})
+
+it.each(['2fa', 'passkey'] as const)(
+  'blocks %s enrollment and explains missing Telegram configuration',
+  async (factor) => {
+    const reason =
+      'Telegram OAuth is not configured or enabled. Please contact your administrator.'
+    vi.spyOn(api, 'get').mockImplementation(async (url) => ({
+      data: {
+        success: true,
+        data:
+          url === '/api/verify/methods'
+            ? {
+                scope: factor === '2fa' ? '2fa.setup' : 'passkey.register',
+                methods: [{ method: 'oauth', available: false, reason }],
+                oauth_providers: [],
+                password_encryption_enabled: false,
+              }
+            : { enabled: false, locked: false },
+      },
+    }))
+    const post = vi.spyOn(api, 'post')
+    const user = userEvent.setup()
+    render(
+      factor === '2fa' ? (
+        <TwoFACard loading={false} />
+      ) : (
+        <PasskeyCard loading={false} />
+      )
+    )
+    const enable = await screen.findByRole('button', {
+      name: factor === '2fa' ? 'Enable' : 'Enable Passkey',
+    })
+    await waitFor(() => expect(enable).toBeEnabled())
+    await user.click(enable)
+    expect(await screen.findByText(reason)).toBeVisible()
+    expect(post).not.toHaveBeenCalled()
+    expect(navigator.credentials.create).not.toHaveBeenCalled()
+  }
+)
+
+it('refreshes Telegram bindings from the server result after the callback popup has closed', async () => {
+  const popup = {
+    closed: false,
+    location: { replace: vi.fn() },
+    sessionStorage: window.sessionStorage,
+    close: vi.fn(),
+    postMessage: vi.fn(),
+  }
+  vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
+  vi.spyOn(api, 'post').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        flow_token: 'binding-state',
+        authorization_url: 'https://oauth.telegram.org/auth?server=pkce',
+      },
+    },
+  })
+  let resolve!: (response: {
+    data: { success: boolean; data: { action: string } }
+  }) => void
+  const response = new Promise<{
+    data: { success: boolean; data: { action: string } }
+  }>((done) => {
+    resolve = done
+  })
+  const get = vi.spyOn(api, 'get').mockImplementation((url) =>
+    url === '/api/status'
+      ? Promise.resolve({
+          data: {
+            success: true,
+            data: { telegram_oauth: true, telegram_oauth_configured: true },
+          },
+        })
+      : response
+  )
+  const onUpdate = vi.fn()
+  const user = userEvent.setup()
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  render(
+    <QueryClientProvider client={client}>
+      <AccountBindings
+        profile={{ email: 'bound@example.com' } as UserProfile}
+        onUpdate={onUpdate}
+      />
+    </QueryClientProvider>
+  )
+  const telegram = (await screen.findByText('Telegram')).closest('li')
+  if (!telegram) throw new Error('Telegram binding entry is missing')
+  await user.click(within(telegram).getByRole('button', { name: 'Bind' }))
+  await waitFor(() =>
+    expect(popup.location.replace).toHaveBeenCalledWith(
+      'https://oauth.telegram.org/auth?server=pkce'
+    )
+  )
+  const message = new MessageEvent('message', {
+    origin: window.location.origin,
+    data: {
+      type: OAUTH_POPUP_CALLBACK_MESSAGE,
+      provider: 'telegram',
+      intent: 'bind',
+      state: 'binding-state',
+      code: 'code',
+    },
+  })
+  Object.defineProperty(message, 'source', { value: popup })
+  act(() => {
+    window.dispatchEvent(message)
+    popup.closed = true
+  })
+  await waitFor(() =>
+    expect(get).toHaveBeenCalledWith(
+      '/api/oauth/telegram',
+      expect.objectContaining({
+        params: expect.objectContaining({
+          state: 'binding-state',
+          code: 'code',
+        }),
+      })
+    )
+  )
+  expect(onUpdate).not.toHaveBeenCalled()
+  expect(
+    get.mock.calls.find(([url]) => url === '/api/oauth/telegram')?.[1]?.signal
+      ?.aborted
+  ).toBe(false)
+  await act(async () => {
+    resolve({ data: { success: true, data: { action: 'bind' } } })
+    await response
+  })
+  await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1))
 })
 
 it('shows a retry when the 2FA status query fails instead of offering enrollment', async () => {

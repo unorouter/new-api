@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { waitFor } from '@testing-library/react'
 import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -24,10 +25,100 @@ import { AuthOperationError, authResult } from '@/lib/secure-verification'
 import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
 
 import { createOAuthFlow } from '../../api'
+import { OAUTH_POPUP_CALLBACK_MESSAGE } from '../../constants'
 import { checkVerificationMethods, verify } from '../api'
+import type { SecurityProof } from '../types'
 
 const originalAdapter = api.defaults.adapter
 const originalLocation = window.location.href
+
+it.each([false, true])(
+  'retains the Telegram verification request after popup close and honors caller cancellation: %s',
+  async (cancel) => {
+    const popup = {
+      closed: false,
+      location: { replace: vi.fn() },
+      sessionStorage: window.sessionStorage,
+      close: vi.fn(),
+      postMessage: vi.fn(),
+    }
+    vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
+    vi.spyOn(api, 'post').mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          flow_token: 'verification-state',
+          authorization_url: 'https://oauth.telegram.org/auth?server=pkce',
+        },
+      },
+    })
+    const proof: SecurityProof = {
+      proof_token: 'telegram-proof',
+      method: 'oauth',
+      scope: '2fa.setup',
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+    }
+    let resolve!: (response: {
+      data: { success: boolean; data: SecurityProof }
+    }) => void
+    const response = new Promise<{
+      data: { success: boolean; data: SecurityProof }
+    }>((done) => {
+      resolve = done
+    })
+    const get = vi
+      .spyOn(api, 'get')
+      .mockImplementation((url) =>
+        url === '/api/status'
+          ? Promise.resolve({ data: { success: true, data: {} } })
+          : response
+      )
+    const controller = new AbortController()
+    const result = verify(
+      { method: 'oauth', provider: 'telegram' },
+      { scope: '2fa.setup' },
+      false,
+      controller.signal
+    )
+    const outcome = cancel
+      ? expect(result).rejects.toMatchObject({ code: 'AUTH_CANCELLED' })
+      : expect(result).resolves.toEqual(proof)
+    await waitFor(() =>
+      expect(popup.location.replace).toHaveBeenCalledWith(
+        'https://oauth.telegram.org/auth?server=pkce'
+      )
+    )
+    const event = new MessageEvent('message', {
+      origin: window.location.origin,
+      data: {
+        type: OAUTH_POPUP_CALLBACK_MESSAGE,
+        intent: 'verify',
+        provider: 'telegram',
+        state: 'verification-state',
+        code: 'code',
+      },
+    })
+    Object.defineProperty(event, 'source', { value: popup })
+    window.dispatchEvent(event)
+    popup.closed = true
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith(
+        '/api/oauth/telegram',
+        expect.objectContaining({ singleUseAuthorization: true })
+      )
+    )
+    const signal = get.mock.calls.find(
+      ([url]) => url === '/api/oauth/telegram'
+    )?.[1]?.signal
+    expect(signal?.aborted).toBe(false)
+    if (cancel) {
+      controller.abort(new AuthOperationError('Cancelled', 'AUTH_CANCELLED'))
+    }
+    expect(signal?.aborted).toBe(cancel)
+    resolve({ data: { success: true, data: proof } })
+    await outcome
+  }
+)
 const sessionBundle = {
   access_token: 'access-token',
   token_type: 'Bearer' as const,

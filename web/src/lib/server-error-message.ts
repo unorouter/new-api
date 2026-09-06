@@ -17,6 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 const serverErrorMessageKeys = {
+  TELEGRAM_OAUTH_NOT_CONFIGURED:
+    'Telegram OAuth is not configured or enabled. Please contact your administrator.',
+  TELEGRAM_OAUTH_CONFLICT:
+    'The telegram OAuth provider name is reserved. Ask your administrator to rename the conflicting custom provider.',
+  TELEGRAM_OAUTH_FAILED: 'Telegram authorization failed. Please try again.',
+  TELEGRAM_ACCOUNT_NOT_BOUND:
+    'This Telegram account is not linked. Sign in using another method and link it first.',
+  TELEGRAM_LEGACY_AUTH_REMOVED:
+    'Telegram login has changed. Reload the page and start Telegram OAuth again.',
   AUTH_INTERNAL_ERROR: 'Please try again later.',
   SECURITY_VERIFICATION_FAILED: 'Verification failed. Please try again.',
   SECURITY_VERIFICATION_FLOW_REQUIRED:

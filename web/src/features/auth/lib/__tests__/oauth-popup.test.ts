@@ -131,9 +131,35 @@ it('closes an aborted popup and ignores a late authorization response', async ()
   expect(popup.location.replace).not.toHaveBeenCalled()
 })
 
-it('aborts the callback request if the user closes the popup before it finishes', async () => {
-  vi.useFakeTimers()
+it.each(['bind', 'verify'] as const)(
+  'keeps the %s callback request alive after the popup closes',
+  async (intent) => {
+    vi.useFakeTimers()
+    const popup = popupWindow()
+    const prepared = Promise.resolve({
+      state: 'state',
+      url: 'https://example.com/authorize',
+    })
+    const result = openOAuthPopup({
+      provider: 'github',
+      intent,
+      signal: new AbortController().signal,
+      prepare: () => prepared,
+    })
+    await prepared
+    callbackMessage(popup, { intent })
+    const exchange = await result
+    popup.closed = true
+    await vi.advanceTimersByTimeAsync(11 * 60_000)
+    expect(exchange.signal.aborted).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+    exchange.finish({ success: true })
+  }
+)
+
+it('still cancels when the caller aborts after receiving a callback', async () => {
   const popup = popupWindow()
+  const controller = new AbortController()
   const prepared = Promise.resolve({
     state: 'state',
     url: 'https://example.com/authorize',
@@ -141,16 +167,35 @@ it('aborts the callback request if the user closes the popup before it finishes'
   const result = openOAuthPopup({
     provider: 'github',
     intent: 'verify',
-    signal: new AbortController().signal,
+    signal: controller.signal,
     prepare: () => prepared,
   })
   await prepared
   callbackMessage(popup)
   const exchange = await result
+  controller.abort(new AuthOperationError('Cancelled', 'AUTH_CANCELLED'))
+  expect(exchange.signal.aborted).toBe(true)
+  expect(popup.closed).toBe(true)
+})
+
+it('cancels when the popup closes before receiving a callback', async () => {
+  vi.useFakeTimers()
+  const popup = popupWindow()
+  const result = openOAuthPopup({
+    provider: 'github',
+    intent: 'verify',
+    signal: new AbortController().signal,
+    prepare: async () => ({
+      state: 'state',
+      url: 'https://example.com/authorize',
+    }),
+  })
+  const rejected = expect(result).rejects.toMatchObject({
+    code: 'AUTH_CANCELLED',
+  })
   popup.closed = true
   await vi.advanceTimersByTimeAsync(500)
-  expect(exchange.signal.aborted).toBe(true)
-  expect(exchange.signal.reason).toMatchObject({ code: 'AUTH_CANCELLED' })
+  await rejected
   expect(vi.getTimerCount()).toBe(0)
 })
 
