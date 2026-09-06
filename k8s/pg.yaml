@@ -178,6 +178,15 @@ spec:
       autovacuum_vacuum_cost_limit: "1000"
       autovacuum_naptime: "30s"
       log_autovacuum_min_duration: "60s"
+      # 2026-09-06: the Creem key leaked out of `options` by an unknown path and nothing
+      # on the DB side could say who read it. Connection lines plus pgaudit object logging
+      # on `options` (role auditor, see infra/infra/databases/options-audit.sql) give the
+      # who/when next time; pgaudit.log stays none so only the audited table is logged.
+      log_connections: "on"
+      log_disconnections: "on"
+      pgaudit.log: "none"
+      pgaudit.role: "auditor"
+      pgaudit.log_parameter: "off"
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
