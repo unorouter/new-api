@@ -158,8 +158,8 @@ spec:
       plugin:
         name: barman-cloud.cloudnative-pg.io
         parameters:
-          barmanObjectName: newapi-pg-store
-          serverName: newapi-pg-v4 # RESTORE-FROM lineage (last Hetzner archive; R2 v5 after its first base backup)
+          barmanObjectName: newapi-pg-r2
+          serverName: newapi-pg-v5 # RESTORE-FROM lineage (R2; Hetzner v4 deleted 2026-09-06)
 
   plugins:
     - name: barman-cloud.cloudnative-pg.io
