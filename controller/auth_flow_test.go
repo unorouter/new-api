@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -50,18 +51,21 @@ func (*authFlowTestOAuthProvider) ProviderUserIDColumn() string                 
 
 func setupAuthFlowControllerTest(t *testing.T) *authFlowTestOAuthProvider {
 	t.Helper()
-	previousDB := model.DB
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousRedis := common.RedisEnabled
+	common.RedisEnabled = false
 	previousType := common.MainDatabaseType()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.AuthFlow{}))
-	model.DB = db
+	require.NoError(t, db.AutoMigrate(&model.AuthFlow{}, &model.User{}, &model.UserSession{}, &model.AuditLog{}))
+	model.DB, model.LOG_DB = db, db
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	provider := &authFlowTestOAuthProvider{}
 	oauth.Register("auth-flow-test", provider)
 	t.Cleanup(func() {
 		oauth.Unregister("auth-flow-test")
-		model.DB = previousDB
+		model.DB, model.LOG_DB = previousDB, previousLogDB
+		common.RedisEnabled = previousRedis
 		common.SetMainDatabaseType(previousType)
 	})
 	return provider
@@ -97,34 +101,23 @@ func TestGenerateOAuthCodeCarriesAffiliateInLoginFlow(t *testing.T) {
 }
 
 func TestGenerateOAuthCodeBindsFlowToAuthenticatedSession(t *testing.T) {
-	setupAuthFlowControllerTest(t)
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/oauth/state", strings.NewReader(`{"provider":"auth-flow-test","intent":"bind"}`))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("id", 42)
-	c.Set("session_id", "session-42")
-	c.Set("auth_version", int64(3))
-	c.Set("session_version", int64(2))
-
-	GenerateOAuthCode(c)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-	var response struct {
+	_, identity := setupSecurityEnrollmentTest(t)
+	oauth.Register("auth-flow-test", &authFlowTestOAuthProvider{})
+	t.Cleanup(func() { oauth.Unregister("auth-flow-test") })
+	proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: []byte(`{"provider":"auth-flow-test"}`)}, service.VerificationMethodPassword)
+	response := securityEnrollmentRequest(http.MethodPost, "/api/oauth/state", `{"provider":"auth-flow-test","intent":"bind"}`, proof, identity, GenerateOAuthCode)
+	var result struct {
 		Success bool `json:"success"`
 		Data    struct {
 			FlowToken string `json:"flow_token"`
 		} `json:"data"`
 	}
-	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
-	require.True(t, response.Success)
-	flow, err := model.GetAuthFlow(response.Data.FlowToken, model.AuthFlowMatch{
-		Purpose: model.AuthFlowPurposeOAuth, Provider: "auth-flow-test", Intent: model.AuthFlowIntentBind,
-		UserId: 42, SessionId: "session-42",
-	})
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+	require.True(t, result.Success, response.Body.String())
+	flow, err := model.GetAuthFlow(result.Data.FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeOAuth, Provider: "auth-flow-test", Intent: model.AuthFlowIntentBind, UserId: identity.UserID, SessionId: identity.SessionID})
 	require.NoError(t, err)
-	assert.Equal(t, 42, flow.UserId)
-	assert.Equal(t, "session-42", flow.SessionId)
+	assert.Equal(t, identity.UserID, flow.UserId)
+	assert.Equal(t, identity.SessionID, flow.SessionId)
 }
 
 func TestOAuthLoginConsumesFlowOnlyAfterProviderIdentity(t *testing.T) {
@@ -198,27 +191,25 @@ func TestOAuthLoginConsumesFlowAfterProviderIdentityAndOnProviderError(t *testin
 }
 
 func TestOAuthBindProviderErrorConsumesSessionBoundFlow(t *testing.T) {
-	provider := setupAuthFlowControllerTest(t)
-	flowToken, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
-		Purpose: model.AuthFlowPurposeOAuth, Provider: "auth-flow-test", Intent: model.AuthFlowIntentBind,
-		UserId: 42, SessionId: "session-42", Payload: `{}`, ExpiresAt: time.Now().Add(time.Minute),
+	_, identity := setupSecurityEnrollmentTest(t)
+	provider := &authFlowTestOAuthProvider{}
+	oauth.Register("auth-flow-test", provider)
+	t.Cleanup(func() { oauth.Unregister("auth-flow-test") })
+	proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: []byte(`{"provider":"auth-flow-test"}`)}, service.VerificationMethodPassword)
+	started := securityEnrollmentRequest(http.MethodPost, "/api/oauth/state", `{"provider":"auth-flow-test","intent":"bind"}`, proof, identity, GenerateOAuthCode)
+	var result struct {
+		Data struct {
+			FlowToken string `json:"flow_token"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(started.Body.Bytes(), &result))
+	require.NotEmpty(t, result.Data.FlowToken)
+	response := securityEnrollmentRequest(http.MethodGet, "/api/oauth/auth-flow-test?state="+result.Data.FlowToken+"&error=access_denied&error_description=cancelled", "", "", identity, func(c *gin.Context) {
+		c.Params = gin.Params{{Key: "provider", Value: "auth-flow-test"}}
+		HandleOAuth(c)
 	})
-	require.NoError(t, err)
-	router := gin.New()
-	router.Use(func(c *gin.Context) {
-		c.Set("id", 42)
-		c.Set("session_id", "session-42")
-		c.Set("auth_version", int64(1))
-		c.Set("session_version", int64(1))
-		c.Next()
-	})
-	router.GET("/api/oauth/:provider", HandleOAuth)
-	request := httptest.NewRequest(http.MethodGet, "/api/oauth/auth-flow-test?state="+flowToken+"&error=access_denied&error_description=cancelled", nil)
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, request)
-
 	assert.Equal(t, http.StatusOK, response.Code)
-	_, err = model.GetAuthFlow(flowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeOAuth})
+	_, err := model.GetAuthFlow(result.Data.FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeOAuth})
 	assert.ErrorIs(t, err, model.ErrAuthFlowConsumed)
 	assert.Zero(t, provider.exchangeCalls)
 	assert.Zero(t, provider.userInfoCalls)

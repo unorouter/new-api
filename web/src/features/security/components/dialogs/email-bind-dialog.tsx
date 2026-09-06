@@ -16,21 +16,50 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { z } from 'zod'
 
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { sendEmailVerification, bindEmail } from '@/features/profile/api'
+import { SecureVerificationDialog } from '@/features/auth/secure-verification'
+import {
+  startEmailBinding,
+  resendEmailBinding,
+  bindEmail,
+} from '@/features/profile/api'
+import type { EmailBindingFlow } from '@/features/profile/types'
 import { useCountdown } from '@/hooks/use-countdown'
 
-// ============================================================================
-// Email Bind Dialog Component
-// ============================================================================
+import { useAccountSecurity } from '../../hooks/use-account-security'
+
+const emailBindingSchema = z.object({
+  email: z
+    .string()
+    .email('Please enter a valid email address')
+    .max(50, 'Please enter a valid email address'),
+  newCode: z.string(),
+  oldCode: z.string(),
+})
+type EmailBindingValues = z.infer<typeof emailBindingSchema>
+const emptyEmailForm: EmailBindingValues = {
+  email: '',
+  newCode: '',
+  oldCode: '',
+}
 
 interface EmailBindDialogProps {
   open: boolean
@@ -39,164 +68,273 @@ interface EmailBindDialogProps {
   onSuccess: () => void
 }
 
-export function EmailBindDialog({
-  open,
-  onOpenChange,
-  currentEmail,
-  onSuccess,
-}: EmailBindDialogProps) {
+export function EmailBindDialog(props: EmailBindDialogProps) {
   const { t } = useTranslation()
-  const [loading, setLoading] = useState(false)
-  const [sendingCode, setSendingCode] = useState(false)
-  const [email, setEmail] = useState('')
-  const [code, setCode] = useState('')
-  const {
-    secondsLeft,
-    isActive,
-    start: startCountdown,
-    reset: resetCountdown,
-  } = useCountdown({
-    initialSeconds: 60,
+  const security = useAccountSecurity()
+  const [flow, setFlow] = useState<EmailBindingFlow | null>(null)
+  const form = useForm<EmailBindingValues>({
+    resolver: zodResolver(emailBindingSchema),
+    defaultValues: emptyEmailForm,
   })
+  const resend = useCountdown({ initialSeconds: 60 })
+  const deadline = useCountdown({ initialSeconds: 600 })
+  const reset = form.reset
+  const cancel = security.cancel
+  const resetResend = resend.reset
+  const resetDeadline = deadline.reset
 
-  const handleSendCode = async () => {
-    if (!email || !email.includes('@')) {
-      toast.error(t('Please enter a valid email address'))
-      return
+  useEffect(() => {
+    reset(emptyEmailForm)
+    setFlow(null)
+    resetResend()
+    resetDeadline()
+  }, [security.sessionKey, reset, resetResend, resetDeadline])
+  useEffect(() => {
+    if (!props.open) {
+      cancel()
+      reset(emptyEmailForm)
+      setFlow(null)
+      resetResend()
+      resetDeadline()
     }
+  }, [props.open, cancel, reset, resetResend, resetDeadline])
 
-    try {
-      setSendingCode(true)
-      const response = await sendEmailVerification(email)
-
-      if (response.success) {
-        toast.success(t('Verification code sent! Please check your email.'))
-        startCountdown()
-      } else {
-        toast.error(response.message || t('Failed to send verification code'))
-      }
-    } catch {
-      toast.error(t('Failed to send verification code'))
-    } finally {
-      setSendingCode(false)
-    }
-  }
-
-  const handleBind = async () => {
-    if (!email || !code) {
-      toast.error(t('Please enter email and verification code'))
-      return
-    }
-
-    try {
-      setLoading(true)
-      const response = await bindEmail(email, code)
-
-      if (response.success) {
-        toast.success(t('Email bound successfully!'))
-        onOpenChange(false)
-        onSuccess()
-        // Reset form
-        setEmail('')
-        setCode('')
-        resetCountdown()
-      } else {
-        toast.error(response.message || t('Failed to bind email'))
-      }
-    } catch {
-      toast.error(t('Failed to bind email'))
-    } finally {
-      setLoading(false)
-    }
-  }
-
+  const terminalFailure =
+    security.error?.code === 'EMAIL_BINDING_LOCKED' ||
+    security.error?.code === 'AUTH_FLOW_INVALID' ||
+    security.error?.code === 'ACCOUNT_SECURITY_STATE_CHANGED' ||
+    security.error?.code === 'EMAIL_BINDING_DELIVERY_FAILED'
+  const expired = Boolean(flow && (!deadline.isActive || terminalFailure))
   const handleOpenChange = (open: boolean) => {
-    if (!loading) {
-      onOpenChange(open)
-      if (!open) {
-        // Reset form when closing
-        setEmail('')
-        setCode('')
-        resetCountdown()
-      }
+    if (!open) {
+      security.cancel()
+      form.reset(emptyEmailForm)
+      setFlow(null)
+      resend.reset()
+      deadline.reset()
+    }
+    props.onOpenChange(open)
+  }
+  const applyFlow = (next: EmailBindingFlow) => {
+    setFlow(next)
+    form.setValue('email', next.email)
+    form.setValue('newCode', '')
+    form.setValue('oldCode', '')
+    const now = Date.now() / 1000
+    resend.start(Math.max(1, Math.ceil(next.resend_at - now)))
+    deadline.start(Math.max(1, Math.ceil(next.expires_at - now)))
+  }
+  const submit = async (values: EmailBindingValues) => {
+    if (!flow) {
+      const email = values.email.trim().toLowerCase()
+      const result = await security.run(async (signal) => {
+        const proof = await security.verify(
+          {
+            scope: 'account.binding.bind',
+            context: { provider: 'email', email },
+          },
+          signal
+        )
+        return startEmailBinding(email, proof, signal)
+      })
+      if (result) applyFlow(result)
+      return
+    }
+    if (expired) return
+    const newCode = values.newCode.trim()
+    const oldCode = values.oldCode.trim()
+    if (!/^\d{6}$/.test(newCode)) {
+      form.setError(
+        'newCode',
+        { message: 'Enter the 6-digit email verification code.' },
+        { shouldFocus: true }
+      )
+      return
+    }
+    if (flow.old_email_required && !/^\d{6}$/.test(oldCode)) {
+      form.setError(
+        'oldCode',
+        { message: 'Enter the 6-digit email verification code.' },
+        { shouldFocus: true }
+      )
+      return
+    }
+    const result = await security.run((signal) =>
+      bindEmail(flow.flow_token, newCode, oldCode, signal)
+    )
+    if (!result) return
+    toast.success(t('Email bound successfully!'))
+    handleOpenChange(false)
+    props.onSuccess()
+  }
+  const resendCodes = async () => {
+    if (!flow || resend.isActive || expired) return
+    const result = await security.run((signal) =>
+      resendEmailBinding(flow.flow_token, signal)
+    )
+    if (result) {
+      applyFlow(result)
+      toast.success(t('Verification code sent! Please check your email.'))
     }
   }
-
-  let sendLabel = t('Send')
-  if (sendingCode) sendLabel = t('Sending...')
-  if (isActive) sendLabel = `${secondsLeft}s`
+  const restart = () => {
+    security.cancel()
+    setFlow(null)
+    form.setValue('newCode', '')
+    form.setValue('oldCode', '')
+    form.clearErrors()
+    resend.reset()
+    deadline.reset()
+  }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={handleOpenChange}
-      title={t('Bind Email')}
-      description={
-        currentEmail
-          ? t('Current email: {{email}}. Enter a new email to change.', {
-              email: currentEmail,
-            })
-          : t('Bind an email address to your account.')
-      }
-      contentClassName='sm:max-w-md'
-      contentHeight='auto'
-      bodyClassName='space-y-4'
-      footer={
-        <>
-          <Button
-            type='button'
-            variant='outline'
-            onClick={() => handleOpenChange(false)}
-            disabled={loading}
-          >
-            {t('Cancel')}
-          </Button>
-          <Button
-            type='button'
-            onClick={handleBind}
-            disabled={loading || !email || !code}
-          >
-            {loading && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-            {loading ? t('Binding...') : t('Bind Email')}
-          </Button>
-        </>
-      }
-    >
-      <div className='space-y-4 py-4'>
-        <div className='space-y-2'>
-          <Label htmlFor='email'>{t('Email Address')}</Label>
-          <Input
-            id='email'
-            type='email'
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder={t('Enter your email')}
-            disabled={loading}
-          />
-        </div>
-
-        <div className='space-y-2'>
-          <Label htmlFor='code'>{t('Verification Code')}</Label>
-          <div className='flex gap-2'>
-            <Input
-              id='code'
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder={t('Enter code')}
-              disabled={loading}
-              maxLength={6}
-            />
+    <>
+      <Dialog
+        open={props.open && !security.showVerification}
+        onOpenChange={handleOpenChange}
+        title={t('Bind Email')}
+        description={
+          props.currentEmail
+            ? t('Current email: {{email}}. Enter a new email to change.', {
+                email: props.currentEmail,
+              })
+            : t('Bind an email address to your account.')
+        }
+        contentClassName='sm:max-w-md'
+        footer={
+          <>
             <Button
               type='button'
               variant='outline'
-              onClick={handleSendCode}
-              disabled={sendingCode || isActive || !email}
+              onClick={() => handleOpenChange(false)}
             >
-              {sendLabel}
+              {t('Cancel')}
             </Button>
-          </div>
-        </div>
-      </div>
-    </Dialog>
+            {expired ? (
+              <Button type='button' onClick={restart}>
+                {t('Start again')}
+              </Button>
+            ) : (
+              <Button
+                type='submit'
+                form='email-bind-form'
+                disabled={security.pending}
+              >
+                {security.pending && (
+                  <Loader2 className='size-4 animate-spin' />
+                )}
+                {t(flow ? 'Confirm email' : 'Continue')}
+              </Button>
+            )}
+          </>
+        }
+      >
+        <Form {...form}>
+          <form
+            id='email-bind-form'
+            onSubmit={form.handleSubmit(submit)}
+            className='space-y-4'
+          >
+            <FormField
+              control={form.control}
+              name='email'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Email Address')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='email'
+                      autoComplete='email'
+                      disabled={security.pending || Boolean(flow)}
+                      placeholder={t('Enter your email')}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            {flow && (
+              <>
+                <p className='text-muted-foreground text-sm'>
+                  {t(
+                    flow.old_email_required
+                      ? 'Confirm both your current and new email addresses to finish this change.'
+                      : 'Confirm the verification code sent to your new email address.'
+                  )}
+                </p>
+                <FormField
+                  control={form.control}
+                  name='newCode'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('New email verification code')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          inputMode='numeric'
+                          autoComplete='one-time-code'
+                          maxLength={6}
+                          disabled={security.pending || expired}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                {flow.old_email_required && (
+                  <FormField
+                    control={form.control}
+                    name='oldCode'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {t('Current email verification code')}
+                        </FormLabel>
+                        <p className='text-muted-foreground text-xs'>
+                          {flow.current_email}
+                        </p>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            inputMode='numeric'
+                            autoComplete='one-time-code'
+                            maxLength={6}
+                            disabled={security.pending || expired}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+                {expired && (
+                  <p role='alert' className='text-destructive text-sm'>
+                    {t(
+                      'Email verification has ended. Start again to continue.'
+                    )}
+                  </p>
+                )}
+                <Button
+                  type='button'
+                  variant='outline'
+                  onClick={() => void resendCodes()}
+                  disabled={security.pending || resend.isActive || expired}
+                >
+                  {resend.isActive
+                    ? t('Resend in {{seconds}}s', {
+                        seconds: resend.secondsLeft,
+                      })
+                    : t('Resend codes')}
+                </Button>
+              </>
+            )}
+          </form>
+        </Form>
+      </Dialog>
+      {security.showVerification && (
+        <SecureVerificationDialog {...security.verificationDialogProps} />
+      )}
+    </>
   )
 }

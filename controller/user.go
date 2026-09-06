@@ -34,11 +34,6 @@ type LoginRequest struct {
 	EncryptionKeyID   string `json:"encryption_key_id"`
 }
 
-var (
-	errUserPasswordUnset    = errors.New("user password is not set")
-	errOriginalPasswordFail = errors.New("original password is incorrect")
-)
-
 func GetPasswordEncryptionKey(c *gin.Context) {
 	if !common.PasswordLoginEncryptionEnabled {
 		common.ApiSuccess(c, gin.H{"enabled": false})
@@ -190,7 +185,7 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 		common.ApiErrorI18n(c, i18n.MsgAuthUserBanned)
 		return
 	}
-	currentUser, err := model.GetUserById(user.Id, false)
+	currentUser, err := model.GetSelfUserById(user.Id)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -483,7 +478,7 @@ func GetAffCode(c *gin.Context) {
 func GetSelf(c *gin.Context) {
 	id := c.GetInt("id")
 	userRole := c.GetInt("role")
-	user, err := model.GetUserById(id, false)
+	user, err := model.GetSelfUserById(id)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -515,6 +510,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"id":                user.Id,
 		"username":          user.Username,
 		"display_name":      user.DisplayName,
+		"has_password":      user.HasPassword,
 		"role":              user.Role,
 		"status":            user.Status,
 		"email":             user.Email,
@@ -676,10 +672,7 @@ func UpdateUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if updatedUser.Password == "" {
-		updatedUser.Password = "$I_LOVE_U" // make Validator happy :)
-	}
-	if err := common.Validate.Struct(&updatedUser); err != nil {
+	if err := common.Validate.StructExcept(&updatedUser, "Password"); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
 		return
 	}
@@ -697,9 +690,6 @@ func UpdateUser(c *gin.Context) {
 	if !canManageTargetRole(myRole, originUser.Role) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
 		return
-	}
-	if updatedUser.Password == "$I_LOVE_U" {
-		updatedUser.Password = "" // rollback to what it should be
 	}
 	updatePassword := updatedUser.Password != ""
 	authzTouched := false
@@ -789,8 +779,19 @@ func UpdateSelf(c *gin.Context) {
 		return
 	}
 
+	passwordRequested := false
+	if value, exists := requestData["password"]; exists && value != nil {
+		password, isString := value.(string)
+		passwordRequested = !isString || password != ""
+	}
+	succeeded, notificationFailed := false, false
+	if passwordRequested {
+		defer func() {
+			recordUserSecurityAudit(c, c.GetInt("id"), "user.password_change", map[string]interface{}{"success": succeeded, "notification_failed": notificationFailed})
+		}()
+	}
 	// 检查是否是用户设置更新请求 (sidebar_modules 或 language)
-	if sidebarModules, sidebarExists := requestData["sidebar_modules"]; sidebarExists {
+	if sidebarModules, sidebarExists := requestData["sidebar_modules"]; sidebarExists && !passwordRequested {
 		userId := c.GetInt("id")
 		user, err := model.GetUserById(userId, false)
 		if err != nil {
@@ -816,7 +817,7 @@ func UpdateSelf(c *gin.Context) {
 	}
 
 	// 检查是否是语言偏好更新请求
-	if language, langExists := requestData["language"]; langExists {
+	if language, langExists := requestData["language"]; langExists && !passwordRequested {
 		userId := c.GetInt("id")
 		user, err := model.GetUserById(userId, false)
 		if err != nil {
@@ -853,10 +854,7 @@ func UpdateSelf(c *gin.Context) {
 		return
 	}
 
-	if user.Password == "" {
-		user.Password = "$I_LOVE_U" // make Validator happy :)
-	}
-	if err := common.Validate.Struct(&user); err != nil {
+	if err := common.Validate.StructExcept(&user, "Password"); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidInput)
 		return
 	}
@@ -867,52 +865,51 @@ func UpdateSelf(c *gin.Context) {
 		Password:    user.Password,
 		DisplayName: user.DisplayName,
 	}
-	if user.Password == "$I_LOVE_U" {
-		user.Password = "" // rollback to what it should be
-		cleanUser.Password = ""
-	}
-	updatePassword, err := checkUpdatePassword(user.OriginalPassword, user.Password, cleanUser.Id)
-	if err != nil {
-		if errors.Is(err, errUserPasswordUnset) {
-			common.ApiErrorI18n(c, i18n.MsgUserPasswordUnset)
-			return
-		}
-		if errors.Is(err, errOriginalPasswordFail) {
-			common.ApiErrorI18n(c, i18n.MsgUserOriginalPasswordError)
-			return
-		}
-		common.ApiError(c, err)
-		return
-	}
-	if updatePassword {
+	if user.Password != "" {
 		identity, ok := middleware.GetSessionAuthIdentity(c)
 		if !ok {
-			common.ApiError(c, errors.New("当前认证方式不支持安全验证"))
+			writeSecurityOperationError(c, service.ErrAuthTokenInvalid)
 			return
 		}
-		if err := model.DB.Transaction(func(tx *gorm.DB) error {
-			return cleanUser.UpdateWithTx(tx, true)
-		}); err != nil {
-			common.ApiError(c, err)
+		current, err := model.GetUserById(identity.UserID, true)
+		if err != nil {
+			writeSecurityOperationError(c, err)
 			return
 		}
+		firstPassword := current.Password == ""
+		scope := service.VerificationScopePasswordChange
+		if firstPassword {
+			scope = service.VerificationScopePasswordSet
+		}
+		if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: scope}) == nil {
+			return
+		}
+		cleanUser.OriginalPassword = user.OriginalPassword
+		if err := model.ChangeUserPassword(identity, &cleanUser, firstPassword); err != nil {
+			writeSecurityOperationError(c, err)
+			return
+		}
+		succeeded = true
+		notificationFailed = service.NotifyAccountSecurityChange(current.Email, "Password updated") != nil
 		if err := model.PublishUserAuthCache(cleanUser.Id); err != nil {
-			common.ApiError(c, err)
+			writeSecurityOperationError(c, err)
 			return
 		}
 		bundle, err := service.AdvanceCurrentSessionToUserVersion(identity, "password_changed")
 		if err != nil {
-			common.ApiError(c, err)
+			writeSecurityOperationError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"message": "",
 			"data": gin.H{
-				"access_token":      bundle.AccessToken,
-				"token_type":        bundle.TokenType,
-				"access_expires_at": bundle.AccessExpiresAt,
-				"session":           bundle.Session,
+				"access_token":         bundle.AccessToken,
+				"token_type":           bundle.TokenType,
+				"access_expires_at":    bundle.AccessExpiresAt,
+				"session":              bundle.Session,
+				"has_password":         true,
+				"notification_warning": notificationFailed,
 			},
 		})
 		return
@@ -923,29 +920,6 @@ func UpdateSelf(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
-	return
-}
-
-func checkUpdatePassword(originalPassword string, newPassword string, userId int) (updatePassword bool, err error) {
-	if newPassword == "" {
-		return
-	}
-	var currentUser *model.User
-	currentUser, err = model.GetUserById(userId, true)
-	if err != nil {
-		return
-	}
-
-	// 密码不为空,需要验证原密码
-	if currentUser.Password == "" {
-		err = errUserPasswordUnset
-		return
-	}
-	if !common.ValidatePasswordAndHash(originalPassword, currentUser.Password) {
-		err = errOriginalPasswordFail
-		return
-	}
-	updatePassword = true
 	return
 }
 
@@ -1268,51 +1242,6 @@ func ManageUser(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data":    clearUser,
-	})
-	return
-}
-
-type emailBindRequest struct {
-	Email string `json:"email"`
-	Code  string `json:"code"`
-}
-
-func EmailBind(c *gin.Context) {
-	var req emailBindRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
-		common.ApiError(c, errors.New("invalid request body"))
-		return
-	}
-	email := req.Email
-	email = model.NormalizeEmail(email)
-	code := req.Code
-	if !common.VerifyCodeWithKey(email, code, common.EmailVerificationPurpose) {
-		common.ApiErrorI18n(c, i18n.MsgUserVerificationCodeError)
-		return
-	}
-	user := model.User{
-		Id: c.GetInt("id"),
-	}
-	if user.Id == 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "not authenticated"})
-		return
-	}
-	err := user.FillUserById()
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if err := model.BindEmailToUser(&user, email); err != nil {
-		if errors.Is(err, model.ErrEmailAlreadyTaken) {
-			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
-			return
-		}
-		common.ApiError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
 	})
 	return
 }

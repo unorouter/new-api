@@ -16,6 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import {
+  createDecipheriv,
+  generateKeyPairSync,
+  privateDecrypt,
+  webcrypto,
+} from 'node:crypto'
+
 import { waitFor } from '@testing-library/react'
 import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -26,6 +33,10 @@ import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
 
 import { createOAuthFlow } from '../../api'
 import { OAUTH_POPUP_CALLBACK_MESSAGE } from '../../constants'
+import {
+  clearPasswordEncryptionCache,
+  encryptPassword,
+} from '../../lib/password-encryption'
 import { checkVerificationMethods, verify } from '../api'
 import type { SecurityProof } from '../types'
 
@@ -166,12 +177,72 @@ function mockRefreshResponse(bundle: AuthBundle, onRequest?: () => void) {
 }
 
 afterEach(() => {
+  clearPasswordEncryptionCache()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   api.defaults.adapter = originalAdapter
   useAuthStore.getState().auth.reset('idle')
   window.history.replaceState(null, '', originalLocation)
 })
+
+it.each([true, false])(
+  'encrypts short and 128-character Unicode passwords with Web Crypto enabled: %s',
+  async (useWebCrypto) => {
+    vi.stubGlobal(
+      'crypto',
+      useWebCrypto
+        ? webcrypto
+        : { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) }
+    )
+    const { publicKey, privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+    })
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          kid: 'test-encryption-key',
+          public_key: publicKey
+            .export({ type: 'spki', format: 'pem' })
+            .toString(),
+        },
+      },
+    })
+    for (const password of ['legacy-password', '🔒'.repeat(128)]) {
+      const encrypted = await encryptPassword(password)
+      const parts = encrypted.password_encrypted.split('.')
+      let decrypted: Buffer
+      if (parts[0] === 'v2') {
+        const key = privateDecrypt(
+          {
+            key: privateKey,
+            oaepHash: 'sha256',
+            oaepLabel: Buffer.from('password-v2'),
+          },
+          Buffer.from(parts[1], 'base64')
+        )
+        const ciphertext = Buffer.from(parts[3], 'base64')
+        const decipher = createDecipheriv(
+          'aes-256-gcm',
+          key,
+          Buffer.from(parts[2], 'base64')
+        )
+        decipher.setAAD(Buffer.from('password-v2:test-encryption-key'))
+        decipher.setAuthTag(ciphertext.subarray(-16))
+        decrypted = Buffer.concat([
+          decipher.update(ciphertext.subarray(0, -16)),
+          decipher.final(),
+        ])
+      } else {
+        decrypted = privateDecrypt(
+          { key: privateKey, oaepHash: 'sha256' },
+          Buffer.from(encrypted.password_encrypted, 'base64')
+        )
+      }
+      expect(decrypted.toString('utf8')).toBe(password)
+    }
+  }
+)
 
 it.each(['proof', 'flow'] as const)(
   'never replays a %s request after a 401 response',

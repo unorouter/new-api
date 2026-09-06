@@ -227,7 +227,7 @@ func RefreshLoginSession(rawRefreshToken, expectedSID, ip, userAgent string) (*A
 	if err != nil {
 		return nil, nil, err
 	}
-	currentUser, err := model.GetUserById(session.UserID, false)
+	currentUser, err := model.GetSelfUserById(session.UserID)
 	if err != nil {
 		return nil, nil, err
 	}

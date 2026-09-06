@@ -171,7 +171,8 @@ export async function createOAuthAuthorization(
   provider: string,
   intent: 'login' | 'bind' | 'verify',
   operation?: VerificationOperation,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  proofToken?: string
 ): Promise<{ state: string; authorizationUrl?: string }> {
   const aff = intent === 'login' ? getAffiliateCode() : ''
   const res = await api.post(
@@ -185,6 +186,8 @@ export async function createOAuthAuthorization(
     },
     {
       skipAuthRefresh: intent === 'login',
+      ...(proofToken ? { headers: { 'X-Security-Proof': proofToken } } : {}),
+      singleUseAuthorization: intent === 'bind',
       signal,
       skipBusinessError: true,
       skipErrorHandler: true,
@@ -259,14 +262,21 @@ export async function sendEmailVerification(
   return res.data
 }
 
-// Bind email to OAuth account
+// Confirm an authenticated, server-owned email binding flow.
 export async function bindEmail(
-  email: string,
-  code: string
+  flowToken: string,
+  newCode: string,
+  oldCode = '',
+  signal?: AbortSignal
 ): Promise<ApiResponse> {
-  const res = await api.post('/api/oauth/email/bind', {
-    email,
-    code,
-  })
+  const res = await api.post(
+    '/api/oauth/email/bind',
+    {
+      flow_token: flowToken,
+      new_code: newCode,
+      old_code: oldCode,
+    },
+    { singleUseAuthorization: true, signal }
+  )
   return res.data
 }

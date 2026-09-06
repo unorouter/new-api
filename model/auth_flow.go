@@ -27,6 +27,7 @@ const (
 	AuthFlowIntentVerify             = "verify"
 	AuthFlowPurposeTwoFASetup        = "2fa_setup"
 	AuthFlowPurposeSecurityProof     = "security_proof"
+	AuthFlowPurposeEmailBinding      = "email_binding"
 	AuthFlowTokenBytes               = 32
 	AuthFlowDefaultCleanupRetention  = 24 * time.Hour
 )

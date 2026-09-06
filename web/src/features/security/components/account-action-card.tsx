@@ -30,6 +30,8 @@ import { DeleteAccountDialog } from './dialogs/delete-account-dialog'
 type AccountActionCardProps = {
   action: 'password' | 'delete'
   username: string
+  hasPassword?: boolean
+  onUpdate?: () => void
 }
 
 export function AccountActionCard(props: AccountActionCardProps) {
@@ -37,8 +39,14 @@ export function AccountActionCard(props: AccountActionCardProps) {
   const [open, setOpen] = useState(false)
   const actions = {
     password: {
-      title: t('Change Password'),
-      description: t('Update your password to keep your account secure'),
+      title: t(
+        props.hasPassword === false ? 'Set Password' : 'Change Password'
+      ),
+      description: t(
+        props.hasPassword === false
+          ? 'Add a password after verifying your identity'
+          : 'Update your password to keep your account secure'
+      ),
       icon: Shield,
     },
     delete: {
@@ -79,6 +87,8 @@ export function AccountActionCard(props: AccountActionCardProps) {
           open={open}
           onOpenChange={setOpen}
           username={props.username}
+          hasPassword={props.hasPassword}
+          onSuccess={props.onUpdate}
         />
       )}
       {props.action === 'delete' && (

@@ -34,6 +34,28 @@ func writeSecurityOperationError(c *gin.Context, err error) {
 	var code, message string
 	var protocolError *protocol.Error
 	switch {
+	case errors.Is(err, service.ErrAccountEmailInvalid), errors.Is(err, service.ErrAccountEmailRestricted):
+		code, message = "EMAIL_ADDRESS_REJECTED", err.Error()
+	case errors.Is(err, model.ErrEmailAlreadyTaken):
+		code, message = "EMAIL_ALREADY_TAKEN", "This email address is already in use."
+	case errors.Is(err, service.ErrEmailBindingDelivery):
+		code, message = "EMAIL_BINDING_DELIVERY_FAILED", err.Error()
+	case errors.Is(err, model.ErrEmailBindingCodeInvalid):
+		code, message = "EMAIL_BINDING_CODE_INVALID", err.Error()
+	case errors.Is(err, model.ErrEmailBindingLocked):
+		code, message = "EMAIL_BINDING_LOCKED", err.Error()
+	case errors.Is(err, model.ErrEmailBindingResendWait):
+		status = http.StatusTooManyRequests
+		code, message = "EMAIL_BINDING_RESEND_WAIT", err.Error()
+	case errors.Is(err, common.ErrAccountPasswordLength), errors.Is(err, common.ErrAccountPasswordSame), errors.Is(err, common.ErrPasswordLegacyLimit):
+		code, message = "PASSWORD_POLICY_REJECTED", err.Error()
+	case errors.Is(err, model.ErrCurrentPasswordInvalid):
+		code, message = "CURRENT_PASSWORD_INVALID", err.Error()
+	case errors.Is(err, model.ErrAccountPasswordState), errors.Is(err, model.ErrAccountBindingChanged):
+		status = http.StatusConflict
+		code, message = "ACCOUNT_SECURITY_STATE_CHANGED", err.Error()
+	case errors.Is(err, model.ErrLastLoginMethod):
+		code, message = "LAST_LOGIN_METHOD", err.Error()
 	case errors.Is(err, oauth.ErrTelegramOAuthNotConfigured):
 		code, message = "TELEGRAM_OAUTH_NOT_CONFIGURED", oauth.ErrTelegramOAuthNotConfigured.Error()
 	case errors.Is(err, oauth.ErrTelegramOAuthConflict):
@@ -43,7 +65,10 @@ func writeSecurityOperationError(c *gin.Context, err error) {
 	case errors.Is(err, oauth.ErrTelegramAccountNotBound):
 		code, message = "TELEGRAM_ACCOUNT_NOT_BOUND", oauth.ErrTelegramAccountNotBound.Error()
 	case errors.Is(err, model.ErrExternalIdentityAlreadyClaimed):
-		code, message = "TELEGRAM_BIND_ALREADY_BOUND", "This Telegram account is already bound."
+		code, message = "ACCOUNT_ALREADY_BOUND", "This external account is already bound."
+		if c.Param("provider") == "telegram" {
+			code, message = "TELEGRAM_BIND_ALREADY_BOUND", "This Telegram account is already bound."
+		}
 	case errors.Is(err, service.ErrVerificationContextInvalid):
 		status = http.StatusBadRequest
 		code, message = "SECURITY_CONTEXT_INVALID", service.ErrVerificationContextInvalid.Error()
@@ -82,9 +107,11 @@ func writeSecurityOperationError(c *gin.Context, err error) {
 		writeAuthSessionError(c, service.ErrAuthTokenInvalid)
 		return
 	default:
+		c.Set("security_error_code", "AUTH_INTERNAL_ERROR")
 		writeAuthSessionError(c, err)
 		return
 	}
+	c.Set("security_error_code", code)
 	c.JSON(status, gin.H{"success": false, "code": code, "message": message})
 }
 

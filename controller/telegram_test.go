@@ -156,7 +156,11 @@ func (fixture *telegramOAuthFixture) authorization(t *testing.T, intent string, 
 	t.Helper()
 	request, err := common.Marshal(oauthStateRequest{Provider: "telegram", Intent: intent, Scope: scope})
 	require.NoError(t, err)
-	response := securityEnrollmentRequest("POST", "/api/oauth/state", string(request), "", identity, GenerateOAuthCode)
+	proof := ""
+	if intent == "bind" {
+		proof = issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: []byte(`{"provider":"telegram"}`)}, service.VerificationMethodPassword)
+	}
+	response := securityEnrollmentRequest("POST", "/api/oauth/state", string(request), proof, identity, GenerateOAuthCode)
 	var body securityEnrollmentResponse
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
 	require.True(t, body.Success, response.Body.String())
@@ -428,7 +432,7 @@ func TestTelegramOAuthConfigurationAndLegacyEndpoints(t *testing.T) {
 
 func TestTelegramOAuthConcurrentBindingHasSingleOwner(t *testing.T) {
 	fixture := setupTelegramOAuthTest(t)
-	other := &model.User{Username: "other-owner", AffCode: "other-owner", Status: common.UserStatusEnabled, AuthVersion: 1}
+	other := &model.User{Username: "other-owner", AffCode: "other-owner", Password: fixture.user.Password, Status: common.UserStatusEnabled, AuthVersion: 1}
 	require.NoError(t, model.DB.Create(other).Error)
 	bundle, err := service.CreateLoginSession(other.Id, "password", "127.0.0.1", "test")
 	require.NoError(t, err)

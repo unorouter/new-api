@@ -193,14 +193,26 @@ func TestSecurityEnrollmentAccessTokenMethodPolicy(t *testing.T) {
 				require.NoError(t, model.DB.Model(user).Update("wechat_id", "wechat-user").Error)
 			}
 			system_setting.GetPasskeySettings().Enabled = !test.disabledPasskey
-			for _, scope := range []string{service.VerificationScopeAccessTokenGenerate, service.VerificationScopeAccessTokenRevoke} {
+			passwordScope := service.VerificationScopePasswordChange
+			if !test.password {
+				passwordScope = service.VerificationScopePasswordSet
+			}
+			for _, scope := range []string{service.VerificationScopeAccessTokenGenerate, service.VerificationScopeAccessTokenRevoke,
+				service.VerificationScopeAccountBind, service.VerificationScopeAccountUnbind, passwordScope} {
 				requirements, err := service.GetVerificationRequirements(identity, scope)
 				require.NoError(t, err)
 				require.Len(t, requirements.Methods, 1)
 				assert.Equal(t, test.method, requirements.Methods[0].Method)
 				assert.Equal(t, test.available, requirements.Methods[0].Available)
 				if test.wechat {
-					_, err := service.VerifySecurityInput(identity, service.VerificationInput{Scope: scope, Method: "session"})
+					input := service.VerificationInput{Scope: scope, Method: "session"}
+					switch scope {
+					case service.VerificationScopeAccountBind:
+						input.Context = []byte(`{"provider":"email","email":"new@example.com"}`)
+					case service.VerificationScopeAccountUnbind:
+						input.Context = []byte(`{"provider_id":1}`)
+					}
+					_, err := service.VerifySecurityInput(identity, input)
 					assert.ErrorIs(t, err, service.ErrProofMethod)
 				}
 			}
@@ -1420,6 +1432,11 @@ func TestSecurityEnrollmentTelegramAndWeChatFirstFactor(t *testing.T) {
 				}
 				var body securityEnrollmentResponse
 				require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+				if provider == "wechat" {
+					assert.False(t, body.Success)
+					assert.NotContains(t, response.Body.String(), "proof_token")
+					return
+				}
 				require.True(t, body.Success, response.Body.String())
 				var proof service.SecurityProof
 				require.NoError(t, common.Unmarshal(body.Data, &proof))
@@ -1439,8 +1456,8 @@ func TestSecurityEnrollmentTelegramAndWeChatFirstFactor(t *testing.T) {
 	}
 }
 
-func TestSecurityEnrollmentWeChatExceptionRemainsNarrow(t *testing.T) {
-	for _, scenario := range []string{"password", "passkey", "locked 2fa", "telegram", "github", "disabled custom binding", "no binding", "binding storage failure", "revoked session"} {
+func TestSecurityEnrollmentNeverTrustsSessionForFirstFactor(t *testing.T) {
+	for _, scenario := range []string{"wechat only", "password", "passkey", "locked 2fa", "telegram", "github", "disabled custom binding", "no binding", "binding storage failure", "revoked session"} {
 		t.Run(scenario, func(t *testing.T) {
 			user, identity := setupSecurityEnrollmentTest(t)
 			require.NoError(t, model.DB.Model(user).Updates(map[string]any{"password": "", "wechat_id": "wechat-user"}).Error)
@@ -1555,7 +1572,9 @@ func TestSecurityEnrollmentRejectsChangedFirstFactorPolicy(t *testing.T) {
 				} else {
 					require.NoError(t, model.DB.Model(user).Update("wechat_id", "wechat-user").Error)
 					proof, err = service.VerifySecurityInput(identity, service.VerificationInput{Scope: "2fa.setup", Method: "session"})
-					require.NoError(t, err)
+					require.Error(t, err)
+					assert.Nil(t, proof)
+					return
 				}
 				_, err = service.ConsumeOperationProof(proof.ProofToken, identity, service.VerificationOperation{Scope: "passkey.register"})
 				assert.Error(t, err)

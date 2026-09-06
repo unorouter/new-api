@@ -54,8 +54,9 @@ export interface EmailVerificationPayload {
 }
 
 export interface BindEmailPayload {
-  email: string
-  code: string
+  flow_token: string
+  new_code: string
+  old_code?: string
 }
 
 // ============================================================================

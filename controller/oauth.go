@@ -34,6 +34,7 @@ type oauthFlowPayload struct {
 	Verification    *service.OAuthVerificationFlow `json:"verification,omitempty"`
 	Telegram        *oauth.TelegramOAuthFlow       `json:"telegram,omitempty"`
 	SessionIdentity *service.AuthIdentity          `json:"session_identity,omitempty"`
+	Authorization   *model.AuthFlowAuthorization   `json:"authorization,omitempty"`
 }
 
 // providerParams returns map with Provider key for i18n templates
@@ -62,6 +63,7 @@ func GenerateOAuthCode(c *gin.Context) {
 	userID := 0
 	sessionID := ""
 	flowPayload := oauthFlowPayload{AffiliateCode: request.Aff}
+	bindingStarted := false
 	if request.Provider == "telegram" {
 		telegramFlow, err := oauth.NewTelegramOAuthFlow()
 		if err != nil {
@@ -78,6 +80,21 @@ func GenerateOAuthCode(c *gin.Context) {
 		}
 		userID = identity.UserID
 		sessionID = identity.SessionID
+		if request.Intent == model.AuthFlowIntentBind {
+			defer func() {
+				recordUserSecurityAudit(c, userID, "user.binding_start", map[string]interface{}{"provider": request.Provider, "success": bindingStarted})
+			}()
+			context, err := common.Marshal(service.AccountBindingContext{Provider: request.Provider})
+			if err != nil {
+				writeSecurityOperationError(c, err)
+				return
+			}
+			flowPayload.Authorization = middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: context})
+			if flowPayload.Authorization == nil {
+				return
+			}
+			flowPayload.SessionIdentity = &identity
+		}
 		if flowPayload.Telegram != nil {
 			if _, _, err := service.ValidateLoginSession(identity); err != nil {
 				writeSecurityOperationError(c, err)
@@ -113,6 +130,7 @@ func GenerateOAuthCode(c *gin.Context) {
 		writeSecurityOperationError(c, err)
 		return
 	}
+	bindingStarted = request.Intent == model.AuthFlowIntentBind
 	data := gin.H{"flow_token": state, "expires_at": expiresAt.Unix()}
 	if flowPayload.Telegram != nil {
 		data["authorization_url"] = flowPayload.Telegram.AuthorizationURL(state)
@@ -155,6 +173,12 @@ func HandleOAuth(c *gin.Context) {
 		Provider: providerName,
 		Intent:   pendingFlow.Intent,
 	}
+	bindSucceeded, notificationFailed := false, false
+	if pendingFlow.Intent == model.AuthFlowIntentBind {
+		defer func() {
+			recordUserSecurityAudit(c, pendingFlow.UserId, "user.binding_bind", map[string]interface{}{"provider": providerName, "success": bindSucceeded, "notification_failed": notificationFailed})
+		}()
+	}
 	// Bind and verification callbacks must use the dashboard session that started them.
 	if pendingFlow.Intent == model.AuthFlowIntentBind || pendingFlow.Intent == model.AuthFlowIntentVerify {
 		identity, ok := middleware.GetSessionAuthIdentity(c)
@@ -167,6 +191,22 @@ func HandleOAuth(c *gin.Context) {
 		}
 		consumeMatch.UserId = identity.UserID
 		consumeMatch.SessionId = identity.SessionID
+		if pendingFlow.Intent == model.AuthFlowIntentBind {
+			var payload oauthFlowPayload
+			if err := common.UnmarshalJsonStr(pendingFlow.Payload, &payload); err != nil {
+				writeSecurityOperationError(c, model.ErrAuthFlowInvalid)
+				return
+			}
+			context, err := common.Marshal(service.AccountBindingContext{Provider: providerName})
+			if err != nil {
+				writeSecurityOperationError(c, err)
+				return
+			}
+			if err := service.ValidateFlowAuthorization(identity, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: context}, payload.Authorization); err != nil {
+				writeSecurityOperationError(c, err)
+				return
+			}
+		}
 	} else if pendingFlow.Intent != model.AuthFlowIntentLogin {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
@@ -240,15 +280,8 @@ func HandleOAuth(c *gin.Context) {
 		handleOAuthError(c, err)
 		return
 	}
-	if providerName == "telegram" && pendingFlow.Intent == model.AuthFlowIntentBind {
-		_, err := model.ConsumeAuthFlowWithAction(state, consumeMatch, func(tx *gorm.DB, _ *model.AuthFlow) error {
-			return model.BindTelegramForSessionWithTx(tx, *telegramPayload.SessionIdentity, oauthUser.ProviderUserID)
-		})
-		if err != nil {
-			writeSecurityOperationError(c, err)
-			return
-		}
-		common.ApiSuccessI18n(c, i18n.MsgOAuthBindSuccess, gin.H{"action": "bind"})
+	if pendingFlow.Intent == model.AuthFlowIntentBind {
+		bindSucceeded, notificationFailed = handleOAuthBind(c, providerName, provider, oauthUser, pendingFlow, state, consumeMatch)
 		return
 	}
 	flow, err := model.ConsumeAuthFlow(state, consumeMatch)
@@ -260,8 +293,6 @@ func HandleOAuth(c *gin.Context) {
 	switch flow.Intent {
 	case model.AuthFlowIntentLogin:
 		handleOAuthLogin(c, provider, oauthUser, flow)
-	case model.AuthFlowIntentBind:
-		handleOAuthBind(c, provider, oauthUser, flow)
 	case model.AuthFlowIntentVerify:
 		handleOAuthVerification(c, providerName, oauthUser, flow)
 	}
@@ -320,44 +351,57 @@ func handleOAuthLogin(c *gin.Context, provider oauth.Provider, oauthUser *oauth.
 }
 
 // handleOAuthBind handles binding OAuth account to existing user
-func handleOAuthBind(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, flow *model.AuthFlow) {
-	// Check if this OAuth account is already bound (check both new ID and legacy ID)
+func handleOAuthBind(c *gin.Context, providerName string, provider oauth.Provider, oauthUser *oauth.OAuthUser, flow *model.AuthFlow, state string, match model.AuthFlowMatch) (bool, bool) {
+	identity, ok := middleware.GetSessionAuthIdentity(c)
+	if !ok {
+		writeSecurityOperationError(c, service.ErrAuthTokenInvalid)
+		return false, false
+	}
+	var payload oauthFlowPayload
+	if err := common.UnmarshalJsonStr(flow.Payload, &payload); err != nil {
+		writeSecurityOperationError(c, model.ErrAuthFlowInvalid)
+		return false, false
+	}
+	context, err := common.Marshal(service.AccountBindingContext{Provider: providerName})
+	if err != nil {
+		writeSecurityOperationError(c, err)
+		return false, false
+	}
+	// Recheck after the external provider round trip, then validate the session
+	// under the transaction's locks before consuming the flow and writing.
+	if err := service.ValidateFlowAuthorization(identity, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: context}, payload.Authorization); err != nil {
+		writeSecurityOperationError(c, err)
+		return false, false
+	}
 	if provider.IsUserIDTaken(oauthUser.ProviderUserID) {
 		common.ApiErrorI18n(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
-		return
+		return false, false
 	}
-	// Also check legacy ID to prevent duplicate bindings during migration period
-	if legacyID, ok := oauthUser.Extra["legacy_id"].(string); ok && legacyID != "" {
-		if provider.IsUserIDTaken(legacyID) {
-			common.ApiErrorI18n(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
-			return
-		}
+	if legacyID, ok := oauthUser.Extra["legacy_id"].(string); ok && legacyID != "" && provider.IsUserIDTaken(legacyID) {
+		common.ApiErrorI18n(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
+		return false, false
 	}
-
-	userId := flow.UserId
-	var err error
-
-	// Handle binding based on provider type
-	if genericProvider, ok := provider.(*oauth.GenericOAuthProvider); ok {
-		// Custom provider: use user_oauth_bindings table
-		err = model.UpdateUserOAuthBinding(userId, genericProvider.GetProviderId(), oauthUser.ProviderUserID)
-		if err != nil {
-			writeSecurityOperationError(c, err)
-			return
+	_, err = model.ConsumeAuthFlowWithAction(state, match, func(tx *gorm.DB, _ *model.AuthFlow) error {
+		if providerName == "telegram" {
+			return model.BindTelegramForSessionWithTx(tx, identity, oauthUser.ProviderUserID)
 		}
-	} else {
-		// Built-in provider: 只更新绑定列。完整快照的 user.Update 会把读取时刻的
-		// role/status/group 一并写回，覆盖并发发生的封禁、降权或分组变更。
-		err = model.UpdateUserBindColumn(userId, provider.ProviderUserIDColumn(), oauthUser.ProviderUserID)
-		if err != nil {
-			writeSecurityOperationError(c, err)
-			return
+		if custom, ok := provider.(*oauth.GenericOAuthProvider); ok {
+			return model.UpdateUserOAuthBindingForSessionWithTx(tx, identity, custom.GetProviderId(), oauthUser.ProviderUserID)
 		}
-	}
-
-	common.ApiSuccessI18n(c, i18n.MsgOAuthBindSuccess, gin.H{
-		"action": "bind",
+		return model.UpdateUserBindColumnForSessionWithTx(tx, identity, provider.ProviderUserIDColumn(), oauthUser.ProviderUserID)
 	})
+	if err != nil {
+		writeSecurityOperationError(c, err)
+		return false, false
+	}
+	user, err := model.GetUserById(identity.UserID, false)
+	if err != nil {
+		writeSecurityOperationError(c, err)
+		return true, true
+	}
+	notificationFailed := service.NotifyAccountSecurityChange(user.Email, "Login account linked: "+provider.GetName()) != nil
+	common.ApiSuccessI18n(c, i18n.MsgOAuthBindSuccess, gin.H{"action": "bind", "notification_warning": notificationFailed})
+	return true, notificationFailed
 }
 
 // findOrCreateOAuthUser finds existing user or creates new user

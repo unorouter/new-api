@@ -110,6 +110,8 @@ interface PendingVerification {
   request: RequestVerificationOptions
   controller: AbortController
   resolve: (proof: SecurityProof | null) => void
+  reject: (error: unknown) => void
+  initialPassword?: string
   submitting: boolean
 }
 
@@ -121,6 +123,7 @@ export function useSecureVerification() {
     const current = pending.current
     pending.current = null
     current?.controller.abort()
+    if (current) current.initialPassword = undefined
     current?.resolve(null)
     dispatch({ type: 'reset' })
   }, [])
@@ -135,6 +138,33 @@ export function useSecureVerification() {
         current.controller.signal
       )
       if (pending.current !== current) return
+      const initialPassword = current.initialPassword
+      current.initialPassword = undefined
+      if (
+        initialPassword !== undefined &&
+        requirements.methods.length === 1 &&
+        requirements.methods[0].method === 'password' &&
+        requirements.methods[0].available
+      ) {
+        try {
+          const proof = await verify(
+            { method: 'password', password: initialPassword },
+            current.request,
+            requirements.password_encryption_enabled,
+            current.controller.signal
+          )
+          if (pending.current !== current) return
+          pending.current = null
+          dispatch({ type: 'reset' })
+          current.resolve(proof)
+        } catch (error) {
+          if (pending.current !== current) return
+          pending.current = null
+          dispatch({ type: 'reset' })
+          current.reject(error)
+        }
+        return
+      }
       if (
         requirements.methods.length === 1 &&
         requirements.methods[0].method === 'session' &&
@@ -166,12 +196,17 @@ export function useSecureVerification() {
   }, [])
 
   const requestVerification = useCallback(
-    (request: RequestVerificationOptions): Promise<SecurityProof | null> => {
+    (
+      request: RequestVerificationOptions,
+      initialPassword?: string
+    ): Promise<SecurityProof | null> => {
       if (pending.current) return Promise.resolve(null)
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         const current: PendingVerification = {
           request: structuredClone(request),
           resolve,
+          reject,
+          initialPassword,
           controller: new AbortController(),
           submitting: false,
         }

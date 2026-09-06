@@ -123,15 +123,23 @@ it('refreshes Telegram bindings from the server result after the callback popup 
     postMessage: vi.fn(),
   }
   vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
-  vi.spyOn(api, 'post').mockResolvedValue({
+  vi.spyOn(api, 'post').mockImplementation(async (url) => ({
     data: {
       success: true,
-      data: {
-        flow_token: 'binding-state',
-        authorization_url: 'https://oauth.telegram.org/auth?server=pkce',
-      },
+      data:
+        url === '/api/verify'
+          ? {
+              proof_token: 'binding-proof',
+              method: 'password',
+              scope: 'account.binding.bind',
+              expires_at: expiresAt(),
+            }
+          : {
+              flow_token: 'binding-state',
+              authorization_url: 'https://oauth.telegram.org/auth?server=pkce',
+            },
     },
-  })
+  }))
   let resolve!: (response: {
     data: { success: boolean; data: { action: string } }
   }) => void
@@ -140,8 +148,21 @@ it('refreshes Telegram bindings from the server result after the callback popup 
   }>((done) => {
     resolve = done
   })
-  const get = vi.spyOn(api, 'get').mockImplementation((url) =>
-    url === '/api/status'
+  const get = vi.spyOn(api, 'get').mockImplementation((url) => {
+    if (url === '/api/verify/methods') {
+      return Promise.resolve({
+        data: {
+          success: true,
+          data: {
+            scope: 'account.binding.bind',
+            methods: [{ method: 'password', available: true }],
+            oauth_providers: [],
+            password_encryption_enabled: false,
+          },
+        },
+      })
+    }
+    return url === '/api/status'
       ? Promise.resolve({
           data: {
             success: true,
@@ -149,7 +170,7 @@ it('refreshes Telegram bindings from the server result after the callback popup 
           },
         })
       : response
-  )
+  })
   const onUpdate = vi.fn()
   const user = userEvent.setup()
   const client = new QueryClient({
@@ -166,6 +187,20 @@ it('refreshes Telegram bindings from the server result after the callback popup 
   const telegram = (await screen.findByText('Telegram')).closest('li')
   if (!telegram) throw new Error('Telegram binding entry is missing')
   await user.click(within(telegram).getByRole('button', { name: 'Bind' }))
+  const verification = await screen.findByRole('dialog', {
+    name: 'Security verification',
+  })
+  await user.type(
+    within(verification).getByLabelText('Password', { selector: 'input' }),
+    'current-password'
+  )
+  await user.click(within(verification).getByRole('button', { name: 'Verify' }))
+  const continuation = await screen.findByRole('alertdialog', {
+    name: 'Continue account binding',
+  })
+  await user.click(
+    within(continuation).getByRole('button', { name: 'Continue' })
+  )
   await waitFor(() =>
     expect(popup.location.replace).toHaveBeenCalledWith(
       'https://oauth.telegram.org/auth?server=pkce'

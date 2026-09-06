@@ -35,6 +35,7 @@ export interface ApiResponse<T = unknown> {
  * User profile data
  */
 export interface UserProfile {
+  has_password?: boolean
   permissions?: UserPermissions
   /** User ID */
   id: number
@@ -130,6 +131,19 @@ export interface UpdateUserRequest {
   display_name?: string
   password?: string
   original_password?: string
+}
+
+export interface AccountSecurityResult {
+  notification_warning?: boolean
+}
+
+export interface EmailBindingFlow extends AccountSecurityResult {
+  flow_token: string
+  email: string
+  current_email?: string
+  old_email_required: boolean
+  expires_at: number
+  resend_at: number
 }
 
 /**

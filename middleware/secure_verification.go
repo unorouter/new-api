@@ -76,6 +76,7 @@ func RequireSecurityProof(c *gin.Context, operation service.VerificationOperatio
 }
 
 func securityProofError(c *gin.Context, code, message string) {
+	c.Set("security_error_code", code)
 	c.JSON(http.StatusForbidden, gin.H{
 		"success": false,
 		"message": message,

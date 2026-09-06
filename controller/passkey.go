@@ -512,7 +512,12 @@ func PasskeyVerifyBegin(c *gin.Context) {
 	}
 
 	waUser := passkeysvc.NewWebAuthnUser(user, credential)
-	assertion, sessionData, err := wa.BeginLogin(waUser)
+	var options []webauthnlib.LoginOption
+	switch request.Scope {
+	case service.VerificationScopeAccountBind, service.VerificationScopeAccountUnbind, service.VerificationScopePasswordSet, service.VerificationScopePasswordChange:
+		options = append(options, webauthnlib.WithUserVerification(protocol.VerificationRequired))
+	}
+	assertion, sessionData, err := wa.BeginLogin(waUser, options...)
 	if err != nil {
 		writeSecurityOperationError(c, err)
 		return

@@ -26,6 +26,10 @@ const (
 	VerificationScopeTwoFASetup          = "2fa.setup"
 	VerificationScopeAccessTokenGenerate = "access_token.generate"
 	VerificationScopeAccessTokenRevoke   = "access_token.revoke"
+	VerificationScopeAccountBind         = "account.binding.bind"
+	VerificationScopeAccountUnbind       = "account.binding.unbind"
+	VerificationScopePasswordSet         = "account.password.set"
+	VerificationScopePasswordChange      = "account.password.change"
 )
 
 var (
@@ -46,6 +50,16 @@ type VerificationOperation struct {
 
 type ChannelKeyReadContext struct {
 	ChannelID int `json:"channel_id"`
+}
+
+type AccountBindingContext struct {
+	Provider string `json:"provider"`
+	Email    string `json:"email,omitempty"`
+	Code     string `json:"code,omitempty"`
+}
+
+type AccountUnbindingContext struct {
+	ProviderID int `json:"provider_id"`
 }
 
 // VerificationBinding contains no original operation parameters. It can safely
@@ -70,8 +84,38 @@ func BindVerificationOperation(operation VerificationOperation) (VerificationBin
 			return VerificationBinding{}, ErrVerificationContextInvalid
 		}
 		normalized = context
+	case VerificationScopeAccountBind:
+		var context AccountBindingContext
+		if common.Unmarshal(operation.Context, &context) != nil {
+			return VerificationBinding{}, ErrVerificationContextInvalid
+		}
+		context.Provider = strings.TrimSpace(context.Provider)
+		switch context.Provider {
+		case "email":
+			context.Email = model.NormalizeEmail(context.Email)
+			if len(fields) != 2 || common.Validate.Var(context.Email, "required,email") != nil || context.Code != "" {
+				return VerificationBinding{}, ErrVerificationContextInvalid
+			}
+		case "wechat":
+			context.Code = strings.TrimSpace(context.Code)
+			if len(fields) != 2 || context.Code == "" || len(context.Code) > 128 || context.Email != "" {
+				return VerificationBinding{}, ErrVerificationContextInvalid
+			}
+		default:
+			if len(fields) != 1 || context.Provider == "" || len(context.Provider) > 64 || oauth.GetProvider(context.Provider) == nil {
+				return VerificationBinding{}, ErrVerificationContextInvalid
+			}
+		}
+		normalized = context
+	case VerificationScopeAccountUnbind:
+		var context AccountUnbindingContext
+		if len(fields) != 1 || common.Unmarshal(fields["provider_id"], &context.ProviderID) != nil || context.ProviderID <= 0 {
+			return VerificationBinding{}, ErrVerificationContextInvalid
+		}
+		normalized = context
 	case VerificationScopePasskeyRegister, VerificationScopePasskeyDelete, VerificationScopeTwoFASetup,
-		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenRevoke:
+		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenRevoke,
+		VerificationScopePasswordSet, VerificationScopePasswordChange:
 		if len(fields) != 0 {
 			return VerificationBinding{}, ErrVerificationContextInvalid
 		}
@@ -124,7 +168,6 @@ type verificationAccountState struct {
 	TwoFALocked      bool
 	HasPasskey       bool
 	PasskeyEnabled   bool
-	WeChatEnrollment bool
 }
 
 // securityVerificationPolicy is the only operation-to-method policy. Device
@@ -146,9 +189,14 @@ func securityVerificationPolicy(scope string, state verificationAccountState) ([
 			methods = []string{VerificationMethodPasskey}
 		}
 	case VerificationScopePasskeyRegister, VerificationScopeTwoFASetup,
-		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenRevoke:
+		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenRevoke,
+		VerificationScopeAccountBind, VerificationScopeAccountUnbind,
+		VerificationScopePasswordSet, VerificationScopePasswordChange:
 		if scope == VerificationScopeTwoFASetup && state.HasTwoFA {
 			return nil, model.ErrTwoFAAlreadyEnabled
+		}
+		if (scope == VerificationScopePasswordSet && state.HasPassword) || (scope == VerificationScopePasswordChange && !state.HasPassword) {
+			return nil, ErrVerificationForbidden
 		}
 		switch {
 		case state.HasTwoFA:
@@ -157,8 +205,6 @@ func securityVerificationPolicy(scope string, state verificationAccountState) ([
 			methods = []string{VerificationMethodPasskey}
 		case state.HasPassword:
 			methods = []string{VerificationMethodPassword}
-		case state.WeChatEnrollment && (scope == VerificationScopePasskeyRegister || scope == VerificationScopeTwoFASetup):
-			methods = []string{VerificationMethodSession}
 		default:
 			methods = []string{VerificationMethodOAuth}
 		}
@@ -203,22 +249,19 @@ func GetVerificationRequirements(identity AuthIdentity, scope string) (*Verifica
 		TwoFALocked: twoFA != nil && twoFA.IsLocked(), HasPasskey: err == nil,
 		PasskeyEnabled: system_setting.GetPasskeySettings().Enabled,
 	}
-	if (scope == VerificationScopeTwoFASetup || scope == VerificationScopePasskeyRegister) &&
-		!state.HasPassword && !state.HasTwoFA && !state.HasPasskey &&
-		user.WeChatId != "" && user.TelegramId == "" && user.GitHubId == "" &&
-		user.DiscordId == "" && user.OidcId == "" && user.LinuxDOId == "" {
-		bindings, err := model.GetUserOAuthBindingsByUserId(user.Id)
-		if err != nil {
-			return nil, err
-		}
-		state.WeChatEnrollment = len(bindings) == 0
-	}
+
 	methods, err := securityVerificationPolicy(scope, state)
 	if err != nil {
 		return nil, err
 	}
 	requirements := &VerificationRequirements{Scope: scope, Methods: methods, OAuthProviders: []VerificationOAuthProvider{}, PasswordEncryptionEnabled: common.PasswordLoginEncryptionEnabled}
 	for i := range methods {
+		if methods[i].Method == VerificationMethodPassword && !common.PasswordLoginEnabled {
+			switch scope {
+			case VerificationScopeAccountBind, VerificationScopeAccountUnbind, VerificationScopePasswordSet, VerificationScopePasswordChange:
+				methods[i].Available, methods[i].Reason = false, "Password authentication is disabled."
+			}
+		}
 		if methods[i].Method != VerificationMethodOAuth {
 			continue
 		}
@@ -389,9 +432,6 @@ func VerifySecurityInput(identity AuthIdentity, input VerificationInput) (*Secur
 		return nil, err
 	}
 	switch input.Method {
-	case VerificationMethodSession:
-		// The policy above permits only first enrollment for a WeChat-only
-		// account. CompleteSecurityVerification rechecks its live session.
 	case VerificationMethodPassword:
 		password := input.Password
 		if common.PasswordLoginEncryptionEnabled {
