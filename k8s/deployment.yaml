@@ -39,6 +39,8 @@ spec:
                   - key: kubernetes.io/hostname
                     operator: NotIn
                     values: [unorouter-node1]
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: new-api
           # pinned by this repo's GHCR workflow (deploy job); ArgoCD rolls it out.
@@ -147,6 +149,8 @@ spec:
                 labelSelector:
                   matchLabels: { app: new-api, tier: slave }
                 topologyKey: kubernetes.io/hostname
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: new-api
           # pinned by this repo's GHCR workflow (deploy job); ArgoCD rolls it out.
@@ -228,6 +232,8 @@ spec:
     metadata:
       labels: { app: newapi-redis }
     spec:
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: redis
           image: redis:7-alpine
