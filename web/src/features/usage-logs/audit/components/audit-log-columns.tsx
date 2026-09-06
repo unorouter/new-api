@@ -57,13 +57,49 @@ export function useAuditLogColumns(
         {
           id: 'event',
           header: t('Event'),
-          size: 260,
-          accessorFn: (entry) => buildAuditDetails(entry, t).summary,
-          cell: ({ getValue }) => (
-            <TruncatedCell className='max-w-64'>
-              {getValue<string>()}
-            </TruncatedCell>
-          ),
+          size: 360,
+          accessorFn: (entry) => {
+            const detail = buildAuditDetails(entry, t)
+            return [detail.summary, detail.operation?.description]
+              .filter(Boolean)
+              .join(' · ')
+          },
+          cell: ({ row, getValue }) => {
+            const operation = buildAuditDetails(row.original, t).operation
+            if (!operation) {
+              return (
+                <TruncatedCell className='max-w-64'>
+                  {getValue<string>()}
+                </TruncatedCell>
+              )
+            }
+            return (
+              <div className='min-w-0 space-y-1'>
+                <div className='flex min-w-0 items-baseline gap-1'>
+                  <TruncatedCell
+                    className='min-w-0 font-medium'
+                    tooltipContent={operation.summary}
+                  >
+                    {operation.headline}
+                  </TruncatedCell>
+                  {operation.identifier && (
+                    <span className='shrink-0 whitespace-nowrap'>
+                      {operation.identifier}
+                    </span>
+                  )}
+                </div>
+                {operation.description && (
+                  <TruncatedCell
+                    className='text-muted-foreground'
+                    contentClassName='line-clamp-2 whitespace-normal break-words'
+                    tooltipContent={operation.description}
+                  >
+                    {operation.description}
+                  </TruncatedCell>
+                )}
+              </div>
+            )
+          },
           meta: { label: t('Event') },
         }
       )

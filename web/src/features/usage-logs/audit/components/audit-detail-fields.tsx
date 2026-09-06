@@ -19,12 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 
 import { DetailRow } from '../../components/dialogs/log-detail-layout'
-import { auditFieldLabel, isAuditDetailObject } from '../lib/audit-details'
+import {
+  auditFieldLabel,
+  isAuditDetailObject,
+  type AuditDetailField,
+} from '../lib/audit-details'
 import { AuditDetailValue } from './audit-detail-value'
 
-export function AuditDetailFields(props: {
-  fields: { label: string; value: unknown }[]
-}) {
+export function AuditDetailFields(props: { fields: AuditDetailField[] }) {
   const { t } = useTranslation()
   return props.fields.map((field) => {
     const value = field.value
@@ -56,7 +58,13 @@ export function AuditDetailFields(props: {
       <DetailRow
         key={field.label}
         label={field.label}
-        value={<AuditDetailValue label={field.label} value={text} />}
+        value={
+          <AuditDetailValue
+            label={field.label}
+            value={text}
+            copyable={field.copyable}
+          />
+        }
       />
     )
   })

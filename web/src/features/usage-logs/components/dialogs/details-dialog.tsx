@@ -63,6 +63,7 @@ import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
+import { AuditDetailFields } from '../../audit/components/audit-detail-fields'
 import type { UsageLog } from '../../data/schema'
 import {
   parseLogOther,
@@ -77,6 +78,7 @@ import {
   getReasoningEffortVariant,
   renderAuditContent,
 } from '../../lib/format'
+import { buildQuotaAuditOperation } from '../../lib/quota-audit-operation'
 import {
   getLogTypeConfig,
   isPerCallBilling,
@@ -441,7 +443,6 @@ interface DetailsDialogProps {
 export function DetailsDialog(props: DetailsDialogProps) {
   const { t } = useTranslation()
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
-  const details = props.log.content ?? ''
   const other = parseLogOther(props.log.other)
   const typeConfig = getLogTypeConfig(props.log.type)
 
@@ -517,9 +518,17 @@ export function DetailsDialog(props: DetailsDialogProps) {
     return String(adminInfo.auth_method)
   })()
 
-  // Localized operation text rendered from the language-independent op
-  // descriptor (shared by audit type=3 and login type=7).
+  // Top-up, audit, and login logs share the language-independent descriptor.
+  const quotaOperation = isTopup
+    ? buildQuotaAuditOperation(
+        other?.op?.action ?? '',
+        other?.op?.params ?? {},
+        true,
+        t
+      )
+    : null
   const operationText = renderAuditContent(other, t)
+  const details = (isTopup ? operationText : null) ?? props.log.content ?? ''
   const auditRoute = isManage && props.isAdmin ? other?.audit_info : undefined
   // Channel update records which fields changed (stable field tokens); render
   // them with their localized labels for admins.
@@ -916,6 +925,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 </span>
               </div>
             )}
+          </DetailSection>
+        )}
+
+        {quotaOperation && (
+          <DetailSection label={t('Quota adjustment details')}>
+            <AuditDetailFields fields={quotaOperation.fields} />
           </DetailSection>
         )}
 

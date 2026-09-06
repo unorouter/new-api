@@ -22,6 +22,7 @@ import { loginMethodLabel } from '@/features/security/components/login-session-u
 import { ROLE } from '@/lib/roles'
 
 import { renderAuditContent } from '../../lib/format'
+import { buildQuotaAuditOperation } from '../../lib/quota-audit-operation'
 import type { LogOtherData } from '../../types'
 import type { AuditLog } from '../api'
 
@@ -30,6 +31,40 @@ const AUDIT_ROLE_NAMES: Record<number, string> = {
   [ROLE.USER]: 'user',
   [ROLE.ADMIN]: 'admin',
   [ROLE.SUPER_ADMIN]: 'root',
+}
+
+const TOKEN_AUDIT_OPERATIONS: Record<
+  string,
+  { labelKey: string; namedKey?: string }
+> = {
+  'token.create': {
+    labelKey: 'Create API token',
+    namedKey: 'Create API token “{{name}}”',
+  },
+  'token.update': {
+    labelKey: 'Update API token',
+    namedKey: 'Update API token “{{name}}”',
+  },
+  'token.status_update': {
+    labelKey: 'Update API token',
+    namedKey: 'Update API token “{{name}}”',
+  },
+  'token.delete': {
+    labelKey: 'Delete API token',
+    namedKey: 'Delete API token “{{name}}”',
+  },
+  'token.key_view': {
+    labelKey: 'View API token key',
+    namedKey: 'View key for API token “{{name}}”',
+  },
+  'token.delete_batch': { labelKey: 'Batch delete API tokens' },
+  'token.key_view_batch': { labelKey: 'View API token keys in batch' },
+}
+
+export type AuditDetailField = {
+  label: string
+  value: unknown
+  copyable?: boolean
 }
 
 export function isAuditDetailObject(
@@ -52,6 +87,28 @@ export function auditFieldLabel(key: string, t: TFunction): string {
       return t('Count')
     case 'total':
       return t('Total')
+    case 'requested_ids':
+      return t('Requested token IDs')
+    case 'returned_ids':
+      return t('Returned token IDs')
+    case 'requested_ids_truncated':
+      return t('Requested token IDs truncated')
+    case 'expired_time':
+      return t('Expiration Time')
+    case 'remain_quota':
+      return t('Remaining quota')
+    case 'unlimited_quota':
+      return t('Unlimited Quota')
+    case 'model_limits_enabled':
+      return t('Model limits enabled')
+    case 'model_limits':
+      return t('Model Limits')
+    case 'allow_ips':
+      return t('IP Whitelist (supports CIDR)')
+    case 'auto_groups':
+      return t('Auto Group Chain')
+    case 'cross_group_retry':
+      return t('Cross-group retry')
     case 'sourceId':
       return t('Source ID')
     case 'id':
@@ -105,13 +162,182 @@ export function auditFieldLabel(key: string, t: TFunction): string {
   }
 }
 
+function buildTokenAuditOperation(
+  action: string,
+  params: Record<string, unknown>,
+  success: boolean,
+  t: TFunction
+) {
+  const operation = TOKEN_AUDIT_OPERATIONS[action]
+  if (!operation) return null
+
+  const fields: AuditDetailField[] = []
+  let headline = t(operation.labelKey)
+  let summary = headline
+  let identifier = ''
+  let description = ''
+
+  if (operation.namedKey) {
+    const name =
+      typeof params.name === 'string' && params.name.trim() ? params.name : ''
+    let id = ''
+    if (typeof params.id === 'number' && Number.isFinite(params.id)) {
+      id = String(params.id)
+    } else if (typeof params.id === 'string' && params.id.trim()) {
+      id = params.id
+    }
+    if (name) {
+      headline = t(operation.namedKey, { name })
+      fields.push({ label: t('Token Name'), value: name })
+    }
+    summary = headline
+    if (id) {
+      identifier = t('(ID: {{id}})', { id })
+      summary = t('{{operation}} (ID: {{id}})', { operation: headline, id })
+      fields.push({ label: t('Token ID'), value: id, copyable: true })
+    }
+    if (!name && !id) {
+      headline = `${headline} · ${t('Target not recorded')}`
+      summary = headline
+      fields.push({ label: t('Target'), value: t('Target not recorded') })
+    }
+  }
+
+  if (success && action === 'token.update') {
+    const changed = params.changed_fields
+    description = t('Field change details were not recorded')
+    let changes = description
+    if (
+      Array.isArray(changed) &&
+      changed.every((field) => typeof field === 'string')
+    ) {
+      changes = changed.length
+        ? changed.map((field) => auditFieldLabel(field, t)).join(', ')
+        : t('No changes')
+      description = changed.length
+        ? t('Changed fields: {{fields}}', { fields: changes })
+        : changes
+    }
+    fields.push({ label: t('Changed Fields'), value: changes })
+  }
+
+  if (success && action === 'token.status_update') {
+    const statuses: Record<string, string> = {
+      '1': t('Enabled'),
+      '2': t('Disabled'),
+      '3': t('Expired'),
+      '4': t('Exhausted'),
+    }
+    const states = [params.from, params.to].map((value) => {
+      if (typeof value !== 'number' && typeof value !== 'string') return ''
+      const status = String(value)
+      return statuses[status] || status
+    })
+    if (!states[0] && !states[1]) {
+      description = t('Field change details were not recorded')
+    } else if (states[0] && states[0] === states[1]) {
+      description = t('State unchanged: {{status}}', { status: states[0] })
+    } else {
+      description = `${states[0] || t('Not recorded')} → ${states[1] || t('Not recorded')}`
+    }
+    fields.push({ label: t('Status change'), value: description })
+  }
+
+  if (!operation.namedKey) {
+    const total =
+      typeof params.total === 'number' &&
+      Number.isFinite(params.total) &&
+      params.total >= 0
+        ? params.total
+        : undefined
+    const processed =
+      success &&
+      typeof params.count === 'number' &&
+      Number.isFinite(params.count) &&
+      params.count >= 0
+        ? params.count
+        : undefined
+    if (total !== undefined) {
+      description = t('Requested: {{total}}', { total })
+      fields.push({ label: t('Requested items'), value: total })
+    }
+    if (processed !== undefined) {
+      if (action === 'token.delete_batch') {
+        description =
+          total === undefined
+            ? t('Deleted: {{processed}}', { processed })
+            : t('Requested: {{total}} · Deleted: {{processed}}', {
+                total,
+                processed,
+              })
+        fields.push({ label: t('Deleted tokens'), value: processed })
+      } else {
+        description =
+          total === undefined
+            ? t('Returned: {{processed}}', { processed })
+            : t('Requested: {{total}} · Returned: {{processed}}', {
+                total,
+                processed,
+              })
+        fields.push({ label: t('Returned keys'), value: processed })
+      }
+    }
+    for (const key of ['requested_ids', 'returned_ids']) {
+      if (key === 'returned_ids' && !success) continue
+      const ids = params[key]
+      if (ids === undefined) continue
+      const valid =
+        Array.isArray(ids) &&
+        ids.every((id) => typeof id === 'number' || typeof id === 'string')
+      let value = t('Not recorded')
+      if (valid) value = ids.length ? ids.join(', ') : t('None')
+      fields.push({
+        label: auditFieldLabel(key, t),
+        value,
+        copyable: valid && ids.length > 0,
+      })
+      if (
+        key === 'requested_ids' &&
+        valid &&
+        params.requested_ids_truncated === true
+      ) {
+        const note =
+          total === undefined
+            ? t('Only the first {{shown}} IDs were recorded', {
+                shown: ids.length,
+              })
+            : t(
+                'Only the first {{shown}} IDs were recorded ({{total}} requested)',
+                { shown: ids.length, total }
+              )
+        fields.push({ label: t('Note'), value: note })
+      }
+    }
+  }
+
+  return { headline, summary, identifier, description, fields }
+}
+
 export function buildAuditDetails(entry: AuditLog, t: TFunction) {
   const metadata = isAuditDetailObject(entry.other) ? entry.other : {}
   const metadataUnavailable =
     entry.other != null && !isAuditDetailObject(entry.other)
   const op = isAuditDetailObject(metadata.op) ? metadata.op : {}
-  const action = typeof op.action === 'string' ? op.action : entry.action
+  const action = typeof op.action === 'string' ? op.action : entry.action || ''
   const params = isAuditDetailObject(op.params) ? { ...op.params } : {}
+  const tokenOperation = buildTokenAuditOperation(
+    action,
+    params,
+    entry.success,
+    t
+  )
+  const quotaOperation = buildQuotaAuditOperation(
+    action,
+    params,
+    entry.success,
+    t
+  )
+  const operation = tokenOperation ?? quotaOperation
   const summaryParams: NonNullable<NonNullable<LogOtherData['op']>['params']> =
     {}
   for (const [key, value] of Object.entries(params)) {
@@ -189,18 +415,20 @@ export function buildAuditDetails(entry: AuditLog, t: TFunction) {
     delete params.username
   }
 
-  const fields: { label: string; value: unknown }[] = []
+  const fields: AuditDetailField[] = []
   if (
     Array.isArray(params.changed_fields) &&
     params.changed_fields.every((field) => typeof field === 'string')
   ) {
+    let changes = t('Field change details were not recorded')
+    if (params.changed_fields.length) {
+      changes = params.changed_fields
+        .map((field) => auditFieldLabel(field, t))
+        .join(', ')
+    }
     fields.push({
       label: t('Changed Fields'),
-      value: params.changed_fields.length
-        ? params.changed_fields
-            .map((field) => auditFieldLabel(String(field), t))
-            .join(', ')
-        : t('Field change details were not recorded'),
+      value: changes,
     })
     delete params.changed_fields
   }
@@ -267,7 +495,10 @@ export function buildAuditDetails(entry: AuditLog, t: TFunction) {
     if (Object.keys(auditExtra).length) extra.audit_info = auditExtra
   }
   return {
-    summary,
+    summary: operation?.summary ?? summary,
+    tokenOperation,
+    quotaOperation,
+    operation,
     actor,
     actorRole,
     target,

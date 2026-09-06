@@ -32,6 +32,7 @@ import zh from '@/i18n/locales/zh.json'
 
 import type { AuditLog } from '../api'
 import { AuditLogDetailsDialog } from '../components/audit-log-details-dialog'
+import { buildAuditDetails } from '../lib/audit-details'
 
 const userAgent =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/152.0.0.0 Safari/537.36'
@@ -105,6 +106,216 @@ it('uses the returned authentication method for personal access records', async 
   })
   expect(within(dialog).getByText('Access Token')).toBeVisible()
   expect(within(dialog).queryByText('Session')).not.toBeInTheDocument()
+})
+
+it.each([
+  ['token.create', '创建 API 令牌「1」（ID: 11）'],
+  ['token.update', '更新 API 令牌「1」（ID: 11）'],
+  ['token.status_update', '更新 API 令牌「1」（ID: 11）'],
+  ['token.delete', '删除 API 令牌「1」（ID: 11）'],
+  ['token.delete_batch', '批量删除 API 令牌'],
+  ['token.key_view', '查看 API 令牌「1」的密钥（ID: 11）'],
+  ['token.key_view_batch', '批量查看 API 令牌密钥'],
+])('localizes the neutral event summary for %s', async (action, summary) => {
+  const i18n = createInstance()
+  await i18n.init({ lng: 'zh', resources: { zh } })
+  const detail = buildAuditDetails(
+    {
+      ...entry,
+      category: 'security',
+      action,
+      content: '',
+      other: { op: { action, params: { id: 11, name: '1' } } },
+    },
+    i18n.t
+  )
+  expect(detail.summary).toBe(summary)
+})
+
+it.each([
+  [[], 'No changes'],
+  [
+    ['remain_quota', 'auto_groups', 'cross_group_retry'],
+    'Remaining quota, Auto Group Chain, Cross-group retry',
+  ],
+])(
+  'describes token configuration changes %j',
+  async (changedFields, expected) => {
+    const { dialog } = await openDetails({
+      ...entry,
+      category: 'security',
+      action: 'token.update',
+      other: {
+        op: {
+          action: 'token.update',
+          params: { id: 42, name: 'client', changed_fields: changedFields },
+        },
+      },
+    })
+    expect(within(dialog).getAllByText(expected).length).toBeGreaterThan(0)
+  }
+)
+
+it.each([
+  [1, 2, 'Enabled', 'Disabled'],
+  [3, 4, 'Expired', 'Exhausted'],
+])(
+  'formats token status transitions %i to %i',
+  async (from, to, before, after) => {
+    const { dialog } = await openDetails({
+      ...entry,
+      category: 'security',
+      action: 'token.status_update',
+      other: { op: { action: 'token.status_update', params: { from, to } } },
+    })
+    expect(
+      within(dialog).getAllByText(`${before} → ${after}`).length
+    ).toBeGreaterThan(0)
+  }
+)
+
+it('shows a failed token batch attempt without implying completion', async () => {
+  const { dialog } = await openDetails({
+    ...entry,
+    category: 'security',
+    action: 'token.key_view_batch',
+    content: '',
+    success: false,
+    other: {
+      op: {
+        action: 'token.key_view_batch',
+        params: {
+          total: 101,
+          requested_ids: [42],
+          requested_ids_truncated: true,
+        },
+      },
+    },
+  })
+  expect(within(dialog).getByText('View API token keys in batch')).toBeVisible()
+  expect(within(dialog).getByText('Failed')).toBeVisible()
+  expect(within(dialog).getByText('Requested token IDs')).toBeVisible()
+  expect(
+    within(dialog).getByText(
+      'Only the first 1 IDs were recorded (101 requested)'
+    )
+  ).toBeVisible()
+  expect(within(dialog).queryByText('Count')).not.toBeInTheDocument()
+})
+
+it('shows explicit token identity before the operator and request sections', async () => {
+  const { dialog } = await openDetails({
+    ...entry,
+    action: 'token.create',
+    other: { op: { action: 'token.create', params: { id: 11, name: '1' } } },
+  })
+  expect(
+    within(dialog).getByText('Create API token “1” (ID: 11)')
+  ).toBeVisible()
+  const name = within(dialog).getByText('Token Name')
+  const id = within(dialog).getByText('Token ID')
+  expect(name.parentElement).toHaveTextContent('1')
+  expect(id.parentElement).toHaveTextContent('11')
+  expect(
+    name.compareDocumentPosition(within(dialog).getByText('Request')) &
+      Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy()
+  expect(within(dialog).queryByText('Target')).not.toBeInTheDocument()
+})
+
+it.each([
+  [{ id: 11 }, 'Create API token (ID: 11)'],
+  [{ name: '1' }, 'Create API token “1”'],
+  [{}, 'Create API token · Target not recorded'],
+])(
+  'describes incomplete token targets without inventing values (%j)',
+  async (params, summary) => {
+    const { dialog } = await openDetails({
+      ...entry,
+      action: 'token.create',
+      other: { op: { action: 'token.create', params } },
+    })
+    expect(within(dialog).getByText(summary)).toBeVisible()
+  }
+)
+
+it('distinguishes unchanged state from missing change metadata', async () => {
+  const i18n = createInstance()
+  await i18n.init({ lng: 'en' })
+  const unchanged = buildAuditDetails(
+    {
+      ...entry,
+      action: 'token.status_update',
+      other: {
+        op: { action: 'token.status_update', params: { from: 1, to: 1 } },
+      },
+    },
+    i18n.t
+  )
+  const missing = buildAuditDetails(
+    {
+      ...entry,
+      action: 'token.update',
+      other: { op: { action: 'token.update', params: {} } },
+    },
+    i18n.t
+  )
+  expect(unchanged.tokenOperation?.description).toBe('State unchanged: Enabled')
+  expect(missing.tokenOperation?.description).toBe(
+    'Field change details were not recorded'
+  )
+})
+
+it('does not present recorded changes as completed when the operation failed', async () => {
+  const { dialog } = await openDetails({
+    ...entry,
+    success: false,
+    action: 'token.update',
+    other: {
+      op: {
+        action: 'token.update',
+        params: {
+          id: 11,
+          name: 'production',
+          changed_fields: ['remain_quota'],
+        },
+      },
+    },
+  })
+  expect(within(dialog).getByText('Failed')).toBeVisible()
+  expect(within(dialog).queryByText('Changed Fields')).not.toBeInTheDocument()
+  expect(within(dialog).queryByText(/Changed fields:/)).not.toBeInTheDocument()
+})
+
+it('renders batch IDs compactly, copies the full list and preserves an empty result', async () => {
+  const user = userEvent.setup()
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+  const { dialog } = await openDetails({
+    ...entry,
+    action: 'token.key_view_batch',
+    other: {
+      op: {
+        action: 'token.key_view_batch',
+        params: {
+          total: 3,
+          count: 0,
+          requested_ids: [11, 11, 12],
+          returned_ids: [],
+        },
+      },
+    },
+  })
+  expect(within(dialog).getByText('11, 11, 12')).toBeVisible()
+  expect(
+    within(dialog).getByText('Returned token IDs').parentElement
+  ).toHaveTextContent('None')
+  expect(
+    within(dialog).getByText('Returned keys').parentElement
+  ).toHaveTextContent('0')
+  await user.click(
+    within(dialog).getByRole('button', { name: 'Copy Requested token IDs' })
+  )
+  expect(copy).toHaveBeenCalledWith('11, 11, 12')
 })
 
 async function openDetails(log: AuditLog = entry) {
@@ -287,3 +498,122 @@ it.each([
     expect(within(dialog).getByText('user')).toBeVisible()
   }
 )
+
+it('shows the quota target and committed balances before operator information', async () => {
+  const user = userEvent.setup()
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+  const { dialog } = await openDetails({
+    ...entry,
+    action: 'user.quota_override',
+    other: {
+      op: {
+        action: 'user.quota_override',
+        params: {
+          target_user_id: 42,
+          target_username: '1',
+          mode: 'override',
+          requested_quota: -500000,
+          from: 500000,
+          to: -500000,
+        },
+      },
+    },
+  })
+  expect(
+    within(dialog).getByText('Override quota for user “1” (ID: 42)')
+  ).toBeVisible()
+  const target = within(dialog).getByText('Target username')
+  const operator = within(dialog).getByText('Operator')
+  expect(
+    target.compareDocumentPosition(operator) & Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy()
+  expect(within(dialog).getByText('Quota before adjustment')).toBeVisible()
+  expect(within(dialog).getByText('Quota after adjustment')).toBeVisible()
+  expect(within(dialog).getByText('$1')).toBeVisible()
+  expect(within(dialog).getAllByText('-$1')).toHaveLength(2)
+  await user.click(within(dialog).getByRole('button', { name: 'Copy User ID' }))
+  expect(copy).toHaveBeenCalledWith('42')
+})
+
+it('shows failed quota attempts without claiming a balance change', async () => {
+  const { dialog } = await openDetails({
+    ...entry,
+    success: false,
+    action: 'user.quota_subtract',
+    other: {
+      op: {
+        action: 'user.quota_subtract',
+        params: {
+          target_user_id: 42,
+          mode: 'subtract',
+          requested_quota: 500000,
+          from: 1000000,
+          to: 500000,
+          failure_reason: 'permission_denied',
+        },
+      },
+    },
+  })
+  expect(within(dialog).getByText('Failed')).toBeVisible()
+  expect(within(dialog).getByText('Decrease user quota (ID: 42)')).toBeVisible()
+  expect(
+    within(dialog).getByText('Insufficient permission to adjust this user')
+  ).toBeVisible()
+  expect(within(dialog).getByText('$1')).toBeVisible()
+  expect(within(dialog).queryByText('Quota before adjustment')).toBeNull()
+  expect(within(dialog).queryByText('Quota after adjustment')).toBeNull()
+  expect(dialog).not.toHaveTextContent('→')
+})
+
+it('distinguishes unchanged zero quota from missing or legacy balance metadata', async () => {
+  const i18n = createInstance()
+  await i18n.init({ lng: 'en' })
+  const unchanged = buildAuditDetails(
+    {
+      ...entry,
+      action: 'user.quota_override',
+      other: {
+        op: {
+          action: 'user.quota_override',
+          params: { target_user_id: 42, requested_quota: 0, from: 0, to: 0 },
+        },
+      },
+    },
+    i18n.t
+  )
+  expect(unchanged.summary).toBe('Override user quota (ID: 42)')
+  expect(unchanged.operation?.description).toBe(
+    'Requested quota: $0 · Quota unchanged · $0 → $0'
+  )
+  const missing = buildAuditDetails(
+    {
+      ...entry,
+      action: 'user.quota_add',
+      other: {
+        op: { action: 'user.quota_add', params: { quota: '¥1.000000额度' } },
+      },
+    },
+    i18n.t
+  )
+  expect(missing.summary).toContain('Target not recorded')
+  expect(missing.operation?.description).toBe(
+    'Requested quota: ¥1.000000额度 · Not recorded → Not recorded'
+  )
+  expect(missing.operation?.description).not.toContain('Quota unchanged')
+  const legacy = buildAuditDetails(
+    {
+      ...entry,
+      action: 'user.quota_override',
+      other: {
+        op: {
+          action: 'user.quota_override',
+          params: { from: 'legacy before', to: 'legacy after' },
+        },
+      },
+    },
+    i18n.t
+  )
+  expect(legacy.operation?.description).toContain(
+    'legacy before → legacy after'
+  )
+})

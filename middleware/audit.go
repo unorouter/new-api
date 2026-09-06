@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -202,6 +203,56 @@ func auditResponseSuccess(status int, body []byte) bool {
 }
 
 const accessTokenAuditContextKey = "access_token_request_audit"
+
+// TokenOperationAudit runs after UserAuth and before endpoint rate limits.
+// Handlers add only allowlisted metadata; neither bodies nor raw errors are persisted.
+func TokenOperationAudit() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var action, content string
+		switch c.Request.Method + " " + c.FullPath() {
+		case "POST /api/token/":
+			action, content = "token.create", "API token creation"
+		case "PUT /api/token/":
+			action, content = "token.update", "API token configuration update"
+			if c.Query("status_only") != "" {
+				action, content = "token.status_update", "API token status update"
+			}
+		case "DELETE /api/token/:id":
+			action, content = "token.delete", "API token deletion"
+		case "POST /api/token/batch":
+			action, content = "token.delete_batch", "API token batch deletion"
+		case "POST /api/token/:id/key":
+			action, content = "token.key_view", "API token key access"
+		case "POST /api/token/batch/keys":
+			action, content = "token.key_view_batch", "API token batch key access"
+		default:
+			c.Next()
+			return
+		}
+
+		params := model.AuditFields{}
+		if id, err := strconv.Atoi(c.Param("id")); err == nil && id > 0 {
+			params["id"] = id
+		}
+		common.SetContextKey(c, constant.ContextKeyTokenAuditParams, params)
+		entry := model.AuditLog{
+			UserId: c.GetInt("id"), Username: c.GetString("username"), ActorRole: c.GetInt("role"),
+			Category: model.AuditCategorySecurity, Action: action, Content: content,
+			Other: model.AuditOther{Op: &model.AuditOperation{Action: action, Params: params}},
+		}
+		writer := &auditResponseWriter{ResponseWriter: c.Writer, body: bytes.NewBuffer(nil), maxSize: 64 * 1024}
+		c.Writer = writer
+		c.Next()
+		entry.Status = writer.Status()
+		entry.Success = auditResponseSuccess(entry.Status, writer.body.Bytes())
+		if writer.body.Len() == writer.maxSize {
+			// JSON may be truncated before its success field. A completed handler
+			// supplies the result without retaining an unbounded response body.
+			entry.Success = entry.Status < 400 && common.GetContextKeyBool(c, constant.ContextKeyTokenAuditSucceeded)
+		}
+		model.RecordAuditLog(c, entry)
+	}
+}
 
 type accessTokenRequestAudit struct {
 	entry  model.AuditLog

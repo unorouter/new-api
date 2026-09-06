@@ -413,7 +413,7 @@ func recordSubscriptionResetUserLogs(c *gin.Context, result *model.SubscriptionR
 	}
 	content := fmt.Sprintf("管理员重置订阅套餐 %s（ID: %d）额度", result.PlanTitle, result.PlanId)
 	for _, userId := range result.AffectedUserIds {
-		model.RecordLogWithAdminInfo(userId, model.LogTypeManage, content, adminInfo, c)
+		model.RecordLogWithAdminInfo(userId, model.LogTypeManage, content, adminInfo, nil, c)
 	}
 }
 

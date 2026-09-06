@@ -72,6 +72,11 @@ export function AuditLogDetailsDialog(props: { entry: AuditLog }) {
         <p className='text-sm leading-relaxed font-medium break-words'>
           {detail.summary}
         </p>
+        {detail.operation?.description && (
+          <p className='text-muted-foreground text-sm leading-relaxed break-words'>
+            {detail.operation.description}
+          </p>
+        )}
         <div className='flex flex-wrap items-center gap-2 text-xs'>
           <StatusBadge
             label={props.entry.success ? t('Success') : t('Failed')}
@@ -85,6 +90,17 @@ export function AuditLogDetailsDialog(props: { entry: AuditLog }) {
           )}
         </div>
       </div>
+      {detail.operation && (
+        <DetailSection
+          label={
+            detail.quotaOperation
+              ? t('Quota adjustment details')
+              : t('Token operation details')
+          }
+        >
+          <AuditDetailFields fields={detail.operation.fields} />
+        </DetailSection>
+      )}
       {hasOperation && (
         <DetailSection label={t('Operation Audit Info')}>
           {detail.actor && (
@@ -93,7 +109,7 @@ export function AuditLogDetailsDialog(props: { entry: AuditLog }) {
           {detail.actorRole && (
             <DetailRow label={t('Role')} value={detail.actorRole} />
           )}
-          {detail.target && (
+          {!detail.operation && detail.target && (
             <DetailRow label={t('Target')} value={detail.target} />
           )}
           {detail.authentication && (
@@ -102,7 +118,7 @@ export function AuditLogDetailsDialog(props: { entry: AuditLog }) {
               value={detail.authentication}
             />
           )}
-          <AuditDetailFields fields={detail.fields} />
+          {!detail.operation && <AuditDetailFields fields={detail.fields} />}
           {detail.metadataUnavailable && (
             <p className='text-muted-foreground text-xs'>
               {t('Audit metadata is unavailable')}

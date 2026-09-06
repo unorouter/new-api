@@ -36,7 +36,7 @@ if tonumber(redis.call('HGET', KEYS[1], 'Id') or '0') ~= tonumber(ARGV[2])
   or redis.call('HEXISTS', KEYS[1], 'Quota') == 0 then
   return -1
 end
-redis.call('HINCRBY', KEYS[1], 'Quota', tonumber(ARGV[1]))
+redis.call('HINCRBY', KEYS[1], 'Quota', ARGV[1])
 return 1`
 
 const tokenQuotaReserveScript = `

@@ -26,6 +26,7 @@ import {
 
 import type { UsageLog } from '../data/schema'
 import type { LogOtherData } from '../types'
+import { buildQuotaAuditOperation } from './quota-audit-operation'
 
 export { normalizeTierLabel }
 
@@ -389,6 +390,13 @@ export function formatDuration(
  * translatable instead of being frozen to whatever language was written to DB.
  */
 const AUDIT_TEMPLATES: Record<string, string> = {
+  'token.create': 'API token creation',
+  'token.update': 'API token configuration update',
+  'token.status_update': 'API token status update',
+  'token.delete': 'API token deletion',
+  'token.delete_batch': 'API token batch deletion',
+  'token.key_view': 'API token key access',
+  'token.key_view_batch': 'API token batch key access',
   'access_token.generate': 'Generated a system access token',
   'access_token.revoke': 'Revoked the system access token',
   'user.2fa_setup': 'Started two-factor authentication setup',
@@ -488,7 +496,7 @@ const AUDIT_TEMPLATES: Record<string, string> = {
 }
 
 /**
- * Render the localized content of an audit/login log from its structured
+ * Render the localized content of an operation log from its structured
  * `other.op` descriptor. Returns null when the log has no recognized action,
  * letting callers fall back to the raw `content` field.
  */
@@ -500,5 +508,15 @@ export function renderAuditContent(
   if (!op?.action) return null
   const template = AUDIT_TEMPLATES[op.action]
   if (!template) return null
-  return t(template, (op.params ?? {}) as Record<string, unknown>)
+  const quotaOperation = buildQuotaAuditOperation(
+    op.action,
+    op.params ?? {},
+    other?.audit_info?.success !== false,
+    t
+  )
+  if (quotaOperation) {
+    return `${quotaOperation.summary} · ${quotaOperation.description}`
+  }
+  const params = { ...op.params }
+  return t(template, params)
 }

@@ -165,8 +165,9 @@ func RecordLog(userId int, logType int, content string) {
 	}
 }
 
-// RecordLogWithAdminInfo 记录操作日志，并将管理员相关信息存入 Other.admin_info，
-func RecordLogWithAdminInfo(userId int, logType int, content string, adminInfo *AuditAdminInfo, request ...*gin.Context) {
+// RecordLogWithAdminInfo stores operator metadata under other.admin_info and
+// an optional, user-visible operation descriptor under other.op for localization.
+func RecordLogWithAdminInfo(userId int, logType int, content string, adminInfo *AuditAdminInfo, operation *AuditOperation, request ...*gin.Context) {
 	if logType == LogTypeConsume && !common.LogConsumeEnabled {
 		return
 	}
@@ -187,11 +188,14 @@ func RecordLogWithAdminInfo(userId int, logType int, content string, adminInfo *
 		if c != nil {
 			actorRole = c.GetInt("role")
 		}
-		RecordAuditLog(c, AuditLog{UserId: userId, Username: username, ActorRole: actorRole, Category: AuditCategoryOperation, Content: content, Other: AuditOther{AdminInfo: adminInfo}, Success: true})
+		RecordAuditLog(c, AuditLog{UserId: userId, Username: username, ActorRole: actorRole, Category: AuditCategoryOperation, Content: content, Other: AuditOther{AdminInfo: adminInfo, Op: operation}, Success: true})
 		return
 	}
-	if adminInfo != nil {
-		data, err := common.Marshal(AuditOther{AdminInfo: adminInfo})
+	if len(request) > 0 && request[0] != nil {
+		log.RequestId = request[0].GetString(common.RequestIdKey)
+	}
+	if adminInfo != nil || operation != nil {
+		data, err := common.Marshal(AuditOther{AdminInfo: adminInfo, Op: operation})
 		if err != nil {
 			common.SysError("failed to encode log admin info: " + err.Error())
 			return

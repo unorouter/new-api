@@ -44,6 +44,202 @@ import { useAuthStore } from '@/stores/auth-store'
 import { AuditLogs } from '..'
 import { AuditLogViewer } from '../components/audit-log-viewer'
 
+it.each([
+  [
+    'generic',
+    {
+      action: 'add_quota',
+      target_user_id: 11,
+      mode: 'unsupported',
+      requested_quota: 500000,
+      failure_reason: 'invalid_parameters',
+    },
+    'Adjust user quota',
+    'Requested quota: $1 · Invalid adjustment parameters',
+  ],
+  [
+    'user.quota_add',
+    {
+      target_user_id: 11,
+      target_username: 'quota-owner',
+      requested_quota: 500000,
+      quota: 500000,
+      from: 500000,
+      to: 1000000,
+    },
+    'Increase quota for user “quota-owner”',
+    'Requested quota: $1 · $1 → $2',
+  ],
+  [
+    'user.quota_subtract',
+    {
+      target_user_id: 11,
+      target_username: 'quota-owner',
+      requested_quota: 500000,
+      quota: 500000,
+      from: 1000000,
+      to: 500000,
+    },
+    'Decrease quota for user “quota-owner”',
+    'Requested quota: $1 · $2 → $1',
+  ],
+  [
+    'user.quota_override',
+    {
+      target_user_id: 11,
+      target_username: 'quota-owner',
+      requested_quota: 0,
+      from: 500000,
+      to: 0,
+    },
+    'Override quota for user “quota-owner”',
+    'Requested quota: $0 · $1 → $0',
+  ],
+  ['token.create', { id: 11, name: '1' }, 'Create API token “1”', ''],
+  [
+    'token.update',
+    {
+      id: 11,
+      name: 'production',
+      changed_fields: ['remain_quota', 'expired_time'],
+    },
+    'Update API token “production”',
+    'Changed fields: Remaining quota, Expiration Time',
+  ],
+  [
+    'token.status_update',
+    { id: 11, name: 'production', from: 1, to: 2 },
+    'Update API token “production”',
+    'Enabled → Disabled',
+  ],
+  [
+    'token.delete',
+    { id: 11, name: 'production' },
+    'Delete API token “production”',
+    '',
+  ],
+  [
+    'token.key_view',
+    { id: 11, name: 'production' },
+    'View key for API token “production”',
+    '',
+  ],
+  [
+    'token.delete_batch',
+    { total: 4, count: 1, requested_ids: [11, 11, 12, 99] },
+    'Batch delete API tokens',
+    'Requested: 4 · Deleted: 1',
+  ],
+  [
+    'token.key_view_batch',
+    { total: 4, count: 0, returned_ids: [] },
+    'View API token keys in batch',
+    'Requested: 4 · Returned: 0',
+  ],
+])(
+  'shows the target and business outcome for %s directly in the event cell',
+  async (action, params, headline, outcome) => {
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          total: 1,
+          items: [
+            {
+              event_id: 'token-event',
+              created_at: 1788600600,
+              username: 'root',
+              actor_role: 100,
+              category: 'security',
+              action,
+              success: action !== 'generic',
+              status: 200,
+              other: { op: { action, params } },
+            },
+          ],
+        },
+      },
+    })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <AuditLogViewer scope='self' />
+      </QueryClientProvider>
+    )
+    const cell = await screen.findByRole('cell', { name: new RegExp(headline) })
+    expect(cell).toHaveTextContent(headline)
+    if ('id' in params || 'target_user_id' in params) {
+      expect(cell).toHaveTextContent('(ID: 11)')
+    }
+    if (outcome) expect(cell).toHaveTextContent(outcome)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  }
+)
+
+it.each([false, true])(
+  'keeps the ID outside long-name truncation and shows complete details (mobile=%s)',
+  async (mobile) => {
+    const matchMedia = window.matchMedia.bind(window)
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      ...matchMedia(query),
+      matches: mobile && query === '(max-width: 640px)',
+    }))
+    const name = 'production-europe-primary-customer-routing-token'
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          total: 1,
+          items: [
+            {
+              event_id: 'long-token-name',
+              created_at: 1788600600,
+              username: 'root',
+              actor_role: 100,
+              category: 'security',
+              action: 'token.status_update',
+              success: true,
+              status: 200,
+              other: {
+                op: {
+                  action: 'token.status_update',
+                  params: { id: 11, name, from: 1, to: 2 },
+                },
+              },
+            },
+          ],
+        },
+      },
+    })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <AuditLogViewer scope='self' />
+      </QueryClientProvider>
+    )
+    const id = await screen.findByText('(ID: 11)')
+    expect(id).toBeVisible()
+    expect(id).toHaveClass('shrink-0')
+    expect(id.closest('.truncate')).toBeNull()
+    expect(screen.getByText('Enabled → Disabled')).toBeVisible()
+    if (mobile) expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    else expect(screen.getByRole('table')).toBeVisible()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Details' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Log Details' })
+    expect(
+      within(dialog).getByText(`Update API token “${name}” (ID: 11)`)
+    ).toBeVisible()
+    expect(
+      within(dialog).getByText('Token Name').parentElement
+    ).toHaveTextContent(name)
+  }
+)
+
 it('uses the shared log toolbar and opens details in a keyboard-accessible dialog without expanding the row', async () => {
   vi.spyOn(api, 'get').mockResolvedValue({
     data: {
