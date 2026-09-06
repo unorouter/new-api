@@ -569,6 +569,21 @@ func creemPaidCoversOrder(tradeNo string, paidCents int) bool {
 	return float64(paidCents) >= math.Floor(expected*100*0.99)
 }
 
+// A refused checkout is a signal, not just a log line: both shapes seen on 2026-09-06
+// (a $0 order minted with a stolen merchant key, an order with no request_id) were only
+// found hours later in receipt mail. The row feeds the newapi_checkout_refused metric.
+func recordCheckoutRefused(c *gin.Context, reason string, referenceId string, event *dto.CreemWebhookEvent) {
+	model.RecordOperationAuditLog(0, "Creem checkout refused: "+reason, c.ClientIP(), "payment.checkout_refused", map[string]interface{}{
+		"provider":       "creem",
+		"reason":         reason,
+		"request_id":     referenceId,
+		"creem_order_id": event.Object.Order.Id,
+		"amount_paid":    event.Object.Order.AmountPaid,
+		"product":        event.Object.Product.Name,
+		"customer_email": event.Object.Customer.Email,
+	}, nil, nil)
+}
+
 // 处理支付完成事件
 func handleCheckoutCompleted(c *gin.Context, event *dto.CreemWebhookEvent) {
 	// 验证订单状态
@@ -582,6 +597,7 @@ func handleCheckoutCompleted(c *gin.Context, event *dto.CreemWebhookEvent) {
 	referenceId := event.Object.RequestId
 	if referenceId == "" {
 		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem webhook missing request_id event_id=%s order_id=%s", event.Id, event.Object.Order.Id))
+		recordCheckoutRefused(c, "missing_request_id", "", event)
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
@@ -595,6 +611,7 @@ func handleCheckoutCompleted(c *gin.Context, event *dto.CreemWebhookEvent) {
 	// API key. The ledger settles on what was charged, never on the list price.
 	if !creemPaidCoversOrder(referenceId, event.Object.Order.AmountPaid) {
 		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem checkout paid less than the order price, left unsettled trade_no=%s creem_order_id=%s amount_paid=%d customer_email=%q", referenceId, event.Object.Order.Id, event.Object.Order.AmountPaid, event.Object.Customer.Email))
+		recordCheckoutRefused(c, "underpaid", referenceId, event)
 		c.Status(http.StatusOK)
 		return
 	}
