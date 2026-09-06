@@ -133,8 +133,6 @@ func InitOptionMap() {
 	common.OptionMap["NowPaymentsFeePaidByUser"] = strconv.FormatBool(setting.NowPaymentsFeePaidByUser)
 	common.OptionMap["NowPaymentsIsFixedRate"] = strconv.FormatBool(setting.NowPaymentsIsFixedRate)
 	common.OptionMap["NowPaymentsSubscriptionEnabled"] = strconv.FormatBool(setting.NowPaymentsSubscriptionEnabled)
-	common.OptionMap["NowPaymentsEmail"] = setting.NowPaymentsEmail
-	common.OptionMap["NowPaymentsPassword"] = setting.NowPaymentsPassword
 	common.OptionMap["DeloPayEnabled"] = strconv.FormatBool(setting.DeloPayEnabled)
 	common.OptionMap["DeloPayApiKey"] = setting.DeloPayApiKey
 	common.OptionMap["DeloPayProfileId"] = setting.DeloPayProfileId
@@ -622,10 +620,6 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.NowPaymentsUnitPrice, _ = strconv.ParseFloat(value, 64)
 	case "NowPaymentsMinTopUp":
 		setting.NowPaymentsMinTopUp, _ = strconv.Atoi(value)
-	case "NowPaymentsEmail":
-		setting.NowPaymentsEmail = value
-	case "NowPaymentsPassword":
-		setting.NowPaymentsPassword = value
 	case "DeloPayApiKey":
 		setting.DeloPayApiKey = value
 	case "DeloPayProfileId":

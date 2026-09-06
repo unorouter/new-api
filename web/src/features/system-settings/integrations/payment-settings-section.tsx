@@ -192,8 +192,6 @@ const paymentSchema = z.object({
   NowPaymentsFeePaidByUser: z.boolean(),
   NowPaymentsIsFixedRate: z.boolean(),
   NowPaymentsSubscriptionEnabled: z.boolean(),
-  NowPaymentsEmail: z.string(),
-  NowPaymentsPassword: z.string(),
   DeloPayEnabled: z.boolean(),
   DeloPayApiKey: z.string(),
   DeloPayProfileId: z.string(),
@@ -509,8 +507,6 @@ export function PaymentSettingsSection({
       NowPaymentsFeePaidByUser: values.NowPaymentsFeePaidByUser,
       NowPaymentsIsFixedRate: values.NowPaymentsIsFixedRate,
       NowPaymentsSubscriptionEnabled: values.NowPaymentsSubscriptionEnabled,
-      NowPaymentsEmail: values.NowPaymentsEmail.trim(),
-      NowPaymentsPassword: values.NowPaymentsPassword.trim(),
       DeloPayEnabled: values.DeloPayEnabled,
       DeloPayApiKey: values.DeloPayApiKey.trim(),
       DeloPayProfileId: values.DeloPayProfileId.trim(),
@@ -597,8 +593,6 @@ export function PaymentSettingsSection({
       NowPaymentsIsFixedRate: initialRef.current.NowPaymentsIsFixedRate,
       NowPaymentsSubscriptionEnabled:
         initialRef.current.NowPaymentsSubscriptionEnabled,
-      NowPaymentsEmail: initialRef.current.NowPaymentsEmail.trim(),
-      NowPaymentsPassword: initialRef.current.NowPaymentsPassword.trim(),
       DeloPayEnabled: initialRef.current.DeloPayEnabled,
       DeloPayApiKey: initialRef.current.DeloPayApiKey.trim(),
       DeloPayProfileId: initialRef.current.DeloPayProfileId.trim(),
@@ -955,24 +949,6 @@ export function PaymentSettingsSection({
       updates.push({
         key: 'NowPaymentsSubscriptionEnabled',
         value: sanitized.NowPaymentsSubscriptionEnabled,
-      })
-    }
-    if (
-      sanitized.NowPaymentsEmail &&
-      sanitized.NowPaymentsEmail !== initial.NowPaymentsEmail
-    ) {
-      updates.push({
-        key: 'NowPaymentsEmail',
-        value: sanitized.NowPaymentsEmail,
-      })
-    }
-    if (
-      sanitized.NowPaymentsPassword &&
-      sanitized.NowPaymentsPassword !== initial.NowPaymentsPassword
-    ) {
-      updates.push({
-        key: 'NowPaymentsPassword',
-        value: sanitized.NowPaymentsPassword,
       })
     }
 
@@ -1732,60 +1708,6 @@ export function PaymentSettingsSection({
                 </FormItem>
               )}
             />
-
-            <div className='grid gap-6 md:grid-cols-2'>
-              <FormField
-                control={form.control}
-                name='NowPaymentsEmail'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      {t('NowPayments account email (for subscriptions)')}
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        type='email'
-                        placeholder={t('account@example.com')}
-                        autoComplete='off'
-                        {...field}
-                        onChange={(event) => field.onChange(event.target.value)}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'Subscription plans API requires JWT auth via account email + password (top-ups still use x-api-key)'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='NowPaymentsPassword'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      {t('NowPayments account password (for subscriptions)')}
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        type='password'
-                        placeholder={t('Enter NowPayments account password')}
-                        autoComplete='new-password'
-                        {...field}
-                        onChange={(event) => field.onChange(event.target.value)}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Leave blank unless updating')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
           </div>
             </TabsContent>
 
