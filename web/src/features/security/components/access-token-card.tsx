@@ -30,6 +30,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { SecureVerificationDialog } from '@/features/auth/secure-verification'
 import { AuditLogViewer } from '@/features/usage-logs/audit/components/audit-log-viewer'
 import dayjs from '@/lib/dayjs'
 
@@ -43,21 +44,19 @@ export function AccessTokenCard() {
     null
   )
   const [historyOpen, setHistoryOpen] = useState(false)
-  const pending = access.generate.isPending || access.revoke.isPending
+  const pending = access.pending
   const status = access.status.data
   const ready = !access.status.isError && !access.status.isPending && !!status
   let lastUsed = t('Unknown')
   if (status?.last_used_at) {
     lastUsed = dayjs.unix(status.last_used_at).format('YYYY-MM-DD HH:mm:ss')
   } else if (status?.created_at) lastUsed = t('Not used yet')
-  const confirm = async () => {
-    try {
-      if (confirmation === 'revoke') await access.revoke.mutateAsync()
-      else await access.generate.mutateAsync()
-      setConfirmation(null)
-    } catch {
-      /* The mutation displays the error and preserves the confirmation. */
-    }
+  const confirm = () => {
+    if (pending || !confirmation) return
+    const operation = confirmation
+    setConfirmation(null)
+    if (operation === 'revoke') void access.revoke()
+    else void access.generate()
   }
   return (
     <>
@@ -152,7 +151,7 @@ export function AccessTokenCard() {
                 <Button
                   size='sm'
                   disabled={pending}
-                  onClick={() => access.generate.mutate()}
+                  onClick={() => void access.generate()}
                 >
                   {t('Generate')}
                 </Button>
@@ -164,6 +163,7 @@ export function AccessTokenCard() {
       {access.token && (
         <AccessTokenDialog token={access.token} onClose={access.clearToken} />
       )}
+      <SecureVerificationDialog {...access.verificationDialogProps} />
       <ConfirmDialog
         open={confirmation !== null}
         onOpenChange={(open) => {

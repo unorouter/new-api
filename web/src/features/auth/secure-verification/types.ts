@@ -27,6 +27,8 @@ export type SecurityProofScope =
   | 'passkey.register'
   | 'passkey.delete'
   | '2fa.setup'
+  | 'access_token.generate'
+  | 'access_token.revoke'
 
 export type VerificationOperation =
   | { scope: 'channel.key.read'; context: { channel_id: number } }

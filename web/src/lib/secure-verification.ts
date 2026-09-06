@@ -64,20 +64,19 @@ export const authRequestOptions = {
 export async function authResult<T>(
   request: Promise<{
     data: { success: boolean; message?: string; code?: string; data?: T }
-  }>
+  }>,
+  fallback = 'Verification failed. Please try again.'
 ): Promise<T> {
   try {
     const { data: response } = await request
     if (!response.success || response.data === undefined) {
       throw new AuthOperationError(
-        getServerErrorMessageKey(response) ||
-          response.message ||
-          'Verification failed. Please try again.',
+        getServerErrorMessageKey(response) || response.message || fallback,
         response.code
       )
     }
     return response.data
   } catch (error) {
-    throw AuthOperationError.from(error)
+    throw AuthOperationError.from(error, fallback)
   }
 }

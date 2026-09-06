@@ -16,11 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { useSecureVerification } from '@/features/auth/secure-verification'
+import { AuthOperationError } from '@/lib/secure-verification'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -33,36 +35,93 @@ export function useAccessToken() {
   const { t } = useTranslation()
   const client = useQueryClient()
   const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
   const statusKey = ['security', 'access-token', 'status', userId] as const
-  const [token, setToken] = useState('')
+  const [generatedToken, setGeneratedToken] = useState<{
+    value: string
+    userId: number | undefined
+    sessionId: string | undefined
+  } | null>(null)
+  const [pending, setPending] = useState(false)
+  const currentOperation = useRef<AbortController | null>(null)
+  const verification = useSecureVerification()
+  const requestVerification = verification.requestVerification
+  const cancelVerification = verification.cancel
   const status = useQuery({
     queryKey: statusKey,
     queryFn: getAccessTokenStatus,
     retry: false,
   })
-  const refresh = () => client.invalidateQueries({ queryKey: statusKey })
-  const generate = useMutation({
-    // Keep plaintext out of the query/mutation cache and persistent storage.
-    mutationFn: async () => {
-      setToken(await createAccessToken())
+  useEffect(
+    () => () => {
+      const current = currentOperation.current
+      currentOperation.current = null
+      current?.abort()
+      cancelVerification()
+      setPending(false)
+      setGeneratedToken(null)
     },
-    onSuccess: refresh,
-    onError: () => {
-      toast.error(t('Failed to generate token'))
-      void refresh()
+    [cancelVerification, userId, sessionId]
+  )
+
+  const performOperation = useCallback(
+    async (operation: 'generate' | 'revoke') => {
+      if (currentOperation.current) return
+      const controller = new AbortController()
+      currentOperation.current = controller
+      setPending(true)
+      try {
+        const proof = await requestVerification({
+          scope: `access_token.${operation}`,
+        })
+        if (currentOperation.current !== controller || !proof) return
+        // Proofs and plaintext stay local to this action, outside React Query caches.
+        if (operation === 'generate') {
+          const generated = await createAccessToken(
+            proof.proof_token,
+            controller.signal
+          )
+          if (currentOperation.current !== controller) return
+          setGeneratedToken({ value: generated, userId, sessionId })
+        } else {
+          await revokeAccessToken(proof.proof_token, controller.signal)
+          if (currentOperation.current !== controller) return
+          setGeneratedToken(null)
+          toast.success(t('Access token revoked'))
+        }
+        void client.invalidateQueries({
+          queryKey: ['security', 'access-token', 'status', userId],
+        })
+      } catch (error) {
+        if (currentOperation.current !== controller) return
+        const failure = AuthOperationError.from(error)
+        if (failure.code !== 'AUTH_CANCELLED') toast.error(t(failure.message))
+        void client.invalidateQueries({
+          queryKey: ['security', 'access-token', 'status', userId],
+        })
+      } finally {
+        if (currentOperation.current === controller) {
+          currentOperation.current = null
+          setPending(false)
+        }
+      }
     },
-  })
-  const revoke = useMutation({
-    mutationFn: revokeAccessToken,
-    onSuccess: () => {
-      setToken('')
-      toast.success(t('Access token revoked'))
-      return refresh()
+    [client, requestVerification, t, userId, sessionId]
+  )
+
+  return {
+    status,
+    token:
+      generatedToken?.userId === userId &&
+      generatedToken?.sessionId === sessionId
+        ? (generatedToken?.value ?? '')
+        : '',
+    pending,
+    clearToken: () => {
+      setGeneratedToken(null)
     },
-    onError: () => {
-      toast.error(t('Failed to revoke token'))
-      void refresh()
-    },
-  })
-  return { status, token, clearToken: () => setToken(''), generate, revoke }
+    generate: () => performOperation('generate'),
+    revoke: () => performOperation('revoke'),
+    verificationDialogProps: verification.dialogProps,
+  }
 }

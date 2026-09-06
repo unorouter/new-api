@@ -15,15 +15,17 @@ import (
 )
 
 const (
-	VerificationMethodTwoFA          = "2fa"
-	VerificationMethodPasskey        = "passkey"
-	VerificationMethodPassword       = "password"
-	VerificationMethodOAuth          = "oauth"
-	VerificationMethodSession        = "session"
-	VerificationScopeChannelKeyRead  = "channel.key.read"
-	VerificationScopePasskeyRegister = "passkey.register"
-	VerificationScopePasskeyDelete   = "passkey.delete"
-	VerificationScopeTwoFASetup      = "2fa.setup"
+	VerificationMethodTwoFA              = "2fa"
+	VerificationMethodPasskey            = "passkey"
+	VerificationMethodPassword           = "password"
+	VerificationMethodOAuth              = "oauth"
+	VerificationMethodSession            = "session"
+	VerificationScopeChannelKeyRead      = "channel.key.read"
+	VerificationScopePasskeyRegister     = "passkey.register"
+	VerificationScopePasskeyDelete       = "passkey.delete"
+	VerificationScopeTwoFASetup          = "2fa.setup"
+	VerificationScopeAccessTokenGenerate = "access_token.generate"
+	VerificationScopeAccessTokenRevoke   = "access_token.revoke"
 )
 
 var (
@@ -68,7 +70,8 @@ func BindVerificationOperation(operation VerificationOperation) (VerificationBin
 			return VerificationBinding{}, ErrVerificationContextInvalid
 		}
 		normalized = context
-	case VerificationScopePasskeyRegister, VerificationScopePasskeyDelete, VerificationScopeTwoFASetup:
+	case VerificationScopePasskeyRegister, VerificationScopePasskeyDelete, VerificationScopeTwoFASetup,
+		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenRevoke:
 		if len(fields) != 0 {
 			return VerificationBinding{}, ErrVerificationContextInvalid
 		}
@@ -142,7 +145,8 @@ func securityVerificationPolicy(scope string, state verificationAccountState) ([
 		} else if state.HasPasskey {
 			methods = []string{VerificationMethodPasskey}
 		}
-	case VerificationScopePasskeyRegister, VerificationScopeTwoFASetup:
+	case VerificationScopePasskeyRegister, VerificationScopeTwoFASetup,
+		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenRevoke:
 		if scope == VerificationScopeTwoFASetup && state.HasTwoFA {
 			return nil, model.ErrTwoFAAlreadyEnabled
 		}
@@ -153,7 +157,7 @@ func securityVerificationPolicy(scope string, state verificationAccountState) ([
 			methods = []string{VerificationMethodPasskey}
 		case state.HasPassword:
 			methods = []string{VerificationMethodPassword}
-		case state.WeChatEnrollment:
+		case state.WeChatEnrollment && (scope == VerificationScopePasskeyRegister || scope == VerificationScopeTwoFASetup):
 			methods = []string{VerificationMethodSession}
 		default:
 			methods = []string{VerificationMethodOAuth}

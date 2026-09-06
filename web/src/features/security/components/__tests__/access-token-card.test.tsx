@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -35,7 +36,34 @@ import type { AccessTokenStatus } from '../../api'
 import { AccessTokenCard } from '../access-token-card'
 
 let status: AccessTokenStatus
+let proofCount: number
+
+function passwordProof(scope: string) {
+  proofCount += 1
+  return {
+    data: {
+      success: true,
+      data: {
+        proof_token: `one-use-proof-${proofCount}`,
+        scope,
+        method: 'password',
+        expires_at: Math.floor(Date.now() / 1000) + 60,
+      },
+    },
+  }
+}
+
+async function verifyPassword(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(
+    await screen.findByLabelText('Password', { selector: 'input' }),
+    'current-password'
+  )
+  await user.click(screen.getByRole('button', { name: 'Verify' }))
+}
+
 beforeEach(() => {
+  proofCount = 0
+  useAuthStore.getState().auth.setUser({ id: 1, username: 'admin', role: 100 })
   vi.stubGlobal('localStorage', {
     getItem: () => null,
     setItem: () => undefined,
@@ -48,11 +76,30 @@ beforeEach(() => {
     last_used_at: null,
     last_used_ip: '',
   }
-  vi.spyOn(api, 'get').mockImplementation(async (url) => {
+  vi.spyOn(api, 'get').mockImplementation(async (url, config) => {
     if (url === '/api/audit/self') {
       return { data: { success: true, data: { items: [], total: 0 } } }
     }
+    if (url === '/api/verify/methods') {
+      return {
+        data: {
+          success: true,
+          data: {
+            scope: config?.params?.scope,
+            methods: [{ method: 'password', available: true }],
+            oauth_providers: [],
+            password_encryption_enabled: false,
+          },
+        },
+      }
+    }
     return { data: { success: true, data: status } }
+  })
+  vi.spyOn(api, 'post').mockImplementation(async (url, data) => {
+    if (url === '/api/verify') {
+      return passwordProof((data as { scope: string }).scope)
+    }
+    throw new Error(`Unexpected POST ${url}`)
   })
 })
 afterEach(() => {
@@ -76,9 +123,109 @@ function renderCard() {
 }
 
 describe('system access token management', () => {
+  it('does not generate a token when identity verification is cancelled', async () => {
+    const post = vi.mocked(api.post)
+    renderCard()
+    const user = userEvent.setup()
+    await user.dblClick(await screen.findByRole('button', { name: 'Generate' }))
+    await screen.findByLabelText('Password', { selector: 'input' })
+    expect(post).not.toHaveBeenCalled()
+    expect(
+      vi
+        .mocked(api.get)
+        .mock.calls.filter(([url]) => url === '/api/verify/methods')
+    ).toHaveLength(1)
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(post).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('Token')).not.toBeInTheDocument()
+  })
+
+  it('ignores a successful verification response that arrives after cancellation', async () => {
+    let complete!: (value: ReturnType<typeof passwordProof>) => void
+    const pending = new Promise<ReturnType<typeof passwordProof>>((resolve) => {
+      complete = resolve
+    })
+    const post = vi.mocked(api.post).mockImplementation(async (url) => {
+      if (url === '/api/verify') return pending
+      throw new Error(`Unexpected POST ${url}`)
+    })
+    renderCard()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Generate' }))
+    await verifyPassword(user)
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        '/api/verify',
+        expect.anything(),
+        expect.anything()
+      )
+    )
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await act(async () => {
+      complete(passwordProof('access_token.generate'))
+      await pending
+    })
+    expect(
+      post.mock.calls.filter(([url]) => url === '/api/user/token')
+    ).toHaveLength(0)
+    expect(screen.queryByLabelText('Token')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Generate' })).toBeEnabled()
+  })
+
+  it('aborts and ignores a token response for an account that is no longer active', async () => {
+    const token = 'previous-account-private-token'
+    let complete!: (value: { data: { success: boolean; data: string } }) => void
+    const pending = new Promise<{ data: { success: boolean; data: string } }>(
+      (resolve) => {
+        complete = resolve
+      }
+    )
+    let signal: { readonly aborted: boolean } | undefined
+    vi.mocked(api.post).mockImplementation(async (url, data, config) => {
+      if (url === '/api/verify') {
+        return passwordProof((data as { scope: string }).scope)
+      }
+      if (url === '/api/user/token') {
+        signal = config?.signal
+        return pending
+      }
+      throw new Error(`Unexpected POST ${url}`)
+    })
+    const client = renderCard()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Generate' }))
+    await verifyPassword(user)
+    await waitFor(() => expect(signal).toBeDefined())
+    await act(async () => {
+      useAuthStore
+        .getState()
+        .auth.setUser({ id: 2, username: 'other-user', role: 100 })
+    })
+    expect(signal?.aborted).toBe(true)
+    await act(async () => {
+      complete({ data: { success: true, data: token } })
+      await pending
+    })
+    expect(screen.queryByDisplayValue(token)).not.toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'Generate' })
+    ).toBeEnabled()
+    expect(
+      JSON.stringify(
+        client
+          .getQueryCache()
+          .getAll()
+          .map((entry) => entry.state.data)
+      )
+    ).not.toContain(token)
+  })
+
   it('generates a missing token and clears the one-time plaintext on Escape', async () => {
     const token = 'one-time-private-token'
-    vi.spyOn(api, 'post').mockImplementation(async () => {
+    vi.mocked(api.post).mockImplementation(async (url, data) => {
+      if (url === '/api/verify') {
+        return passwordProof((data as { scope: string }).scope)
+      }
       status = {
         ...status,
         exists: true,
@@ -90,9 +237,17 @@ describe('system access token management', () => {
     const client = renderCard()
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: 'Generate' }))
+    await verifyPassword(user)
     const dialog = await screen.findByRole('dialog', { name: 'Access Token' })
     expect(within(dialog).getByLabelText('Token')).toHaveValue(token)
-    expect(api.post).toHaveBeenCalledWith('/api/user/token')
+    expect(api.post).toHaveBeenCalledWith(
+      '/api/user/token',
+      undefined,
+      expect.objectContaining({
+        headers: { 'X-Security-Proof': 'one-use-proof-1' },
+        singleUseAuthorization: true,
+      })
+    )
     await user.keyboard('{Escape}')
     await waitFor(() =>
       expect(screen.queryByDisplayValue(token)).not.toBeInTheDocument()
@@ -105,6 +260,9 @@ describe('system access token management', () => {
           .map((entry) => entry.state.data)
       )
     ).not.toContain(token)
+    expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain(
+      'one-use-proof-1'
+    )
     expect(
       JSON.stringify(
         client
@@ -141,11 +299,14 @@ describe('system access token management', () => {
     expect(await screen.findByText('Not generated')).toBeVisible()
   })
 
-  it('rotation requires confirmation and a failed rotation keeps the existing token state', async () => {
+  it('rotation requires confirmation and verification, and failure keeps the existing token state', async () => {
     status = { ...status, exists: true, token_ref: 'a'.repeat(64) }
-    const post = vi
-      .spyOn(api, 'post')
-      .mockResolvedValue({ data: { success: false } })
+    const post = vi.mocked(api.post).mockImplementation(async (url, data) => {
+      if (url === '/api/verify') {
+        return passwordProof((data as { scope: string }).scope)
+      }
+      return { data: { success: false } }
+    })
     renderCard()
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: 'Regenerate' }))
@@ -154,6 +315,8 @@ describe('system access token management', () => {
     await user.click(
       within(confirmation).getByRole('button', { name: 'Regenerate token' })
     )
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    await verifyPassword(user)
     expect(await screen.findByText('Failed to generate token')).toBeVisible()
     expect(
       screen.queryByRole('dialog', { name: 'Access Token' })
@@ -164,10 +327,10 @@ describe('system access token management', () => {
   it('revocation failures can be retried and success restores the generate action', async () => {
     status = { ...status, exists: true, token_ref: 'a'.repeat(64) }
     vi.spyOn(api, 'delete')
-      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ data: { success: false } })
       .mockImplementation(async () => {
         status = { ...status, exists: false, token_ref: '' }
-        return { data: { success: true } }
+        return { data: { success: true, data: null } }
       })
     renderCard()
     const user = userEvent.setup()
@@ -177,9 +340,27 @@ describe('system access token management', () => {
       { name: 'Revoke' }
     )
     await user.click(confirm)
+    await verifyPassword(user)
     expect(await screen.findByText('Failed to revoke token')).toBeVisible()
-    await waitFor(() => expect(confirm).toBeEnabled())
-    await user.click(confirm)
+    expect(api.delete).toHaveBeenLastCalledWith(
+      '/api/user/token',
+      expect.objectContaining({
+        headers: { 'X-Security-Proof': 'one-use-proof-1' },
+      })
+    )
+    await user.click(screen.getByRole('button', { name: 'Revoke' }))
+    await user.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'Revoke',
+      })
+    )
+    await verifyPassword(user)
+    expect(api.delete).toHaveBeenLastCalledWith(
+      '/api/user/token',
+      expect.objectContaining({
+        headers: { 'X-Security-Proof': 'one-use-proof-2' },
+      })
+    )
     expect(
       await screen.findByRole('button', { name: 'Generate' })
     ).toBeVisible()

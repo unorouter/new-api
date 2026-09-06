@@ -91,21 +91,16 @@ func TestAccessTokenLifecycleAndLateRequests(t *testing.T) {
 	assert.NotNil(t, status.CreatedAt)
 	assert.Nil(t, status.LastUsedAt, "in-flight old requests must not mark the new generation as used")
 	assert.Equal(t, 401, auditRequest(router, "GET", "/api/user/token/status", old).Code)
-	for _, method := range []string{"POST", "GET"} {
+	for _, method := range []string{"POST", "GET", "DELETE"} {
 		response := auditRequest(router, method, "/api/user/token", "new-token")
-		var result struct {
-			Success bool
-			Data    string
-		}
-		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
-		require.True(t, result.Success)
-		require.GreaterOrEqual(t, len(result.Data), 28)
-		require.LessOrEqual(t, len(result.Data), 32)
-		assert.Equal(t, 401, auditRequest(router, "GET", "/api/user/token/status", "new-token").Code)
-		require.NoError(t, model.UpdateUserAccessToken(user.Id, "new-token"))
+		assert.Equal(t, http.StatusForbidden, response.Code)
+		assert.Contains(t, response.Body.String(), `"code":"SECURITY_PROOF_INVALID"`)
+		stored, err := model.GetUserById(user.Id, true)
+		require.NoError(t, err)
+		assert.Equal(t, "new-token", stored.GetAccessToken(), "a PAT cannot manage itself without a dashboard verification")
 	}
-	response := auditRequest(router, "DELETE", "/api/user/token", "new-token")
-	assert.Contains(t, response.Body.String(), `"success":true`)
+	_, err = model.RevokeUserAccessToken(user.Id)
+	require.NoError(t, err)
 	assert.Equal(t, 401, auditRequest(router, "GET", "/api/user/token/status", "new-token").Code)
 	ref, err := model.RevokeUserAccessToken(user.Id)
 	require.NoError(t, err)

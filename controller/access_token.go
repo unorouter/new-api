@@ -1,25 +1,60 @@
 package controller
 
 import (
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/gin-gonic/gin"
+	"net/http"
 	"strconv"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
 )
 
 func GetAccessTokenStatus(c *gin.Context) {
 	status, err := model.GetUserAccessTokenStatus(c.GetInt("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		writeSecurityOperationError(c, err)
 		return
 	}
 	common.ApiSuccess(c, status)
 }
 
+func GenerateAccessToken(c *gin.Context) {
+	if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeAccessTokenGenerate}) == nil {
+		return
+	}
+	id := c.GetInt("id")
+	key, err := common.GenerateRandomKey(29 + common.GetRandomInt(4))
+	if err != nil {
+		writeSecurityOperationError(c, err)
+		return
+	}
+	var existing int64
+	if err := model.DB.Model(&model.User{}).Where("access_token = ?", key).Count(&existing).Error; err != nil {
+		writeSecurityOperationError(c, err)
+		return
+	}
+	if existing != 0 {
+		common.ApiErrorI18n(c, i18n.MsgUuidDuplicate)
+		return
+	}
+	if err := model.UpdateUserAccessToken(id, key); err != nil {
+		writeSecurityOperationError(c, err)
+		return
+	}
+	recordUserSecurityAudit(c, id, "access_token.generate", map[string]interface{}{"token_ref": model.AccessTokenFingerprint(key)})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": key})
+}
+
 func RevokeAccessToken(c *gin.Context) {
+	if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeAccessTokenRevoke}) == nil {
+		return
+	}
 	ref, err := model.RevokeUserAccessToken(c.GetInt("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		writeSecurityOperationError(c, err)
 		return
 	}
 	if ref != "" {
