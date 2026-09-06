@@ -51,6 +51,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		request.Stream = common.GetPointer[bool](true)
 		info.IsStream = true
 		info.ForceUpstreamStream = true
+		info.DisablePing = true
 	}
 
 	adaptor := GetAdaptor(info.ApiType)
