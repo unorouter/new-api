@@ -196,6 +196,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				return
 			}
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+			// Nothing was streamed, so this is a plain JSON error; the SSE headers set
+			// ahead of the upstream call would otherwise label it text/event-stream and
+			// clients that branch on content type show "network error" for it.
+			helper.ResetEventStreamHeaders(c)
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())

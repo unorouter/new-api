@@ -42,6 +42,24 @@ func requestContextDone(c *gin.Context) bool {
 	return c != nil && c.Request != nil && c.Request.Context().Err() != nil
 }
 
+// ResetEventStreamHeaders undoes SetEventStreamHeaders on a response that has
+// not been written yet, so an error decided after the stream headers went up is
+// delivered as the JSON document it is.
+func ResetEventStreamHeaders(c *gin.Context) {
+	if c.Writer.Written() {
+		return
+	}
+	if _, exists := c.Get("event_stream_headers_set"); !exists {
+		return
+	}
+	h := c.Writer.Header()
+	h.Set("Content-Type", "application/json")
+	h.Del("Cache-Control")
+	h.Del("Connection")
+	h.Del("Transfer-Encoding")
+	h.Del("X-Accel-Buffering")
+}
+
 func SetEventStreamHeaders(c *gin.Context) {
 	// 检查是否已经设置过头部
 	if _, exists := c.Get("event_stream_headers_set"); exists {
