@@ -137,6 +137,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		request.Stream = lo.ToPtr(true)
 		info.IsStream = true
 		info.ForceUpstreamStream = true
+		// The client asked for JSON: SSE pings and headers would corrupt it.
+		info.DisablePing = true
 	}
 
 	includeUsage := true
