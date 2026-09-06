@@ -339,7 +339,7 @@ export function getDynamicPricingSummary(
       if (!range || range.min === range.max) return entry
       return {
         ...entry,
-        formattedRange: `${formatTaskUsageUnitPrice(range.min, options)}–${formatTaskUsageUnitPrice(range.max, options)}`,
+        formattedRange: `${formatTaskUsageUnitPrice(range.min, options)} – ${formatTaskUsageUnitPrice(range.max, options)}`,
       }
     })
   }

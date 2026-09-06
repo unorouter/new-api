@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Combobox } from '@/components/ui/combobox'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
 import { Pencil } from 'lucide-react'
@@ -44,14 +45,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Sheet,
   SheetClose,
@@ -361,29 +355,16 @@ export function UsersMutateDrawer({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>{t('Group')}</FormLabel>
-                        <Select
-                          items={groups.map((group) => ({
+                        <FormControl><Combobox
+options={groups.map((group) => ({
                             value: group,
                             label: group,
                           }))}
-                          onValueChange={field.onChange}
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder={t('Select a group')} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent alignItemWithTrigger={false}>
-                            <SelectGroup>
-                              {groups.map((group) => (
-                                <SelectItem key={group} value={group}>
-                                  {group}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
+onValueChange={field.onChange}
+value={field.value}
+className='w-full'
+placeholder={t('Select a group')}
+/></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}

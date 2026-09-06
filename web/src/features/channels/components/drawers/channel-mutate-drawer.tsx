@@ -81,14 +81,7 @@ import {
 } from '@/components/ui/form'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import {
   Sheet,
@@ -1987,9 +1980,9 @@ export function ChannelMutateDrawer({
                                 <FormItem>
                                   <FormLabel>{t('Task plugin *')}</FormLabel>
                                   {canBindTaskPlugin ? (
-                                    <Select
-                                      value={field.value}
-                                      onValueChange={(value) => {
+                                    <FormControl><Combobox
+value={field.value}
+onValueChange={(value) => {
                                         field.onChange(value)
                                         const plugin =
                                           taskPluginOptionsQuery.data?.find(
@@ -2005,35 +1998,17 @@ export function ChannelMutateDrawer({
                                           )
                                         }
                                       }}
-                                      items={(
+options={(
                                         taskPluginOptionsQuery.data ?? []
                                       ).map((plugin) => ({
                                         value: plugin.key,
                                         label: `${plugin.name} (${plugin.key})`,
                                       }))}
-                                    >
-                                      <FormControl>
-                                        <SelectTrigger>
-                                          <SelectValue
-                                            placeholder={t(
+className='w-full'
+placeholder={t(
                                               'Select task plugin'
                                             )}
-                                          />
-                                        </SelectTrigger>
-                                      </FormControl>
-                                      <SelectContent>
-                                        {(
-                                          taskPluginOptionsQuery.data ?? []
-                                        ).map((plugin) => (
-                                          <SelectItem
-                                            key={plugin.key}
-                                            value={plugin.key}
-                                          >
-                                            {plugin.name} ({plugin.key})
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
+/></FormControl>
                                   ) : (
                                     <FormControl>
                                       <Input

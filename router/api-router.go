@@ -205,6 +205,8 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			optionRoute.GET("/", controller.GetOptions)
 			optionRoute.PUT("/", controller.UpdateOption)
+			optionRoute.GET("/model_pricing", controller.GetModelPricingConfig)
+			optionRoute.PATCH("/model_pricing", controller.UpdateModelPricingConfig)
 			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
 			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 			optionRoute.DELETE("/channel_affinity_cache", controller.ClearChannelAffinityCache)
@@ -366,6 +368,8 @@ func SetApiRouter(router *gin.Engine) {
 		vendorRoute := apiRouter.Group("/vendors")
 		vendorRoute.Use(middleware.AdminAuth())
 		{
+			vendorRoute.POST("/operations/preview", controller.PreviewVendorOperation)
+			vendorRoute.POST("/operations", controller.ApplyVendorOperation)
 			vendorRoute.GET("/", controller.GetAllVendors)
 			vendorRoute.GET("/search", controller.SearchVendors)
 			vendorRoute.GET("/:id", controller.GetVendorMeta)
@@ -379,6 +383,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			modelsRoute.GET("/sync_upstream/preview", controller.SyncUpstreamPreview)
 			modelsRoute.POST("/sync_upstream", controller.SyncUpstreamModels)
+			modelsRoute.POST("/delete", controller.BatchDeleteModelMeta)
 			modelsRoute.GET("/missing", controller.GetMissingModels)
 			modelsRoute.GET("/", controller.GetAllModelsMeta)
 			modelsRoute.GET("/search", controller.SearchModelsMeta)

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Combobox } from '@/components/ui/combobox'
 import { AlertTriangle } from 'lucide-react'
 import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -25,14 +26,7 @@ import { Badge } from '@/components/ui/badge'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
   combineBillingExpr,
@@ -141,38 +135,27 @@ function TaskBillingPreview(props: TaskBillingPreviewProps) {
       {props.usageExamples && props.usageExamples.length > 0 ? (
         <Field className='gap-1.5'>
           <FieldLabel>{t('Example spec')}</FieldLabel>
-          <Select
-            items={props.usageExamples.map((example) => ({
+          <Combobox
+options={props.usageExamples.map((example) => ({
               value: example.label,
               label: example.label,
             }))}
-            value={
+value={
               props.usageExamples.find((example) =>
                 Object.entries(example.facts).every(
                   ([field, value]) => props.sample[field] === value
                 )
               )?.label ?? null
             }
-            onValueChange={(label) => {
+onValueChange={(label) => {
               const example = props.usageExamples?.find(
                 (item) => item.label === label
               )
               if (example) props.onSampleReplace({ ...example.facts })
             }}
-          >
-            <SelectTrigger size='sm'>
-              <SelectValue placeholder={t('Example spec')} />
-            </SelectTrigger>
-            <SelectContent alignItemWithTrigger={false}>
-              <SelectGroup>
-                {props.usageExamples.map((example) => (
-                  <SelectItem key={example.label} value={example.label}>
-                    {example.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+className='w-full'
+placeholder={t('Example spec')}
+/>
         </Field>
       ) : null}
       {enumFields.length + numberFields.length > 0 ? (
@@ -187,26 +170,14 @@ function TaskBillingPreview(props: TaskBillingPreviewProps) {
                 <FieldLabel>
                   <code>{field}</code>
                 </FieldLabel>
-                <Select
-                  items={items}
-                  value={String(props.sample[field] ?? '')}
-                  onValueChange={(value) =>
+                <Combobox
+options={items}
+value={String(props.sample[field] ?? '')}
+onValueChange={(value) =>
                     value !== null && props.onSampleChange(field, value)
                   }
-                >
-                  <SelectTrigger size='sm'>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent alignItemWithTrigger={false}>
-                    <SelectGroup>
-                      {items.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+className='w-full'
+/>
               </Field>
             )
           })}

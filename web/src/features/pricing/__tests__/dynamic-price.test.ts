@@ -108,7 +108,7 @@ describe('task dynamic pricing', () => {
     assert.ok(summary)
     assert.match(summary.primaryEntries[0]?.formattedRange ?? '', /0[.,]4/)
     assert.match(summary.primaryEntries[0]?.formattedRange ?? '', /0[.,]8/)
-    assert.match(summary.primaryEntries[0]?.formattedRange ?? '', /–/)
+    assert.match(summary.primaryEntries[0]?.formattedRange ?? '', /\S – \S/)
     assert.match(summary.primaryEntries[0]?.formatted ?? '', /0[.,]4/)
   })
 

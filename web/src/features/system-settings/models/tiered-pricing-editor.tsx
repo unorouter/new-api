@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Combobox } from '@/components/ui/combobox'
 import { ChevronDown, Copy, Plus, Trash2 } from 'lucide-react'
 import {
   memo,
@@ -43,14 +44,7 @@ import {
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -1016,34 +1010,19 @@ function RuleConditionRow({
           </SelectGroup>
         </SelectContent>
       </Select>
-      <Select
-        items={[
+      <Combobox
+options={[
           ...COMMON_TIMEZONES.map((tz) => ({
             value: tz.value,
             label: tz.label,
           })),
         ]}
-        value={timeCond.timezone}
-        onValueChange={(value) =>
+value={timeCond.timezone}
+onValueChange={(value) =>
           value !== null && onChange({ ...timeCond, timezone: value })
         }
-      >
-        <SelectTrigger className='w-56' size='sm'>
-          <SelectValue>
-            {COMMON_TIMEZONES.find((tz) => tz.value === timeCond.timezone)
-              ?.label ?? timeCond.timezone}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent alignItemWithTrigger={false}>
-          <SelectGroup>
-            {COMMON_TIMEZONES.map((tz) => (
-              <SelectItem key={tz.value} value={tz.value}>
-                {tz.label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
+className='w-56'
+/>
       <Select
         items={[
           ...matchOptions.map((option) => ({

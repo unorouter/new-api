@@ -20,6 +20,21 @@ For commercial licensing, please contact support@quantumnous.com
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
   'Account deletion',
+  // Model management and metadata synchronization
+  'Model management',
+  'Select models',
+  'Preview fields',
+  'Confirm changes',
+  'Sync results',
+  'New metadata',
+  'Metadata changes',
+  'No changes',
+  'Metadata sync disabled',
+  'Not found upstream',
+  'Upstream vendor missing',
+  'Custom endpoints',
+  'Catalog visibility',
+
   // Header navigation
   'Home',
   'Console',
@@ -655,4 +670,10 @@ export const STATIC_I18N_KEYS = [
   'Account binding',
   'Account unlinking',
   'Email confirmation code resend',
+  // Model and vendor management labels.
+  'Vendors',
+  'Vendor management',
+  'Vendor name and icon must not exceed 128 characters.',
+  'Shown',
+  'Not shown',
 ] as const
