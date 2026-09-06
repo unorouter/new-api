@@ -44,6 +44,42 @@ spec:
       - name: AWS_RESPONSE_CHECKSUM_VALIDATION
         value: when_required
 ---
+# Encrypted-at-rest archive on Cloudflare R2 (every object AES-256 at rest, free egress).
+# Hetzner Object Storage supports only SSE-C, which barman cannot use, so the Hetzner store
+# above is now the RESTORE-FROM lineage only; new base backups and WAL land here.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: newapi-pg-r2
+  namespace: databases
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  retentionPolicy: 30d
+  configuration:
+    destinationPath: s3://unorouter-backups/
+    endpointURL: https://7dad953fa57f079bfec11d3db10bc18a.r2.cloudflarestorage.com
+    s3Credentials:
+      accessKeyId:
+        name: newapi-pg-r2
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: newapi-pg-r2
+        key: ACCESS_SECRET_KEY
+      region:
+        name: newapi-pg-r2
+        key: REGION
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+  instanceSidecarConfiguration:
+    env:
+      - name: AWS_REQUEST_CHECKSUM_CALCULATION
+        value: when_required
+      - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+        value: when_required
+---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -123,14 +159,14 @@ spec:
         name: barman-cloud.cloudnative-pg.io
         parameters:
           barmanObjectName: newapi-pg-store
-          serverName: newapi-pg-v3 # RESTORE-FROM lineage (current archive)
+          serverName: newapi-pg-v4 # RESTORE-FROM lineage (last Hetzner archive; R2 v5 after its first base backup)
 
   plugins:
     - name: barman-cloud.cloudnative-pg.io
       isWALArchiver: true
       parameters:
-        barmanObjectName: newapi-pg-store
-        serverName: newapi-pg-v4 # ARCHIVE-TO lineage (current+1); MUST differ from restore-from
+        barmanObjectName: newapi-pg-r2
+        serverName: newapi-pg-v5 # ARCHIVE-TO lineage (current+1); MUST differ from restore-from
 
   # Teleport-provisioned read role, declared here so CNPG reconciles it on every DR.
   managed:
