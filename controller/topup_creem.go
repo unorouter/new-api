@@ -548,6 +548,27 @@ func handleSubscriptionPaid(c *gin.Context, event *dto.CreemWebhookEvent, rawBod
 	c.Status(http.StatusOK)
 }
 
+// creemPaidCoversOrder reports whether the cents Creem collected cover the
+// price our own order record carries (tax comes on top, so paid is normally
+// higher). An order we do not know is left to the existing not-found paths.
+func creemPaidCoversOrder(tradeNo string, paidCents int) bool {
+	var expected float64
+	if order := model.GetSubscriptionOrderByTradeNo(tradeNo); order != nil {
+		expected = order.Money
+	} else if topUp := model.GetTopUpByTradeNo(tradeNo); topUp != nil {
+		expected = topUp.ChargedMoney
+		if expected <= 0 {
+			expected = topUp.Money
+		}
+	} else {
+		return true
+	}
+	if expected <= 0 {
+		return true
+	}
+	return float64(paidCents) >= math.Floor(expected*100*0.99)
+}
+
 // 处理支付完成事件
 func handleCheckoutCompleted(c *gin.Context, event *dto.CreemWebhookEvent) {
 	// 验证订单状态
@@ -568,6 +589,15 @@ func handleCheckoutCompleted(c *gin.Context, event *dto.CreemWebhookEvent) {
 	// Persist the Creem customer ID to the user row so we can call
 	// /v1/customers/billing later for per-user portal links. Best-effort - 	// we don't block the webhook on this.
 	persistCreemCustomerID(event)
+
+	// A checkout completes as "paid" even when a discount took the price to
+	// zero, and a discount code can be minted by anyone holding the merchant
+	// API key. The ledger settles on what was charged, never on the list price.
+	if !creemPaidCoversOrder(referenceId, event.Object.Order.AmountPaid) {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem checkout paid less than the order price, left unsettled trade_no=%s creem_order_id=%s amount_paid=%d customer_email=%q", referenceId, event.Object.Order.Id, event.Object.Order.AmountPaid, event.Object.Customer.Email))
+		c.Status(http.StatusOK)
+		return
+	}
 
 	// Try complete subscription order first
 	LockOrder(referenceId)
