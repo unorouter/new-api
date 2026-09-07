@@ -528,7 +528,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// ---- Log routes ----
 		logGroup := apiRouter.Group("/log")
 
-		logAdmin := dto.NewRouter(engine, logGroup.Group("", middleware.AdminAuth()), "Log", secDashboard())
+		logAdmin := dto.NewRouter(engine, logGroup.Group("", middleware.AdminAuth(), middleware.NoPAT()), "Log", secDashboard())
 		logMod := dto.NewRouter(engine, logGroup.Group("", middleware.ModAuth()), "Log", secDashboard())
 		dto.GetP(logMod, "/", controller.GetAllLogs, dto.PageParams())
 		dto.DeleteP(logAdmin, "/", controller.DeleteHistoryLogs)
