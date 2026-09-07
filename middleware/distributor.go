@@ -270,6 +270,22 @@ func Distribute() func(c *gin.Context) {
 							abortWithOpenAiMessage(c, http.StatusServiceUnavailable, fmt.Sprintf("This API key is pinned to a billing group that currently has no available provider for %q - the model itself is online and served by other groups. This is a problem with the key, not the model: open your token settings and set its group to \"auto\" (or delete the pin), then retry.", modelRequest.Model), types.ErrorCodeGetChannelFailed)
 							return
 						}
+						// A name that differs from a served model only in separators
+						// ("claude-opus-4-6" for "claude-opus-4.6") is a typo we can fix
+						// rather than reject: resolve it and select again. Only an
+						// unambiguous match resolves, so a real typo still 404s.
+						if !model.ModelHasAnyChannel(modelRequest.Model) {
+							if resolved, ok := model.ResolveModelNameVariant(modelRequest.Model); ok {
+								modelRequest.Model = resolved
+								retryParam.ModelName = resolved
+								retryParam.SetRetry(0)
+								common.SetContextKey(c, constant.ContextKeyAutoGroupIndex, 0)
+								common.SetContextKey(c, constant.ContextKeyAutoGroupRetryIndex, 0)
+								channel, _, err = service.CacheGetRandomSatisfiedChannel(retryParam)
+							}
+						}
+					}
+					if err != nil || channel == nil {
 						// distinguish a model that exists but has all channels disabled
 						// (e.g. auto-disabled on rate limit) from a model that is unknown.
 						if model.ModelHasAnyChannel(modelRequest.Model) {
