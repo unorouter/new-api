@@ -378,7 +378,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Delete(perf, "/logs", controller.CleanupLogFiles)
 
 		// ---- Ratio sync routes (root only) ----
-		ratioSyncGroup := apiRouter.Group("/ratio_sync", middleware.RootAuth())
+		ratioSyncGroup := apiRouter.Group("/ratio_sync", middleware.RootAuth(), middleware.NoPAT())
 		ratioSync := dto.NewRouter(engine, ratioSyncGroup, "RatioSync", secDashboard())
 		dto.Get(ratioSync, "/channels", controller.GetSyncableChannels)
 		dto.PostB(ratioSync, "/fetch", controller.FetchUpstreamRatios)
@@ -394,7 +394,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		systemTaskGroup.GET("/list", controller.ListSystemTasks)
 		systemTaskGroup.GET("/:task_id", controller.GetSystemTask)
 
-		systemInfoGroup := apiRouter.Group("/system-info", middleware.RootAuth())
+		systemInfoGroup := apiRouter.Group("/system-info", middleware.RootAuth(), middleware.NoPAT())
 		systemInfoGroup.GET("/instances", controller.ListSystemInstances)
 		systemInfoGroup.DELETE("/stale-instances", controller.DeleteStaleSystemInstances)
 		systemInfoGroup.DELETE("/instances/:node_name", controller.DeleteStaleSystemInstance)
@@ -409,7 +409,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// sensitive write by virtue of being an admin at all.
 		channelGroup := apiRouter.Group("/channel", middleware.SyncAuth(common.RoleAdminUser))
 		chReadG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelRead))
-		chOpG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelOperate))
+		chOpG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelOperate), middleware.NoPAT())
 		chWriteG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelWrite), middleware.NoPAT())
 		chSensG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelSensitiveWrite), middleware.NoPAT())
 
@@ -475,14 +475,14 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// ---- Model status routes (admin) ----
 		// components, buckets and page_compact are registered public above; only
 		// incidents stays admin, since nothing public renders it.
-		modelStatusGroup := apiRouter.Group("/model_status", middleware.AdminAuth())
+		modelStatusGroup := apiRouter.Group("/model_status", middleware.AdminAuth(), middleware.NoPAT())
 		ms := dto.NewRouter(engine, modelStatusGroup, "ModelStatus", secDashboard())
 		dto.GetP(ms, "/incidents", controller.GetModelStatusIncidents)
 
 		// The sync refreshes the guest key's model_limits and touches nothing else
 		// about tokens, so it gets one route of its own rather than a seat in the
 		// user-auth token group. The handler re-checks the credential.
-		tokenSyncGroup := apiRouter.Group("/token", middleware.SyncAuth(common.RoleAdminUser))
+		tokenSyncGroup := apiRouter.Group("/token", middleware.SyncAuth(common.RoleAdminUser), middleware.NoPAT())
 		tokSync := dto.NewRouter(engine, tokenSyncGroup, "Token", secDashboard())
 		dto.PutB(tokSync, "/guest-model-limits", controller.UpdateGuestTokenModelLimits)
 
@@ -562,7 +562,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Get(grp, "/", controller.GetGroups)
 
 		// ---- Prefill group routes (admin) ----
-		prefillGrp := dto.NewRouter(engine, apiRouter.Group("/prefill_group", middleware.AdminAuth()), "PrefillGroup", secDashboard())
+		prefillGrp := dto.NewRouter(engine, apiRouter.Group("/prefill_group", middleware.AdminAuth(), middleware.NoPAT()), "PrefillGroup", secDashboard())
 		dto.GetP(prefillGrp, "/", controller.GetPrefillGroups)
 		dto.PostB(prefillGrp, "/", controller.CreatePrefillGroup)
 		dto.PutB(prefillGrp, "/", controller.UpdatePrefillGroup)
@@ -584,7 +584,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		taskGroup.GET("/:task_id/artifacts", middleware.UserAuth(), controller.GetDashboardTaskArtifacts)
 
 		// ---- Task plugin routes (upstream; handlers are plain gin) ----
-		taskPluginRoute := apiRouter.Group("/plugin/task", middleware.RootAuth())
+		taskPluginRoute := apiRouter.Group("/plugin/task", middleware.RootAuth(), middleware.NoPAT())
 		{
 			taskPluginRoute.GET("", controller.ListTaskPlugins)
 			taskPluginRoute.POST("", controller.UploadTaskPlugin)
@@ -602,7 +602,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		apiRouter.GET("/task_plugin_options", middleware.AdminAuth(), middleware.RequirePermission(authz.TaskPluginBind), controller.GetTaskPluginOptions)
 
 		// ---- Vendor routes (admin) ----
-		vendorGroup := apiRouter.Group("/vendors", middleware.SyncAuth(common.RoleAdminUser))
+		vendorGroup := apiRouter.Group("/vendors", middleware.SyncAuth(common.RoleAdminUser), middleware.NoPAT())
 		vendor := dto.NewRouter(engine, vendorGroup, "Vendor", secDashboard())
 		dto.Get(vendor, "/", controller.GetAllVendors, dto.PageParams())
 		dto.GetP(vendor, "/search", controller.SearchVendors, dto.PageParams())
@@ -612,7 +612,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Delete(vendor, "/:id", controller.DeleteVendorMeta, option.Path("id", "Vendor ID"))
 
 		// ---- Models routes (admin) ----
-		modelsGroup := apiRouter.Group("/models", middleware.SyncAuth(common.RoleAdminUser))
+		modelsGroup := apiRouter.Group("/models", middleware.SyncAuth(common.RoleAdminUser), middleware.NoPAT())
 		models := dto.NewRouter(engine, modelsGroup, "ModelMeta", secDashboard())
 		dto.GetP(models, "/sync_upstream/preview", controller.SyncUpstreamPreview)
 		dto.PostB(models, "/sync_upstream", controller.SyncUpstreamModels)
