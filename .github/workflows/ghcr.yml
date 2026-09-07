@@ -5,9 +5,10 @@ on:
   push:
     branches: [main]
     # A pin-only commit (build-local.sh or this workflow) must not rebuild the
-    # same tree and roll the pods a second time.
+    # same tree and roll the pods a second time, and neither must a manifest
+    # edit: ArgoCD applies k8s/ on its own, a rebuild only rolls the gateway.
     paths-ignore:
-      - k8s/deployment.yaml
+      - k8s/**
 
 concurrency:
   group: ghcr-${{ github.ref }}
