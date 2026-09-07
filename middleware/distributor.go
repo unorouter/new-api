@@ -275,7 +275,10 @@ func Distribute() func(c *gin.Context) {
 						if model.ModelHasAnyChannel(modelRequest.Model) {
 							abortWithOpenAiMessage(c, http.StatusServiceUnavailable, fmt.Sprintf("All providers for model %q are busy right now (they hit their rate limit). This is not a spelling error. Please try again in a little while, or switch to another model.", modelRequest.Model), types.ErrorCodeGetChannelFailed)
 						} else {
-							abortWithOpenAiMessage(c, http.StatusServiceUnavailable, fmt.Sprintf("Model %q is not offered here. Check the model name for typos, or switch to a model from our supported list.", modelRequest.Model), types.ErrorCodeModelNotFound)
+							// 404, not 503: an unknown model name is the caller's to fix, and
+							// clients (our model tester included) treat 5xx as "retry later"
+							// and never surface the typo.
+							abortWithOpenAiMessage(c, http.StatusNotFound, fmt.Sprintf("Model %q is not offered here. Check the model name for typos, or switch to a model from our supported list.", modelRequest.Model), types.ErrorCodeModelNotFound)
 						}
 						return
 					}
