@@ -51,6 +51,14 @@ func Distribute() func(c *gin.Context) {
 		// detect request capabilities for capability-aware routing
 		detectRequestCapabilities(c, modelRequest)
 
+		// The token's model allow-list applies before any channel pin: a pinned
+		// channel used to skip it, so an admin-owned token with a model list
+		// (the guest key) reached any model by appending "-<channelId>" to the key
+		// (2026-09-07, from Tor).
+		if !tokenModelAllowed(c, modelRequest.Model) {
+			return
+		}
+
 		if pin, found, overridden := constraints.ResolvedPin(); found {
 			for _, lost := range overridden {
 				logger.LogWarn(c, fmt.Sprintf(
@@ -84,27 +92,6 @@ func Distribute() func(c *gin.Context) {
 			}
 		} else {
 			// Select a channel for the user
-			// check token model mapping
-			modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
-			if modelLimitEnable {
-				s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
-				if !ok {
-					// token model limit is empty, all models are not allowed
-					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenNoModelAccess))
-					return
-				}
-				var tokenModelLimit map[string]bool
-				tokenModelLimit, ok = s.(map[string]bool)
-				if !ok {
-					tokenModelLimit = map[string]bool{}
-				}
-				matchName := ratio_setting.FormatMatchingModelName(modelRequest.Model) // match gpts & thinking-*
-				if _, ok := tokenModelLimit[matchName]; !ok {
-					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenModelForbidden, map[string]any{"Model": modelRequest.Model}))
-					return
-				}
-			}
-
 			if shouldSelectChannel {
 				if modelRequest.Model == "" {
 					abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorModelNameRequired))
@@ -861,4 +848,28 @@ func extractModelNameFromGeminiPath(path string) string {
 
 	// 返回模型名部分
 	return path[startIndex : startIndex+colonIndex]
+}
+
+// tokenModelAllowed enforces the token's model allow-list when it is enabled,
+// aborting the request with 403 when the model is not on it.
+func tokenModelAllowed(c *gin.Context, requestedModel string) bool {
+	if !common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled) {
+		return true
+	}
+	s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
+	if !ok {
+		// token model limit is empty, all models are not allowed
+		abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenNoModelAccess))
+		return false
+	}
+	tokenModelLimit, ok := s.(map[string]bool)
+	if !ok {
+		tokenModelLimit = map[string]bool{}
+	}
+	matchName := ratio_setting.FormatMatchingModelName(requestedModel) // match gpts & thinking-*
+	if _, ok := tokenModelLimit[matchName]; !ok {
+		abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenModelForbidden, map[string]any{"Model": requestedModel}))
+		return false
+	}
+	return true
 }
