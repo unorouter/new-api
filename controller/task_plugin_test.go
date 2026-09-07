@@ -248,7 +248,7 @@ func TestDisableFactoryPluginRespectsInUseGuard(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestDisableFactoryOverrideRowKeepsEnabledFlagPath(t *testing.T) {
+func TestDisableFactoryOverrideRowSuppressesBothLayers(t *testing.T) {
 	setupTaskPluginFactoryDisableTest(t)
 	factorySource, err := plugins.Source("kling")
 	require.NoError(t, err)
@@ -267,20 +267,51 @@ func TestDisableFactoryOverrideRowKeepsEnabledFlagPath(t *testing.T) {
 
 	recorder := postTaskPluginStatus(t, "kling", "", `{"enabled":false}`)
 	assert.Contains(t, recorder.Body.String(), `"success":true`)
-	assert.Empty(t, setting.GetTaskPluginDisabledFactoryKeys())
-
+	assert.Equal(t, []string{"kling"}, setting.GetTaskPluginDisabledFactoryKeys())
 	row, err := model.GetTaskPluginVersion("kling", "")
 	require.NoError(t, err)
 	assert.False(t, row.Enabled)
-
 	item := listTaskPluginItem(t, "kling")
 	assert.Equal(t, "override_over_factory", item.Source)
 	assert.False(t, item.Enabled)
-	assert.Equal(t, "disabled_fallback", item.RuntimeStatus)
-	assert.True(t, taskPluginOptionsHasKey(t, "kling"))
+	assert.Equal(t, "disabled", item.RuntimeStatus)
+	assert.False(t, taskPluginOptionsHasKey(t, "kling"))
+	_, ok := jsplugin.DefaultRegistry.Get("kling")
+	assert.False(t, ok, "factory built-in must not keep serving after the plugin is switched off")
+
+	recorder = postTaskPluginStatus(t, "kling", "", `{"enabled":true}`)
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	assert.Empty(t, setting.GetTaskPluginDisabledFactoryKeys())
+	row, err = model.GetTaskPluginVersion("kling", "")
+	require.NoError(t, err)
+	assert.True(t, row.Enabled)
 	got, ok := jsplugin.DefaultRegistry.Get("kling")
 	require.True(t, ok)
-	assert.Equal(t, factoryVersion, got.Meta.Version)
+	assert.Equal(t, loaded.Meta.Version, got.Meta.Version)
+	assert.Equal(t, "registered", listTaskPluginItem(t, "kling").RuntimeStatus)
+
+	// Regression: with every kling layer off, a plugin whose model differs from
+	// a built-in kling model only by case must upload without a routing conflict.
+	recorder = postTaskPluginStatus(t, "kling", "", `{"enabled":false}`)
+	require.Contains(t, recorder.Body.String(), `"success":true`)
+	cleanupTaskPluginControllerRuntime(t, "kling-shadow")
+	const shadowSource = `
+export const meta = {apiVersion: 1, key: "kling-shadow", name: "Shadow", version: "1.0.0", author: {name: "Test"}, models: ["KLING-V1"], fetchMode: "per_task"};
+export function buildSubmitRequest() { return {}; }
+export function parseSubmitResponse() { return {}; }
+export function buildQueryRequest() { return {}; }
+export function parseTaskResult() { return {}; }
+`
+	body, err := common.Marshal(map[string]any{"source": shadowSource})
+	require.NoError(t, err)
+	uploadRecorder := httptest.NewRecorder()
+	uploadContext, _ := gin.CreateTestContext(uploadRecorder)
+	uploadContext.Request = httptest.NewRequest(http.MethodPost, "/api/plugin/task", strings.NewReader(string(body)))
+	uploadContext.Request.Header.Set("Content-Type", "application/json")
+	UploadTaskPlugin(uploadContext)
+	assert.Contains(t, uploadRecorder.Body.String(), `"success":true`)
+	_, ok = jsplugin.DefaultRegistry.Get("kling-shadow")
+	assert.True(t, ok)
 }
 
 func TestListTaskPluginsIncludesFactoryWithoutDatabaseRows(t *testing.T) {
