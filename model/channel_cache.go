@@ -351,6 +351,65 @@ func ModelHasAnyChannel(modelName string) bool {
 	return false
 }
 
+// separatorInsensitiveKey folds the punctuation that model names differ in
+// without changing identity: "claude-opus-4.6", "claude-opus-4-6" and
+// "claude_opus_4_6" all key the same. Letters and digits are kept as is, so
+// two genuinely different models can never collide.
+func separatorInsensitiveKey(modelName string) string {
+	var b strings.Builder
+	b.Grow(len(modelName))
+	for _, r := range strings.ToLower(modelName) {
+		switch r {
+		case '.', '-', '_', ' ':
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// ResolveModelNameVariant returns the served model whose name matches modelName
+// apart from separators (dot vs dash vs underscore), for use only when the exact
+// name serves nothing. Callers get ("", false) when nothing matches or when the
+// fold is ambiguous, so a typo still fails loudly instead of routing to a model
+// the caller did not ask for.
+func ResolveModelNameVariant(modelName string) (string, bool) {
+	key := separatorInsensitiveKey(modelName)
+	if key == "" {
+		return "", false
+	}
+	match := ""
+	if !common.MemoryCacheEnabled {
+		var abilities []Ability
+		if err := DB.Model(&Ability{}).Distinct("model").Find(&abilities).Error; err != nil {
+			return "", false
+		}
+		for _, a := range abilities {
+			if a.Model == modelName || separatorInsensitiveKey(a.Model) != key {
+				continue
+			}
+			if match != "" && match != a.Model {
+				return "", false
+			}
+			match = a.Model
+		}
+		return match, match != ""
+	}
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+	for _, channel := range channelsIDM {
+		for _, m := range channel.GetModels() {
+			if m == modelName || separatorInsensitiveKey(m) != key {
+				continue
+			}
+			if match != "" && match != m {
+				return "", false
+			}
+			match = m
+		}
+	}
+	return match, match != ""
+}
 
 func CacheGetChannel(id int) (*Channel, error) {
 	if !common.MemoryCacheEnabled {
