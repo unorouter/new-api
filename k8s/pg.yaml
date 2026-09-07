@@ -159,12 +159,18 @@ spec:
     - name: newapi-pg-origin
       plugin:
         name: barman-cloud.cloudnative-pg.io
+        enabled: true
+        isWALArchiver: false
         parameters:
           barmanObjectName: newapi-pg-r2
           serverName: newapi-pg-v5 # RESTORE-FROM lineage (R2; Hetzner v4 deleted 2026-09-06)
 
+  # The webhook defaults below (enabled, isWALArchiver, and the role's connectionLimit,
+  # ensure, inherit) are written out because these are atomic lists: ArgoCD compares the
+  # whole item and reports the app OutOfSync forever when the live object carries them.
   plugins:
     - name: barman-cloud.cloudnative-pg.io
+      enabled: true
       isWALArchiver: true
       parameters:
         barmanObjectName: newapi-pg-r2
@@ -175,6 +181,9 @@ spec:
     roles:
       - name: reader
         login: true
+        connectionLimit: -1
+        ensure: present
+        inherit: true
         # inRoles is deliberately EMPTY. This role previously held pg_read_all_data on the
         # theory that an RLS policy on `options` was enough to hide secrets. It was not:
         # pg_read_all_data also reads users.password, users.access_token, tokens.key and
