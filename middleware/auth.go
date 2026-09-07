@@ -185,6 +185,28 @@ func SessionOnly() func(c *gin.Context) {
 	}
 }
 
+// NoPAT rejects personal access tokens on routes that move money, grant
+// entitlements, change routing or add identity providers. Unlike SessionOnly it
+// lets the bot and sync service tokens through: those are scoped secrets held by
+// our own automation, and the routes they drive are gated in their handlers.
+// A stolen admin PAT reached every one of these without a second factor.
+func NoPAT() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		if !AuthenticatedViaPAT(c) {
+			c.Next()
+			return
+		}
+		recordSecurityDenial(c, auditActionPermissionDenied, "PAT_NOT_ALLOWED", map[string]interface{}{
+			"reason": "money, entitlement, routing or identity-provider route requires an interactive session",
+		})
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"code":    "PAT_NOT_ALLOWED",
+			"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
+		})
+	}
+}
+
 // BotServiceUsername identifies the Discord bot in audit rows. It is not a user
 // account, so it can never own tokens, log in, or be granted quota.
 const BotServiceUsername = "discord-bot"

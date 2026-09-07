@@ -239,12 +239,13 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// Admin user routes
 		adminGroup := userGroup.Group("", middleware.AdminAuth())
 		admin := dto.NewRouter(engine, adminGroup, "AdminUser", secDashboard())
+		adminMoney := dto.NewRouter(engine, userGroup.Group("", middleware.AdminAuth(), middleware.NoPAT()), "AdminUser", secDashboard())
 		// Read-only user views a Moderator may also see (list/search/detail).
 		modReadGroup := userGroup.Group("", middleware.ModAuth())
 		adminRead := dto.NewRouter(engine, modReadGroup, "AdminUser", secDashboard())
 		dto.Get(adminRead, "/", controller.GetAllUsers, dto.PageParams())
 		dto.GetP(admin, "/topup", controller.GetAllTopUps, dto.PageParams())
-		dto.PostB(admin, "/topup/complete", controller.AdminCompleteTopUp)
+		dto.PostB(adminMoney, "/topup/complete", controller.AdminCompleteTopUp)
 		dto.GetP(adminRead, "/search", controller.SearchUsers, dto.PageParams())
 		dto.Get(adminRead, "/:id", controller.GetUser, option.Path("id", "User ID"))
 		dto.Get(admin, "/:id/oauth/bindings", controller.GetUserOAuthBindingsByAdmin, option.Path("id", "User ID"))
@@ -253,7 +254,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// otherwise falls through to AdminAuth, so the dashboard is unchanged.
 		// Registered HERE rather than alongside the admin group above because gin
 		// panics on a duplicate method+path pair.
-		botOrAdminGroup := userGroup.Group("", middleware.BotAuth())
+		botOrAdminGroup := userGroup.Group("", middleware.BotAuth(), middleware.NoPAT())
 		botOrAdmin := dto.NewRouter(engine, botOrAdminGroup, "AdminUser", secDashboard())
 		// ManageUser restricts a bot-authenticated caller to one action; every
 		// other action stays admin-only.
@@ -311,7 +312,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.PostB(subCritical, "/balance/pay", controller.SubscriptionRequestBalancePay)
 		subCritical.GinPost("/waffo-pancake/pay", controller.SubscriptionRequestWaffoPancakePay, dto.GinResp[dto.ApiResponse]())
 
-		subAdminGroup := apiRouter.Group("/subscription/admin", middleware.AdminAuth())
+		subAdminGroup := apiRouter.Group("/subscription/admin", middleware.AdminAuth(), middleware.NoPAT())
 		subAdmin := dto.NewRouter(engine, subAdminGroup, "AdminSubscription", secDashboard())
 		dto.Get(subAdmin, "/plans", controller.AdminListSubscriptionPlans)
 		dto.PostB(subAdmin, "/plans", controller.AdminCreateSubscriptionPlan)
@@ -338,12 +339,12 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// let the service token reach ten further root handlers -- including the
 		// Waffo payment-product writes -- because syncAllowedOptionKeys is enforced
 		// inside UpdateOption and gates nothing else on the group.
-		optionSyncGroup := apiRouter.Group("/option", middleware.SyncAuth(common.RoleRootUser))
+		optionSyncGroup := apiRouter.Group("/option", middleware.SyncAuth(common.RoleRootUser), middleware.NoPAT())
 		optSync := dto.NewRouter(engine, optionSyncGroup, "Option", secDashboard())
 		dto.Get(optSync, "/", controller.GetOptions)
 		dto.PutB(optSync, "/", controller.UpdateOption)
 
-		optionGroup := apiRouter.Group("/option", middleware.RootAuth())
+		optionGroup := apiRouter.Group("/option", middleware.RootAuth(), middleware.NoPAT())
 		opt := dto.NewRouter(engine, optionGroup, "Option", secDashboard())
 		dto.Get(opt, "/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 		dto.DeleteP(opt, "/channel_affinity_cache", controller.ClearChannelAffinityCache)
@@ -357,7 +358,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		opt.GinPost("/waffo-pancake/save", controller.SaveWaffoPancake, dto.GinResp[dto.ApiResponse]())
 
 		// ---- Custom OAuth provider management (root only) ----
-		customOAuthGroup := apiRouter.Group("/custom-oauth-provider", middleware.RootAuth())
+		customOAuthGroup := apiRouter.Group("/custom-oauth-provider", middleware.RootAuth(), middleware.NoPAT())
 		customOAuth := dto.NewRouter(engine, customOAuthGroup, "CustomOAuth", secDashboard())
 		dto.PostB(customOAuth, "/discovery", controller.FetchCustomOAuthDiscovery)
 		dto.Get(customOAuth, "/", controller.GetCustomOAuthProviders)
@@ -367,7 +368,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Delete(customOAuth, "/:id", controller.DeleteCustomOAuthProvider, option.Path("id", "Provider ID"))
 
 		// ---- Performance routes (root only) ----
-		perfGroup := apiRouter.Group("/performance", middleware.RootAuth())
+		perfGroup := apiRouter.Group("/performance", middleware.RootAuth(), middleware.NoPAT())
 		perf := dto.NewRouter(engine, perfGroup, "Performance", secDashboard())
 		dto.Get(perf, "/stats", controller.GetPerformanceStats)
 		dto.Delete(perf, "/disk_cache", controller.ClearDiskCache)
@@ -409,8 +410,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		channelGroup := apiRouter.Group("/channel", middleware.SyncAuth(common.RoleAdminUser))
 		chReadG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelRead))
 		chOpG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelOperate))
-		chWriteG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelWrite))
-		chSensG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelSensitiveWrite))
+		chWriteG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelWrite), middleware.NoPAT())
+		chSensG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelSensitiveWrite), middleware.NoPAT())
 
 		ch := dto.NewRouter(engine, chReadG, "Channel", secDashboard())
 		chOp := dto.NewRouter(engine, chOpG, "Channel", secDashboard())
@@ -514,7 +515,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Get(usageTok, "/", controller.GetTokenUsage)
 
 		// ---- Redemption routes (admin) ----
-		redemptionGroup := apiRouter.Group("/redemption", middleware.AdminAuth())
+		redemptionGroup := apiRouter.Group("/redemption", middleware.AdminAuth(), middleware.NoPAT())
 		redemption := dto.NewRouter(engine, redemptionGroup, "Redemption", secDashboard())
 		dto.Get(redemption, "/", controller.GetAllRedemptions, dto.PageParams())
 		dto.GetP(redemption, "/search", controller.SearchRedemptions, dto.PageParams())
@@ -625,7 +626,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Delete(models, "/:id", controller.DeleteModelMeta, option.Path("id", "Model ID"))
 
 		// ---- Deployment routes (admin) ----
-		deploymentsGroup := apiRouter.Group("/deployments", middleware.AdminAuth())
+		deploymentsGroup := apiRouter.Group("/deployments", middleware.AdminAuth(), middleware.NoPAT())
 		deploy := dto.NewRouter(engine, deploymentsGroup, "Deployment", secDashboard())
 		dto.Get(deploy, "/settings", controller.GetModelDeploymentSettings)
 		dto.PostB(deploy, "/settings/test-connection", controller.TestIoNetConnection)
