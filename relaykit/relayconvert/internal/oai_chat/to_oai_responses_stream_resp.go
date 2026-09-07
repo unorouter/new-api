@@ -813,7 +813,7 @@ func hostedJSONString(value []byte) (json.RawMessage, error) {
 	if len(value) == 0 {
 		return json.RawMessage(`""`), nil
 	}
-	if !json.Valid(value) {
+	if !kitutil.Valid(value) {
 		return nil, fmt.Errorf("invalid JSON payload")
 	}
 	encoded, err := kitutil.Marshal(string(value))
@@ -827,7 +827,7 @@ func hostedResultString(value []byte) (json.RawMessage, error) {
 	if len(value) == 0 {
 		return json.RawMessage(`""`), nil
 	}
-	if !json.Valid(value) {
+	if !kitutil.Valid(value) {
 		return nil, fmt.Errorf("invalid JSON payload")
 	}
 	if kitutil.GetJsonType(value) == "string" {
