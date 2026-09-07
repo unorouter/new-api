@@ -49,6 +49,15 @@ spec:
         - podSelector:
             matchLabels:
               app: unorouter-bot
+        - podSelector:
+            matchLabels:
+              app: new-api-sync
+        - podSelector:
+            matchLabels:
+              app: new-api-sync-full
+        - podSelector:
+            matchLabels:
+              app: unorouter-mcp
       ports:
         - protocol: TCP
           port: 3000
