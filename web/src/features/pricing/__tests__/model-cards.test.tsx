@@ -74,6 +74,7 @@ afterEach(() => {
   useSystemConfigStore
     .getState()
     .setConfig({ currency: { ...DEFAULT_CURRENCY_CONFIG } })
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   useSystemConfigStore.persist.setOptions({ storage: originalStorage })
 })
@@ -398,5 +399,130 @@ describe('model cards', () => {
     expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled()
     await user.click(screen.getByRole('button', { name: 'Previous page' }))
     expect(screen.getByRole('heading', { name: 'model-1' })).toBeVisible()
+  })
+
+  it('lights slots 23 and 18 when series has the current hour and five hours earlier', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-07T12:00:00.000Z'))
+    const currentHourStart = Math.floor(Date.now() / 1000 / 3600) * 3600
+
+    render(
+      <ModelCard
+        model={pricingModel()}
+        onClick={vi.fn()}
+        perf={{
+          avg_latency_ms: 1200,
+          avg_tps: 42,
+          success_rate: 100,
+          recent_success_series: [
+            { ts: currentHourStart, success_rate: 100 },
+            { ts: currentHourStart - 5 * 3600, success_rate: 80 },
+          ],
+        }}
+      />
+    )
+
+    const spans = [
+      ...screen.getByRole('img', {
+        name: 'Recent success-rate samples; gray bars indicate missing data.',
+      }).children,
+    ]
+    expect(spans).toHaveLength(24)
+    spans.forEach((slot, index) => {
+      if (index === 18 || index === 23) {
+        expect(slot.classList.contains('bg-muted-foreground/15')).toBe(false)
+        return
+      }
+      expect(slot.classList.contains('bg-muted-foreground/15')).toBe(true)
+    })
+    vi.useRealTimers()
+  })
+
+  it('keeps all 24 slots gray when a series point is 24 hours before the current hour', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-07T12:00:00.000Z'))
+    const currentHourStart = Math.floor(Date.now() / 1000 / 3600) * 3600
+
+    render(
+      <ModelCard
+        model={pricingModel()}
+        onClick={vi.fn()}
+        perf={{
+          avg_latency_ms: 1200,
+          avg_tps: 42,
+          success_rate: 100,
+          recent_success_series: [
+            { ts: currentHourStart - 24 * 3600, success_rate: 100 },
+          ],
+        }}
+      />
+    )
+
+    const spans = [
+      ...screen.getByRole('img', {
+        name: 'Recent success-rate samples; gray bars indicate missing data.',
+      }).children,
+    ]
+    expect(spans).toHaveLength(24)
+    spans.forEach((slot) => {
+      expect(slot.classList.contains('bg-muted-foreground/15')).toBe(true)
+    })
+    vi.useRealTimers()
+  })
+
+  it('keeps all 24 slots gray when recent_success_series is undefined', () => {
+    render(
+      <ModelCard
+        model={pricingModel()}
+        onClick={vi.fn()}
+        perf={{ avg_latency_ms: 1200, avg_tps: 42, success_rate: 100 }}
+      />
+    )
+
+    const spans = [
+      ...screen.getByRole('img', {
+        name: 'Recent success-rate samples; gray bars indicate missing data.',
+      }).children,
+    ]
+    expect(spans).toHaveLength(24)
+    spans.forEach((slot) => {
+      expect(slot.classList.contains('bg-muted-foreground/15')).toBe(true)
+    })
+  })
+
+  it('places a five-hour-old point in slot 18 when now is mid-hour', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-07T12:37:00.000Z'))
+    const currentHourStart = Math.floor(Date.now() / 1000 / 3600) * 3600
+
+    render(
+      <ModelCard
+        model={pricingModel()}
+        onClick={vi.fn()}
+        perf={{
+          avg_latency_ms: 1200,
+          avg_tps: 42,
+          success_rate: 80,
+          recent_success_series: [
+            { ts: currentHourStart - 5 * 3600, success_rate: 80 },
+          ],
+        }}
+      />
+    )
+
+    const spans = [
+      ...screen.getByRole('img', {
+        name: 'Recent success-rate samples; gray bars indicate missing data.',
+      }).children,
+    ]
+    expect(spans).toHaveLength(24)
+    spans.forEach((slot, index) => {
+      if (index === 18) {
+        expect(slot.classList.contains('bg-muted-foreground/15')).toBe(false)
+        return
+      }
+      expect(slot.classList.contains('bg-muted-foreground/15')).toBe(true)
+    })
+    vi.useRealTimers()
   })
 })
