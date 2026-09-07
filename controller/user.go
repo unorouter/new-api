@@ -595,10 +595,17 @@ func canManageTargetRole(myRole int, targetRole int) bool {
 // Read actions and the bot's rate-limit action are unaffected; a real dashboard
 // session still performs all of these normally.
 var patDeniedManageActions = map[string]bool{
-	"delete":  true,
-	"promote": true,
-	"demote":  true,
-	"disable": true,
+	"delete":                         true,
+	"promote":                        true,
+	"demote":                         true,
+	"disable":                        true,
+	"enable":                         true,
+	"add_quota":                      true,
+	"set_block_free":                 true,
+	"set_unlimited_free":             true,
+	"set_moderation_exempt":          true,
+	"set_free_rate_limit_window_pct": true,
+	"set_usable_groups":              true,
 }
 
 // botAllowedManageAction is the only /user/manage action the Discord bot's
