@@ -136,6 +136,8 @@ spec:
         key: queries
       - name: cnpg-newapi-security
         key: queries
+      - name: cnpg-newapi-catalog
+        key: queries
   # barman-cloud-backup runs in the postgres container -> the boto3 checksum-disable env must
   # be HERE (not just instanceSidecarConfiguration). Fixes the Hetzner Ceph multipart hang.
   env:
