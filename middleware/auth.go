@@ -294,7 +294,11 @@ func SyncAuth(minRole int) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		secret := system_setting.SyncServiceToken()
 		raw, ok := AuthorizationToken(c.GetHeader("Authorization"))
-		if !ok || secret == "" || subtle.ConstantTimeCompare([]byte(raw), []byte(secret)) != 1 {
+		// The sync credential only ever travels inside the cluster; presented from
+		// anywhere else it is a stolen token and falls through to normal auth, which
+		// rejects and fingerprints it (2026-09-07: replayed from Tor exits within
+		// the hour of a leak, accepted on guest-model-limits).
+		if !ok || secret == "" || subtle.ConstantTimeCompare([]byte(raw), []byte(secret)) != 1 || !IsTrustedNetwork(c.ClientIP()) {
 			authHelper(c, minRole)
 			return
 		}
