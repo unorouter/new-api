@@ -202,6 +202,17 @@ spec:
         passwordSecret:
           name: newapi-pg-reader
         inRoles: []
+      # Teleport-provisioned admin role for named operators: cert-only (no password), so
+      # the only way in is a Teleport session under a GitHub identity, with the queries
+      # in Teleport's audit. Replaces `kubectl exec ... psql -U postgres` for prod writes.
+      - name: dbadmin
+        login: true
+        superuser: true
+        disablePassword: true
+        connectionLimit: -1
+        ensure: present
+        inherit: true
+        inRoles: []
 
   # Teleport DB access: reader authenticates with a Teleport-signed client cert (CN=reader).
   # clientCASecret ca.crt = own 10y CA (first, holds ca.key -> operator signs streaming_replica
@@ -213,6 +224,7 @@ spec:
     # cert rule lands AFTER CNPG's fixed streaming_replica rules, BEFORE the scram catch-all
     pg_hba:
       - hostssl newapi reader all cert
+      - hostssl all dbadmin all cert
     parameters:
       max_connections: "200"
       # 3.3GB model_status_pings + 2.3M logs: default 128MB shared_buffers thrashed disk
