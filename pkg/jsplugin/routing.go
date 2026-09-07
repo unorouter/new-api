@@ -531,7 +531,7 @@ func (g *RoutingGeneration) RebuildWithPlugins(plugins []*LoadedPlugin) (*Routin
 		}
 		byKey[plugin.Meta.Key] = plugin
 	}
-	rebuilt, err := buildRoutingGeneration(byKey, nil, false, g.Number)
+	rebuilt, err := buildRoutingGeneration(byKey, nil, g.Number)
 	if err != nil {
 		return nil, err
 	}
@@ -764,19 +764,18 @@ func ResolveRouteAction(route Route, resolvedAction string) string {
 	return route.Action
 }
 
-func buildRoutingGeneration(factory, override map[string]*LoadedPlugin, overrideEnabled bool, number uint64) (*RoutingGeneration, error) {
-	effective := effectivePlugins(factory, override, overrideEnabled)
+func buildRoutingGeneration(factory, override map[string]*LoadedPlugin, number uint64) (*RoutingGeneration, error) {
+	effective := effectivePlugins(factory, override)
 	return buildRoutingGenerationFromPlugins(effective, number)
 }
 
 func buildRoutingGenerationAdmitting(
 	factory, override map[string]*LoadedPlugin,
-	overrideEnabled bool,
 	number uint64,
 	current *RoutingGeneration,
 	retainCurrent map[string]struct{},
 ) (*RoutingGeneration, map[string]string, error) {
-	candidates := effectivePlugins(factory, override, overrideEnabled)
+	candidates := effectivePlugins(factory, override)
 	accepted := make(map[string]*LoadedPlugin, len(candidates))
 	currentByKey := make(map[string]*LoadedPlugin)
 	if current != nil {
@@ -843,12 +842,10 @@ func buildRoutingGenerationAdmitting(
 	return generation, routingErrors, nil
 }
 
-func effectivePlugins(factory, override map[string]*LoadedPlugin, overrideEnabled bool) map[string]*LoadedPlugin {
+func effectivePlugins(factory, override map[string]*LoadedPlugin) map[string]*LoadedPlugin {
 	effective := make(map[string]*LoadedPlugin, len(factory)+len(override))
 	maps.Copy(effective, factory)
-	if overrideEnabled {
-		maps.Copy(effective, override)
-	}
+	maps.Copy(effective, override)
 	return effective
 }
 

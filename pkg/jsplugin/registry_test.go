@@ -33,22 +33,6 @@ func TestRegistryUnregisterFallsBackToFactory(t *testing.T) {
 	assert.Equal(t, "1.0.0-factory", plugin.Meta.Version)
 }
 
-func TestRegistryDisabledOverrideFallsBackToFactoryAndCanBeRestored(t *testing.T) {
-	registry := NewRegistry()
-	require.NoError(t, registerTestPlugin(registry, "1.0.0-factory", true))
-	require.NoError(t, registerTestPlugin(registry, "1.0.0-override", false))
-
-	registry.SetOverrideEnabled(false)
-	plugin, ok := registry.Get("test")
-	require.True(t, ok)
-	assert.Equal(t, "1.0.0-factory", plugin.Meta.Version)
-
-	registry.SetOverrideEnabled(true)
-	plugin, ok = registry.Get("test")
-	require.True(t, ok)
-	assert.Equal(t, "1.0.0-override", plugin.Meta.Version)
-}
-
 func TestRegistrySnapshotSeparatesLayersWithoutExposingEntries(t *testing.T) {
 	registry := NewRegistry()
 	require.NoError(t, registerTestPlugin(registry, "1.0.0-factory", true))
