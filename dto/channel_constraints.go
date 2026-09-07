@@ -3,12 +3,10 @@ package dto
 type ChannelPinSource string
 
 const (
-	PinSourceToken      ChannelPinSource = "token"       // Rank 0, highest
 	PinSourceOriginTask ChannelPinSource = "origin_task" // Rank 10
 )
 
 const (
-	PinRankToken      = 0
 	PinRankOriginTask = 10
 )
 
