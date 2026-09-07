@@ -71,3 +71,32 @@ Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
   configurable: true,
   value: () => undefined,
 })
+
+// Node.js 25+ defines `localStorage`/`sessionStorage` accessors on the global
+// object that resolve to `undefined` unless `--localstorage-file` is set, and
+// vitest's jsdom environment does not replace globals that already exist.
+// Provide an in-memory Storage so tests see the same API as in a browser.
+for (const name of ['localStorage', 'sessionStorage'] as const) {
+  if (typeof globalThis[name]?.setItem === 'function') continue
+  const entries = new Map<string, string>()
+  const storage: Storage = {
+    get length() {
+      return entries.size
+    },
+    clear: () => entries.clear(),
+    getItem: (key) => entries.get(String(key)) ?? null,
+    key: (index) => [...entries.keys()][index] ?? null,
+    removeItem: (key) => {
+      entries.delete(String(key))
+    },
+    setItem: (key, value) => {
+      entries.set(String(key), String(value))
+    },
+  }
+  Object.defineProperty(globalThis, name, {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value: storage,
+  })
+}
