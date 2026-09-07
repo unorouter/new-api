@@ -9,7 +9,7 @@ export const meta = {
     en: "SunoAPI project music and lyrics generation",
     zh: "SunoAPI 项目 音乐与歌词生成",
   },
-  version: "1.0.1",
+  version: "1.0.2",
   author: { name: "QuantumNous" },
   channelTypes: [36],
   models: ["suno_music", "suno_lyrics"],
@@ -102,14 +102,13 @@ function validateAndNormalize(ctx) {
 export function buildSubmitRequest(ctx) {
   const normalized = validateAndNormalize(ctx);
   const incoming = ctx.requestHeaders || {};
+  const headers = { Authorization: "Bearer " + ctx.apiKey };
+  if (typeof incoming["Content-Type"] === "string" && incoming["Content-Type"]) headers["Content-Type"] = incoming["Content-Type"];
+  if (typeof incoming.Accept === "string" && incoming.Accept) headers.Accept = incoming.Accept;
   return {
     url: ctx.baseUrl + "/suno/submit/" + normalized.action,
     method: "POST",
-    headers: {
-      "Content-Type": incoming["Content-Type"] || "",
-      Accept: incoming.Accept || "",
-      Authorization: "Bearer " + ctx.apiKey,
-    },
+    headers: headers,
     body: normalized.body,
     action: normalized.action,
   };
@@ -228,7 +227,7 @@ function escapedAttribute(value) {
 }
 
 function responseContent(ctx, task) {
-  const model = trimmed(ctx && ctx.requestBody && ctx.requestBody.model).toLowerCase();
+  const declared = trimmed(ctx.upstreamModel || ctx.model).toLowerCase();
   const songs = artifactData(task);
   const lyrics = [];
   for (const song of songs) {
@@ -238,7 +237,13 @@ function responseContent(ctx, task) {
     const title = trimmed(song.title);
     lyrics.push(title ? title + "\n" + text : text);
   }
-  if (model === "suno_lyrics") {
+  const lyricsMode =
+    declared === "suno_lyrics" ||
+    (declared !== "suno_music" &&
+      !songs.some(function (song) {
+        return song && trimmed(song.audio_url);
+      }));
+  if (lyricsMode) {
     return [{ type: "output_text", text: lyrics.join("\n\n") || "Lyrics generation completed.", annotations: [], logprobs: [] }];
   }
   const content = [{ type: "output_text", text: lyrics.join("\n\n") || "Music generation completed.", annotations: [], logprobs: [] }];
@@ -267,21 +272,21 @@ export const protocols = {
       if (!ctx.body || ctx.body.kind !== "json") throw new Error("JSON body required");
       const req = ctx.body.value;
       if (!req || typeof req !== "object" || Array.isArray(req)) throw new Error("request body must be an object");
-      const model = trimmed(req.model);
-      if (model !== "suno_music" && model !== "suno_lyrics") throw new Error("model is required");
+      const declared = trimmed(ctx.upstreamModel || ctx.model).toLowerCase();
+      if (declared !== "suno_music" && declared !== "suno_lyrics") throw new Error("model must be suno_music or suno_lyrics");
       if (req.input !== undefined && typeof req.input !== "string" && !Array.isArray(req.input)) throw new Error("input must be a string or array");
       if (req.metadata !== undefined && (!req.metadata || typeof req.metadata !== "object" || Array.isArray(req.metadata)))
         throw new Error("metadata must be an object");
       const input = responsesText(req);
       const requestBody = Object.assign({}, req.metadata || {});
-      if (model === "suno_lyrics") {
+      if (declared === "suno_lyrics") {
         if (!trimmed(requestBody.prompt)) requestBody.prompt = input || trimmed(req.prompt);
         if (!trimmed(requestBody.prompt)) throw new Error("input is required");
-        return { kind: "submit", model: model, action: "LYRICS", requestBody: requestBody };
+        return { kind: "submit", model: ctx.model, action: "LYRICS", requestBody: requestBody };
       }
       if (!trimmed(requestBody.gpt_description_prompt)) requestBody.gpt_description_prompt = input || trimmed(req.prompt);
       if (!trimmed(requestBody.gpt_description_prompt) && !trimmed(requestBody.prompt)) throw new Error("input is required");
-      return { kind: "submit", model: model, action: "MUSIC", requestBody: requestBody };
+      return { kind: "submit", model: ctx.model, action: "MUSIC", requestBody: requestBody };
     },
     renderEvents: function (ctx, task, previousState) {
       const status = String(task.status || "UNKNOWN").toUpperCase();
