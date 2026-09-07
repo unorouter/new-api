@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"bytes"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -406,49 +405,6 @@ func TestDistributeHonorsOriginTaskChannelPin(t *testing.T) {
 	assert.Equal(t, channel.Id, common.GetContextKeyInt(c, constant.ContextKeyChannelId))
 }
 
-func TestDistributeTokenPinBeatsOriginPin(t *testing.T) {
-	require.NoError(t, appI18n.Init())
-	setupOriginTaskDB(t)
-	tokenChannel := insertOriginTaskChannel(t, common.ChannelStatusEnabled)
-	originChannel := insertOriginTaskChannel(t, common.ChannelStatusEnabled)
-
-	var warnBuf bytes.Buffer
-	previousWriter := gin.DefaultErrorWriter
-	gin.DefaultErrorWriter = &warnBuf
-	t.Cleanup(func() { gin.DefaultErrorWriter = previousWriter })
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/vendor/jobs", strings.NewReader(`{}`))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("resolved_task_model", "resolved-model")
-	constraints := service.GetChannelConstraints(c)
-	constraints.AddPin(dto.ChannelPin{
-		ChannelId: tokenChannel.Id,
-		Source:    dto.PinSourceToken,
-		Rank:      dto.PinRankToken,
-		RetryMode: dto.PinRetrySingleAttempt,
-	})
-	constraints.AddPin(dto.ChannelPin{
-		ChannelId: originChannel.Id,
-		Source:    dto.PinSourceOriginTask,
-		Rank:      dto.PinRankOriginTask,
-		RetryMode: dto.PinRetrySameChannel,
-	})
-	nextCalled := false
-	Distribute()(c)
-	if !c.IsAborted() {
-		nextCalled = true
-	}
-	assert.True(t, nextCalled)
-	assert.Equal(t, tokenChannel.Id, common.GetContextKeyInt(c, constant.ContextKeyChannelId))
-	warn := warnBuf.String()
-	assert.Contains(t, warn, "winning_source=token")
-	assert.Contains(t, warn, fmt.Sprintf("winning_channel_id=%d", tokenChannel.Id))
-	assert.Contains(t, warn, "overridden_source=origin_task")
-	assert.Contains(t, warn, fmt.Sprintf("overridden_channel_id=%d", originChannel.Id))
-}
-
 func TestDistributePinViolatingIdentityFilterErrors(t *testing.T) {
 	require.NoError(t, appI18n.Init())
 	setupOriginTaskDB(t)
@@ -486,15 +442,4 @@ func TestApplyChannelPinLocksOnlySameChannelRetry(t *testing.T) {
 	locked, ok := info.LockedChannel.(*model.Channel)
 	require.True(t, ok)
 	assert.Equal(t, channel.Id, locked.Id)
-
-	tokenOnly := originTaskTestContext(7)
-	service.GetChannelConstraints(tokenOnly).AddPin(dto.ChannelPin{
-		ChannelId: channel.Id,
-		Source:    dto.PinSourceToken,
-		Rank:      dto.PinRankToken,
-		RetryMode: dto.PinRetrySingleAttempt,
-	})
-	tokenInfo := &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{}}
-	require.Nil(t, relay.ApplyChannelPin(tokenOnly, tokenInfo))
-	assert.Nil(t, tokenInfo.LockedChannel)
 }

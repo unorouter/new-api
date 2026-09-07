@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
@@ -552,8 +550,6 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 			key = strings.TrimSpace(key[7:])
 		}
 		key = strings.TrimPrefix(key, "sk-")
-		parts := strings.Split(key, "-")
-		key = parts[0]
 
 		token, err := model.GetTokenByKey(key, false)
 		if err != nil {
@@ -681,7 +677,6 @@ func TokenAuth() func(c *gin.Context) {
 			}
 		}
 		key := c.Request.Header.Get("Authorization")
-		parts := make([]string, 0)
 		if strings.HasPrefix(key, "Bearer ") || strings.HasPrefix(key, "bearer ") {
 			key = strings.TrimSpace(key[7:])
 		}
@@ -690,14 +685,8 @@ func TokenAuth() func(c *gin.Context) {
 			if strings.HasPrefix(key, "Bearer ") || strings.HasPrefix(key, "bearer ") {
 				key = strings.TrimSpace(key[7:])
 			}
-			key = strings.TrimPrefix(key, "sk-")
-			parts = strings.Split(key, "-")
-			key = parts[0]
-		} else {
-			key = strings.TrimPrefix(key, "sk-")
-			parts = strings.Split(key, "-")
-			key = parts[0]
 		}
+		key = strings.TrimPrefix(key, "sk-")
 		token, err := model.ValidateUserToken(key)
 		if token != nil {
 			id := c.GetInt("id")
@@ -780,7 +769,7 @@ func TokenAuth() func(c *gin.Context) {
 		}
 		common.SetContextKey(c, constant.ContextKeyUsingGroup, userGroup)
 
-		err = SetupContextForToken(c, token, parts...)
+		err = SetupContextForToken(c, token)
 		if err != nil {
 			return
 		}
@@ -788,7 +777,7 @@ func TokenAuth() func(c *gin.Context) {
 	}
 }
 
-func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) error {
+func SetupContextForToken(c *gin.Context, token *model.Token) error {
 	if token == nil {
 		return fmt.Errorf("token is nil")
 	}
@@ -820,25 +809,6 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 	}
 	if token.GroupMapping != "" {
 		common.SetContextKey(c, constant.ContextKeyTokenGroupMapping, token.GroupMapping)
-	}
-	if len(parts) > 1 {
-		if model.IsAdmin(token.UserId) {
-			id, err := strconv.Atoi(parts[1])
-			if err != nil {
-				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidChannelId))
-				return fmt.Errorf("invalid specific channel id")
-			}
-			service.GetChannelConstraints(c).AddPin(dto.ChannelPin{
-				ChannelId: id,
-				Source:    dto.PinSourceToken,
-				Rank:      dto.PinRankToken,
-				RetryMode: dto.PinRetrySingleAttempt,
-			})
-		} else {
-			c.Header("specific_channel_version", "701e3ae1dc3f7975556d354e0675168d004891c8")
-			abortWithOpenAiMessage(c, http.StatusForbidden, "regular users cannot specify a channel")
-			return fmt.Errorf("regular users cannot specify a channel")
-		}
 	}
 	return nil
 }
