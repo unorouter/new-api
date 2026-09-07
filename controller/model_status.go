@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 
@@ -205,6 +204,9 @@ func statusPageCacheSet(key string, payload any) {
 }
 
 func statusPageCacheSetTTL(key string, payload any, ttl time.Duration) {
+	if ttl <= 0 {
+		return
+	}
 	statusPageCacheMu.Lock()
 	defer statusPageCacheMu.Unlock()
 	// Expired entries have to be dropped, not just ignored on read. The route is
@@ -225,87 +227,31 @@ func statusPageCacheSetTTL(key string, payload any, ttl time.Duration) {
 }
 
 // The uptime percentages are rolling averages over 24h/30d of pings; the 30d
-// window covers nearly the whole ping table (17M+ rows), so computing them per
-// request turned every /components poll into a full-table aggregate. Serving
-// them minutes stale is imperceptible while the status bars stay per-minute
-// fresh through the page cache above.
-type uptimeCacheEntry struct {
-	at  time.Time
-	key string
-	val map[string]float64
-	// Held for the duration of one refresh so concurrent callers wait for it
-	// instead of each running their own. Nil when no refresh is in flight.
-	inflight *sync.WaitGroup
-}
-
-var (
-	uptimeCacheMu  sync.Mutex
-	uptime24hCache uptimeCacheEntry
-	uptime30dCache uptimeCacheEntry
-)
-
-// cachedUptimeSince serves the window from cache, and on a miss lets exactly one
-// caller run the aggregate while the rest wait for its result.
-//
-// The mutex used to cover only the map read and the map write, with the query
-// itself running unlocked. That is a cache stampede: when the TTL lapsed every
-// concurrent request saw a stale entry and all of them ran the full aggregate
-// at once. Measured 2026-08-31 on the node1 saturation alert -- four concurrent
-// copies, parallel workers spilling to disk (BufFileRead), 2.3 of 4 cores in one
-// pod. Both callers are PUBLIC unauthenticated endpoints (/pricing/catalog and
-// /model_status/components), so the concurrency is whatever the internet sends.
-func cachedUptimeSince(cache *uptimeCacheEntry, ttl time.Duration, modelNames []string, since int64) (map[string]float64, error) {
-	key := fmt.Sprintf("%d", len(modelNames))
-	for {
-		uptimeCacheMu.Lock()
-		if cache.key == key && time.Since(cache.at) < ttl {
-			v := cache.val
-			uptimeCacheMu.Unlock()
-			return v, nil
-		}
-		if wg := cache.inflight; wg != nil {
-			// Someone else is already computing this window. Wait for them and
-			// re-check rather than issuing a duplicate aggregate.
-			uptimeCacheMu.Unlock()
-			wg.Wait()
-			continue
-		}
-		wg := &sync.WaitGroup{}
-		wg.Add(1)
-		cache.inflight = wg
-		uptimeCacheMu.Unlock()
-
-		val, err := model.UptimeByModelSince(modelNames, since)
-
-		uptimeCacheMu.Lock()
-		cache.inflight = nil
-		if err == nil {
-			cache.at, cache.key, cache.val = time.Now(), key, val
-		}
-		uptimeCacheMu.Unlock()
-		wg.Done()
-
-		if err != nil {
-			return nil, err
-		}
-		return val, nil
-	}
+// window covers nearly the whole ping table, so computing them per request turned
+// every /components poll into a full-table aggregate. They go through the shared
+// cache like every other status payload: minutes stale is imperceptible while the
+// status bars stay per-minute fresh.
+func cachedUptimeSince(window string, ttl time.Duration, modelNames []string, since int64) (map[string]float64, error) {
+	key := fmt.Sprintf("uptime|%s|%d", window, len(modelNames))
+	return cachedStatus(key, ttl, func() (map[string]float64, error) {
+		return model.UptimeByModelSince(modelNames, since)
+	})
 }
 
 // cachedUptimes24 is the 24h window alone, for callers that would otherwise pay
 // for a 30-day aggregate they discard. The returned map is the CACHED one, shared
 // with every other caller: read it, never write to it.
 func cachedUptimes24(modelNames []string) (map[string]float64, error) {
-	return cachedUptimeSince(&uptime24hCache, 5*time.Minute, modelNames, time.Now().Unix()-24*60*60)
+	return cachedUptimeSince("24h", 5*time.Minute, modelNames, time.Now().Unix()-24*60*60)
 }
 
 func cachedUptimes(modelNames []string) (map[string]float64, map[string]float64, error) {
 	now := time.Now().Unix()
-	u24, err := cachedUptimeSince(&uptime24hCache, 5*time.Minute, modelNames, now-24*60*60)
+	u24, err := cachedUptimeSince("24h", 5*time.Minute, modelNames, now-24*60*60)
 	if err != nil {
 		return nil, nil, err
 	}
-	u30, err := cachedUptimeSince(&uptime30dCache, time.Hour, modelNames, now-30*24*60*60)
+	u30, err := cachedUptimeSince("30d", time.Hour, modelNames, now-30*24*60*60)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -383,30 +329,11 @@ func GetModelStatusBuckets(c fuego.ContextWithParams[dto.GetModelStatusBucketsPa
 	bucketSec := coarsenBucketToCap(resolveBucketSeconds(p.Bucket), int64(hours)*60*60)
 
 	cacheKey := fmt.Sprintf("buckets|%s|%d|%d", p.Model, bucketSec, hours)
-	if cached, ok := statusPageCacheGet(cacheKey); ok {
-		if items, ok := cached.([]StatusBarDataDTO); ok {
-			return dtoOk(items)
-		}
-	}
-	built, err, _ := statusPageGroup.Do(cacheKey, func() (any, error) {
-		if cached, ok := statusPageCacheGet(cacheKey); ok {
-			if items, ok := cached.([]StatusBarDataDTO); ok {
-				return items, nil
-			}
-		}
-		items, err := buildBuckets(p.Model, bucketSec, hours)
-		if err != nil {
-			return nil, err
-		}
-		statusPageCacheSetTTL(cacheKey, items, statusPageTTLFor(bucketSec))
-		return items, nil
+	items, err := cachedStatus(cacheKey, statusPageTTLFor(bucketSec), func() ([]StatusBarDataDTO, error) {
+		return buildBuckets(p.Model, bucketSec, hours)
 	})
 	if err != nil {
 		return dto.Fail[[]StatusBarDataDTO](err.Error())
-	}
-	items, ok := built.([]StatusBarDataDTO)
-	if !ok {
-		return dto.Fail[[]StatusBarDataDTO]("buckets build returned an unexpected type")
 	}
 	return dtoOk(items)
 }
@@ -593,51 +520,25 @@ func GetModelStatusPageCompact(c fuego.ContextWithParams[dto.GetModelStatusPageP
 	bucketSec := coarsenBucketToCap(resolveBucketSeconds(p.Bucket), int64(hours)*60*60)
 
 	cacheKey := fmt.Sprintf("compact|%d|%d", bucketSec, hours)
-	if cached, ok := statusPageCacheGet(cacheKey); ok {
-		if page, ok := cached.(CompactPageDTO); ok {
-			return dtoOk(page)
-		}
-	}
-
-	// Only one caller per key builds; the rest block here and share its result.
-	built, err, _ := statusPageGroup.Do(cacheKey, func() (any, error) {
-		// Re-check inside the flight: the winner of a race that just finished may
-		// have populated the cache while this closure was being scheduled.
-		if cached, ok := statusPageCacheGet(cacheKey); ok {
-			if page, ok := cached.(CompactPageDTO); ok {
-				return page, nil
-			}
-		}
-		return buildCompactPage(bucketSec, hours, cacheKey)
+	page, err := cachedStatus(cacheKey, statusPageTTLFor(bucketSec), func() (CompactPageDTO, error) {
+		return buildCompactPage(bucketSec, hours)
 	})
 	if err != nil {
 		return dto.Fail[CompactPageDTO](err.Error())
 	}
-	page, ok := built.(CompactPageDTO)
-	if !ok {
-		return dto.Fail[CompactPageDTO]("status page build returned an unexpected type")
-	}
 	return dto.Ok(page)
 }
 
-// WarmStatusPageCache keeps the status page's cache populated so no public
+// WarmStatusPageCache keeps the status page's shared cache populated so no public
 // request ever pays for the aggregation.
-//
-// The build takes ~12s across every public model. singleflight stops a cold key
-// from being built more than once per process, but the cache is in-process and
-// three pods serve this route, so a cold key still costs three builds and the
-// first caller after each expiry still waits. Warming ahead of the TTL means the
-// request path is always a cache hit and cold builds stop existing rather than
-// merely being deduplicated.
 //
 // Only the five windows the status page offers are warmed, not all twenty
 // reachable keys: the rest are only produced by a caller passing an unusual
 // bucket, which snapHours and coarsenBucketToCap already collapse onto a bounded
 // set, and building them on a timer would spend more than it saves.
 //
-// Runs on every pod, master and slave alike, because the cache it fills is
-// per-process. Gating this on IsMasterNode would leave the two slaves cold and
-// defeat the point.
+// Runs on every pod; the Redis lock inside statusRefreshSync means one pod builds
+// a window per tick and the others find it in Redis, so three pods cost one build.
 func WarmStatusPageCache() {
 	warmOne := func(w struct {
 		bucket string
@@ -645,19 +546,15 @@ func WarmStatusPageCache() {
 	}) {
 		bucketSec := coarsenBucketToCap(resolveBucketSeconds(w.bucket), int64(w.hours)*60*60)
 		key := fmt.Sprintf("compact|%d|%d", bucketSec, w.hours)
-		// Through singleflight so a warm tick and a live request that race
-		// share one build rather than doubling the work they exist to avoid.
-		if _, err, _ := statusPageGroup.Do(key, func() (any, error) {
-			return buildCompactPage(bucketSec, w.hours, key)
-		}); err != nil {
-			common.SysLog("status page warm failed for " + key + ": " + err.Error())
-		}
+		statusRefreshSync(key, statusPageTTLFor(bucketSec), func() (CompactPageDTO, error) {
+			return buildCompactPage(bucketSec, w.hours)
+		})
 	}
 
 	// Each window gets its own ticker at its own TTL rather than one 45s tick
 	// rebuilding all five. Warming the 30-day view every 45 seconds meant a ~30s
-	// build was restarted before the previous one had usefully aged, on three
-	// pods at once, which is what saturated node1 on 2026-08-31.
+	// build was restarted before the previous one had usefully aged, which is
+	// what saturated node1 on 2026-08-31.
 	for _, w := range statusPageWarmWindows {
 		w := w
 		bucketSec := coarsenBucketToCap(resolveBucketSeconds(w.bucket), int64(w.hours)*60*60)
@@ -694,7 +591,7 @@ var statusPageWarmWindows = []struct {
 	{"1d", 720},
 }
 
-func buildCompactPage(bucketSec int64, hours int, cacheKey string) (CompactPageDTO, error) {
+func buildCompactPage(bucketSec int64, hours int) (CompactPageDTO, error) {
 	comps, err := model.GetAllPublicModelStatusComponents()
 	if err != nil {
 		return CompactPageDTO{}, err
@@ -803,7 +700,6 @@ func buildCompactPage(bucketSec int64, hours int, cacheKey string) (CompactPageD
 		page.Incidents = append(page.Incidents, incidentToEvent(inc))
 	}
 
-	statusPageCacheSetTTL(cacheKey, page, statusPageTTLFor(bucketSec))
 	return page, nil
 }
 
