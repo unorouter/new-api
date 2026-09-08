@@ -99,7 +99,7 @@ func TestWaitImageTaskRendersTerminalResults(t *testing.T) {
 			c, recorder := newImageTaskTestContext(t)
 			task := insertImageTask(t, database, "task_"+testCase.name, model.TaskStatusSuccess, testCase.private, "")
 
-			apiErr := waitImageTask(c, &taskSubmissionOutcome{Task: task}, &dto.ImageRequest{Model: "absolutereality:free"})
+			apiErr := waitImageTask(c, &taskSubmissionOutcome{Task: task}, "absolutereality:free", "", false)
 
 			require.Nil(t, apiErr)
 			require.Equal(t, http.StatusOK, recorder.Code)
@@ -129,7 +129,7 @@ func TestWaitImageTaskReportsFailureReason(t *testing.T) {
 	task := insertImageTask(t, database, "task_failed", model.TaskStatusFailure, model.TaskPrivateData{},
 		"aihorde: no worker can fulfill this request")
 
-	apiErr := waitImageTask(c, &taskSubmissionOutcome{Task: task}, &dto.ImageRequest{Model: "absolutereality:free"})
+	apiErr := waitImageTask(c, &taskSubmissionOutcome{Task: task}, "absolutereality:free", "", false)
 
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
@@ -142,7 +142,7 @@ func TestWaitImageTaskRejectsSuccessWithoutImage(t *testing.T) {
 	c, recorder := newImageTaskTestContext(t)
 	task := insertImageTask(t, database, "task_empty", model.TaskStatusSuccess, model.TaskPrivateData{}, "")
 
-	apiErr := waitImageTask(c, &taskSubmissionOutcome{Task: task}, &dto.ImageRequest{Model: "absolutereality:free"})
+	apiErr := waitImageTask(c, &taskSubmissionOutcome{Task: task}, "absolutereality:free", "", false)
 
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
@@ -160,7 +160,7 @@ func TestWaitImageTaskStopsWhenClientDisconnects(t *testing.T) {
 
 	done := make(chan *types.NewAPIError, 1)
 	go func() {
-		done <- waitImageTask(c, &taskSubmissionOutcome{Task: task}, &dto.ImageRequest{Model: "absolutereality:free"})
+		done <- waitImageTask(c, &taskSubmissionOutcome{Task: task}, "absolutereality:free", "", false)
 	}()
 	cancel()
 
@@ -211,4 +211,27 @@ func TestImageTaskPluginKeyMatchesTheChannelTypeMapping(t *testing.T) {
 	assert.Equal(t, imageTaskPluginKey, plugin.Meta.Key)
 	assert.Contains(t, plugin.Meta.ChannelTypes, constant.ChannelTypeAIHorde,
 		"the plugin must claim the channel type the image dispatcher routes to it")
+}
+
+// The web chat posts these image models to /v1/chat/completions, so a finished
+// task must come back as an assistant message whose markdown renders the image.
+// Returning an images-API payload there leaves the user with a blank reply.
+func TestWaitImageTaskRendersChatCompletionsAsMarkdown(t *testing.T) {
+	database := newImageTaskTestDB(t)
+	c, recorder := newImageTaskTestContext(t)
+	task := insertImageTask(t, database, "task_chat", model.TaskStatusSuccess,
+		model.TaskPrivateData{ResultURL: "https://r2.example.com/a.webp"}, "")
+
+	apiErr := waitImageTask(c, &taskSubmissionOutcome{Task: task}, "absolutereality:free", "", true)
+
+	require.Nil(t, apiErr)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response dto.OpenAITextResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Len(t, response.Choices, 1)
+	assert.Equal(t, "chat.completion", response.Object)
+	assert.Equal(t, "absolutereality:free", response.Model)
+	assert.Equal(t, "assistant", response.Choices[0].Message.Role)
+	assert.Equal(t, "stop", response.Choices[0].FinishReason)
+	assert.Equal(t, "![image](https://r2.example.com/a.webp)", response.Choices[0].Message.StringContent())
 }

@@ -49,6 +49,15 @@ func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIErro
 		} else {
 			err = relay.ImageHelper(c, info)
 		}
+	case relayconstant.RelayModeChatCompletions:
+		// The web chat posts these image models as chat completions, which lands in
+		// TextHelper and hits the same missing adaptor. Serve them as tasks too and
+		// answer with the image as markdown.
+		if IsImageTaskChannel(common.GetContextKeyInt(c, constant.ContextKeyChannelType)) {
+			err = ServeImageAsTask(c, info)
+		} else {
+			err = relay.TextHelper(c, info)
+		}
 	case relayconstant.RelayModeAudioSpeech:
 		fallthrough
 	case relayconstant.RelayModeAudioTranslation:
