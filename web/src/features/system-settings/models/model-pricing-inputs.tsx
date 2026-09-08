@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { InputGroup, InputGroupAddon } from '@/components/ui/input-group'
@@ -73,40 +74,52 @@ export function PriceLane(props: {
   value: string
   enabled: boolean
   disabled?: boolean
+  compact?: boolean
+  disabledReason?: string
   onEnabledChange: (checked: boolean) => void
   onChange: (value: string) => void
 }) {
   const { t } = useTranslation()
+  const controlId = useId()
   const effectiveDisabled = props.disabled || !props.enabled
 
   return (
     <SettingsControlGroup
-      className={cn('space-y-3', effectiveDisabled && 'opacity-75')}
+      className={cn(
+        'space-y-3',
+        props.compact && 'space-y-2 rounded-lg bg-transparent p-3',
+        effectiveDisabled && 'opacity-75'
+      )}
       data-disabled={effectiveDisabled || undefined}
     >
       <SettingsSwitchField
+        controlId={controlId}
+        className={props.compact ? 'py-0' : undefined}
         checked={props.enabled}
         disabled={props.disabled}
         onCheckedChange={props.onEnabledChange}
         label={props.title}
-        description={props.description}
+        description={props.disabledReason || props.description}
         aria-label={props.title}
       />
       <PriceInput
         currency={props.currency}
         aria-label={props.title}
+        aria-describedby={`${controlId}-description`}
         value={props.value}
         placeholder={props.placeholder}
         disabled={effectiveDisabled}
         onChange={props.onChange}
       />
-      <p className='text-muted-foreground text-xs'>
-        {props.enabled
-          ? t('{{currency}} price per 1M tokens.', {
-              currency: (props.currency ?? USD_PRICING_CURRENCY).label,
-            })
-          : t('Disabled lanes are omitted on save.')}
-      </p>
+      {!props.compact && (
+        <p className='text-muted-foreground text-xs'>
+          {props.enabled
+            ? t('{{currency}} price per 1M tokens.', {
+                currency: (props.currency ?? USD_PRICING_CURRENCY).label,
+              })
+            : t('Disabled lanes are omitted on save.')}
+        </p>
+      )}
     </SettingsControlGroup>
   )
 }

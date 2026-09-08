@@ -462,24 +462,34 @@ function splitTaskTopLevel(expression: string, operator: '&&' | '+'): string[] {
 
 function parseTaskConditions(
   expression: string,
-  schema: BillingUsageSchema
+  schema: BillingUsageSchema,
+  includeBooleanConditions: boolean
 ): TaskTierCondition[] | null {
   const conditions: TaskTierCondition[] = []
   for (const part of splitTaskTopLevel(expression, '&&')) {
     const match = part.match(
-      /^u\(\s*("(?:[^"\\]|\\.)*")\s*\)\s*==\s*("(?:[^"\\]|\\.)*")$/
+      /^u\(\s*("(?:[^"\\]|\\.)*")\s*\)\s*==\s*("(?:[^"\\]|\\.)*"|true|false)$/
     )
     if (!match) return null
     let field: string
     let value: string
     try {
       field = JSON.parse(match[1]) as string
-      value = JSON.parse(match[2]) as string
+      value = String(JSON.parse(match[2]))
     } catch {
       return null
     }
-    const declaredValues = schema[field]?.enum
-    if (!declaredValues?.includes(value)) return null
+    const definition = schema[field]
+    if (definition?.type === 'boolean') {
+      if (!includeBooleanConditions || !['true', 'false'].includes(match[2])) {
+        return null
+      }
+    } else if (
+      !definition?.enum?.includes(value) ||
+      !match[2].startsWith('"')
+    ) {
+      return null
+    }
     conditions.push({ field, value })
   }
   return conditions.length > 0 ? conditions : null
@@ -554,7 +564,8 @@ function parseTaskTierCall(
 
 export function parseTaskTiersFromExpr(
   exprStr: string,
-  schema: BillingUsageSchema | null | undefined
+  schema: BillingUsageSchema | null | undefined,
+  includeBooleanConditions = false
 ): ParsedTaskTier[] {
   if (!exprStr || !schema || Object.keys(schema).length === 0) return []
   try {
@@ -576,7 +587,8 @@ export function parseTaskTiersFromExpr(
       if (colonIndex < 0) return []
       const conditions = parseTaskConditions(
         remaining.slice(0, questionIndex).trim(),
-        schema
+        schema,
+        includeBooleanConditions
       )
       if (!conditions) return []
       const tier = parseTaskTierCall(

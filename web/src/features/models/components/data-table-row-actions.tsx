@@ -28,6 +28,7 @@ import {
   DropdownMenuItem,
   DropdownMenuShortcut,
 } from '@/components/ui/dropdown-menu'
+import { useCanEditModelPricing } from '@/features/model-pricing/api'
 
 import { handleToggleModelStatus, isModelEnabled } from '../lib'
 import type { Model } from '../types'
@@ -40,6 +41,7 @@ interface DataTableRowActionsProps {
 
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
+  const canPrice = useCanEditModelPricing()
   const model = row.original
   const { setOpen, setCurrentRow } = useModels()
   const queryClient = useQueryClient()
@@ -65,6 +67,19 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       <Button variant='ghost' size='sm' onClick={handleEdit}>
         {t('Edit')}
       </Button>
+
+      {canPrice && (
+        <Button
+          variant='ghost'
+          size='sm'
+          onClick={() => {
+            setCurrentRow(model)
+            setOpen('price-model')
+          }}
+        >
+          {t('Pricing')}
+        </Button>
+      )}
 
       <DataTableRowActionMenu ariaLabel={t('Open menu')}>
         <DropdownMenuItem onClick={handleToggleStatus}>

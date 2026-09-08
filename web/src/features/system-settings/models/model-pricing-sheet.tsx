@@ -113,6 +113,7 @@ type ModelPricingEditorPanelProps = Omit<
   'open' | 'onOpenChange'
 > & {
   className?: string
+  embedded?: boolean
 }
 
 export type ModelPricingEditorPanelHandle = {
@@ -168,7 +169,15 @@ export const ModelPricingEditorPanel = forwardRef<
   ModelPricingEditorPanelHandle,
   ModelPricingEditorPanelProps
 >(function ModelPricingEditorPanel(
-  { editData, className, onSave, isSaving, usageSchema, onDirtyChange },
+  {
+    editData,
+    className,
+    onSave,
+    isSaving,
+    usageSchema,
+    onDirtyChange,
+    embedded = false,
+  },
   ref
 ) {
   const { t } = useTranslation()
@@ -617,19 +626,21 @@ export const ModelPricingEditorPanel = forwardRef<
   return (
     <div
       className={cn(
-        'bg-background flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border',
+        'bg-background flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border',
         className
       )}
     >
-      <div className='border-b p-4'>
-        <div className='flex flex-wrap items-start justify-between gap-3'>
-          <div className='min-w-0'>
-            <h3 className='truncate text-base font-medium'>
-              {isEditMode ? t('Edit model pricing') : t('Add model pricing')}
-            </h3>
+      {!embedded && (
+        <div className='border-b p-4'>
+          <div className='flex flex-wrap items-start justify-between gap-3'>
+            <div className='min-w-0'>
+              <h3 className='truncate text-base font-medium'>
+                {isEditMode ? t('Edit model pricing') : t('Add model pricing')}
+              </h3>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <Form {...form}>
         <form
@@ -638,9 +649,15 @@ export const ModelPricingEditorPanel = forwardRef<
           className='flex min-h-0 flex-1 flex-col'
           autoComplete='off'
         >
-          <div className='min-h-0 flex-1 overflow-y-auto p-4 pb-6'>
-            <div className='grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(220px,260px)]'>
-              <FieldGroup>
+          <div
+            role='region'
+            aria-label={
+              isEditMode ? t('Edit model pricing') : t('Add model pricing')
+            }
+            className='@container/pricing-editor min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 pb-6'
+          >
+            <div className='grid min-w-0 items-start gap-4 @min-[960px]/pricing-editor:grid-cols-[minmax(0,1fr)_260px]'>
+              <FieldGroup className='min-w-0'>
                 {warnings.length > 0 && (
                   <Alert variant='destructive'>
                     <AlertTriangle data-icon='inline-start' />
@@ -654,28 +671,30 @@ export const ModelPricingEditorPanel = forwardRef<
                   </Alert>
                 )}
 
-                <FormField
-                  control={form.control}
-                  name='name'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Model name')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder={t('gpt-4')}
-                          {...field}
-                          disabled={isEditMode}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'The exact model identifier as used in API requests.'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {!embedded && (
+                  <FormField
+                    control={form.control}
+                    name='name'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Model name')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t('gpt-4')}
+                            {...field}
+                            disabled={isEditMode}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'The exact model identifier as used in API requests.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
 
                 <PricingCurrencySelector siteCurrency={siteCurrency} />
 
@@ -697,7 +716,10 @@ export const ModelPricingEditorPanel = forwardRef<
                     </TabsTrigger>
                   </TabsList>
 
-                  <TabsContent value='per-token' className='pt-0'>
+                  <TabsContent
+                    value='per-token'
+                    className='@container/pricing-fields min-w-0 pt-0'
+                  >
                     {taskUsageSchema &&
                       Object.keys(taskUsageSchema).length > 0 && (
                         <Alert className='mb-4'>
@@ -724,53 +746,80 @@ export const ModelPricingEditorPanel = forwardRef<
                           </AlertDescription>
                         </Alert>
                       )}
-                    <FieldGroup className='gap-5'>
-                      <Field>
+                    {embedded && (
+                      <p className='text-muted-foreground mb-3 text-xs'>
+                        {t('{{currency}} price per 1M tokens.', {
+                          currency: currency.label,
+                        })}{' '}
+                        {t('Disabled lanes are omitted on save.')}
+                      </p>
+                    )}
+                    <div
+                      className={cn(
+                        'grid min-w-0 gap-3',
+                        embedded && '@min-[560px]/pricing-fields:grid-cols-2'
+                      )}
+                    >
+                      <Field
+                        className={cn(
+                          'min-w-0',
+                          embedded && 'rounded-lg border p-3'
+                        )}
+                      >
                         <FieldLabel htmlFor={promptPriceId}>
                           {t('Input price')}
                         </FieldLabel>
-                        <PriceInput
-                          id={promptPriceId}
-                          aria-describedby={`${promptPriceId}-description`}
-                          currency={currency}
-                          value={promptPrice}
-                          placeholder='3'
-                          onChange={handlePromptPriceChange}
-                        />
-                        <FieldDescription id={`${promptPriceId}-description`}>
+                        <FieldDescription
+                          id={`${promptPriceId}-description`}
+                          className={embedded ? 'text-xs' : undefined}
+                        >
                           {t('{{currency}} price per 1M input tokens.', {
                             currency: currency.label,
                           })}
                         </FieldDescription>
+                        <PriceInput
+                          currency={currency}
+                          id={promptPriceId}
+                          aria-describedby={`${promptPriceId}-description`}
+                          value={promptPrice}
+                          placeholder='3'
+                          onChange={handlePromptPriceChange}
+                        />
                       </Field>
 
-                      <div className='grid gap-3 sm:grid-cols-[repeat(auto-fit,minmax(400px,1fr))]'>
-                        {laneConfigs.map((lane) => {
-                          const disabled =
-                            lane.key === 'audioOutput' &&
-                            (!laneEnabled.audioInput ||
-                              !hasValue(lanePrices.audioInput))
-                          return (
-                            <PriceLane
-                              currency={currency}
-                              key={lane.key}
-                              title={t(lane.titleKey)}
-                              description={t(lane.descriptionKey)}
-                              placeholder={lane.placeholder}
-                              value={lanePrices[lane.key]}
-                              enabled={laneEnabled[lane.key]}
-                              disabled={disabled}
-                              onEnabledChange={(checked) =>
-                                handleLaneToggle(lane.key, checked)
-                              }
-                              onChange={(value) =>
-                                handleLanePriceChange(lane.key, value)
-                              }
-                            />
-                          )
-                        })}
-                      </div>
-                    </FieldGroup>
+                      {laneConfigs.map((lane) => {
+                        const disabled =
+                          lane.key === 'audioOutput' &&
+                          (!laneEnabled.audioInput ||
+                            !hasValue(lanePrices.audioInput))
+                        return (
+                          <PriceLane
+                            currency={currency}
+                            key={lane.key}
+                            compact={embedded}
+                            title={t(lane.titleKey)}
+                            description={t(lane.descriptionKey)}
+                            placeholder={lane.placeholder}
+                            value={lanePrices[lane.key]}
+                            enabled={laneEnabled[lane.key]}
+                            disabled={disabled}
+                            disabledReason={
+                              disabled
+                                ? t(
+                                    'Audio output price requires an audio input price.'
+                                  )
+                                : undefined
+                            }
+                            onEnabledChange={(checked) =>
+                              handleLaneToggle(lane.key, checked)
+                            }
+                            onChange={(value) =>
+                              handleLanePriceChange(lane.key, value)
+                            }
+                          />
+                        )
+                      })}
+                    </div>
                   </TabsContent>
 
                   <TabsContent value='per-request' className='pt-0'>
@@ -843,7 +892,10 @@ export const ModelPricingEditorPanel = forwardRef<
                 </Tabs>
               </FieldGroup>
 
-              <aside className='bg-muted/20 sticky top-0 rounded-lg border'>
+              <aside
+                aria-label={t('Preview')}
+                className='bg-muted/20 min-w-0 rounded-lg border @min-[960px]/pricing-editor:sticky @min-[960px]/pricing-editor:top-0'
+              >
                 <div className='border-b px-3 py-2'>
                   <div className='text-sm font-medium'>{t('Preview')}</div>
                 </div>

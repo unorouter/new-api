@@ -319,7 +319,10 @@ describe('task dynamic pricing', () => {
     assert.ok(tokenSummary)
     assert.equal(tokenSummary.primaryEntries[0]?.shortLabel, 'tokens')
     assert.equal(tokenSummary.primaryEntries[0]?.labelKind, 'schema')
-    assert.equal(tokenSummary.secondaryEntries[0]?.shortLabel, 'Base')
+    assert.equal(
+      tokenSummary.secondaryEntries[0]?.shortLabel,
+      'Additional charge'
+    )
     assert.equal(tokenSummary.secondaryEntries[0]?.labelKind, 'i18n')
 
     const multiFieldModel = pricingModel({

@@ -58,9 +58,13 @@ import { getTaskUsagePriceUnitLabelKey } from '@/features/pricing/lib/dynamic-pr
 import {
   getTaskEnumFields,
   getTaskNumberFields,
-  taskMatrixRowLabel,
   type TaskMatrixRow,
 } from '@/features/pricing/lib/task-expr'
+import {
+  taskPriceLabel,
+  taskEnumLabel,
+  taskPricingConditions,
+} from '@/features/pricing/lib/task-price-display'
 import type {
   BillingUsageFieldSchema,
   BillingUsageSchema,
@@ -180,7 +184,11 @@ type TaskMatrixTableProps = {
 }
 
 function TaskMatrixTable(props: TaskMatrixTableProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const usageSchema = Object.fromEntries([
+    ...props.enumFields,
+    ...props.numberFields,
+  ])
   const visibleEnumFields = props.enumFields.filter(
     ([field]) => field !== props.hiddenEnumField
   )
@@ -189,16 +197,24 @@ function TaskMatrixTable(props: TaskMatrixTableProps) {
     <Table className='min-w-max'>
       <TableHeader>
         <TableRow>
-          {visibleEnumFields.map(([field]) => (
+          {visibleEnumFields.map(([field, definition]) => (
             <TableHead key={field} scope='col'>
-              <code>{field}</code>
+              <span className='block max-w-64 break-words whitespace-normal'>
+                {taskPriceLabel(definition.description, field, i18n.language)}
+              </span>
             </TableHead>
           ))}
           {props.numberFields.map(([field, definition]) => (
             <TableHead key={field} scope='col' className='min-w-40'>
               <div className='flex items-center justify-between gap-2'>
                 <div className='flex flex-col gap-0.5'>
-                  <code>{field}</code>
+                  <span className='max-w-64 break-words whitespace-normal'>
+                    {taskPriceLabel(
+                      definition.description,
+                      t('Unit price: {{field}}', { field }),
+                      i18n.language
+                    )}
+                  </span>
                   <span className='text-muted-foreground text-[11px] font-normal'>
                     {(props.currency ?? USD_PRICING_CURRENCY).symbol}/
                     {t(getTaskUsagePriceUnitLabelKey(definition.unit))}
@@ -216,7 +232,12 @@ function TaskMatrixTable(props: TaskMatrixTableProps) {
           <TableHead scope='col' className='min-w-40'>
             <div className='flex items-center justify-between gap-2'>
               <div className='flex flex-col gap-0.5'>
-                <span>{t('Base charge')}</span>
+                <span>{t('Additional charge')}</span>
+                <span className='text-muted-foreground max-w-48 text-xs font-normal whitespace-normal'>
+                  {t(
+                    'Added to the usage cost. Set to 0 for no additional charge.'
+                  )}
+                </span>
                 <span className='text-muted-foreground text-[11px] font-normal'>
                   {(props.currency ?? USD_PRICING_CURRENCY).symbol}/
                   {t('request')}
@@ -242,7 +263,15 @@ function TaskMatrixTable(props: TaskMatrixTableProps) {
             props.numberFields.every(
               ([field]) => !(entry.row.unitPrices[field] > 0)
             )
-          const rowLabel = taskMatrixRowLabel(entry.row.combination)
+          const rowLabel = taskPricingConditions(
+            Object.entries(entry.row.combination).map(([field, value]) => ({
+              field,
+              value,
+            })),
+            usageSchema,
+            i18n.language,
+            t
+          )
           return (
             <TableRow
               key={`${rowLabel}:${entry.index}`}
@@ -253,7 +282,13 @@ function TaskMatrixTable(props: TaskMatrixTableProps) {
             >
               {visibleEnumFields.map(([field]) => (
                 <TableCell key={field}>
-                  <code>{entry.row.combination[field]}</code>
+                  <span className='break-words whitespace-normal'>
+                    {taskEnumLabel(
+                      usageSchema[field],
+                      entry.row.combination[field],
+                      i18n.language
+                    )}
+                  </span>
                 </TableCell>
               ))}
               {props.numberFields.map(([field]) => (
@@ -265,7 +300,7 @@ function TaskMatrixTable(props: TaskMatrixTableProps) {
                     value={entry.row.unitPrices[field] ?? 0}
                     data-matrix-col={field}
                     data-matrix-row={entry.index}
-                    aria-label={`${field}: ${rowLabel}`}
+                    aria-label={`${taskPriceLabel(usageSchema[field]?.description, t('Unit price: {{field}}', { field }), i18n.language)}: ${rowLabel}`}
                     onFocus={(event) => {
                       if (Number(event.currentTarget.value) === 0) {
                         event.currentTarget.select()
@@ -297,7 +332,7 @@ function TaskMatrixTable(props: TaskMatrixTableProps) {
                   value={entry.row.constant}
                   data-matrix-col='constant'
                   data-matrix-row={entry.index}
-                  aria-label={`${t('Base charge')}: ${rowLabel}`}
+                  aria-label={`${t('Additional charge')}: ${rowLabel}`}
                   onFocus={(event) => {
                     if (Number(event.currentTarget.value) === 0) {
                       event.currentTarget.select()
@@ -355,7 +390,7 @@ type TaskMatrixGroupProps = Omit<TaskMatrixTableProps, 'hiddenEnumField'> & {
 }
 
 function TaskMatrixGroup(props: TaskMatrixGroupProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const freeCount = props.entries.filter(
     (entry) =>
       entry.row.constant === 0 &&
@@ -377,7 +412,13 @@ function TaskMatrixGroup(props: TaskMatrixGroupProps) {
         }
       >
         <span className='flex min-w-0 items-center gap-2'>
-          <code>{props.groupValue}</code>
+          <span className='break-words whitespace-normal'>
+            {taskEnumLabel(
+              Object.fromEntries(props.enumFields)[props.groupField],
+              props.groupValue,
+              i18n.language
+            )}
+          </span>
           <span className='text-muted-foreground text-xs'>
             {t('{{count}} combinations', { count: props.entries.length })}
           </span>

@@ -121,9 +121,9 @@ export function ModelPricingPanel(props: {
   }
 
   return (
-    <div className='flex min-h-0 flex-1 flex-col gap-3'>
+    <div className='flex min-h-0 min-w-0 flex-1 flex-col gap-3'>
       <div className='flex flex-wrap items-center justify-between gap-2 px-4 pt-3'>
-        <div>
+        <div className='min-w-0 flex-1 break-words'>
           <p className='text-muted-foreground text-xs'>
             {Object.keys(entry.configured).length
               ? t('Stored configuration with effective defaults')
@@ -167,6 +167,7 @@ export function ModelPricingPanel(props: {
         </div>
       )}
       <ModelPricingEditorPanel
+        embedded
         ref={editor}
         editData={editData}
         usageSchema={entry.usage_schema}

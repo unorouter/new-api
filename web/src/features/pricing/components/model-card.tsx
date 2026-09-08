@@ -37,7 +37,7 @@ import {
 import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
-import { getTaskNumberFields } from '../lib/task-expr'
+import { taskPriceLabel } from '../lib/task-price-display'
 import type { PricingModel, PriceType, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
@@ -54,7 +54,7 @@ export interface ModelCardProps {
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
   const priceRate = props.priceRate ?? 1
   const usdExchangeRate = props.usdExchangeRate ?? 1
@@ -85,8 +85,6 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     ? getDynamicPricingSummary(props.model, dynamicPriceOptions)
     : null
   const cardExamplePrice = getCardExamplePrice(props.model, dynamicPriceOptions)
-  const showTaskFieldLabels =
-    getTaskNumberFields(props.model.billing_usage_schema).length > 1
   let priceSummary: ReactNode
   if (dynamicSummary) {
     if (dynamicSummary.isSpecialExpression) {
@@ -108,9 +106,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             let label: ReactNode = null
             if (entry.labelKind !== 'schema') {
               label = t(entry.shortLabel)
-            } else if (showTaskFieldLabels) {
-              label = (
-                <code className='font-mono break-all'>{entry.shortLabel}</code>
+            } else {
+              label = taskPriceLabel(
+                entry.description,
+                entry.shortLabel,
+                i18n.language
               )
             }
             return (
@@ -122,7 +122,9 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
                 )}
               >
                 {label && (
-                  <span className='text-muted-foreground text-xs'>{label}</span>
+                  <span className='text-muted-foreground text-xs break-words whitespace-normal'>
+                    {label}
+                  </span>
                 )}
                 <span className='flex flex-wrap items-baseline gap-x-1 font-mono text-sm font-semibold tabular-nums'>
                   <span>{entry.formattedRange ?? entry.formatted}</span>

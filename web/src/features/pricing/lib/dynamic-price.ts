@@ -42,7 +42,7 @@ import {
   tryParseTaskVisualConfig,
 } from './task-expr'
 
-type DynamicPriceOptions = {
+export type DynamicPriceOptions = {
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
   priceRate?: number
@@ -225,7 +225,7 @@ export function getDynamicPricingTiers(
     model.billing_expr || ''
   )
   if (isTaskUsagePricingModel(model)) {
-    return parseTaskTiersFromExpr(billingExpr, model.billing_usage_schema)
+    return parseTaskTiersFromExpr(billingExpr, model.billing_usage_schema, true)
   }
   return parseTiersFromExpr(billingExpr)
 }
@@ -268,8 +268,8 @@ export function getDynamicPriceEntries(
       usageEntries.push({
         key: 'constant',
         field: 'constant',
-        label: 'Base charge',
-        shortLabel: 'Base',
+        label: 'Additional charge',
+        shortLabel: 'Additional charge',
         labelKind: 'i18n',
         value: tier.constant,
         formatted: formatTaskUsageUnitPrice(tier.constant, options),

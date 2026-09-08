@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Combobox } from '@/components/ui/combobox'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AxiosError } from 'axios'
@@ -41,6 +40,7 @@ import { LobeIconField } from '@/components/lobe-icon-field'
 import { TagInput } from '@/components/tag-input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Combobox } from '@/components/ui/combobox'
 import {
   Form,
   FormControl,
@@ -53,7 +53,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-
 import {
   Sheet,
   SheetContent,
@@ -83,14 +82,19 @@ export function ModelMutateDrawer(props: {
   open: boolean
   onOpenChange: (open: boolean) => void
   currentRow?: Model | null
+  initialSection?: 'metadata' | 'pricing'
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const currentRow = props.currentRow
   const isEditing = Boolean(currentRow?.id)
-  const [section, setSection] = useState('metadata')
+  const [section, setSection] = useState<string>(
+    props.initialSection ?? 'metadata'
+  )
   const [pricingName, setPricingName] = useState('')
-  const [pricingVisited, setPricingVisited] = useState(false)
+  const [pricingVisited, setPricingVisited] = useState(
+    props.initialSection === 'pricing'
+  )
   const [pricingDirty, setPricingDirty] = useState(false)
   const [pendingPricingName, setPendingPricingName] = useState<string | null>(
     null
@@ -130,6 +134,16 @@ export function ModelMutateDrawer(props: {
   const savedModel = modelQuery.data ?? currentRow
 
   useEffect(() => {
+    if (!props.open) return
+    setSection(props.initialSection ?? 'metadata')
+    setPricingVisited(props.initialSection === 'pricing')
+    setPricingName('')
+    setPricingDirty(false)
+    setPendingPricingName(null)
+    setCloseConfirm(false)
+  }, [props.open, props.initialSection, currentRow?.id])
+
+  useEffect(() => {
     if (!props.open) {
       loadedKey.current = ''
       return
@@ -149,10 +163,6 @@ export function ModelMutateDrawer(props: {
       )
     )
     loadedKey.current = key
-    setSection('metadata')
-    setPricingName('')
-    setPricingVisited(false)
-    setPricingDirty(false)
   }, [props.open, currentRow, isEditing, modelQuery.data, form])
 
   const save = useMutation({
@@ -220,7 +230,9 @@ export function ModelMutateDrawer(props: {
   return (
     <>
       <Sheet open={props.open} onOpenChange={close}>
-        <SheetContent className={sideDrawerContentClassName('sm:max-w-3xl')}>
+        <SheetContent
+          className={sideDrawerContentClassName('sm:max-w-[1280px]')}
+        >
           <SheetHeader className={sideDrawerHeaderClassName()}>
             <SheetTitle className='pr-6 break-all'>
               {isEditing ? currentRow?.model_name : t('Create Model')}
@@ -239,12 +251,25 @@ export function ModelMutateDrawer(props: {
             }}
             className='shrink-0 px-4'
           >
-            <TabsList className='w-full'>
-              <TabsTrigger value='metadata'>{t('Model metadata')}</TabsTrigger>
-              <TabsTrigger value='pricing' disabled={!isEditing}>
+            <TabsList className='grid w-full grid-cols-3 group-data-horizontal/tabs:h-auto'>
+              <TabsTrigger
+                value='metadata'
+                className='h-auto min-w-0 whitespace-normal'
+              >
+                {t('Model metadata')}
+              </TabsTrigger>
+              <TabsTrigger
+                value='pricing'
+                disabled={!isEditing}
+                className='h-auto min-w-0 whitespace-normal'
+              >
                 {t('Pricing')}
               </TabsTrigger>
-              <TabsTrigger value='connections' disabled={!isEditing}>
+              <TabsTrigger
+                value='connections'
+                disabled={!isEditing}
+                className='h-auto min-w-0 whitespace-normal'
+              >
                 {t('Channels and groups')}
               </TabsTrigger>
             </TabsList>
@@ -347,20 +372,22 @@ export function ModelMutateDrawer(props: {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>{t('Vendor')}</FormLabel>
-                            <FormControl><Combobox
-options={vendors.map((vendor) => ({
-                                value: String(vendor.id),
-                                label: vendor.name,
-                              }))}
-onValueChange={(value) =>
-                                field.onChange(
-                                  value ? Number.parseInt(value) : undefined
-                                )
-                              }
-value={field.value ? String(field.value) : null}
-className='w-full'
-placeholder={t('Select vendor')}
-/></FormControl>
+                            <FormControl>
+                              <Combobox
+                                options={vendors.map((vendor) => ({
+                                  value: String(vendor.id),
+                                  label: vendor.name,
+                                }))}
+                                onValueChange={(value) =>
+                                  field.onChange(
+                                    value ? Number.parseInt(value) : undefined
+                                  )
+                                }
+                                value={field.value ? String(field.value) : null}
+                                className='w-full'
+                                placeholder={t('Select vendor')}
+                              />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -445,12 +472,16 @@ placeholder={t('Select vendor')}
                           {t('Endpoints')}
                         </h3>
                         <Combobox
- options={Object.keys(ENDPOINT_TEMPLATES).map((key) => ({ value: key, label: key }))}
- onValueChange={(value: string | null) => { if (value) handleFillEndpointTemplate(value) }}
- className='w-[200px]'
- placeholder={t('Load template...')}
- aria-label={t('Load template...')}
-/>
+                          options={Object.keys(ENDPOINT_TEMPLATES).map(
+                            (key) => ({ value: key, label: key })
+                          )}
+                          onValueChange={(value: string | null) => {
+                            if (value) handleFillEndpointTemplate(value)
+                          }}
+                          className='w-[200px]'
+                          placeholder={t('Load template...')}
+                          aria-label={t('Load template...')}
+                        />
                       </div>
 
                       <FormField
@@ -591,8 +622,8 @@ placeholder={t('Select vendor')}
                     )}
                   </p>
                   <Combobox
-value={pricingName}
-onValueChange={(value) => {
+                    value={pricingName}
+                    onValueChange={(value) => {
                       if (pricingDirty) {
                         setPendingPricingName(value ?? '')
                         setCloseConfirm(true)
@@ -600,14 +631,14 @@ onValueChange={(value) => {
                         setPricingName(value ?? '')
                       }
                     }}
-options={(savedModel.matched_models ?? []).map((name) => ({
+                    options={(savedModel.matched_models ?? []).map((name) => ({
                       value: name,
                       label: name,
                     }))}
-aria-label={t('Select model')}
-className='w-full'
-placeholder={t('Select model')}
-/>
+                    aria-label={t('Select model')}
+                    className='w-full'
+                    placeholder={t('Select model')}
+                  />
                 </div>
               )}
               {(savedModel.name_rule === 0 || pricingName) && (

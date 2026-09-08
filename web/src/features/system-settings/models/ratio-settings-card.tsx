@@ -528,7 +528,14 @@ export function RatioSettingsCard({
   return (
     <>
       {visibleTabs.length === 1 ? (
-        <SettingsSection title={t(titleKey)}>
+        <SettingsSection
+          title={t(titleKey)}
+          className={
+            defaultTab === 'models' || defaultTab === 'unset-models'
+              ? 'min-h-0 flex-1'
+              : undefined
+          }
+        >
           {renderTabContent(defaultTab)}
         </SettingsSection>
       ) : (
@@ -539,7 +546,15 @@ export function RatioSettingsCard({
 
           <SettingsSection title={t(titleKey)} className='min-h-0 flex-1'>
             {visibleTabs.map((tab) => (
-              <TabsContent key={tab} value={tab} className='min-h-0'>
+              <TabsContent
+                key={tab}
+                value={tab}
+                className={
+                  tab === 'models' || tab === 'unset-models'
+                    ? 'flex min-h-0 flex-col data-hidden:hidden'
+                    : 'min-h-0'
+                }
+              >
                 {renderTabContent(tab)}
               </TabsContent>
             ))}
