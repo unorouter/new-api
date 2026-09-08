@@ -271,7 +271,10 @@ func BotAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		secret := system_setting.BotServiceToken()
 		raw, ok := AuthorizationToken(c.GetHeader("Authorization"))
-		if !ok || secret == "" || subtle.ConstantTimeCompare([]byte(raw), []byte(secret)) != 1 {
+		// The bot runs inside the cluster and nowhere else. Presented from outside
+		// it is a stolen copy and falls through to normal auth, which rejects and
+		// fingerprints it (2026-09-08: a Tor exit used it to grant $4000).
+		if !ok || secret == "" || subtle.ConstantTimeCompare([]byte(raw), []byte(secret)) != 1 || !IsTrustedNetworkStrict(c.ClientIP()) {
 			authHelper(c, common.RoleAdminUser)
 			return
 		}
