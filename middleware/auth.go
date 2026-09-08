@@ -470,6 +470,15 @@ func classifyDashboardCredential(c *gin.Context) (*model.UserBase, service.AuthI
 	if err != nil {
 		return nil, service.AuthIdentity{}, dashboardCredentialPAT, err
 	}
+	// A privileged account's PAT is refused wherever it came from, including a row
+	// written straight into the database. Policy has been "no PAT on an admin
+	// account" since 2026-09-07, but it lived only in an operator's head: root's
+	// token was cleared and existed again a day later, and a stolen copy then
+	// created an unlimited relay token from a Tor exit. Ordinary users are
+	// unaffected: their PAT carries exactly the authority their own relay keys do.
+	if user.Role >= common.RoleAdminUser {
+		return nil, service.AuthIdentity{}, dashboardCredentialPAT, errors.New("personal access tokens are not accepted for privileged accounts")
+	}
 	return user, service.AuthIdentity{UserID: user.Id, UserAuthVersion: user.AuthVersion}, dashboardCredentialPAT, nil
 }
 
