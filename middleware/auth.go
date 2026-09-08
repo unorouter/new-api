@@ -207,6 +207,30 @@ func NoPAT() func(c *gin.Context) {
 	}
 }
 
+// NoPATForPrivileged is NoPAT applied only to accounts at admin role and above.
+// A regular user's PAT and their relay tokens carry the same authority, so PAT
+// automation over their own keys costs nothing extra. An admin's PAT is
+// different: on 2026-09-08 a stolen root PAT minted an unlimited relay token and
+// revealed every key the root account owned within four minutes, the one write
+// and the one read the route guards did not cover. Privileged accounts hold no
+// PAT by policy, so requiring a session here removes nothing that is in use.
+func NoPATForPrivileged() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		if !AuthenticatedViaPAT(c) || c.GetInt("role") < common.RoleAdminUser {
+			c.Next()
+			return
+		}
+		recordSecurityDenial(c, auditActionPermissionDenied, "PAT_NOT_ALLOWED", map[string]interface{}{
+			"reason": "token create, change or reveal by a privileged account requires an interactive session",
+		})
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"code":    "PAT_NOT_ALLOWED",
+			"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
+		})
+	}
+}
+
 // BotServiceUsername identifies the Discord bot in audit rows. It is not a user
 // account, so it can never own tokens, log in, or be granted quota.
 const BotServiceUsername = "discord-bot"
