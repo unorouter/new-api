@@ -13,6 +13,7 @@ import (
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -44,6 +45,10 @@ var imageTaskPollInterval = time.Duration(common.GetEnvOrDefault("AIHORDE_IMAGE_
 // imageTaskLoadTimeout bounds a single database read so a stalled query cannot
 // wedge the loop.
 const imageTaskLoadTimeout = 5 * time.Second
+
+// imageTaskPluginKey is the task plugin that serves this channel type. It matches
+// relay.taskPluginKeys, which maps ChannelTypeAIHorde to the same key.
+const imageTaskPluginKey = "aihorde"
 
 // IsImageTaskChannel reports whether an image request for this channel type must
 // be served through the task-plugin system instead of a synchronous adaptor.
@@ -83,6 +88,18 @@ func ServeImageAsTask(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPI
 	c.Set("task_request", requestBody)
 	c.Set("task_action", "generate")
 	taskInfo.Action = "generate"
+	// Name the plugin explicitly. Without this GetTaskPlatform falls back to the
+	// channel type, and the task row is stored under platform "62" while the
+	// background poller only ever advances rows under the plugin key, so the task
+	// would stay QUEUED forever.
+	plugin, resolved := pluginruntime.DefaultRegistry.Generation().Get(imageTaskPluginKey)
+	if !resolved || plugin == nil {
+		return types.NewErrorWithStatusCode(
+			fmt.Errorf("task plugin %q is unavailable", imageTaskPluginKey),
+			types.ErrorCodeDoRequestFailed, http.StatusBadGateway)
+	}
+	c.Set("task_plugin_key", plugin.Meta.Key)
+	c.Set("platform", plugin.Meta.Key)
 
 	outcome, taskErr := executeTaskSubmission(c, taskInfo)
 	if taskErr != nil {
