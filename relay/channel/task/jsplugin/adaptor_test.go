@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -532,69 +533,90 @@ func TestTaskAdaptorMapsJSContract(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestTaskAdaptorSanitizesOpenAIVideoRendererOutput(t *testing.T) {
-	source := `
-export const meta = {
-  apiVersion: 1, key: "safe-video", name: "Safe Video", version: "1.0.0",
-  author: {name: "Test"}, models: ["model"], fetchMode: "per_task", protocols: ["openai_video"],
-};
-export function buildSubmitRequest(ctx) { return {url: ctx.baseUrl + "/submit"}; }
-export function parseSubmitResponse() { return {taskId: "upstream"}; }
-export function buildQueryRequest(ctx) { return {url: ctx.baseUrl + "/query"}; }
-export function parseTaskResult() { return {status: "SUCCESS"}; }
-export function listArtifacts() { return []; }
-export function buildContentRequest() { throw new Error("artifact_not_found"); }
-export const protocols = {openai_video: {
-decodeRequest: function(ctx) { return {kind:"submit", model:ctx.model, requestBody:ctx.body.value}; },
-render: function() {
-  return {
-    id: "upstream-id",
-    task_id: "upstream-task-id",
-    object: "provider-video",
-    model: "model",
-    status: "completed",
-    progress: 100,
-    created_at: 10,
-    completed_at: 20,
-    metadata: {
-      url: "https://upstream.example/video.mp4",
-      URL: "https://upstream.example/uppercase.mp4",
-      label: "safe",
-    },
-    url: "https://upstream.example/top-level.mp4",
-    upstream_url: "https://upstream.example/unknown.mp4",
-    provider_payload: {task_id: "upstream-task-id"},
-  };
-}}};
-`
+func TestTaskAdaptorPreservesSoraVideoResponseFields(t *testing.T) {
+	source, err := plugins.Source("sora")
+	require.NoError(t, err)
 	plugin, err := pluginruntime.NewRegistry().Register(source, pluginruntime.Options{})
 	require.NoError(t, err)
 	adaptor := New(plugin)
 
-	rendered, err := adaptor.ConvertToOpenAIVideo(&model.Task{
-		TaskID:     "task_public",
-		Status:     model.TaskStatusInProgress,
-		Properties: model.Properties{OriginModelName: "origin-model"},
-	})
-	require.NoError(t, err)
+	for _, tc := range []struct {
+		status model.TaskStatus
+		want   string
+	}{
+		{model.TaskStatusInProgress, "in_progress"},
+		{model.TaskStatusSuccess, "completed"},
+		{model.TaskStatusFailure, "failed"},
+	} {
+		t.Run(string(tc.status), func(t *testing.T) {
+			task := &model.Task{
+				TaskID:      "task_public",
+				Status:      tc.status,
+				Progress:    "42%",
+				CreatedAt:   100,
+				FinishTime:  200,
+				Properties:  model.Properties{OriginModelName: "origin-model"},
+				PrivateData: model.TaskPrivateData{UpstreamTaskID: "upstream-task-id"},
+				Data: []byte(`{
+					"id":"upstream-task-id","task_id":"upstream-task-id",
+					"object":"provider-video","model":"provider-model",
+					"status":"completed","progress":100,"created_at":10,"completed_at":20,
+					"url":"https://cdn.example/video.mp4",
+					"metadata":{"url":"https://cdn.example/video.mp4","URL":"https://cdn.example/uppercase.mp4"},
+					"provider_payload":{"task_id":"upstream-task-id","items":[{"enabled":false,"count":0,"value":null}]},
+					"seconds":8,"resolution":"720p","aspect_ratio":"16:9",
+					"reference_images":["https://cdn.example/reference.png"],
+					"error":{"code":"provider_error","message":"provider rejected request","detail":{"retryable":false}}
+				}`),
+			}
+			rendered, err := adaptor.ConvertToOpenAIVideo(task)
+			require.NoError(t, err)
 
-	var video dto.OpenAIVideo
-	require.NoError(t, common.Unmarshal(rendered, &video))
-	assert.Equal(t, "task_public", video.ID)
-	assert.Equal(t, "video", video.Object)
-	assert.Empty(t, video.TaskID)
-	assert.Equal(t, "origin-model", video.Model)
-	assert.Zero(t, video.CompletedAt)
-	assert.Equal(t, map[string]any{"label": "safe"}, video.Metadata)
+			var fields map[string]any
+			require.NoError(t, common.Unmarshal(rendered, &fields))
+			assert.Equal(t, "task_public", fields["id"])
+			assert.NotContains(t, fields, "task_id")
+			assert.Equal(t, "video", fields["object"])
+			assert.Equal(t, "origin-model", fields["model"])
+			assert.Equal(t, tc.want, fields["status"])
+			assert.Equal(t, float64(42), fields["progress"])
+			assert.Equal(t, float64(100), fields["created_at"])
+			if tc.status == model.TaskStatusSuccess {
+				assert.Equal(t, float64(200), fields["completed_at"])
+			} else {
+				assert.NotContains(t, fields, "completed_at")
+			}
+			assert.Equal(t, "https://cdn.example/video.mp4", fields["url"])
+			assert.Equal(t, map[string]any{
+				"url": "https://cdn.example/video.mp4",
+				"URL": "https://cdn.example/uppercase.mp4",
+			}, fields["metadata"])
+			assert.Equal(t, map[string]any{
+				"task_id": "task_public",
+				"items":   []any{map[string]any{"enabled": false, "count": float64(0), "value": nil}},
+			}, fields["provider_payload"])
+			assert.Equal(t, float64(8), fields["seconds"])
+			assert.Equal(t, "720p", fields["resolution"])
+			assert.Equal(t, "16:9", fields["aspect_ratio"])
+			assert.Equal(t, []any{"https://cdn.example/reference.png"}, fields["reference_images"])
+			assert.Equal(t, map[string]any{
+				"code": "provider_error", "message": "provider rejected request",
+				"detail": map[string]any{"retryable": false},
+			}, fields["error"])
+		})
+	}
+}
 
-	var fields map[string]any
-	require.NoError(t, common.Unmarshal(rendered, &fields))
-	assert.NotContains(t, fields, "url")
-	assert.NotContains(t, fields, "upstream_url")
-	assert.NotContains(t, fields, "provider_payload")
-	assert.NotContains(t, fields, "completed_at")
-	assert.NotContains(t, string(rendered), "upstream.example")
-	assert.NotContains(t, string(rendered), "upstream-task-id")
+func TestTaskAdaptorRejectsNonObjectOpenAIVideoRendererOutput(t *testing.T) {
+	for _, value := range []string{"null", "[]", `"video"`, "42", "false"} {
+		t.Run(value, func(t *testing.T) {
+			source := strings.Replace(mockPlugin, `return {id: task.task_id, status: "completed"};`, "return "+value+";", 1)
+			plugin, err := pluginruntime.NewRegistry().Register(source, pluginruntime.Options{})
+			require.NoError(t, err)
+			_, err = New(plugin).ConvertToOpenAIVideo(&model.Task{TaskID: "task_public"})
+			require.ErrorContains(t, err, "invalid OpenAI video object")
+		})
+	}
 }
 
 func TestTaskAdaptorPreservesOpenAIVideoFailureSlotsAndOwnsLifecycle(t *testing.T) {
