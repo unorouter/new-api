@@ -1392,6 +1392,7 @@
     "Current legacy JSON is invalid, cannot append": "現在の旧形式JSONが無効なため、追加できません",
     "Current Level Only": "現在の階層のみ",
     "Current models for the longest channel in this tag. May not include all models from all channels.": "このタグ内の最も長いチャネルの現在のモデル。すべてのチャネルのすべてのモデルが含まれているわけではない場合があります。",
+    "Current month": "今月",
     "Current Password": "現在のパスワード",
     "Current password is incorrect.": "現在のパスワードが正しくありません。",
     "Current Price": "現在の価格",
