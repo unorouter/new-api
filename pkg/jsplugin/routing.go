@@ -243,9 +243,7 @@ type RouteRequestContext struct {
 
 func (r RouteRequestContext) JSValue() map[string]any {
 	params := make(map[string]string, len(r.Params))
-	for key, value := range r.Params {
-		params[key] = value
-	}
+	maps.Copy(params, r.Params)
 	query := make(map[string][]string, len(r.Query))
 	for key, values := range r.Query {
 		query[key] = append([]string(nil), values...)

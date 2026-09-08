@@ -121,7 +121,7 @@ func AddRedemption(c *gin.Context) {
 		}
 		keys = append(keys, key)
 	}
-	recordManageAudit(c, "redemption.create", map[string]interface{}{
+	recordManageAudit(c, "redemption.create", map[string]any{
 		"name":  redemption.Name,
 		"count": redemption.Count,
 		"quota": logger.LogQuota(redemption.Quota),

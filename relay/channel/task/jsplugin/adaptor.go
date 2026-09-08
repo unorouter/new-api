@@ -1198,9 +1198,7 @@ func (a *TaskAdaptor) submitContext(c *gin.Context, info *relaycommon.RelayInfo)
 	if a.routeRequest != nil {
 		routeRequest = *a.routeRequest
 		requestHeaders = make(map[string]string, len(a.requestHeaders))
-		for name, value := range a.requestHeaders {
-			requestHeaders[name] = value
-		}
+		maps.Copy(requestHeaders, a.requestHeaders)
 		files = append(files, a.files...)
 	}
 	if c != nil {

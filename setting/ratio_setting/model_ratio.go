@@ -1,6 +1,7 @@
 package ratio_setting
 
 import (
+	"maps"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -419,9 +420,7 @@ func GetDefaultPricingMaps() map[string]map[string]float64 {
 	result := make(map[string]map[string]float64, len(defaults))
 	for key, values := range defaults {
 		result[key] = make(map[string]float64, len(values))
-		for name, value := range values {
-			result[key][name] = value
-		}
+		maps.Copy(result[key], values)
 	}
 	return result
 }

@@ -122,10 +122,7 @@ func NewEstimatedGeminiChatBillingUsage(usage *Usage) *BillingUsage {
 		return nil
 	}
 	reasoningTokens := usage.CompletionTokenDetails.ReasoningTokens
-	candidateTokens := usage.CompletionTokens - reasoningTokens
-	if candidateTokens < 0 {
-		candidateTokens = 0
-	}
+	candidateTokens := max(usage.CompletionTokens-reasoningTokens, 0)
 	totalTokens := usage.TotalTokens
 	if totalTokens == 0 {
 		totalTokens = usage.PromptTokens + usage.CompletionTokens
@@ -191,10 +188,7 @@ func CloneBillingUsageWithEstimatedCompletion(usage *BillingUsage, completionTok
 	case clone.GeminiUsageMetadata != nil:
 		metadata := clone.GeminiUsageMetadata
 		if metadata.CandidatesTokenCount == 0 {
-			candidateTokens := completionTokens - metadata.ThoughtsTokenCount
-			if candidateTokens < 0 {
-				candidateTokens = 0
-			}
+			candidateTokens := max(completionTokens-metadata.ThoughtsTokenCount, 0)
 			metadata.CandidatesTokenCount = candidateTokens
 			totalTokens := metadata.PromptTokenCount + metadata.ToolUsePromptTokenCount + metadata.CandidatesTokenCount + metadata.ThoughtsTokenCount
 			if metadata.TotalTokenCount < totalTokens {
@@ -366,10 +360,7 @@ func (usage *BillingUsage) canonicalGeminiUsage() *Usage {
 	if canonical.TotalTokens == 0 {
 		canonical.TotalTokens = canonical.PromptTokens + canonical.CompletionTokens
 	} else if canonical.CompletionTokens <= 0 {
-		canonical.CompletionTokens = canonical.TotalTokens - canonical.PromptTokens
-		if canonical.CompletionTokens < 0 {
-			canonical.CompletionTokens = 0
-		}
+		canonical.CompletionTokens = max(canonical.TotalTokens-canonical.PromptTokens, 0)
 	}
 	if canonical.PromptTokens > 0 && canonical.PromptTokensDetails.TextTokens == 0 && canonical.PromptTokensDetails.AudioTokens == 0 {
 		canonical.PromptTokensDetails.TextTokens = canonical.PromptTokens

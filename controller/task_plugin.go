@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"sort"
@@ -167,9 +168,7 @@ func ListTaskPlugins(c *gin.Context) {
 
 	runtimeErrors := jsplugin.DefaultRegistry.RoutingErrors()
 	taskPluginSyncState.Lock()
-	for key, message := range taskPluginSyncState.errors {
-		runtimeErrors[key] = message
-	}
+	maps.Copy(runtimeErrors, taskPluginSyncState.errors)
 	taskPluginSyncState.Unlock()
 
 	items := make([]taskPluginListItem, 0, len(keys))
@@ -249,9 +248,7 @@ func GetTaskPluginRuntime(c *gin.Context) {
 	pluginErrors := routingStatus.Errors
 
 	taskPluginSyncState.Lock()
-	for key, message := range taskPluginSyncState.errors {
-		pluginErrors[key] = message
-	}
+	maps.Copy(pluginErrors, taskPluginSyncState.errors)
 	lastRebuild := taskPluginSyncState.lastRebuild
 	lastDatabaseRevision := lastRebuild.DatabaseRevision
 	taskPluginSyncState.Unlock()
@@ -797,9 +794,7 @@ func syncTaskPluginsOnceContext(ctx context.Context) error {
 		}
 	}
 	pluginErrors := jsplugin.DefaultRegistry.RoutingErrors()
-	for key, message := range taskPluginSyncState.errors {
-		pluginErrors[key] = message
-	}
+	maps.Copy(pluginErrors, taskPluginSyncState.errors)
 	pluginErrorCount := len(pluginErrors)
 	status := "success"
 	if pluginErrorCount > 0 {

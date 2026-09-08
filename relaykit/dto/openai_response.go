@@ -80,7 +80,7 @@ type FlexibleEmbeddingResponse struct {
 }
 
 type ChatCompletionsStreamResponseChoice struct {
-	Delta        ChatCompletionsStreamResponseChoiceDelta `json:"delta,omitempty"`
+	Delta        ChatCompletionsStreamResponseChoiceDelta `json:"delta"`
 	Logprobs     *any                                     `json:"logprobs"`
 	FinishReason *string                                  `json:"finish_reason"`
 	Index        int                                      `json:"index"`
@@ -278,10 +278,7 @@ type InputTokenDetails struct {
 // value wins so the same tokens are never double-counted. Negative upstream
 // values are clamped to zero so they can never lower a charge.
 func (d InputTokenDetails) CacheCreationTokensTotal() int {
-	total := d.CachedCreationTokens
-	if d.CacheWriteTokens > total {
-		total = d.CacheWriteTokens
-	}
+	total := max(d.CacheWriteTokens, d.CachedCreationTokens)
 	if total < 0 {
 		return 0
 	}
@@ -483,9 +480,9 @@ func ResponsesArgumentsString(arguments json.RawMessage) string {
 }
 
 type ResponsesOutputContent struct {
-	Type        string        `json:"type"`
-	Text        string        `json:"text"`
-	Annotations []interface{} `json:"annotations"`
+	Type        string `json:"type"`
+	Text        string `json:"text"`
+	Annotations []any  `json:"annotations"`
 }
 
 type ResponsesReasoningSummaryPart struct {
@@ -549,7 +546,7 @@ func GetOpenAIError(errorField any) *types.OpenAIError {
 		return &err
 	case *types.OpenAIError:
 		return err
-	case map[string]interface{}:
+	case map[string]any:
 		// 处理从JSON解析来的map结构
 		openaiErr := &types.OpenAIError{}
 		if errType, ok := err["type"].(string); ok {

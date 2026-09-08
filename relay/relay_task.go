@@ -77,7 +77,7 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 		} else if originTask.Properties.UpstreamModelName != "" {
 			info.OriginModelName = originTask.Properties.UpstreamModelName
 		} else {
-			var taskData map[string]interface{}
+			var taskData map[string]any
 			_ = common.Unmarshal(originTask.Data, &taskData)
 			if m, ok := taskData["model"].(string); ok && m != "" {
 				info.OriginModelName = m
@@ -120,7 +120,7 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 			}
 		} else {
 			// 旧的 remix 逻辑：直接从 task data 解析 seconds 和 size（如果存在）
-			var taskData map[string]interface{}
+			var taskData map[string]any
 			_ = common.Unmarshal(originTask.Data, &taskData)
 			secondsStr, _ := taskData["seconds"].(string)
 			seconds, _ := strconv.Atoi(secondsStr)

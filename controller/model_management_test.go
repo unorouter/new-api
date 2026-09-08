@@ -512,13 +512,11 @@ export function parseTaskResult() { return {}; }
 				update := model.MetadataSyncUpdate{MetadataSyncSelection: model.MetadataSyncSelection{ModelName: "matrix-concurrent-import", RecordVersion: model.MetadataRecordVersion(nil, nil, nil), Create: true}, Values: model.MetadataValues{Description: "Imported", Status: 1}}
 				var wg sync.WaitGroup
 				results := make(chan error, 2)
-				for i := 0; i < 2; i++ {
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
+				for range 2 {
+					wg.Go(func() {
 						_, err := model.ApplyMetadataSync([]model.MetadataSyncUpdate{update}, nil)
 						results <- err
-					}()
+					})
 				}
 				wg.Wait()
 				close(results)

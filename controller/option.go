@@ -421,7 +421,7 @@ func UpdateOption(c *gin.Context) {
 		return
 	}
 	// 出于安全考虑只记录被修改的配置项名称，不记录配置值（可能含密钥等敏感信息）。
-	recordManageAudit(c, "option.update", map[string]interface{}{
+	recordManageAudit(c, "option.update", map[string]any{
 		"key": option.Key,
 	})
 	c.JSON(http.StatusOK, gin.H{

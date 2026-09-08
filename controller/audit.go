@@ -66,7 +66,7 @@ var auditContentTemplates = map[string]string{
 }
 
 // auditContentEN 按 action 模板渲染英文兜底文本；未登记的 action 退回 action 本身。
-func auditContentEN(action string, params map[string]interface{}) string {
+func auditContentEN(action string, params map[string]any) string {
 	tmpl, ok := auditContentTemplates[action]
 	if !ok {
 		return action
@@ -104,15 +104,15 @@ func markAuditLogged(c *gin.Context) {
 
 // recordManageAudit 记录一条由操作者本人归属的管理/高危审计日志（资源类操作：
 // 渠道 / 系统设置 / 兑换码等）。content 由 action+params 自动渲染。
-func recordManageAudit(c *gin.Context, action string, params map[string]interface{}) {
+func recordManageAudit(c *gin.Context, action string, params map[string]any) {
 	recordManageAuditFor(c, c.GetInt("id"), action, params)
 }
 
 // recordManageAuditFor 记录一条管理审计日志，日志归属于操作者；targetUserId
 // 只表示被操作用户，用于在结构化参数中保留目标上下文。
-func recordManageAuditFor(c *gin.Context, targetUserId int, action string, params map[string]interface{}) {
+func recordManageAuditFor(c *gin.Context, targetUserId int, action string, params map[string]any) {
 	if params == nil {
-		params = map[string]interface{}{}
+		params = map[string]any{}
 	}
 	operatorUserId := c.GetInt("id")
 	if _, ok := params["target_user_id"]; !ok && targetUserId > 0 && targetUserId != operatorUserId {
@@ -124,10 +124,10 @@ func recordManageAuditFor(c *gin.Context, targetUserId int, action string, param
 
 // recordUserSecurityAudit 记录普通用户自己的安全敏感操作（如 passkey 绑定/解绑）。
 // 这类日志没有管理员操作者，不写 admin_info；同时不依赖 AdminAuth/RootAuth 的兜底。
-func recordUserSecurityAudit(c *gin.Context, userId int, action string, params map[string]interface{}) {
+func recordUserSecurityAudit(c *gin.Context, userId int, action string, params map[string]any) {
 	if code := c.GetString("security_error_code"); code != "" {
 		if params == nil {
-			params = map[string]interface{}{}
+			params = map[string]any{}
 		}
 		params["code"] = code
 	}

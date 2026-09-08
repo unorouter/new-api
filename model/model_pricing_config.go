@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -56,12 +57,7 @@ var modelPricingOptionKeys = []string{
 var modelPricingMutationMu sync.Mutex
 
 func IsModelPricingOption(key string) bool {
-	for _, candidate := range modelPricingOptionKeys {
-		if key == candidate {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(modelPricingOptionKeys, key)
 }
 
 func ModelPricingVersion(values PricingValues) string {

@@ -251,12 +251,12 @@ func updatePricing() {
 		if strings.TrimSpace(meta.Endpoints) == "" {
 			continue
 		}
-		var raw map[string]interface{}
+		var raw map[string]any
 		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
 			endpoints := modelSupportEndpointsStr[modelName]
 			for k, v := range raw {
 				switch v.(type) {
-				case string, map[string]interface{}:
+				case string, map[string]any:
 					endpoints = appendPricingEndpoint(endpoints, k)
 				}
 			}
@@ -293,13 +293,13 @@ func updatePricing() {
 		if strings.TrimSpace(meta.Endpoints) == "" {
 			continue
 		}
-		var raw map[string]interface{}
+		var raw map[string]any
 		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
 			for k, v := range raw {
 				switch val := v.(type) {
 				case string:
 					supportedEndpointMap[k] = common.EndpointInfo{Path: val, Method: "POST"}
-				case map[string]interface{}:
+				case map[string]any:
 					ep := common.EndpointInfo{Method: "POST"}
 					if p, ok := val["path"].(string); ok {
 						ep.Path = p
@@ -399,9 +399,7 @@ func updatePricing() {
 				pricing.BillingUsageExamples = make([]jsplugin.UsageExample, len(plugin.Meta.UsageExamples))
 				for index, example := range plugin.Meta.UsageExamples {
 					facts := make(map[string]any, len(example.Facts))
-					for key, value := range example.Facts {
-						facts[key] = value
-					}
+					maps.Copy(facts, example.Facts)
 					pricing.BillingUsageExamples[index] = jsplugin.UsageExample{
 						Label: example.Label,
 						Facts: facts,

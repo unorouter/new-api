@@ -151,7 +151,7 @@ func finishAdminAudit(c *gin.Context, writer *auditResponseWriter) {
 	}
 
 	// op.params 为语言无关参数，供前端 i18n 渲染；generic 时携带 method/route。
-	opParams := map[string]interface{}{}
+	opParams := map[string]any{}
 	if action == "generic" {
 		opParams["method"] = method
 		opParams["route"] = route

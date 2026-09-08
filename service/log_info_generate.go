@@ -144,7 +144,7 @@ func appendStreamStatus(relayInfo *relaycommon.RelayInfo, other *model.LogOther)
 	if !ss.IsNormalEnd() || ss.HasErrors() {
 		status = "error"
 	}
-	streamInfo := map[string]interface{}{
+	streamInfo := map[string]any{
 		"status":     status,
 		"end_reason": string(ss.EndReason),
 	}
@@ -200,10 +200,7 @@ func appendBillingInfo(relayInfo *relaycommon.RelayInfo, other *model.LogOther) 
 			usedFinal = 0
 		}
 		if relayInfo.SubscriptionAmountTotal > 0 {
-			remain := relayInfo.SubscriptionAmountTotal - usedFinal
-			if remain < 0 {
-				remain = 0
-			}
+			remain := max(relayInfo.SubscriptionAmountTotal-usedFinal, 0)
 			other.SetPublic("subscription_total", relayInfo.SubscriptionAmountTotal)
 			other.SetPublic("subscription_used", usedFinal)
 			other.SetPublic("subscription_remain", remain)

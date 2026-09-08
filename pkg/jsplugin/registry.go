@@ -1077,7 +1077,7 @@ func normalizeV1Meta(meta *Meta) error {
 			if len(host) > 253 || host == "" {
 				return fmt.Errorf("plugin meta website must have a valid hostname")
 			}
-			for _, label := range strings.Split(host, ".") {
+			for label := range strings.SplitSeq(host, ".") {
 				if !websiteHostLabelPattern.MatchString(label) {
 					return fmt.Errorf("plugin meta website must have a valid ASCII hostname; use punycode for internationalized domains")
 				}
@@ -1848,9 +1848,7 @@ func validateLocalizedText(text LocalizedText, name string, maxRunes int) error 
 	for locale := range text {
 		delete(text, locale)
 	}
-	for locale, value := range canonical {
-		text[locale] = value
-	}
+	maps.Copy(text, canonical)
 	return nil
 }
 

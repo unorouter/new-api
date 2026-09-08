@@ -451,13 +451,13 @@ func TestAppendUsageBillingPathForLogWritesAdminInfo(t *testing.T) {
 		BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{InputTokens: 1}),
 	})
 
-	adminInfo, ok := other.Snapshot()["admin_info"].(map[string]interface{})
+	adminInfo, ok := other.Snapshot()["admin_info"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, usageBillingPathAnthropic, adminInfo["usage_billing_path"])
 
 	other = model.NewLogOther()
 	appendUsageBillingPathForLog(other, true, nil)
-	adminInfo, ok = other.Snapshot()["admin_info"].(map[string]interface{})
+	adminInfo, ok = other.Snapshot()["admin_info"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, usageBillingPathLocal, adminInfo["usage_billing_path"])
 }
