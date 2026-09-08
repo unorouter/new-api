@@ -21,6 +21,15 @@ For commercial licensing, please contact support@quantumnous.com
 export const STATIC_I18N_KEYS = [
   'Account deletion',
   // Model management and metadata synchronization
+  'No matching channels',
+  'Metadata only',
+  'Available channels: {{count}}',
+  'No configured channel models match this metadata rule.',
+  'No channel is configured. This model will not appear in the model square.',
+  'No channel is currently available. This model will not appear in the model square.',
+  'Listing also depends on metadata visibility and the user’s group access.',
+  'Add metadata to all selected models first.',
+
   'Model management',
   'Select models',
   'Preview fields',

@@ -116,7 +116,7 @@ function breakdownPriceFieldLabel(
 const VAR_LABELS: Record<string, string> = {
   p: 'Input',
   c: 'Output',
-  len: 'Length',
+  len: 'Full input length',
 }
 const OP_LABELS: Record<string, string> = {
   '<': '<',

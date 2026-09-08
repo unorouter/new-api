@@ -19,11 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 import { t } from 'i18next'
 
 import { combineBillingExpr } from '@/features/pricing/lib/billing-expr'
+import type { PricingModel } from '@/features/pricing/types'
 import type { ModelRatioData } from '@/features/system-settings/models/model-pricing-core'
 import {
   buildModelSnapshots,
   type ModelPricingSnapshot,
 } from '@/features/system-settings/models/model-pricing-snapshots'
+
+import type { ModelPricingEntry } from './api'
 
 export const PRICING_KEYS = [
   'ModelPrice',
@@ -40,6 +43,49 @@ export const PRICING_KEYS = [
 export type PricingKey = (typeof PRICING_KEYS)[number]
 export type PricingValues = Partial<Record<PricingKey, number | string>>
 export type PricingOptions = Record<PricingKey, string>
+
+export function modelPricingDisplay(
+  entry: Pick<ModelPricingEntry, 'model_name' | 'effective' | 'usage_schema'>
+): PricingModel {
+  const values = entry.effective
+  return {
+    id: 0,
+    model_name: entry.model_name,
+    enable_groups: [],
+    quota_type:
+      values.ModelPrice !== undefined &&
+      values['billing_setting.billing_mode'] !== 'tiered_expr'
+        ? 1
+        : 0,
+    model_ratio: Number(values.ModelRatio ?? Number.NaN),
+    completion_ratio: Number(values.CompletionRatio ?? Number.NaN),
+    model_price:
+      values.ModelPrice === undefined ? undefined : Number(values.ModelPrice),
+    cache_ratio:
+      values.CacheRatio === undefined ? undefined : Number(values.CacheRatio),
+    create_cache_ratio:
+      values.CreateCacheRatio === undefined
+        ? undefined
+        : Number(values.CreateCacheRatio),
+    image_ratio:
+      values.ImageRatio === undefined ? undefined : Number(values.ImageRatio),
+    audio_ratio:
+      values.AudioRatio === undefined ? undefined : Number(values.AudioRatio),
+    audio_completion_ratio:
+      values.AudioCompletionRatio === undefined
+        ? undefined
+        : Number(values.AudioCompletionRatio),
+    billing_mode:
+      typeof values['billing_setting.billing_mode'] === 'string'
+        ? values['billing_setting.billing_mode']
+        : undefined,
+    billing_expr:
+      typeof values['billing_setting.billing_expr'] === 'string'
+        ? values['billing_setting.billing_expr']
+        : undefined,
+    billing_usage_schema: entry.usage_schema,
+  }
+}
 
 export const pricingFieldMap = {
   price: 'ModelPrice',

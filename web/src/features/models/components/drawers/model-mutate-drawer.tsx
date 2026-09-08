@@ -86,8 +86,16 @@ export function ModelMutateDrawer(props: {
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const currentRow = props.currentRow
+  const [createdModel, setCreatedModel] = useState<{
+    source: Model | null | undefined
+    model: Model
+  } | null>(null)
+  const currentRow =
+    createdModel && createdModel.source === props.currentRow
+      ? createdModel.model
+      : props.currentRow
   const isEditing = Boolean(currentRow?.id)
+  const hasModelName = Boolean(currentRow?.model_name)
   const [section, setSection] = useState<string>(
     props.initialSection ?? 'metadata'
   )
@@ -141,14 +149,22 @@ export function ModelMutateDrawer(props: {
     setPricingDirty(false)
     setPendingPricingName(null)
     setCloseConfirm(false)
-  }, [props.open, props.initialSection, currentRow?.id])
+  }, [
+    props.open,
+    props.initialSection,
+    props.currentRow?.id,
+    props.currentRow?.model_name,
+  ])
 
   useEffect(() => {
     if (!props.open) {
+      setCreatedModel(null)
       loadedKey.current = ''
       return
     }
-    const key = String(currentRow?.id ?? currentRow?.model_name ?? 'new')
+    const key = currentRow?.id
+      ? `metadata:${currentRow.id}`
+      : `channel:${currentRow?.model_name ?? ''}`
     if (loadedKey.current === key || (isEditing && !modelQuery.data)) return
     form.reset(
       transformModelToFormDefaults(
@@ -185,6 +201,9 @@ export function ModelMutateDrawer(props: {
     onSuccess: async (response) => {
       form.reset(form.getValues())
       if (response.data?.id) {
+        if (!currentRow?.id) {
+          setCreatedModel({ source: props.currentRow, model: response.data })
+        }
         queryClient.setQueryData(
           modelsQueryKeys.detail(response.data.id),
           response.data
@@ -235,7 +254,7 @@ export function ModelMutateDrawer(props: {
         >
           <SheetHeader className={sideDrawerHeaderClassName()}>
             <SheetTitle className='pr-6 break-all'>
-              {isEditing ? currentRow?.model_name : t('Create Model')}
+              {hasModelName ? currentRow?.model_name : t('Create Model')}
             </SheetTitle>
             <SheetDescription>
               {t(
@@ -260,14 +279,14 @@ export function ModelMutateDrawer(props: {
               </TabsTrigger>
               <TabsTrigger
                 value='pricing'
-                disabled={!isEditing}
+                disabled={!hasModelName}
                 className='h-auto min-w-0 whitespace-normal'
               >
                 {t('Pricing')}
               </TabsTrigger>
               <TabsTrigger
                 value='connections'
-                disabled={!isEditing}
+                disabled={!hasModelName}
                 className='h-auto min-w-0 whitespace-normal'
               >
                 {t('Channels and groups')}
@@ -532,7 +551,7 @@ export function ModelMutateDrawer(props: {
                               </FormLabel>
                               <FormDescription>
                                 {t(
-                                  'Controls visibility in the model square. Channel status and existing API access are unchanged.'
+                                  'Allow listing when a channel is available and the user has group access. This does not change API access.'
                                 )}
                               </FormDescription>
                             </div>

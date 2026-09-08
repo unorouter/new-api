@@ -361,15 +361,24 @@ it('converts task base charges and second, token and credit prices, including wh
     schema
   )
   await selectCurrency('Site currency (CNY)')
-  fireEvent.change(screen.getByRole('textbox', { name: 'Base charge: std' }), {
-    target: { value: '7' },
-  })
-  fireEvent.change(screen.getByRole('textbox', { name: 'tokens: std' }), {
-    target: { value: '70' },
-  })
-  fireEvent.change(screen.getByRole('textbox', { name: 'credits: std' }), {
-    target: { value: '0.7' },
-  })
+  fireEvent.change(
+    screen.getByRole('textbox', { name: 'Additional charge: mode: std' }),
+    {
+      target: { value: '7' },
+    }
+  )
+  fireEvent.change(
+    screen.getByRole('textbox', { name: 'Unit price: tokens: mode: std' }),
+    {
+      target: { value: '70' },
+    }
+  )
+  fireEvent.change(
+    screen.getByRole('textbox', { name: 'Unit price: credits: mode: std' }),
+    {
+      target: { value: '0.7' },
+    }
+  )
   const secondsHeader = screen.getByRole('columnheader', { name: /seconds/ })
   await userEvent.click(
     within(secondsHeader).getByRole('button', { name: 'Fill entire column' })
@@ -381,12 +390,12 @@ it('converts task base charges and second, token and credit prices, including wh
   await userEvent.click(
     screen.getByRole('button', { name: 'Apply to all rows' })
   )
-  expect(screen.getByRole('textbox', { name: 'seconds: std' })).toHaveValue(
-    '14'
-  )
-  expect(screen.getByRole('textbox', { name: 'seconds: pro' })).toHaveValue(
-    '14'
-  )
+  expect(
+    screen.getByRole('textbox', { name: 'Unit price: seconds: mode: std' })
+  ).toHaveValue('14')
+  expect(
+    screen.getByRole('textbox', { name: 'Unit price: seconds: mode: pro' })
+  ).toHaveValue('14')
   const saved = await commit(editor.ref)
   const config = tryParseTaskVisualConfig(saved?.billingExpr ?? '', schema)
   expect(config?.tiers[0]).toMatchObject({
@@ -414,7 +423,7 @@ it('converts task unit prices without enum tiers and updates the monetary previe
   fireEvent.change(screen.getByRole('textbox', { name: 'seconds' }), {
     target: { value: '14' },
   })
-  fireEvent.change(screen.getByRole('textbox', { name: 'Base charge' }), {
+  fireEvent.change(screen.getByRole('textbox', { name: 'Additional charge' }), {
     target: { value: '7' },
   })
   expect(await commit(editor.ref)).toMatchObject({

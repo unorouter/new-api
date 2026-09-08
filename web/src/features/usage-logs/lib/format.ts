@@ -21,6 +21,7 @@ import {
   BILLING_PRICING_VARS,
   normalizeTierLabel,
   parseTiersFromExpr,
+  splitBillingExprAndRequestRules,
   type ParsedTier,
 } from '@/features/pricing/lib/billing-expr'
 
@@ -337,7 +338,9 @@ export function getTieredBillingSummary(
   if (!other || other.billing_mode !== 'tiered_expr') return null
   const exprStr = decodeBillingExprB64(other.expr_b64)
   if (!exprStr) return null
-  const tiers = parseTiersFromExpr(exprStr)
+  const tiers = parseTiersFromExpr(
+    splitBillingExprAndRequestRules(exprStr).billingExpr
+  )
   const tier = resolveMatchedTier(tiers, other.matched_tier)
   if (!tier) return null
 
