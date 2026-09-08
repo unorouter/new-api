@@ -18,11 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
 
+import { InputGroup, InputGroupAddon } from '@/components/ui/input-group'
 import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from '@/components/ui/input-group'
+  USD_PRICING_CURRENCY,
+  type PricingCurrency,
+} from '@/features/model-pricing/currency'
+import { PricingAmountInput } from '@/features/model-pricing/pricing-amount-input'
 import { cn } from '@/lib/utils'
 
 import {
@@ -31,27 +32,41 @@ import {
 } from '../components/settings-form-layout'
 
 export function PriceInput(props: {
+  currency?: PricingCurrency
+  id?: string
+  'aria-label'?: string
+  'aria-describedby'?: string
   value: string
   placeholder?: string
   disabled?: boolean
   onChange: (value: string) => void
 }) {
   return (
-    <InputGroup>
-      <InputGroupAddon>$</InputGroupAddon>
-      <InputGroupInput
+    <InputGroup className='has-[[data-pricing-error]]:h-auto has-[[data-pricing-error]]:flex-wrap'>
+      <InputGroupAddon>
+        {(props.currency ?? USD_PRICING_CURRENCY).symbol}
+      </InputGroupAddon>
+      <PricingAmountInput
+        grouped
+        currency={props.currency}
+        id={props.id}
+        aria-label={props['aria-label']}
+        aria-describedby={props['aria-describedby']}
         inputMode='decimal'
         value={props.value}
         placeholder={props.placeholder}
         disabled={props.disabled}
-        onChange={(event) => props.onChange(event.target.value)}
+        onChange={props.onChange}
       />
-      <InputGroupAddon align='inline-end'>$/1M</InputGroupAddon>
+      <InputGroupAddon align='inline-end'>
+        {(props.currency ?? USD_PRICING_CURRENCY).symbol}/1M
+      </InputGroupAddon>
     </InputGroup>
   )
 }
 
 export function PriceLane(props: {
+  currency?: PricingCurrency
   title: string
   description: string
   placeholder: string
@@ -78,6 +93,8 @@ export function PriceLane(props: {
         aria-label={props.title}
       />
       <PriceInput
+        currency={props.currency}
+        aria-label={props.title}
         value={props.value}
         placeholder={props.placeholder}
         disabled={effectiveDisabled}
@@ -85,7 +102,9 @@ export function PriceLane(props: {
       />
       <p className='text-muted-foreground text-xs'>
         {props.enabled
-          ? t('USD price per 1M tokens.')
+          ? t('{{currency}} price per 1M tokens.', {
+              currency: (props.currency ?? USD_PRICING_CURRENCY).label,
+            })
           : t('Disabled lanes are omitted on save.')}
       </p>
     </SettingsControlGroup>

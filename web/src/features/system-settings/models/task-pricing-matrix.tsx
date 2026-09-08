@@ -28,7 +28,6 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { Field, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
 import {
   Popover,
   PopoverContent,
@@ -50,6 +49,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  USD_PRICING_CURRENCY,
+  type PricingCurrency,
+} from '@/features/model-pricing/currency'
+import { PricingAmountInput } from '@/features/model-pricing/pricing-amount-input'
 import { getTaskUsagePriceUnitLabelKey } from '@/features/pricing/lib/dynamic-price'
 import {
   getTaskEnumFields,
@@ -66,6 +70,7 @@ import { cn } from '@/lib/utils'
 const TASK_MATRIX_GROUP_THRESHOLD = 24
 
 type TaskPricingMatrixProps = {
+  currency?: PricingCurrency
   rows: TaskMatrixRow[]
   usageSchema: BillingUsageSchema
   matchedRowIndex: number | null
@@ -79,6 +84,7 @@ type IndexedTaskMatrixRow = {
 }
 
 type FillColumnPopoverProps = {
+  currency?: PricingCurrency
   priceKey: string
   initialValue: number
   onFillColumn: (priceKey: string, value: number) => void
@@ -86,6 +92,7 @@ type FillColumnPopoverProps = {
 
 function FillColumnPopover(props: FillColumnPopoverProps) {
   const { t } = useTranslation()
+  const inputRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
   const [value, setValue] = useState(props.initialValue)
 
@@ -95,6 +102,7 @@ function FillColumnPopover(props: FillColumnPopoverProps) {
   }
 
   const handleSubmit = () => {
+    if (inputRef.current && !inputRef.current.reportValidity()) return
     const nextValue = Number(value)
     props.onFillColumn(
       props.priceKey,
@@ -124,8 +132,9 @@ function FillColumnPopover(props: FillColumnPopoverProps) {
         </PopoverHeader>
         <Field className='gap-2'>
           <FieldLabel className='sr-only'>{t('Fill entire column')}</FieldLabel>
-          <Input
-            type='number'
+          <PricingAmountInput
+            ref={inputRef}
+            currency={props.currency}
             min={0}
             step={0.000001}
             value={value}
@@ -135,7 +144,7 @@ function FillColumnPopover(props: FillColumnPopoverProps) {
                 event.currentTarget.select()
               }
             }}
-            onChange={(event) => setValue(Number(event.target.value))}
+            onChange={(usd) => setValue(Number(usd))}
             onKeyDown={(event) => {
               if (event.key !== 'Enter') return
               event.preventDefault()
@@ -153,6 +162,7 @@ function FillColumnPopover(props: FillColumnPopoverProps) {
 }
 
 type TaskMatrixTableProps = {
+  currency?: PricingCurrency
   entries: IndexedTaskMatrixRow[]
   enumFields: [string, BillingUsageFieldSchema][]
   numberFields: [string, BillingUsageFieldSchema][]
@@ -190,10 +200,12 @@ function TaskMatrixTable(props: TaskMatrixTableProps) {
                 <div className='flex flex-col gap-0.5'>
                   <code>{field}</code>
                   <span className='text-muted-foreground text-[11px] font-normal'>
-                    $/{t(getTaskUsagePriceUnitLabelKey(definition.unit))}
+                    {(props.currency ?? USD_PRICING_CURRENCY).symbol}/
+                    {t(getTaskUsagePriceUnitLabelKey(definition.unit))}
                   </span>
                 </div>
                 <FillColumnPopover
+                  currency={props.currency}
                   priceKey={field}
                   initialValue={props.firstRow.unitPrices[field] ?? 0}
                   onFillColumn={props.onFillColumn}
@@ -206,10 +218,12 @@ function TaskMatrixTable(props: TaskMatrixTableProps) {
               <div className='flex flex-col gap-0.5'>
                 <span>{t('Base charge')}</span>
                 <span className='text-muted-foreground text-[11px] font-normal'>
-                  $/{t('request')}
+                  {(props.currency ?? USD_PRICING_CURRENCY).symbol}/
+                  {t('request')}
                 </span>
               </div>
               <FillColumnPopover
+                currency={props.currency}
                 priceKey='constant'
                 initialValue={props.firstRow.constant}
                 onFillColumn={props.onFillColumn}
@@ -244,8 +258,8 @@ function TaskMatrixTable(props: TaskMatrixTableProps) {
               ))}
               {props.numberFields.map(([field]) => (
                 <TableCell key={field}>
-                  <Input
-                    type='number'
+                  <PricingAmountInput
+                    currency={props.currency}
                     min={0}
                     step={0.000001}
                     value={entry.row.unitPrices[field] ?? 0}
@@ -257,8 +271,8 @@ function TaskMatrixTable(props: TaskMatrixTableProps) {
                         event.currentTarget.select()
                       }
                     }}
-                    onChange={(event) => {
-                      const value = Number(event.target.value)
+                    onChange={(usd) => {
+                      const value = Number(usd)
                       props.onRowChange(entry.index, {
                         ...entry.row,
                         unitPrices: {
@@ -276,8 +290,8 @@ function TaskMatrixTable(props: TaskMatrixTableProps) {
                 </TableCell>
               ))}
               <TableCell>
-                <Input
-                  type='number'
+                <PricingAmountInput
+                  currency={props.currency}
                   min={0}
                   step={0.000001}
                   value={entry.row.constant}
@@ -289,8 +303,8 @@ function TaskMatrixTable(props: TaskMatrixTableProps) {
                       event.currentTarget.select()
                     }
                   }}
-                  onChange={(event) => {
-                    const value = Number(event.target.value)
+                  onChange={(usd) => {
+                    const value = Number(usd)
                     props.onRowChange(entry.index, {
                       ...entry.row,
                       constant:
@@ -463,6 +477,7 @@ export function TaskPricingMatrix(props: TaskPricingMatrixProps) {
           <div className='flex flex-col gap-2'>
             {(firstEnumField[1].enum ?? []).map((groupValue) => (
               <TaskMatrixGroup
+                currency={props.currency}
                 key={groupValue}
                 entries={entries.filter(
                   (entry) =>
@@ -494,6 +509,7 @@ export function TaskPricingMatrix(props: TaskPricingMatrixProps) {
           </div>
         ) : (
           <TaskMatrixTable
+            currency={props.currency}
             entries={entries}
             enumFields={enumFields}
             numberFields={numberFields}
