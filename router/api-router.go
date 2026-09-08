@@ -495,14 +495,14 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Get(tokRead, "/auto-groups", controller.GetTokenAutoGroups)
 		dto.Get(tokRead, "/:id", controller.GetToken, option.Path("id", "Token ID"))
 		// Writes are gated by `tokens:write`.
-		tokWrite := dto.NewRouter(engine, tokenGroup.Group("", middleware.RequireScope("tokens:write")), "Token", secDashboard())
+		tokWrite := dto.NewRouter(engine, tokenGroup.Group("", middleware.RequireScope("tokens:write"), middleware.NoPATForPrivileged()), "Token", secDashboard())
 		dto.PostB(tokWrite, "/", controller.AddToken)
 		dto.PutBP(tokWrite, "/", controller.UpdateToken)
 		dto.Delete(tokWrite, "/:id", controller.DeleteToken, option.Path("id", "Token ID"))
 		dto.PostB(tokWrite, "/batch", controller.DeleteTokenBatch)
 
 		// /:id/key reveals the secret of an API key — gated by tokens:read.
-		tokKey := dto.NewRouter(engine, tokenGroup.Group("", middleware.RequireScope("tokens:read"), middleware.CriticalRateLimit(), middleware.DisableCache()), "Token", secDashboard())
+		tokKey := dto.NewRouter(engine, tokenGroup.Group("", middleware.RequireScope("tokens:read"), middleware.NoPATForPrivileged(), middleware.CriticalRateLimit(), middleware.DisableCache()), "Token", secDashboard())
 		dto.Post(tokKey, "/:id/key", controller.GetTokenKey, option.Path("id", "Token ID"))
 		tokKey.GinPost("/batch/keys", controller.GetTokenKeysBatch, dto.GinResp[dto.ApiResponse]())
 
