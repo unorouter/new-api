@@ -59,10 +59,31 @@ func IsImageTaskChannel(channelType int) bool {
 // ServeImageAsTask answers an /v1/images/generations request from a task-plugin
 // channel. It returns nil once a response has been written.
 func ServeImageAsTask(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
-	imageRequest, ok := info.Request.(*dto.ImageRequest)
-	if !ok {
+	// These models are published as image models but reach the gateway two ways:
+	// /v1/images/generations from OpenAI clients, and /v1/chat/completions from the
+	// web chat, which renders the result as markdown. Both must work.
+	var prompt, requestedModel, responseFormat string
+	var imageCount *uint
+	var size string
+	_, isChat := info.Request.(*dto.GeneralOpenAIRequest)
+	switch request := info.Request.(type) {
+	case *dto.ImageRequest:
+		prompt, requestedModel, size, responseFormat, imageCount = request.Prompt, request.Model, request.Size, request.ResponseFormat, request.N
+	case *dto.GeneralOpenAIRequest:
+		requestedModel = request.Model
+		for i := len(request.Messages) - 1; i >= 0; i-- {
+			if request.Messages[i].Role == "user" {
+				prompt = strings.TrimSpace(request.Messages[i].StringContent())
+				break
+			}
+		}
+	default:
 		return types.NewErrorWithStatusCode(
-			fmt.Errorf("invalid request type, expected dto.ImageRequest, got %T", info.Request),
+			fmt.Errorf("unsupported request type %T for a task-plugin image channel", info.Request),
+			types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	if prompt == "" {
+		return types.NewErrorWithStatusCode(errors.New("prompt is required"),
 			types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 
@@ -76,14 +97,14 @@ func ServeImageAsTask(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPI
 	// adaptor to skip ValidateBasicTaskRequest, which demands video fields.
 	// `n` arrives already bounded by dto.MaxImageN from the shared image validator.
 	requestBody := map[string]any{
-		"model":  imageRequest.Model,
-		"prompt": imageRequest.Prompt,
+		"model":  requestedModel,
+		"prompt": prompt,
 	}
-	if imageRequest.Size != "" {
-		requestBody["size"] = imageRequest.Size
+	if size != "" {
+		requestBody["size"] = size
 	}
-	if imageRequest.N != nil && *imageRequest.N > 0 {
-		requestBody["metadata"] = map[string]any{"n": int(*imageRequest.N)}
+	if imageCount != nil && *imageCount > 0 {
+		requestBody["metadata"] = map[string]any{"n": int(*imageCount)}
 	}
 	c.Set("task_request", requestBody)
 	c.Set("task_action", "generate")
@@ -113,13 +134,13 @@ func ServeImageAsTask(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPI
 		return imageTaskSubmitError(taskErr)
 	}
 
-	return waitImageTask(c, outcome, imageRequest)
+	return waitImageTask(c, outcome, requestedModel, responseFormat, isChat)
 }
 
 // waitImageTask polls the task row until it is terminal, then writes the OpenAI
 // image response. Without a configured wait bound the only exits are a terminal
 // status and the client going away.
-func waitImageTask(c *gin.Context, outcome *taskSubmissionOutcome, request *dto.ImageRequest) *types.NewAPIError {
+func waitImageTask(c *gin.Context, outcome *taskSubmissionOutcome, requestedModel, responseFormat string, asChat bool) *types.NewAPIError {
 	if outcome == nil || outcome.Task == nil {
 		return types.NewError(errors.New("task submission returned no task"), types.ErrorCodeDoRequestFailed)
 	}
@@ -156,7 +177,7 @@ func waitImageTask(c *gin.Context, outcome *taskSubmissionOutcome, request *dto.
 				fmt.Errorf("image task %s is no longer available", taskID),
 				types.ErrorCodeDoRequestFailed, http.StatusBadGateway)
 		case task.Status == model.TaskStatusSuccess:
-			return writeImageTaskSuccess(c, task, request)
+			return writeImageTaskSuccess(c, task, requestedModel, responseFormat, asChat)
 		case task.Status == model.TaskStatusFailure:
 			// Upstream faults stay retryable so the relay loop can try another
 			// channel serving the same model.
@@ -191,14 +212,39 @@ func imageTaskWaitEnded(c *gin.Context, taskID string, waitContext context.Conte
 	return nil
 }
 
-func writeImageTaskSuccess(c *gin.Context, task *model.Task, request *dto.ImageRequest) *types.NewAPIError {
+func writeImageTaskSuccess(c *gin.Context, task *model.Task, requestedModel, responseFormat string, asChat bool) *types.NewAPIError {
 	urls := task.GetResultURLs()
 	if len(urls) == 0 {
 		return types.NewErrorWithStatusCode(
 			errors.New("image task finished without an image"),
 			types.ErrorCodeDoRequestFailed, http.StatusBadGateway)
 	}
-	wantBase64 := strings.EqualFold(request.ResponseFormat, "b64_json")
+	if asChat {
+		// The web chat renders markdown, so the image arrives as an image tag in
+		// the assistant message rather than as an images-API payload.
+		var content strings.Builder
+		for _, url := range urls {
+			if content.Len() > 0 {
+				content.WriteString("\n")
+			}
+			content.WriteString("![image](")
+			content.WriteString(url)
+			content.WriteString(")")
+		}
+		c.JSON(http.StatusOK, dto.OpenAITextResponse{
+			Id:      "chatcmpl-" + task.TaskID,
+			Model:   requestedModel,
+			Object:  "chat.completion",
+			Created: common.GetTimestamp(),
+			Choices: []dto.OpenAITextResponseChoice{{
+				Index:        0,
+				Message:      dto.Message{Role: "assistant", Content: content.String()},
+				FinishReason: "stop",
+			}},
+		})
+		return nil
+	}
+	wantBase64 := strings.EqualFold(responseFormat, "b64_json")
 	data := make([]dto.ImageData, 0, len(urls))
 	for _, url := range urls {
 		// parseTaskResult returns either an https URL or an inline data: URI.
