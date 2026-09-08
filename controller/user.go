@@ -612,6 +612,12 @@ var patDeniedManageActions = map[string]bool{
 // service token may invoke.
 const botAllowedManageAction = "set_free_rate_limit_window_pct"
 
+// maxDiscordGrantQuota bounds one discord_grant. The bot hands out cents for
+// votes and server tags (the largest legitimate grant on record is $1), so a
+// single call has no reason to move more than $10; a stolen bot token granted
+// $4000 in one request on 2026-09-08.
+const maxDiscordGrantQuota = 10 * 500 * 1000
+
 // GetUserBotView returns the two fields the Discord bot reads, instead of the
 // whole user record. GetUser serves email, Discord id, register IP and referral
 // data, none of which the bot uses, so pointing a service credential at it
@@ -1517,7 +1523,7 @@ func GrantDiscordQuota(c fuego.ContextWithBody[dto.GrantDiscordQuotaRequest]) (*
 	if err != nil {
 		return dto.Fail[dto.GrantDiscordQuotaData](common.TranslateMessage(ginCtx, "common.invalid_params"))
 	}
-	if req.DiscordId == "" || req.Quota <= 0 {
+	if req.DiscordId == "" || req.Quota <= 0 || req.Quota > maxDiscordGrantQuota {
 		return dto.Fail[dto.GrantDiscordQuotaData](common.TranslateMessage(ginCtx, "common.invalid_params"))
 	}
 
