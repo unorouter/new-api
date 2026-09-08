@@ -318,7 +318,7 @@ func SyncAuth(minRole int) func(c *gin.Context) {
 		// anywhere else it is a stolen token and falls through to normal auth, which
 		// rejects and fingerprints it (2026-09-07: replayed from Tor exits within
 		// the hour of a leak, accepted on guest-model-limits).
-		if !ok || secret == "" || subtle.ConstantTimeCompare([]byte(raw), []byte(secret)) != 1 || !IsTrustedNetwork(c.ClientIP()) {
+		if !ok || secret == "" || subtle.ConstantTimeCompare([]byte(raw), []byte(secret)) != 1 || !IsTrustedNetworkStrict(c.ClientIP()) {
 			authHelper(c, minRole)
 			return
 		}
