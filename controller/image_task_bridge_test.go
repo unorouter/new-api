@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -196,4 +197,18 @@ func TestRelayHandlerDetectsImageTaskChannelBeforeChannelMetaExists(t *testing.T
 
 	assert.True(t, IsImageTaskChannel(common.GetContextKeyInt(c, constant.ContextKeyChannelType)))
 	assert.False(t, IsImageTaskChannel(common.GetContextKeyInt(c, constant.ContextKeyChannelType)+1))
+}
+
+// The task row must be stored under the plugin key, not the channel type number.
+// GetTaskPlatform falls back to the channel type when neither task_plugin_key nor
+// platform is set, and the background poller only advances rows whose platform is
+// the plugin key, so a mismatch leaves the task QUEUED forever and the caller
+// waiting on a status that can never change.
+func TestImageTaskPluginKeyMatchesTheChannelTypeMapping(t *testing.T) {
+	plugin, resolved := pluginruntime.DefaultRegistry.Generation().Get(imageTaskPluginKey)
+	require.True(t, resolved, "the %q task plugin must be registered", imageTaskPluginKey)
+	require.NotNil(t, plugin)
+	assert.Equal(t, imageTaskPluginKey, plugin.Meta.Key)
+	assert.Contains(t, plugin.Meta.ChannelTypes, constant.ChannelTypeAIHorde,
+		"the plugin must claim the channel type the image dispatcher routes to it")
 }
