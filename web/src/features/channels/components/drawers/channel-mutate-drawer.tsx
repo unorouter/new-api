@@ -81,7 +81,14 @@ import {
 } from '@/components/ui/form'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import {
   Sheet,
@@ -101,6 +108,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { SecureVerificationDialog } from '@/features/auth/secure-verification'
+import { PluginIcon } from '@/features/task-plugins/components/plugin-icon'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
 import {
@@ -112,7 +120,6 @@ import {
   parseChannelConnectionInfo,
   type ChannelConnectionInfo,
 } from '@/lib/channel-connection-info'
-import { getLobeIcon } from '@/lib/lobe-icon'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -152,7 +159,6 @@ import {
   transformChannelToFormDefaults,
   type ChannelFormValues,
   deduplicateKeys,
-  getChannelTypeIcon,
   getKeyPromptForType,
   parseModelsString,
   formatModelsArray,
@@ -167,7 +173,12 @@ import {
   collectInvalidStatusCodeEntries,
   collectNewDisallowedStatusCodeRedirects,
 } from '../../lib/status-code-risk-guard'
+import {
+  assessBaseUrlTrust,
+  nextTaskPluginBaseUrl,
+} from '../../lib/task-plugin-base-url'
 import type { Channel } from '../../types'
+import { ChannelTypeLogo } from '../channel-type-badge'
 import { useChannels } from '../channels-provider'
 import { AdvancedCustomEditorDialog } from '../dialogs/advanced-custom-editor-dialog'
 import { FetchModelsDialog } from '../dialogs/fetch-models-dialog'
@@ -412,35 +423,6 @@ function configuredAdvancedSectionClassName(
     className,
     'border-border/60 rounded-lg border p-3 transition-colors',
     configured && 'border-primary/35 ring-primary/20 ring-1'
-  )
-}
-
-function ChannelTypeLogo(props: {
-  type: number
-  size?: number
-  className?: string
-}) {
-  const isKnownType = CHANNEL_TYPE_OPTIONS.some(
-    (option) => option.value === props.type
-  )
-
-  if (!isKnownType) {
-    return (
-      <Server
-        className={cn('text-muted-foreground shrink-0', props.className)}
-        style={{
-          width: props.size ?? 16,
-          height: props.size ?? 16,
-        }}
-        aria-hidden='true'
-      />
-    )
-  }
-
-  return (
-    <span className={cn('inline-flex shrink-0', props.className)}>
-      {getLobeIcon(`${getChannelTypeIcon(props.type)}.Color`, props.size ?? 16)}
-    </span>
   )
 }
 
@@ -704,6 +686,7 @@ export function ChannelMutateDrawer({
   const currentType = form.watch('type')
   const currentStatus = form.watch('status')
   const currentBaseUrl = form.watch('base_url')
+  const currentTaskPluginKey = form.watch('task_plugin_key')
   const currentKey = form.watch('key')
   const currentOther = form.watch('other')
   const currentModels = form.watch('models')
@@ -913,6 +896,19 @@ export function ChannelMutateDrawer({
     queryFn: getTaskPluginOptions,
     enabled: currentType === CHANNEL_TYPE_TASK_PLUGIN && canBindTaskPlugin,
   })
+  const boundTaskPlugin =
+    currentType === CHANNEL_TYPE_TASK_PLUGIN
+      ? taskPluginOptionsQuery.data?.find(
+          (item) => item.key === currentTaskPluginKey
+        )
+      : undefined
+  // The plugin author proposes the destination host once a default is
+  // prefilled, so the admin is told when the key would travel over plain HTTP
+  // or to a private network before the channel is saved.
+  const taskPluginBaseUrlTrust =
+    currentType === CHANNEL_TYPE_TASK_PLUGIN
+      ? assessBaseUrlTrust(currentBaseUrl)
+      : null
 
   const channelTypeOptions = useMemo(() => {
     const options = channelTypeOptionsForTaskPluginBind(canBindTaskPlugin).map(
@@ -1814,7 +1810,11 @@ export function ChannelMutateDrawer({
               <div className='min-w-0'>
                 <SheetTitle className='flex items-center gap-3'>
                   <IconBadge tone='info' size='title'>
-                    <ChannelTypeLogo type={currentType} size={22} />
+                    <ChannelTypeLogo
+                      type={currentType}
+                      plugin={boundTaskPlugin}
+                      size={22}
+                    />
                   </IconBadge>
                   <span>
                     {isEditing ? t('Edit Channel') : t('Create Channel')}
@@ -1899,9 +1899,13 @@ export function ChannelMutateDrawer({
                 <div className='grid gap-5 lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-start'>
                   <ChannelEditorNav
                     providerLogo={
-                      <ChannelTypeLogo type={currentType} size={18} />
+                      <ChannelTypeLogo
+                        type={currentType}
+                        plugin={boundTaskPlugin}
+                        size={18}
+                      />
                     }
-                    providerLabel={t(currentTypeLabel)}
+                    providerLabel={boundTaskPlugin?.name || t(currentTypeLabel)}
                     statusLabel={t(currentStatusLabel)}
                     progressLabel={progressLabel}
                     navigationLabel={t('Channels')}
@@ -1980,35 +1984,65 @@ export function ChannelMutateDrawer({
                                 <FormItem>
                                   <FormLabel>{t('Task plugin *')}</FormLabel>
                                   {canBindTaskPlugin ? (
-                                    <FormControl><Combobox
-value={field.value}
-onValueChange={(value) => {
-                                        field.onChange(value)
-                                        const plugin =
-                                          taskPluginOptionsQuery.data?.find(
+                                    <FormControl>
+                                      <Combobox
+                                        value={field.value}
+                                        onValueChange={(value) => {
+                                          const options =
+                                            taskPluginOptionsQuery.data ?? []
+                                          const previousPlugin = options.find(
+                                            (item) => item.key === field.value
+                                          )
+                                          field.onChange(value)
+                                          const plugin = options.find(
                                             (item) => item.key === value
                                           )
-                                        if (plugin?.models?.length) {
-                                          form.setValue(
-                                            'models',
-                                            formatModelsArray(plugin.models),
-                                            {
-                                              shouldDirty: true,
-                                            }
-                                          )
-                                        }
-                                      }}
-options={(
-                                        taskPluginOptionsQuery.data ?? []
-                                      ).map((plugin) => ({
-                                        value: plugin.key,
-                                        label: `${plugin.name} (${plugin.key})`,
-                                      }))}
-className='w-full'
-placeholder={t(
-                                              'Select task plugin'
-                                            )}
-/></FormControl>
+                                          if (plugin?.models?.length) {
+                                            form.setValue(
+                                              'models',
+                                              formatModelsArray(plugin.models),
+                                              {
+                                                shouldDirty: true,
+                                              }
+                                            )
+                                          }
+                                          const prefilledBaseUrl =
+                                            nextTaskPluginBaseUrl(
+                                              form.getValues('base_url'),
+                                              previousPlugin?.baseUrl,
+                                              plugin?.baseUrl
+                                            )
+                                          if (prefilledBaseUrl !== null) {
+                                            form.setValue(
+                                              'base_url',
+                                              prefilledBaseUrl,
+                                              {
+                                                shouldDirty: true,
+                                                shouldValidate: true,
+                                              }
+                                            )
+                                          }
+                                        }}
+                                        options={(
+                                          taskPluginOptionsQuery.data ?? []
+                                        ).map((plugin) => ({
+                                          value: plugin.key,
+                                          label: `${plugin.name} (${plugin.key})`,
+                                          icon: (
+                                            <PluginIcon
+                                              plugin={{
+                                                ...plugin,
+                                                hasIcon: plugin.hasIcon,
+                                              }}
+                                              size={16}
+                                            />
+                                          ),
+                                        }))}
+                                        className='w-full'
+                                        placeholder={t('Select task plugin')}
+                                        showSelectedIcon
+                                      />
+                                    </FormControl>
                                   ) : (
                                     <FormControl>
                                       <Input
@@ -2020,7 +2054,7 @@ placeholder={t(
                                   )}
                                   <FormDescription>
                                     {t(
-                                      'Selecting a plugin fills its declared models.'
+                                      'Selecting a plugin fills its declared models and default base URL.'
                                     )}
                                   </FormDescription>
                                   <FormMessage />
@@ -2792,12 +2826,74 @@ placeholder={t(
                                         {...field}
                                       />
                                     </FormControl>
-                                    <FormDescription>
-                                      {t(
-                                        'Custom API base URL. For official channels, New API has built-in addresses. Only fill this for third-party proxy sites or special endpoints. Do not add /v1 or trailing slash.'
+                                    {currentType !==
+                                      CHANNEL_TYPE_TASK_PLUGIN && (
+                                      <FormDescription>
+                                        {t(
+                                          'Custom API base URL. For official channels, New API has built-in addresses. Only fill this for third-party proxy sites or special endpoints. Do not add /v1 or trailing slash.'
+                                        )}
+                                      </FormDescription>
+                                    )}
+                                    {currentType === CHANNEL_TYPE_TASK_PLUGIN &&
+                                      !boundTaskPlugin?.baseUrl && (
+                                        <FormDescription>
+                                          {t(
+                                            'The upstream address this plugin sends requests to. The plugin declares no default, so it must be filled in.'
+                                          )}
+                                        </FormDescription>
                                       )}
-                                    </FormDescription>
+                                    {currentType === CHANNEL_TYPE_TASK_PLUGIN &&
+                                      boundTaskPlugin?.baseUrl && (
+                                        <FormDescription className='flex flex-wrap items-center gap-x-1'>
+                                          <span>{t('Plugin default')}:</span>
+                                          <span className='font-mono break-all'>
+                                            {boundTaskPlugin.baseUrl}
+                                          </span>
+                                          {(field.value ?? '')
+                                            .trim()
+                                            .replace(/\/+$/, '') !==
+                                            boundTaskPlugin.baseUrl && (
+                                            <Button
+                                              type='button'
+                                              variant='link'
+                                              size='xs'
+                                              className='h-auto p-0'
+                                              onClick={() =>
+                                                form.setValue(
+                                                  'base_url',
+                                                  boundTaskPlugin.baseUrl ?? '',
+                                                  {
+                                                    shouldDirty: true,
+                                                    shouldValidate: true,
+                                                  }
+                                                )
+                                              }
+                                            >
+                                              {t('Use default')}
+                                            </Button>
+                                          )}
+                                        </FormDescription>
+                                      )}
                                     <FormMessage />
+                                    {(taskPluginBaseUrlTrust?.plainHttp ||
+                                      taskPluginBaseUrlTrust?.privateHost) && (
+                                      <Alert>
+                                        <AlertCircle />
+                                        <AlertDescription>
+                                          {taskPluginBaseUrlTrust?.plainHttp &&
+                                            t(
+                                              'This base URL uses plain HTTP, so the channel key is sent unencrypted.'
+                                            )}
+                                          {taskPluginBaseUrlTrust?.plainHttp &&
+                                            taskPluginBaseUrlTrust?.privateHost &&
+                                            ' '}
+                                          {taskPluginBaseUrlTrust?.privateHost &&
+                                            t(
+                                              'This base URL points at a private or local network host. Make sure it is an upstream you control.'
+                                            )}
+                                        </AlertDescription>
+                                      </Alert>
+                                    )}
                                   </FormItem>
                                 )}
                               />

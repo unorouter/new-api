@@ -48,7 +48,16 @@ const channelActionConfig = (
   skipErrorHandler: true,
 })
 
-export type TaskPluginOption = { key: string; name: string; models: string[] }
+export type TaskPluginOption = {
+  sortPriority?: number
+  website?: string
+  key: string
+  name: string
+  icon?: string
+  hasIcon?: boolean
+  baseUrl?: string
+  models: string[]
+}
 
 export async function getTaskPluginOptions(): Promise<TaskPluginOption[]> {
   const response = await api.get<{

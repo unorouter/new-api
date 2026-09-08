@@ -48,6 +48,7 @@ type LegacyComboboxProps = {
   searchPlaceholder?: string
   emptyText?: string
   allowCustomValue?: boolean
+  showSelectedIcon?: boolean
   className?: string
   id?: string
   openOnFocus?: boolean
@@ -142,7 +143,13 @@ function OptionCombobox(props: LegacyComboboxProps) {
           }
           triggerAriaLabel={props['aria-label'] ?? t('Open')}
           className='h-full min-h-8 w-full'
-        />
+        >
+          {props.showSelectedIcon && !open && selected?.icon && (
+            <InputGroupAddon align='inline-start' aria-hidden='true'>
+              {selected.icon}
+            </InputGroupAddon>
+          )}
+        </ComboboxInput>
       </div>
       <ComboboxContent anchor={anchor}>
         <ComboboxEmpty>
