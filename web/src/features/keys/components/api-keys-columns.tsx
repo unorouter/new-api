@@ -137,8 +137,8 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
       accessorKey: 'remain_quota',
       header: `${t('Quota')} (${quotaUnit})`,
       cell: ({ row }) => <ApiKeyQuotaCell apiKey={row.original} now={now} />,
-      size: 220,
-      minSize: 220,
+      size: 260,
+      minSize: 260,
     },
     {
       accessorKey: 'group',
