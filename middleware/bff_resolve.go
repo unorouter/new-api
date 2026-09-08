@@ -28,5 +28,5 @@ func ResolvedByBFF(c *gin.Context) bool {
 		return false
 	}
 	raw := strings.TrimSpace(c.GetHeader(bffServiceHeader))
-	return raw != "" && subtle.ConstantTimeCompare([]byte(raw), []byte(secret)) == 1 && IsTrustedNetwork(c.ClientIP())
+	return raw != "" && subtle.ConstantTimeCompare([]byte(raw), []byte(secret)) == 1 && IsTrustedNetworkStrict(c.ClientIP())
 }

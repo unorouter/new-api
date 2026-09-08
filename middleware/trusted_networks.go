@@ -57,16 +57,31 @@ func loadTrustedNetworks() {
 // IsTrustedNetwork reports whether ip falls inside the operator or cluster
 // networks. Unparseable input, including the "unknown" gin returns when no
 // client address is available, counts as trusted: it is our own plumbing, not
-// a stranger.
+// a stranger. Audit stamping wants that reading; a credential gate does not,
+// so those call IsTrustedNetworkStrict instead.
 func IsTrustedNetwork(ip string) bool {
+	return trustedNetwork(ip, true)
+}
+
+// IsTrustedNetworkStrict is IsTrustedNetwork with the benefit of the doubt
+// removed: an address we cannot resolve to a trusted prefix is untrusted. It
+// guards the service credentials (sync, BFF), where treating an unreadable
+// origin as in-cluster would hand a leaked token the authority it grants. A
+// caller that spoofs X-Forwarded-For into something gin cannot parse reaches
+// this as "", which must not open the gate.
+func IsTrustedNetworkStrict(ip string) bool {
+	return trustedNetwork(ip, false)
+}
+
+func trustedNetwork(ip string, unknownIsTrusted bool) bool {
 	trustedNetworksOnce.Do(loadTrustedNetworks)
 	ip = strings.TrimSpace(ip)
 	if ip == "" || ip == "unknown" {
-		return true
+		return unknownIsTrusted
 	}
 	a, err := netip.ParseAddr(ip)
 	if err != nil {
-		return true
+		return unknownIsTrusted
 	}
 	a = a.Unmap()
 	for _, p := range trustedNetworks {
