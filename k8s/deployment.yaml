@@ -58,6 +58,8 @@ spec:
             - secretRef: { name: newapi-env }
           # NODE_TYPE empty in the env secret => master
           env:
+            - name: POD_UID
+              valueFrom: {fieldRef: {fieldPath: metadata.uid}}
             # Without this the instance registers under its pod name, which carries a
             # fresh ReplicaSet hash every deploy: the System Info instance list fills
             # with stale ghosts instead of showing one row per running instance.
@@ -167,6 +169,8 @@ spec:
           envFrom:
             - secretRef: { name: newapi-env }
           env:
+            - name: POD_UID
+              valueFrom: {fieldRef: {fieldPath: metadata.uid}}
             - name: NODE_TYPE
               value: slave
             # See the master's TRUSTED_PROXIES comment. Slaves serve the same dashboard
