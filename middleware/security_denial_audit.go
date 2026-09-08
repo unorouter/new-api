@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -88,6 +89,19 @@ func recordSecurityDenial(c *gin.Context, action string, reason string, extra ma
 	// distinguish "presented a PAT" from "presented a session" without becoming
 	// a place secrets leak to.
 	params["credential"] = presentedCredentialKind(c)
+	evidence := credentialEvidence(c)
+	for key, value := range evidence {
+		params[key] = value
+	}
+	evidence["event"] = action
+	evidence["user_id"] = c.GetInt("id")
+	evidence["auth_method"] = auditAuthMethodForDenial(c)
+	evidence["source_ip"] = c.ClientIP()
+	evidence["method"] = c.Request.Method
+	evidence["route"] = c.FullPath()
+	if body, err := common.Marshal(evidence); err == nil {
+		log.Printf("SECURITY_EVIDENCE %s", body)
+	}
 	for k, v := range originSignals(c) {
 		params[k] = v
 	}
