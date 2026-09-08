@@ -187,20 +187,24 @@ func auditAuthMethodForDenial(c *gin.Context) string {
 // ownership, which took manual WHOIS work to resolve to a tunnel broker and
 // says nothing once an address is recycled.
 //
-// CF-IPCountry is set by Cloudflare on every request and cannot be spoofed from
-// outside, because the edge overwrites whatever the client sent (same property
-// CF-Connecting-IP relies on). Accept-Language is client-controlled and
-// therefore proves nothing on its own, but a credential whose refusals suddenly
-// arrive with a different locale than its owner's successful requests is worth
-// a look. Both are recorded as signals to correlate, never as authorization
-// input.
+// CF-IPCountry and CF-Ray are set by Cloudflare on every request and cannot be
+// spoofed from outside, because the edge overwrites whatever the client sent
+// (same property CF-Connecting-IP relies on); the ray id is the join key into
+// Cloudflare's own request and firewall logs. Accept-Language and the client
+// product are client-controlled and therefore prove nothing on their own, but a
+// credential whose refusals suddenly arrive with a different locale or client
+// than its owner's successful requests is worth a look. All are recorded as
+// signals to correlate, never as authorization input.
 //
 // Absent values are omitted rather than stored empty: a missing country means
 // the request did not traverse the edge, which is itself the interesting case.
 func originSignals(c *gin.Context) map[string]interface{} {
-	out := make(map[string]interface{}, 2)
+	out := make(map[string]interface{}, 4)
 	if country := strings.TrimSpace(c.GetHeader("CF-IPCountry")); country != "" && country != "XX" {
 		out["country"] = country
+	}
+	if ray := strings.TrimSpace(c.GetHeader("CF-Ray")); ray != "" {
+		out["cf_ray"] = ray
 	}
 	if lang := strings.TrimSpace(c.GetHeader("Accept-Language")); lang != "" {
 		// First tag only: the full header is long, low-entropy and turns the
@@ -209,6 +213,14 @@ func originSignals(c *gin.Context) map[string]interface{} {
 			lang = lang[:i]
 		}
 		out["accept_language"] = strings.TrimSpace(lang)
+	}
+	if ua := strings.TrimSpace(c.Request.UserAgent()); ua != "" {
+		// Product token only ("Kilo-Code/7.5.15", "Mozilla/5.0"): enough to tell
+		// an SDK from a browser, without storing the full fingerprint.
+		if i := strings.IndexByte(ua, ' '); i > 0 {
+			ua = ua[:i]
+		}
+		out["client"] = ua
 	}
 	return out
 }
