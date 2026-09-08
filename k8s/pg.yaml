@@ -224,6 +224,16 @@ spec:
     # cert rule lands AFTER CNPG's fixed streaming_replica rules, BEFORE the scram catch-all
     pg_hba:
       - hostssl newapi reader all cert
+      # Grafana reads the pre-aggregated tables (quota_data, model_status_pings,
+      # perf_metrics) for the UnoRouter dashboards. Postgres takes the FIRST
+      # matching rule, so Teleport keeps the cert path above and this only catches
+      # what the cert rule did not satisfy. Pod CIDR only, and still hostssl, so it
+      # is unreachable from outside the cluster; CNPG already manages this
+      # password (managed.roles reader has a passwordSecret and no disablePassword)
+      # and the role stays column-masked either way. A client cert was the
+      # alternative and was rejected: CNPG issues those imperatively with 90-day
+      # validity and no renewal, which trades this for a quarterly silent outage.
+      - hostssl newapi reader 10.42.0.0/16 scram-sha-256
       - hostssl all dbadmin all cert
     parameters:
       max_connections: "200"
