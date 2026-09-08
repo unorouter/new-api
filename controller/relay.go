@@ -42,7 +42,9 @@ func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIErro
 	case relayconstant.RelayModeImagesGenerations, relayconstant.RelayModeImagesEdits:
 		// A task-plugin channel has no synchronous adaptor, so ImageHelper would
 		// resolve api type -1 and 500. Serve it through the task system instead.
-		if IsImageTaskChannel(info.ChannelType) {
+		// The channel type comes from the context because info.ChannelMeta is
+		// only populated by InitChannelMeta inside the handler.
+		if IsImageTaskChannel(common.GetContextKeyInt(c, constant.ContextKeyChannelType)) {
 			err = ServeImageAsTask(c, info)
 		} else {
 			err = relay.ImageHelper(c, info)
