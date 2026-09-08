@@ -100,6 +100,13 @@ func ServeImageAsTask(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPI
 	}
 	c.Set("task_plugin_key", plugin.Meta.Key)
 	c.Set("platform", plugin.Meta.Key)
+	// Pin the plugin object as the task routes do. Resolving by channel type alone
+	// keeps the numeric platform, and RelayTaskSubmit then stores the task under
+	// "62" instead of the plugin key.
+	c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{
+		Generation: pluginruntime.DefaultRegistry.Generation(),
+		Plugin:     plugin,
+	})
 
 	outcome, taskErr := executeTaskSubmission(c, taskInfo)
 	if taskErr != nil {
