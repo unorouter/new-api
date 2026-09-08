@@ -52,6 +52,23 @@ Object.defineProperty(window, 'matchMedia', {
   }),
 })
 
+// jsdom does not implement Range geometry. CodeMirror measures text through
+// these browser APIs; actual wrapping and scrolling are checked in browser QA.
+if (!Range.prototype.getClientRects) {
+  Object.defineProperty(Range.prototype, 'getClientRects', {
+    configurable: true,
+    writable: true,
+    value: () => [],
+  })
+}
+if (!Range.prototype.getBoundingClientRect) {
+  Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+    configurable: true,
+    writable: true,
+    value: () => new DOMRect(),
+  })
+}
+
 window.requestAnimationFrame = (callback: FrameRequestCallback) =>
   window.setTimeout(() => callback(performance.now()), 0)
 window.cancelAnimationFrame = (handle: number) => window.clearTimeout(handle)
