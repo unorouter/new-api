@@ -429,6 +429,13 @@ func updatePricing() {
 			for key, field := range plugin.Meta.UsageSchema {
 				field.Enum = append([]string(nil), field.Enum...)
 				field.Description = maps.Clone(field.Description)
+				if field.EnumLabels != nil {
+					labels := make(map[string]jsplugin.LocalizedText, len(field.EnumLabels))
+					for value, label := range field.EnumLabels {
+						labels[value] = maps.Clone(label)
+					}
+					field.EnumLabels = labels
+				}
 				pricing.BillingUsageSchema[key] = field
 			}
 			if len(plugin.Meta.UsageExamples) > 0 {

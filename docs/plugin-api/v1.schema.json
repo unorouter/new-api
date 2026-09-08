@@ -6,8 +6,11 @@
   "additionalProperties": false,
   "required": ["apiVersion", "key", "name", "version", "author", "models", "fetchMode"],
   "properties": {
+    "sortPriority": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647, "default": 0},
+    "website": {"oneOf": [{"const": ""}, {"type": "string", "format": "uri", "pattern": "^[Hh][Tt][Tt][Pp][Ss]://[^/@?#\\s]+(?:[/?#]|$)"}], "description": "Absolute HTTPS URL with a valid ASCII hostname (use punycode for internationalized domains) and no credentials; validated by the host."},
     "apiVersion": {"const": 1}, "key": {"type": "string"}, "name": {"type": "string"}, "icon": {"type": "string", "maxLength": 128}, "description": {"$ref": "#/$defs/localizedText"}, "version": {"type": "string"},
     "author": {"type": "object", "required": ["name"], "additionalProperties": false, "properties": {"name": {"type": "string"}, "url": {"type": "string", "format": "uri"}}},
+    "baseUrl": {"type": "string", "format": "uri", "pattern": "^https?://", "maxLength": 191},
     "channelTypes": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 1}}, "models": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "fetchMode": {"enum": ["per_task", "batch"]}, "allowedHosts": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
     "protocols": {"type": "array", "uniqueItems": true, "items": {"oneOf": [
@@ -15,9 +18,35 @@
       {"type": "object", "additionalProperties": false, "required": ["name", "supports"], "properties": {"name": {"const": "openai_responses"}, "supports": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["stream", "sync", "background"]}}, "models": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}}},
       {"type": "object", "additionalProperties": false, "required": ["name"], "properties": {"name": {"const": "openai_video"}, "models": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}}}
     ]}},
-    "routes": {"type": "array", "items": {"$ref": "#/$defs/route"}}, "usageSchema": {"type": "object", "additionalProperties": {"type": "object", "properties": {"description": {"$ref": "#/$defs/localizedText"}}}}, "usageExamples": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["label", "facts"], "properties": {"label": {"type": "string"}, "facts": {"type": "object"}}}}, "auth": {}
+    "routes": {"type": "array", "items": {"$ref": "#/$defs/route"}}, "usageSchema": {"type": "object", "additionalProperties": {"$ref": "#/$defs/usageField"}}, "usageExamples": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["label", "facts"], "properties": {"label": {"type": "string"}, "facts": {"type": "object"}}}}, "auth": {}
   },
   "$defs": {
+    "usageField": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {"enum": ["number", "boolean"]},
+        "unit": {"enum": ["second", "count", "token", "credit"]},
+        "enum": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "description": {"$ref": "#/$defs/usageLabel"},
+        "enumLabels": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/usageLabel"},
+          "description": "Optional display names keyed by declared enum values; the host validates membership. Missing entries display the original value."
+        }
+      },
+      "oneOf": [
+        {"required": ["enum"], "not": {"anyOf": [{"required": ["type"]}, {"required": ["unit"]}]}},
+        {"required": ["type", "unit"], "properties": {"type": {"const": "number"}}, "not": {"anyOf": [{"required": ["enum"]}, {"required": ["enumLabels"]}]}},
+        {"required": ["type"], "properties": {"type": {"const": "boolean"}}, "not": {"anyOf": [{"required": ["unit"]}, {"required": ["enum"]}, {"required": ["enumLabels"]}]}}
+      ]
+    },
+    "usageLabel": {
+      "allOf": [
+        {"$ref": "#/$defs/localizedText"},
+        {"if": {"type": "string"}, "then": {"maxLength": 256}, "else": {"additionalProperties": {"maxLength": 256}}}
+      ]
+    },
     "localizedText": {
       "oneOf": [
         {"type": "string", "minLength": 1},

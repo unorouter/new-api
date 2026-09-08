@@ -9,18 +9,24 @@ export const meta = {
     en: "SunoAPI project music and lyrics generation",
     zh: "SunoAPI 项目 音乐与歌词生成",
   },
-  version: "1.0.2",
+  version: "1.0.3",
   author: { name: "QuantumNous" },
   channelTypes: [36],
   models: ["suno_music", "suno_lyrics"],
   fetchMode: "batch",
   usageSchema: {
+    // Number of generated music or lyrics clips.
     clips: {
       type: "number",
       unit: "count",
-      description: { en: "Number of generated music or lyrics clips.", zh: "生成的音乐或歌词片段数量。" },
+      description: { en: "Song or lyrics generation unit price", zh: "生成歌曲或歌词单价" },
     },
-    action: { enum: ["music", "lyrics"], description: { en: "Suno generation action.", zh: "Suno 生成动作。" } },
+    // Suno generation action.
+    action: {
+      enum: ["music", "lyrics"],
+      enumLabels: { music: { en: "Generate songs", zh: "生成歌曲" }, lyrics: { en: "Generate lyrics", zh: "生成歌词" } },
+      description: { en: "Generate songs or lyrics", zh: "生成歌曲或歌词" },
+    },
   },
   protocols: [{ name: "openai_responses", supports: ["stream", "sync", "background"] }],
   routes: [

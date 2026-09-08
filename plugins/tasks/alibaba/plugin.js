@@ -7,7 +7,7 @@ export const meta = {
     en: "Alibaba Cloud Bailian Wanxiang video generation (text-to-video and image-to-video)",
     zh: "阿里云百炼万相视频生成（文生视频、图生视频）",
   },
-  version: "1.1.0",
+  version: "1.1.1",
   author: { name: "QuantumNous" },
   channelTypes: [17],
   models: [
@@ -24,14 +24,17 @@ export const meta = {
   ],
   fetchMode: "per_task",
   usageSchema: {
+    // Requested video duration in seconds.
     seconds: {
       type: "number",
       unit: "second",
-      description: { en: "Requested video duration in seconds.", zh: "请求的视频时长，单位为秒。" },
+      description: { en: "Video generation unit price", zh: "视频生成单价" },
     },
+    // Requested output video resolution.
     resolution: {
       enum: ["480P", "720P", "1080P"],
-      description: { en: "Requested output video resolution.", zh: "请求的输出视频分辨率。" },
+      enumLabels: { "480P": { en: "480P", zh: "480P" }, "720P": { en: "720P", zh: "720P" }, "1080P": { en: "1080P", zh: "1080P" } },
+      description: { en: "Output video resolution", zh: "输出视频分辨率" },
     },
   },
   routes: [
