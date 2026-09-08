@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
@@ -182,4 +183,17 @@ func TestImageTaskSubmitErrorClassifiesRetryability(t *testing.T) {
 	require.NotNil(t, upstream)
 	assert.Equal(t, http.StatusBadGateway, upstream.StatusCode)
 	assert.False(t, types.IsSkipRetryError(upstream))
+}
+
+// relayHandler runs before InitChannelMeta, so info.ChannelMeta is still nil at
+// dispatch time. Reading the channel type off the embedded pointer there panicked
+// on every image request; the type must come from the request context instead.
+func TestRelayHandlerDetectsImageTaskChannelBeforeChannelMetaExists(t *testing.T) {
+	c, _ := newImageTaskTestContext(t)
+	common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeAIHorde)
+	info := &relaycommon.RelayInfo{}
+	require.Nil(t, info.ChannelMeta, "fixture must reproduce the pre-init state")
+
+	assert.True(t, IsImageTaskChannel(common.GetContextKeyInt(c, constant.ContextKeyChannelType)))
+	assert.False(t, IsImageTaskChannel(common.GetContextKeyInt(c, constant.ContextKeyChannelType)+1))
 }
