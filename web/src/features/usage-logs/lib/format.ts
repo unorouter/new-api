@@ -510,6 +510,24 @@ export function renderAuditContent(
 ): string | null {
   const op = other?.op
   if (!op?.action) return null
+  if (
+    op.action === 'redemption.delete_batch' ||
+    (op.action === 'redemption.delete' &&
+      other?.audit_info?.route === '/api/redemption/batch')
+  ) {
+    if (other?.audit_info?.success === false) {
+      return t('Failed to batch delete redemption codes')
+    }
+    const count = op.params?.count
+    if (
+      typeof count === 'number' &&
+      Number.isSafeInteger(count) &&
+      count >= 0
+    ) {
+      return t('Batch deleted {{count}} redemption codes', { count })
+    }
+    return t('Batch deleted redemption codes (count not recorded)')
+  }
   const template = AUDIT_TEMPLATES[op.action]
   if (!template) return null
   const quotaOperation = buildQuotaAuditOperation(

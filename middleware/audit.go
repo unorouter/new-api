@@ -64,6 +64,7 @@ var auditRouteActions = map[string]string{
 
 	// 兑换码
 	"PUT /api/redemption/":           "redemption.update",
+	"POST /api/redemption/batch":     "redemption.delete_batch",
 	"DELETE /api/redemption/:id":     "redemption.delete",
 	"DELETE /api/redemption/invalid": "redemption.delete_invalid",
 
