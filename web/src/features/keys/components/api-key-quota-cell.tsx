@@ -83,7 +83,7 @@ export function ApiKeyQuotaCell(props: ApiKeyQuotaCellProps) {
       <div
         className={cn(
           'w-full min-w-0',
-          props.variant === 'card' ? 'space-y-2.5' : 'space-y-1.5'
+          props.variant === 'card' ? 'space-y-2.5' : 'max-w-45 space-y-1.5'
         )}
       >
         <PopoverTrigger

@@ -166,6 +166,7 @@ it('shows desktop remaining and used amounts side by side without labels, with t
   ).toHaveClass('grid-cols-2')
   expect(within(trigger).getByText('80')).toHaveClass('text-left')
   expect(within(trigger).getByText('120')).toHaveClass('text-right')
+  expect(trigger.parentElement).toHaveClass('max-w-45')
   expect(trigger).not.toHaveTextContent('$')
   expect(trigger.querySelector('svg')).toBeNull()
   expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '40')
@@ -359,11 +360,12 @@ it('combines creation and last use while keeping expiry, models and IP restricti
   ).toBeInTheDocument()
   const timeCell = screen.getByRole('cell', { name: /Created.*Last Used/ })
   expect(within(timeCell).getByText('Last Used')).toBeInTheDocument()
-  expect(
-    screen.getByRole('button', {
-      name: /Remaining 80; Remaining percentage 40%; Used amount 120/,
-    })
-  ).toBeInTheDocument()
+  const quotaHeader = screen.getByRole('columnheader', { name: 'Quota ($)' })
+  const quotaTrigger = screen.getByRole('button', {
+    name: /Remaining 80; Remaining percentage 40%; Used amount 120/,
+  })
+  expect(quotaHeader).not.toHaveClass('pr-8')
+  expect(quotaTrigger.closest('td')).not.toHaveClass('pr-8')
 })
 
 it('restores dates hidden by the old default and preserves unrelated column preferences', async () => {
@@ -495,6 +497,8 @@ it('keeps mobile quota readable and opens complete model and IP restrictions by 
     name: /Unlimited; Used amount 4,490.16/,
   })
   expect(quota).toHaveTextContent('Remaining($)UnlimitedUsed amount4,490.16')
+  expect(quota.parentElement).toHaveClass('w-full')
+  expect(quota.parentElement).not.toHaveClass('max-w-45')
   expect(quota.querySelector('[data-slot="api-key-quota-values"]')).toHaveClass(
     'grid-cols-[auto_minmax(0,1fr)]'
   )

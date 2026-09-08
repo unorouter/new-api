@@ -351,9 +351,6 @@ export function ApiKeysTable() {
       )}
       skeletonKeyPrefix='api-keys-skeleton'
       applyHeaderSize
-      getColumnClassName={(columnId) =>
-        columnId === 'quota' ? 'pr-8' : undefined
-      }
       toolbarProps={{
         searchPlaceholder: t('Filter by name...'),
         searchDebounceMs: 500,
