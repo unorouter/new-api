@@ -18,8 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
 
+import { QuotaDetailsPopover } from '@/components/quota-details-popover'
 import { StatusBadge } from '@/components/status-badge'
-import { formatQuotaWithCurrency } from '@/lib/currency'
+import { formatQuotaWithCurrency, getCurrencyDisplay } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -32,34 +33,55 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
   const { t } = useTranslation()
   useSystemConfigStore((state) => state.config.currency)
 
-  if (props.remaining === 0 && props.used === 0) {
-    return (
-      <StatusBadge
-        label={t('No Quota')}
-        variant='neutral'
-        copyable={false}
-        className='-ml-1.5'
-      />
-    )
-  }
+  const { meta: currency } = getCurrencyDisplay()
+  const quotaUnit = currency.kind === 'tokens' ? t('Tokens') : currency.symbol
+  const hasQuota = props.remaining !== 0 || props.used !== 0
+  const formattedRemaining = formatQuotaWithCurrency(props.remaining, {
+    showSymbol: false,
+  })
+  const formattedUsed = formatQuotaWithCurrency(props.used, {
+    showSymbol: false,
+  })
 
   return (
-    <div className='min-w-0 space-y-1 text-left tabular-nums'>
-      <div
-        className={cn(
-          'font-mono text-sm font-semibold whitespace-nowrap',
-          props.remaining < 0 && 'text-destructive',
-          props.remaining === 0 && 'text-muted-foreground'
-        )}
-      >
-        {formatQuotaWithCurrency(props.remaining, { showSymbol: false })}
-      </div>
-      <div className='text-muted-foreground flex items-baseline gap-1 text-xs whitespace-nowrap'>
-        <span>{t('Used amount')}</span>
-        <span className='font-mono'>
-          {formatQuotaWithCurrency(props.used, { showSymbol: false })}
+    <QuotaDetailsPopover
+      title={`${t('Quota')} (${quotaUnit})`}
+      triggerLabel={
+        hasQuota
+          ? `${t('Available Balance')} ${formattedRemaining}; ${t('Used amount')} ${formattedUsed}`
+          : t('No Quota')
+      }
+      details={[
+        { label: t('Available Balance'), value: formattedRemaining },
+        { label: t('Total Used'), value: formattedUsed },
+      ]}
+    >
+      {hasQuota ? (
+        <span className='grid min-w-0 grid-cols-1 gap-y-1 text-sm tabular-nums'>
+          <span
+            className={cn(
+              props.remaining < 0 && 'text-destructive',
+              props.remaining === 0 && 'text-muted-foreground'
+            )}
+          >
+            {formattedRemaining}
+          </span>
+          <span
+            data-table-text='secondary'
+            className='text-muted-foreground flex items-baseline gap-1 text-xs font-normal'
+          >
+            <span>{t('Used amount')}</span>
+            <span>{formattedUsed}</span>
+          </span>
         </span>
-      </div>
-    </div>
+      ) : (
+        <StatusBadge
+          label={t('No Quota')}
+          variant='neutral'
+          copyable={false}
+          className='-ml-1.5 font-normal'
+        />
+      )}
+    </QuotaDetailsPopover>
   )
 }

@@ -166,7 +166,7 @@ describe('API key group combobox Auto effect', () => {
       'h-5',
       'min-w-12',
       'rounded-full',
-      'font-mono',
+      'tabular-nums',
       'border-muted-foreground/30'
     )
     expect(defaultRatio).not.toHaveTextContent('Ratio')

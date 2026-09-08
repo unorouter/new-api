@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 
+import { ActivityTimeCell } from '@/components/activity-time-cell'
 import { BadgeCell } from '@/components/data-table'
 import { GroupBadge } from '@/components/group-badge'
 import { LongText } from '@/components/long-text'
@@ -31,7 +32,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { getCurrencyDisplay } from '@/lib/currency'
-import { formatQuota, formatTimestamp } from '@/lib/format'
+import { formatQuota } from '@/lib/format'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
@@ -80,7 +81,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
         return (
           <TableId
             value={row.getValue('id') as number}
-            className='w-[60px] text-sm'
+            className='w-[60px] [font-family:inherit] text-sm'
           />
         )
       },
@@ -98,13 +99,19 @@ export function useUsersColumns(): ColumnDef<User>[] {
         return (
           <div className='flex min-w-[160px] flex-col gap-1'>
             <div className='flex items-center gap-2'>
-              <LongText className='max-w-[140px] font-medium'>
+              <LongText className='max-w-[140px] text-sm font-normal'>
                 {username}
               </LongText>
               {remark && (
                 <Tooltip>
                   <TooltipTrigger
-                    render={<StatusBadge variant='success' copyable={false} />}
+                    render={
+                      <StatusBadge
+                        variant='success'
+                        copyable={false}
+                        className='font-normal'
+                      />
+                    }
                   >
                     <LongText className='max-w-[80px]'>{remark}</LongText>
                   </TooltipTrigger>
@@ -115,9 +122,12 @@ export function useUsersColumns(): ColumnDef<User>[] {
               )}
             </div>
             {displayName && displayName !== username && (
-              <LongText className='text-muted-foreground max-w-[180px] text-xs'>
-                {displayName}
-              </LongText>
+              <div
+                data-table-text='secondary'
+                className='text-muted-foreground max-w-[180px] text-xs font-normal'
+              >
+                <LongText>{displayName}</LongText>
+              </div>
             )}
           </div>
         )
@@ -148,6 +158,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
                 label={t(statusConfig.labelKey)}
                 variant={isUserDeleted(user) ? 'neutral' : statusConfig.variant}
                 copyable={false}
+                className='font-normal'
               />
             </TooltipTrigger>
             <TooltipContent>
@@ -184,7 +195,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
         const group = row.getValue('group') as string
         return (
           <BadgeCell>
-            <GroupBadge group={group} />
+            <GroupBadge group={group} className='font-normal' />
           </BadgeCell>
         )
       },
@@ -230,7 +241,10 @@ export function useUsersColumns(): ColumnDef<User>[] {
         }
 
         return (
-          <div className='min-w-0 space-y-1 text-xs'>
+          <div
+            data-table-text='secondary'
+            className='min-w-0 space-y-1 text-xs font-normal'
+          >
             {(affCount > 0 || affHistoryQuota !== 0) && (
               <LongText>
                 {t('Invited {{count}} users', { count: affCount })} ·{' '}
@@ -254,30 +268,17 @@ export function useUsersColumns(): ColumnDef<User>[] {
     },
     {
       accessorKey: 'created_at',
-      header: t('Created At'),
-      cell: ({ row }) => {
-        const ts = row.getValue('created_at') as number | undefined
-        return (
-          <span className='text-muted-foreground text-sm'>
-            {ts ? formatTimestamp(ts) : '-'}
-          </span>
-        )
-      },
-      size: 180,
-      meta: { mobileHidden: true },
-    },
-    {
-      accessorKey: 'last_login_at',
-      header: t('Last Login'),
-      cell: ({ row }) => {
-        const ts = row.getValue('last_login_at') as number | undefined
-        return (
-          <span className='text-muted-foreground text-sm'>
-            {ts ? formatTimestamp(ts) : '-'}
-          </span>
-        )
-      },
-      size: 180,
+      header: t('Time'),
+      cell: ({ row }) => (
+        <ActivityTimeCell
+          createdAt={row.original.created_at ?? 0}
+          lastAt={row.original.last_login_at ?? 0}
+          lastLabel={t('Last Login')}
+          format='absolute'
+        />
+      ),
+      size: 260,
+      minSize: 240,
       meta: { mobileHidden: true },
     },
     {

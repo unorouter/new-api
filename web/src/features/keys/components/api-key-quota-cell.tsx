@@ -18,13 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
 
-import { Button } from '@/components/ui/button'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTitle,
-  PopoverTrigger,
-} from '@/components/ui/popover'
+import { QuotaDetailsPopover } from '@/components/quota-details-popover'
 import { Progress } from '@/components/ui/progress'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatQuotaWithCurrency, getCurrencyDisplay } from '@/lib/currency'
@@ -78,78 +72,45 @@ export function ApiKeyQuotaCell(props: ApiKeyQuotaCellProps) {
     ? `${t('Unlimited')}; ${usageDescription}`
     : `${remainingDescription}; ${usageDescription}`
 
+  const details = []
+  if (!props.apiKey.unlimited_quota) {
+    details.push({ label: t('Remaining'), value: formattedRemaining })
+  }
+  details.push({ label: t('Used amount'), value: formattedUsed })
+  if (!props.apiKey.unlimited_quota) {
+    details.push({ label: t('Current total quota'), value: formattedTotal })
+  }
+  if (hasProgress) {
+    details.push({
+      label: t('Remaining percentage'),
+      value: `${formattedPercentage}%`,
+    })
+  }
+
   return (
-    <Popover>
-      <div
-        className={cn(
-          'w-full min-w-0',
-          props.variant === 'card' ? 'space-y-2.5' : 'max-w-45 space-y-1.5'
-        )}
-      >
-        <PopoverTrigger
-          render={
-            <Button
-              variant='ghost'
-              aria-label={
-                props.variant === 'card'
-                  ? `${t('Quota')} (${quotaUnit}); ${triggerLabel}`
-                  : triggerLabel
-              }
-              className={cn(
-                'h-auto w-full min-w-0 justify-start px-0 text-left font-normal hover:bg-transparent aria-expanded:bg-transparent',
-                props.variant === 'card' ? 'py-0' : 'py-0.5'
-              )}
-            />
-          }
-        >
-          <span
-            data-slot='api-key-quota-values'
-            className={cn(
-              'grid w-full min-w-0 items-baseline gap-x-2 gap-y-1 text-xs',
-              props.variant === 'card'
-                ? 'grid-cols-[auto_minmax(0,1fr)]'
-                : 'grid-cols-2'
-            )}
-          >
-            {props.variant === 'card' && (
-              <span className='text-muted-foreground'>
-                {t('Remaining')}
-                <span className='ml-1'>({quotaUnit})</span>
-              </span>
-            )}
-            <span
-              className={cn(
-                'min-w-0 truncate',
-                props.variant === 'card'
-                  ? 'text-right text-sm leading-5 font-normal'
-                  : 'text-left font-medium',
-                !props.apiKey.unlimited_quota && 'font-mono tabular-nums',
-                !props.apiKey.unlimited_quota &&
-                  remaining < 0 &&
-                  'text-destructive',
-                remaining === 0 &&
-                  !props.apiKey.unlimited_quota &&
-                  'text-muted-foreground'
-              )}
-            >
-              {props.apiKey.unlimited_quota
-                ? t('Unlimited')
-                : formattedRemaining}
-            </span>
-            {props.variant === 'card' && (
-              <span className='text-muted-foreground'>{t('Used amount')}</span>
-            )}
-            <span
-              className={cn(
-                'text-muted-foreground min-w-0 truncate text-right font-mono tabular-nums',
-                props.variant === 'card' && 'text-sm leading-5 font-normal'
-              )}
-            >
-              {formattedUsed}
-            </span>
-          </span>
-        </PopoverTrigger>
-        {!props.apiKey.unlimited_quota && (
+    <QuotaDetailsPopover
+      title={`${t('Quota')} (${quotaUnit})`}
+      triggerLabel={
+        props.variant === 'card'
+          ? `${t('Quota')} (${quotaUnit}); ${triggerLabel}`
+          : triggerLabel
+      }
+      details={details}
+      description={
+        props.apiKey.unlimited_quota
+          ? t(
+              'This API key has no quota limit. Requests still require available wallet or subscription quota.'
+            )
+          : t(
+              'Total = used + remaining. It is not an initial allocation or a periodic budget; changing the remaining quota changes the total and percentage.'
+            )
+      }
+      className={
+        props.variant === 'card' ? 'space-y-2.5' : 'max-w-45 space-y-1.5'
+      }
+      triggerClassName={props.variant === 'card' ? 'py-0' : undefined}
+      afterTrigger={
+        !props.apiKey.unlimited_quota && (
           <Progress
             value={percentage}
             aria-label={t('Remaining percentage')}
@@ -158,55 +119,53 @@ export function ApiKeyQuotaCell(props: ApiKeyQuotaCellProps) {
               progressColor
             )}
           />
+        )
+      }
+    >
+      <span
+        data-slot='api-key-quota-values'
+        className={cn(
+          'grid w-full min-w-0 items-baseline gap-x-2 gap-y-1 text-sm',
+          props.variant === 'card'
+            ? 'grid-cols-[auto_minmax(0,1fr)]'
+            : 'grid-cols-2'
         )}
-      </div>
-      <PopoverContent
-        align='start'
-        className='w-72 max-w-[calc(100vw-2rem)] gap-3 p-3'
       >
-        <PopoverTitle>
-          {t('Quota')} ({quotaUnit})
-        </PopoverTitle>
-        <dl className='grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm tabular-nums'>
-          {!props.apiKey.unlimited_quota && (
-            <>
-              <dt className='text-muted-foreground'>{t('Remaining')}</dt>
-              <dd className='text-right font-mono break-all'>
-                {formattedRemaining}
-              </dd>
-            </>
+        {props.variant === 'card' && (
+          <span className='text-muted-foreground'>
+            {t('Remaining')}
+            <span className='ml-1'>({quotaUnit})</span>
+          </span>
+        )}
+        <span
+          className={cn(
+            'min-w-0 truncate',
+            props.variant === 'card'
+              ? 'text-right text-sm leading-5 font-normal'
+              : 'text-left font-medium',
+            !props.apiKey.unlimited_quota && 'tabular-nums',
+            !props.apiKey.unlimited_quota &&
+              remaining < 0 &&
+              'text-destructive',
+            remaining === 0 &&
+              !props.apiKey.unlimited_quota &&
+              'text-muted-foreground'
           )}
-          <dt className='text-muted-foreground'>{t('Used amount')}</dt>
-          <dd className='text-right font-mono break-all'>{formattedUsed}</dd>
-          {!props.apiKey.unlimited_quota && (
-            <>
-              <dt className='text-muted-foreground'>
-                {t('Current total quota')}
-              </dt>
-              <dd className='text-right font-mono break-all'>
-                {formattedTotal}
-              </dd>
-            </>
+        >
+          {props.apiKey.unlimited_quota ? t('Unlimited') : formattedRemaining}
+        </span>
+        {props.variant === 'card' && (
+          <span className='text-muted-foreground'>{t('Used amount')}</span>
+        )}
+        <span
+          className={cn(
+            'text-muted-foreground min-w-0 truncate text-right tabular-nums',
+            props.variant === 'card' && 'text-sm leading-5 font-normal'
           )}
-          {hasProgress && (
-            <>
-              <dt className='text-muted-foreground'>
-                {t('Remaining percentage')}
-              </dt>
-              <dd className='text-right font-mono'>{formattedPercentage}%</dd>
-            </>
-          )}
-        </dl>
-        <p className='text-muted-foreground text-xs leading-relaxed'>
-          {props.apiKey.unlimited_quota
-            ? t(
-                'This API key has no quota limit. Requests still require available wallet or subscription quota.'
-              )
-            : t(
-                'Total = used + remaining. It is not an initial allocation or a periodic budget; changing the remaining quota changes the total and percentage.'
-              )}
-        </p>
-      </PopoverContent>
-    </Popover>
+        >
+          {formattedUsed}
+        </span>
+      </span>
+    </QuotaDetailsPopover>
   )
 }

@@ -174,7 +174,6 @@ export function UsersTable() {
     data: users,
     columns,
     enableRowSelection: true,
-    initialColumnVisibility: { created_at: false, last_login_at: false },
     columnFilters,
     globalFilter,
     pagination,

@@ -42,8 +42,8 @@ export function GroupMultiplierBadge(props: {
     <Badge
       variant='outline'
       className={cn(
-        'relative h-5 min-w-12 rounded-full px-1.5 py-0 text-xs leading-none font-medium shadow-none',
-        !props.label && 'font-mono tabular-nums',
+        'relative h-5 min-w-12 rounded-full px-1.5 py-0 text-sm leading-none font-medium shadow-none',
+        !props.label && 'tabular-nums',
         colorClassName,
         props.className
       )}
@@ -122,7 +122,7 @@ export function GroupBadge(props: GroupBadgeProps) {
   return (
     <span
       className={cn(
-        'inline-flex max-w-full min-w-0 items-center gap-2 text-xs',
+        'inline-flex max-w-full min-w-0 items-center gap-2 text-sm',
         containerClassName
       )}
     >

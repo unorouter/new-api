@@ -18,108 +18,32 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { toIntlLocale } from '@/i18n/languages'
+import { ActivityTimeCell } from '@/components/activity-time-cell'
 import dayjs from '@/lib/dayjs'
-import { formatTimestampRelative, formatTimestampToDate } from '@/lib/format'
-import { cn } from '@/lib/utils'
 
 import type { ApiKey } from '../types'
 
-interface ApiKeyTimestampCellProps {
-  timestamp: number
-  now: number
-  locale?: string
-  justNowLabel: string
-  className?: string
-}
-
-export function ApiKeyTimestampCell(props: ApiKeyTimestampCellProps) {
-  if (!props.timestamp || props.timestamp === -1) {
-    return <span className='text-muted-foreground text-xs'>-</span>
-  }
-
-  const timestampMs = props.timestamp * 1000
-  const isJustNow = timestampMs <= props.now && props.now - timestampMs < 60_000
-  const relativeTime = isJustNow
-    ? props.justNowLabel
-    : formatTimestampRelative(props.timestamp, 'seconds', props.locale)
-  const [relativePrefix, relativeNumber, relativeSuffix] = relativeTime.split(
-    /(\p{Number}+(?:[.,\u00a0\u202f]\p{Number}+)*)/u
-  )
-  const absoluteTime = formatTimestampToDate(props.timestamp)
-
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <time
-            dateTime={new Date(timestampMs).toISOString()}
-            tabIndex={0}
-            className={cn('block truncate text-xs', props.className)}
-          />
-        }
-      >
-        {relativePrefix}
-        {relativeNumber && (
-          <span className='font-mono tabular-nums'>{relativeNumber}</span>
-        )}
-        {relativeSuffix}
-      </TooltipTrigger>
-      <TooltipContent>
-        <span className='font-mono tabular-nums'>{absoluteTime}</span>
-      </TooltipContent>
-    </Tooltip>
-  )
-}
+export { TimestampCell as ApiKeyTimestampCell } from '@/components/activity-time-cell'
 
 export function ApiKeyActivityCell(props: {
   apiKey: ApiKey
   now: number
   layout?: 'rows' | 'columns'
 }) {
-  const { t, i18n } = useTranslation()
-  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const { t } = useTranslation()
   const accessedTime = props.apiKey.accessed_time
   const isStale =
     accessedTime > 0 &&
     accessedTime * 1000 < dayjs(props.now).subtract(3, 'month').valueOf()
 
   return (
-    <div
-      className={cn(
-        'grid min-w-0 gap-y-1 text-xs',
-        props.layout === 'columns'
-          ? 'grid-flow-col grid-cols-2 grid-rows-[auto_1fr] items-start gap-x-3'
-          : 'grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2'
-      )}
-    >
-      <span className='text-muted-foreground'>{t('Created')}</span>
-      <ApiKeyTimestampCell
-        timestamp={props.apiKey.created_time}
-        now={props.now}
-        locale={locale}
-        justNowLabel={t('Just now')}
-        className={cn(
-          'text-muted-foreground',
-          props.layout === 'columns' && 'whitespace-normal'
-        )}
-      />
-      <span className='text-muted-foreground'>{t('Last Used')}</span>
-      <ApiKeyTimestampCell
-        timestamp={accessedTime}
-        now={props.now}
-        locale={locale}
-        justNowLabel={t('Just now')}
-        className={cn(
-          isStale ? 'text-warning' : 'text-muted-foreground',
-          props.layout === 'columns' && 'whitespace-normal'
-        )}
-      />
-    </div>
+    <ActivityTimeCell
+      createdAt={props.apiKey.created_time}
+      lastAt={accessedTime}
+      lastLabel={t('Last Used')}
+      lastClassName={isStale ? 'text-warning' : 'text-muted-foreground'}
+      now={props.now}
+      layout={props.layout}
+    />
   )
 }

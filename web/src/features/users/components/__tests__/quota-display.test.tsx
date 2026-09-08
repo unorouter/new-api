@@ -42,8 +42,10 @@ import { createInstance } from 'i18next'
 import { I18nextProvider } from 'react-i18next'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import { TooltipProvider } from '@/components/ui/tooltip'
 import zh from '@/i18n/locales/zh.json'
 import { api } from '@/lib/api'
+import { formatTimestampToDate } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
 import {
   DEFAULT_CURRENCY_CONFIG,
@@ -132,7 +134,7 @@ afterEach(() => {
     .setConfig({ currency: { ...DEFAULT_CURRENCY_CONFIG } })
 })
 
-it('shows labeled balance and cumulative usage in one sortable quota column', () => {
+it('shows balance above secondary usage text and opens quota details on click', async () => {
   render(
     <I18nextProvider i18n={i18n}>
       <QuotaTable remaining={1900} used={1100} />
@@ -148,32 +150,58 @@ it('shows labeled balance and cumulative usage in one sortable quota column', ()
   expect(
     within(cells[0]).queryByText('Available Balance')
   ).not.toBeInTheDocument()
-  expect(screen.getByText('0.0038').parentElement).toHaveClass('text-left')
   expect(within(cells[0]).getByText('0.0022')).toBeInTheDocument()
+  expect(screen.getByText('0.0038').parentElement).toHaveClass('grid-cols-1')
+  expect(screen.getByText('Used amount').parentElement).toHaveAttribute(
+    'data-table-text',
+    'secondary'
+  )
   expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   expect(screen.queryByText('0.006')).not.toBeInTheDocument()
+  const trigger = screen.getByRole('button', {
+    name: 'Available Balance 0.0038; Used amount 0.0022',
+  })
+  await userEvent.click(trigger)
+  const detail = await screen.findByRole('dialog', { name: 'Quota ($)' })
+  expect(within(detail).getByText('Available Balance')).toBeInTheDocument()
+  expect(within(detail).getByText('Total Used')).toBeInTheDocument()
+  expect(within(detail).getByText('0.0038')).toBeInTheDocument()
+  expect(within(detail).getByText('0.0022')).toBeInTheDocument()
+  expect(within(detail).queryByRole('progressbar')).not.toBeInTheDocument()
+  await userEvent.keyboard('{Escape}')
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  )
+  expect(trigger).toHaveFocus()
 })
 
 it.each([0, 500000])(
   'shows usage for a zero balance only when used quota is nonzero (used=%s)',
-  (used) => {
+  async (used) => {
     render(
       <I18nextProvider i18n={i18n}>
         <QuotaTable remaining={0} used={used} />
       </I18nextProvider>
     )
     if (used === 0) {
-      expect(screen.getByRole('cell')).toHaveTextContent(/^No Quota$/)
+      expect(screen.getAllByRole('cell')[0]).toHaveTextContent(/^No Quota$/)
       expect(screen.queryByText('Used amount')).not.toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: 'No Quota' }))
+      const detail = await screen.findByRole('dialog', { name: 'Quota ($)' })
+      expect(within(detail).getAllByText('0')).toHaveLength(2)
       return
     }
     expect(screen.queryByText('No Quota')).not.toBeInTheDocument()
-    expect(within(screen.getByRole('cell')).getByText('0')).toBeInTheDocument()
-    expect(within(screen.getByRole('cell')).getByText('1')).toBeInTheDocument()
+    expect(
+      within(screen.getAllByRole('cell')[0]).getByText('0')
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getAllByRole('cell')[0]).getByText('1')
+    ).toBeInTheDocument()
   }
 )
 
-it('preserves a negative balance and uses warning styling', () => {
+it('preserves negative balances in details opened with the keyboard', async () => {
   render(
     <I18nextProvider i18n={i18n}>
       <QuotaTable remaining={-500000} used={1000000} />
@@ -181,6 +209,11 @@ it('preserves a negative balance and uses warning styling', () => {
   )
   expect(screen.getByText('-1')).toHaveClass('text-destructive')
   expect(screen.getByText('2')).toBeInTheDocument()
+  await userEvent.tab()
+  await userEvent.keyboard('{Enter}')
+  const detail = await screen.findByRole('dialog')
+  expect(within(detail).getByText('-1')).toBeInTheDocument()
+  expect(within(detail).getByText('2')).toBeInTheDocument()
 })
 
 it('shows the custom symbol only in the column header', () => {
@@ -200,20 +233,24 @@ it('shows the custom symbol only in the column header', () => {
   expect(
     screen.getByRole('columnheader', { name: 'Available Balance (🐱)' })
   ).toBeInTheDocument()
-  expect(screen.getByRole('cell')).not.toHaveTextContent('🐱')
+  for (const cell of screen.getAllByRole('cell')) {
+    expect(cell).not.toHaveTextContent('🐱')
+  }
   expect(
-    within(screen.getByRole('cell')).getByText('0.0038')
+    within(screen.getAllByRole('cell')[0]).getByText('0.0038')
   ).toBeInTheDocument()
   expect(
-    within(screen.getByRole('cell')).getByText('0.0022')
+    within(screen.getAllByRole('cell')[0]).getByText('0.0022')
   ).toBeInTheDocument()
 })
 
 function UsersPage() {
   return (
-    <UsersProvider>
-      <UsersTable />
-    </UsersProvider>
+    <TooltipProvider>
+      <UsersProvider>
+        <UsersTable />
+      </UsersProvider>
+    </TooltipProvider>
   )
 }
 
@@ -233,6 +270,8 @@ async function renderUsersList(emptyInvitation = false) {
             quota: 1900,
             used_quota: 1100,
             request_count: 0,
+            created_at: Math.floor(Date.now() / 1000) - 86400,
+            last_login_at: Math.floor(Date.now() / 1000) - 20,
             group: 'default',
             aff_count: emptyInvitation ? 0 : 2,
             aff_history_quota: emptyInvitation ? 0 : 500000,
@@ -291,7 +330,7 @@ it('sends balance sorting to the server and keeps invitation details on two line
   expect(screen.getByText(/Invited 2 users · Earnings:/)).toBeInTheDocument()
 })
 
-it('shows both labeled amounts on mobile cards in Chinese', async () => {
+it('shows balance above usage on mobile cards in Chinese', async () => {
   const originalMatchMedia = window.matchMedia
   vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
     ...originalMatchMedia(query),
@@ -306,16 +345,22 @@ it('shows both labeled amounts on mobile cards in Chinese', async () => {
     expect(screen.getByText('0.0038')).toBeInTheDocument()
     expect(screen.getByText('0.0022')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole('button', { name: /可用余额 0.0038/ })
+    )
+    const detail = await screen.findByRole('dialog', { name: '额度 ($)' })
+    expect(within(detail).getByText('累计已用')).toBeInTheDocument()
+    expect(within(detail).getByText('0.0022')).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
   } finally {
     await i18n.changeLanguage('en')
   }
 })
 
-it('hides date columns by default and replaces empty invitation information with a dash', async () => {
+it('combines creation and last login into one column with full dates visible directly', async () => {
+  vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 8, 8, 12))
   await renderUsersList(true)
-  expect(
-    screen.queryByRole('columnheader', { name: /Created At/ })
-  ).not.toBeInTheDocument()
+  expect(screen.getByRole('columnheader', { name: /Time/ })).toBeInTheDocument()
   expect(
     screen.queryByRole('columnheader', { name: /Last Login/ })
   ).not.toBeInTheDocument()
@@ -323,14 +368,23 @@ it('hides date columns by default and replaces empty invitation information with
     name: /long-user-name-for-table-layout/,
   })
   expect(within(row).getByText('—')).toBeInTheDocument()
+  const times = within(row).getAllByRole('time')
+  expect(times).toHaveLength(2)
+  expect(times[0]).toHaveTextContent(
+    formatTimestampToDate(Math.floor(Date.now() / 1000) - 86400)
+  )
+  expect(times[1]).toHaveTextContent(
+    formatTimestampToDate(Math.floor(Date.now() / 1000) - 20)
+  )
+  expect(within(row).queryByText('Just now')).not.toBeInTheDocument()
+  expect(within(row).getByText('Created')).toBeInTheDocument()
+  expect(within(row).getByText('Last Login')).toBeInTheDocument()
   expect(screen.queryByText('No Inviter')).not.toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: 'View' }))
-  await userEvent.click(
-    screen.getByRole('menuitemcheckbox', { name: 'Created At' })
-  )
+  await userEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Time' }))
   expect(
-    screen.getByRole('columnheader', { name: /Created At/ })
-  ).toBeInTheDocument()
+    screen.queryByRole('columnheader', { name: /Time/ })
+  ).not.toBeInTheDocument()
 })
 
 it('updates the header unit and converted amounts together when currency settings change', () => {
@@ -351,9 +405,15 @@ it('updates the header unit and converted amounts together when currency setting
   expect(
     screen.getByRole('columnheader', { name: 'Available Balance (¥)' })
   ).toBeInTheDocument()
-  expect(within(screen.getByRole('cell')).getByText('7')).toBeInTheDocument()
-  expect(within(screen.getByRole('cell')).getByText('14')).toBeInTheDocument()
-  expect(screen.getByRole('cell')).not.toHaveTextContent('¥')
+  expect(
+    within(screen.getAllByRole('cell')[0]).getByText('7')
+  ).toBeInTheDocument()
+  expect(
+    within(screen.getAllByRole('cell')[0]).getByText('14')
+  ).toBeInTheDocument()
+  for (const cell of screen.getAllByRole('cell')) {
+    expect(cell).not.toHaveTextContent('¥')
+  }
 })
 
 it('labels raw quota mode as tokens without introducing a currency symbol', () => {
@@ -368,6 +428,10 @@ it('labels raw quota mode as tokens without introducing a currency symbol', () =
   expect(
     screen.getByRole('columnheader', { name: 'Available Balance (Tokens)' })
   ).toBeInTheDocument()
-  expect(within(screen.getByRole('cell')).getByText('100')).toBeInTheDocument()
-  expect(within(screen.getByRole('cell')).getByText('200')).toBeInTheDocument()
+  expect(
+    within(screen.getAllByRole('cell')[0]).getByText('100')
+  ).toBeInTheDocument()
+  expect(
+    within(screen.getAllByRole('cell')[0]).getByText('200')
+  ).toBeInTheDocument()
 })

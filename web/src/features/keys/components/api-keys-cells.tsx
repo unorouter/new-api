@@ -21,6 +21,7 @@ import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { BadgeCell } from '@/components/data-table'
+import { MaskedValueTrigger } from '@/components/masked-value-display'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -86,15 +87,7 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
   return (
     <div className='flex max-w-full min-w-0 items-center'>
       <Popover open={popoverOpen} onOpenChange={handlePopoverOpen}>
-        <PopoverTrigger
-          render={
-            <Button
-              variant='ghost'
-              size='sm'
-              className='text-muted-foreground h-7 max-w-full min-w-0 justify-start truncate px-0 font-mono text-xs hover:bg-transparent aria-expanded:bg-transparent'
-            />
-          }
-        >
+        <PopoverTrigger render={<MaskedValueTrigger />}>
           <span className='truncate'>{maskedKey}</span>
         </PopoverTrigger>
         <PopoverContent
