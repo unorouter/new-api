@@ -202,6 +202,24 @@ spec:
         passwordSecret:
           name: newapi-pg-reader
         inRoles: []
+      # Grafana's datasource. A SEPARATE role because `reader` is cert-only for
+      # Teleport and pg_hba is first-match-wins with no fall-through: one role cannot
+      # serve a cert client and a password client at once. Reordering the two rules to
+      # suit one of them broke the other twice on 2026-09-08, once taking Teleport DB
+      # access down for the whole readonly tier.
+      #
+      # inRoles: [reader] rather than its own grants, so the column masking is the SAME
+      # object, not a copy: the 46 table and 1,146 column grants in
+      # databases/reader-least-privilege.sql apply here automatically and the two can
+      # never drift. reader has INHERIT, so membership conveys them without SET ROLE.
+      - name: grafana_reader
+        login: true
+        connectionLimit: -1
+        ensure: present
+        inherit: true
+        passwordSecret:
+          name: newapi-pg-grafana-reader
+        inRoles: ["reader"]
       # Teleport-provisioned admin role for named operators: cert-only (no password), so
       # the only way in is a Teleport session under a GitHub identity, with the queries
       # in Teleport's audit. Replaces `kubectl exec ... psql -U postgres` for prod writes.
@@ -236,13 +254,11 @@ spec:
       # scram rule. clientcert= cannot merge these into one rule: it requires the
       # cert IN ADDITION to the password, not instead of it.
       - hostssl newapi reader all cert
-      # Pod CIDR only and still hostssl, so unreachable from outside the cluster.
-      # CNPG already manages this password (managed.roles reader has a
-      # passwordSecret and no disablePassword) and the role stays column-masked
-      # either way. A dedicated client cert for Grafana was the alternative and was
-      # rejected: CNPG issues those imperatively with 90-day validity and no
-      # renewal, trading this for a quarterly silent outage.
-      - hostssl newapi reader 10.42.0.0/16 scram-sha-256
+      # Separate role, so this rule cannot collide with the cert rule above: Grafana
+      # authenticates as grafana_reader with a password, Teleport as reader with a
+      # certificate, and neither can shadow the other. Pod CIDR only and still
+      # hostssl, so unreachable from outside the cluster.
+      - hostssl newapi grafana_reader 10.42.0.0/16 scram-sha-256
       - hostssl all dbadmin all cert
     parameters:
       max_connections: "200"
