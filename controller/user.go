@@ -653,6 +653,13 @@ func GetUser(c fuego.ContextNoBody) (*dto.Response[model.User], error) {
 
 func GenerateAccessToken(c fuego.ContextNoBody) (*dto.Response[string], error) {
 	id := dto.UserID(c)
+	// Privileged accounts administer through a console session. Minting a PAT here
+	// once left root with a standing credential that outlived the operator who
+	// created it and was replayed from Tor; rotate such a token with a scoped
+	// database UPDATE instead, so it never exists as a mintable value.
+	if dto.UserRole(c) >= common.RoleAdminUser {
+		return dto.Fail[string](common.TranslateMessage(dto.GinCtx(c), i18n.MsgAuthInsufficientPrivilege))
+	}
 	randI := common.GetRandomInt(4)
 	key, err := common.GenerateRandomKey(29 + randI)
 	if err != nil {
