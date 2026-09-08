@@ -40,7 +40,13 @@ func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIErro
 	var err *types.NewAPIError
 	switch info.RelayMode {
 	case relayconstant.RelayModeImagesGenerations, relayconstant.RelayModeImagesEdits:
-		err = relay.ImageHelper(c, info)
+		// A task-plugin channel has no synchronous adaptor, so ImageHelper would
+		// resolve api type -1 and 500. Serve it through the task system instead.
+		if IsImageTaskChannel(info.ChannelType) {
+			err = ServeImageAsTask(c, info)
+		} else {
+			err = relay.ImageHelper(c, info)
+		}
 	case relayconstant.RelayModeAudioSpeech:
 		fallthrough
 	case relayconstant.RelayModeAudioTranslation:
