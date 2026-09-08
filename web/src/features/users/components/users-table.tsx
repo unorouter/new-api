@@ -174,6 +174,7 @@ export function UsersTable() {
     data: users,
     columns,
     enableRowSelection: true,
+    initialColumnVisibility: { created_at: false, last_login_at: false },
     columnFilters,
     globalFilter,
     pagination,
@@ -232,13 +233,10 @@ export function UsersTable() {
           },
         ],
       }}
-      getRowClassName={(row, { isMobile }) =>
-        isDisabledUserRow(row.original)
-          ? isMobile
-            ? DISABLED_ROW_MOBILE
-            : DISABLED_ROW_DESKTOP
-          : undefined
-      }
+      getRowClassName={(row, { isMobile }) => {
+        if (!isDisabledUserRow(row.original)) return undefined
+        return isMobile ? DISABLED_ROW_MOBILE : DISABLED_ROW_DESKTOP
+      }}
       bulkActions={<DataTableBulkActions table={table} />}
     />
   )

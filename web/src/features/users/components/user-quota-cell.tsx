@@ -19,34 +19,20 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
-import { Progress } from '@/components/ui/progress'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { formatQuota } from '@/lib/format'
+import { formatQuotaWithCurrency } from '@/lib/currency'
 import { cn } from '@/lib/utils'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 type UserQuotaCellProps = {
-  used: number
   remaining: number
-}
-
-function getQuotaProgressColor(percentage: number): string {
-  if (percentage <= 10) return '[&_[data-slot=progress-indicator]]:bg-rose-500'
-  if (percentage <= 30) return '[&_[data-slot=progress-indicator]]:bg-amber-500'
-  return '[&_[data-slot=progress-indicator]]:bg-emerald-500'
+  used: number
 }
 
 export function UserQuotaCell(props: UserQuotaCellProps) {
   const { t } = useTranslation()
-  const total = props.used + props.remaining
-  const percentage = total > 0 ? (props.remaining / total) * 100 : 0
-  const formattedRemaining = formatQuota(props.remaining)
-  const formattedTotal = formatQuota(total)
+  useSystemConfigStore((state) => state.config.currency)
 
-  if (total === 0) {
+  if (props.remaining === 0 && props.used === 0) {
     return (
       <StatusBadge
         label={t('No Quota')}
@@ -58,41 +44,22 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
   }
 
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <div className='w-full min-w-0 cursor-help space-y-1.5 overflow-hidden' />
-        }
+    <div className='min-w-0 space-y-1 text-left tabular-nums'>
+      <div
+        className={cn(
+          'font-mono text-sm font-semibold whitespace-nowrap',
+          props.remaining < 0 && 'text-destructive',
+          props.remaining === 0 && 'text-muted-foreground'
+        )}
       >
-        <div className='grid min-w-0 grid-cols-2 gap-x-4 text-xs'>
-          <span className='min-w-0 truncate font-medium tabular-nums'>
-            {formattedRemaining}
-          </span>
-          <span className='text-muted-foreground min-w-0 truncate text-right tabular-nums'>
-            {formattedTotal}
-          </span>
-        </div>
-        <Progress
-          value={percentage}
-          className={cn('h-1.5', getQuotaProgressColor(percentage))}
-        />
-      </TooltipTrigger>
-      <TooltipContent>
-        <div className='space-y-1 text-xs'>
-          <div>
-            {t('Used:')} {formatQuota(props.used)}
-          </div>
-          <div>
-            {t('Remaining:')} {formattedRemaining}
-          </div>
-          <div>
-            {t('Total:')} {formattedTotal}
-          </div>
-          <div>
-            {t('Percentage:')} {percentage.toFixed(1)}%
-          </div>
-        </div>
-      </TooltipContent>
-    </Tooltip>
+        {formatQuotaWithCurrency(props.remaining, { showSymbol: false })}
+      </div>
+      <div className='text-muted-foreground flex items-baseline gap-1 text-xs whitespace-nowrap'>
+        <span>{t('Used amount')}</span>
+        <span className='font-mono'>
+          {formatQuotaWithCurrency(props.used, { showSymbol: false })}
+        </span>
+      </div>
+    </div>
   )
 }
