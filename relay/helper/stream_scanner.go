@@ -14,9 +14,10 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/QuantumNous/new-api/relaykit/types"
+	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 
@@ -87,11 +88,14 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	ctx, cancel := context.WithCancel(context.Background())
 
 	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
+	// A 200 with an idle body is the failure mode the header timeout cannot
+	// see, so until the first data line the idle budget is the short one.
+	idleTimeout := firstDataTimeout(info)
 
 	var (
 		stopChan    = make(chan bool, 3) // 增加缓冲区避免阻塞
 		scanner     = NewStreamScanner(resp.Body)
-		ticker      = time.NewTicker(streamingTimeout)
+		ticker      = time.NewTicker(idleTimeout)
 		pingTicker  *time.Ticker
 		writeMutex  sync.Mutex     // Mutex to protect concurrent writes
 		wg          sync.WaitGroup // 用于等待所有 goroutine 退出
@@ -250,7 +254,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			default:
 			}
 
-			ticker.Reset(streamingTimeout)
+			ticker.Reset(idleTimeout)
 			data := scanner.Text()
 			logger.LogDebug(c, "stream scanner data: %s", common.ElideBase64(data))
 
@@ -268,6 +272,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			if !strings.HasPrefix(data, "[DONE]") {
 				info.SetFirstResponseTime()
 				info.ReceivedResponseCount++
+				idleTimeout = streamingTimeout
 
 				select {
 				case dataChan <- data:
@@ -313,7 +318,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	// If the stream ended abnormally and no tokens were ever sent to the client,
 	// return a retriable channel error so the retry loop can try another channel.
-	if info.StreamStatus.IsRetriable() && info.ReceivedResponseCount == 0 {
+	emptyEOF := info.StreamStatus.EndReason == relaycommon.StreamEndReasonEOF
+	if (info.StreamStatus.IsRetriable() || emptyEOF) && info.ReceivedResponseCount == 0 {
 		// 429, not 5xx: Cloudflare replaces a 502 body with its own error page and chat
 		// frontends replace any 5xx body with their own generic string, so the caller
 		// loses the reason either way. 429 is forwarded and rendered verbatim by both,
@@ -327,4 +333,19 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	}
 
 	return nil
+}
+
+// firstDataTimeout is the idle budget before the first data line: the global
+// STREAM_FIRST_DATA_TIMEOUT, tightened by the user's first-token setting.
+func firstDataTimeout(info *relaycommon.RelayInfo) time.Duration {
+	seconds := constant.StreamFirstDataTimeout
+	if info != nil {
+		if user := hosttypes.ClampFirstTokenSeconds(info.UserSetting.MaxFirstTokenSeconds); user > 0 && user < seconds {
+			seconds = user
+		}
+	}
+	if seconds <= 0 || seconds > constant.StreamingTimeout {
+		seconds = constant.StreamingTimeout
+	}
+	return time.Duration(seconds) * time.Second
 }
