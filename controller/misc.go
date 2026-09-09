@@ -45,6 +45,8 @@ func GetStatus(c fuego.ContextNoBody) (*dto.Response[dto.StatusData], error) {
 		GitHubClientId:           common.GitHubClientId,
 		DiscordOAuth:             system_setting.GetDiscordSettings().Enabled,
 		DiscordClientId:          system_setting.GetDiscordSettings().ClientId,
+		GoogleOAuth:              system_setting.GetGoogleSettings().Enabled,
+		GoogleClientId:           system_setting.GetGoogleSettings().ClientId,
 		LinuxDOOAuth:             common.LinuxDOOAuthEnabled,
 		LinuxDOClientId:          common.LinuxDOClientId,
 		LinuxDOMinimumTrustLevel: common.LinuxDOMinimumTrustLevel,

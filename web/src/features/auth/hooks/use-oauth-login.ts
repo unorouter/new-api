@@ -29,6 +29,7 @@ import { createOAuthAuthorization, createOAuthFlow, logout } from '../api'
 import {
   buildGitHubOAuthUrl,
   buildDiscordOAuthUrl,
+  buildGoogleOAuthUrl,
   buildOIDCOAuthUrl,
   buildLinuxDOOAuthUrl,
 } from '../lib/oauth'
@@ -120,6 +121,26 @@ export function useOAuthLogin(
     } catch (error) {
       handleServerError(
         AuthOperationError.from(error, t('Failed to start Discord login'))
+      )
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleGoogleLogin = async () => {
+    if (!status?.google_client_id) return
+
+    setIsLoading(true)
+    try {
+      await resetSession()
+      const state = await createOAuthFlow('google', 'login')
+      rememberOAuthLoginRedirect(state, redirectTo)
+
+      const url = buildGoogleOAuthUrl(status.google_client_id, state)
+      window.open(url, '_self')
+    } catch (error) {
+      handleServerError(
+        AuthOperationError.from(error, t('Failed to start Google login'))
       )
     } finally {
       setIsLoading(false)
@@ -233,6 +254,7 @@ export function useOAuthLogin(
     githubButtonDisabled,
     handleGitHubLogin,
     handleDiscordLogin,
+    handleGoogleLogin,
     handleOIDCLogin,
     handleLinuxDOLogin,
     handleTelegramLogin,
