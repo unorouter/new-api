@@ -509,6 +509,7 @@ func handleOAuthBind(c *gin.Context, providerName string, provider oauth.Provide
 		writeSecurityOperationError(c, err)
 		return true, true
 	}
+	backfillOAuthEmail(user, oauthUser)
 	notificationFailed := service.NotifyAccountSecurityChange(user.Email, "Login account linked: "+provider.GetName()) != nil
 
 	// Cross-domain bind: redirect back with exchange code

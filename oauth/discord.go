@@ -33,9 +33,11 @@ type discordOAuthResponse struct {
 }
 
 type discordUser struct {
-	UID  string `json:"id"`
-	ID   string `json:"username"`
-	Name string `json:"global_name"`
+	UID      string `json:"id"`
+	ID       string `json:"username"`
+	Name     string `json:"global_name"`
+	Email    string `json:"email"`
+	Verified bool   `json:"verified"`
 }
 
 func (p *DiscordProvider) GetName() string {
@@ -143,12 +145,21 @@ func (p *DiscordProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*
 		return nil, NewOAuthError(i18n.MsgOAuthUserInfoEmpty, map[string]any{"Provider": "Discord"})
 	}
 
-	logger.LogDebug(ctx, "[OAuth-Discord] GetUserInfo success: uid=%s, username=%s, name=%s", discordUser.UID, discordUser.ID, discordUser.Name)
+	logger.LogDebug(ctx, "[OAuth-Discord] GetUserInfo success: uid=%s, username=%s, name=%s, email=%t", discordUser.UID, discordUser.ID, discordUser.Name, discordUser.Email != "")
+
+	// Only a verified address is adopted: Discord returns the unverified one too, and an
+	// account whose email cannot receive a password reset is worse than none at all.
+	// Present only when the `email` scope is granted (Discord developer portal).
+	email := ""
+	if discordUser.Verified {
+		email = discordUser.Email
+	}
 
 	return &OAuthUser{
 		ProviderUserID: discordUser.UID,
 		Username:       discordUser.ID,
 		DisplayName:    discordUser.Name,
+		Email:          email,
 	}, nil
 }
 
