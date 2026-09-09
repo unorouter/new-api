@@ -413,6 +413,12 @@ export type OperationsSettings = {
   'monitor_setting.channel_failure_absolute_floor': number
   'monitor_setting.channel_failure_dead_floor': number
   'monitor_setting.channel_failure_streak_floor': number
+  'monitor_setting.channel_probation_seconds': number
+  'monitor_setting.channel_probation_streak_floor': number
+  'monitor_setting.channel_probation_rate_threshold': number
+  'monitor_setting.channel_probation_min_samples': number
+  'monitor_setting.channel_reenable_probe_passes': number
+  'monitor_setting.channel_paid_reenable_hold_seconds': number
   SMTPServer: string
   SMTPPort: string
   SMTPAccount: string

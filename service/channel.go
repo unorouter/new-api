@@ -56,6 +56,75 @@ func channelFailureStreakKey(channelId int) string {
 	return fmt.Sprintf("channel_fail_streak:%d", channelId)
 }
 
+func channelProbationKey(channelId int) string {
+	return fmt.Sprintf("channel_probation:%d", channelId)
+}
+
+func channelProbePassKey(channelId int) string {
+	return fmt.Sprintf("channel_probe_pass:%d", channelId)
+}
+
+var channelProbationUntil sync.Map // channelId -> time.Time, fallback when Redis is unavailable
+var channelProbePasses sync.Map    // channelId -> emptyResponseWindow, fallback when Redis is unavailable
+
+// StartChannelProbation arms the probation window for a channel that was just
+// re-enabled automatically and clears its failure window, so the tighter probation
+// thresholds judge only what the lane does from now on.
+func StartChannelProbation(channelId int) {
+	seconds := operation_setting.GetMonitorSetting().ChannelProbationSeconds
+	resetChannelWindow(channelId)
+	if seconds <= 0 {
+		return
+	}
+	ttl := time.Duration(seconds) * time.Second
+	if common.RedisEnabled {
+		if err := common.RDB.Set(context.Background(), channelProbationKey(channelId), "1", ttl).Err(); err == nil {
+			return
+		}
+	}
+	channelProbationUntil.Store(channelId, time.Now().Add(ttl))
+}
+
+func inChannelProbation(channelId int) bool {
+	if common.RedisEnabled {
+		n, err := common.RDB.Exists(context.Background(), channelProbationKey(channelId)).Result()
+		if err == nil {
+			return n > 0
+		}
+	}
+	if v, ok := channelProbationUntil.Load(channelId); ok {
+		return time.Now().Before(v.(time.Time))
+	}
+	return false
+}
+
+func resetChannelWindow(channelId int) {
+	if common.RedisEnabled {
+		common.RDB.Del(context.Background(), channelFailureCounterKey(channelId), channelSuccessCounterKey(channelId))
+	}
+	channelFailureCounts.Delete(channelId)
+	channelSuccessCounts.Delete(channelId)
+	resetFailureStreak(channelId)
+}
+
+// RecordRecoveryProbePass counts consecutive clean recovery probes on a disabled
+// channel and reports whether enough have passed to re-enable it.
+func RecordRecoveryProbePass(channelId int) bool {
+	need := operation_setting.GetMonitorSetting().ChannelReenableProbePasses
+	if need <= 1 {
+		return true
+	}
+	passes := bumpWindowCounter(channelProbePassKey(channelId), &channelProbePasses, channelId)
+	return passes >= need
+}
+
+func ResetRecoveryProbePasses(channelId int) {
+	if common.RedisEnabled {
+		common.RDB.Del(context.Background(), channelProbePassKey(channelId))
+	}
+	channelProbePasses.Delete(channelId)
+}
+
 // bumpWindowCounter increments a fixed-window Redis counter, arming the TTL on the
 // first hit so the count self-expires, and returns the new value. Falls back to an
 // in-process fixed window when Redis is unavailable.
@@ -242,6 +311,17 @@ func RecordChannelFailure(channelId int) bool {
 	// below is the honest measure, so the streak only decides when there is nothing
 	// to compare against.
 	streak := bumpFailureStreak(channelId)
+	if inChannelProbation(channelId) {
+		probStreak := m.ChannelProbationStreakFloor
+		if probStreak > 0 && streak >= probStreak {
+			return true
+		}
+		total := failures + successes
+		if m.ChannelProbationMinSamples > 0 && m.ChannelProbationRateThreshold > 0 && total >= m.ChannelProbationMinSamples &&
+			float64(failures)/float64(total) >= m.ChannelProbationRateThreshold {
+			return true
+		}
+	}
 	streakFloor := m.ChannelFailureStreakFloor
 	if streakFloor <= 0 {
 		streakFloor = 3

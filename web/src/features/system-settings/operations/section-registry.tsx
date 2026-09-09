@@ -90,6 +90,18 @@ const OPERATIONS_SECTIONS = [
             settings['monitor_setting.channel_failure_dead_floor'] ?? 5,
           'monitor_setting.channel_failure_streak_floor':
             settings['monitor_setting.channel_failure_streak_floor'] ?? 3,
+          'monitor_setting.channel_probation_seconds':
+            settings['monitor_setting.channel_probation_seconds'] ?? 1800,
+          'monitor_setting.channel_probation_streak_floor':
+            settings['monitor_setting.channel_probation_streak_floor'] ?? 3,
+          'monitor_setting.channel_probation_rate_threshold':
+            settings['monitor_setting.channel_probation_rate_threshold'] ?? 0.2,
+          'monitor_setting.channel_probation_min_samples':
+            settings['monitor_setting.channel_probation_min_samples'] ?? 5,
+          'monitor_setting.channel_reenable_probe_passes':
+            settings['monitor_setting.channel_reenable_probe_passes'] ?? 1,
+          'monitor_setting.channel_paid_reenable_hold_seconds':
+            settings['monitor_setting.channel_paid_reenable_hold_seconds'] ?? 0,
         }}
       />
     ),
