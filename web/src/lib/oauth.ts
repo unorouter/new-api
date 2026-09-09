@@ -54,7 +54,7 @@ export function buildDiscordOAuthUrl(clientId: string, state: string): string {
     `${window.location.origin}/oauth/discord`
   )
   url.searchParams.set('response_type', 'code')
-  url.searchParams.set('scope', 'identify+openid')
+  url.searchParams.set('scope', 'identify openid email')
   url.searchParams.set('state', state)
   return url.toString()
 }
