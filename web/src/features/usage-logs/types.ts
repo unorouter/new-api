@@ -144,6 +144,8 @@ export interface LogOtherData {
       original: number
       clamped: number
     }
+    // Reject / intercept reason (admin only)
+    reject_reason?: string
     task_plugin?: TaskPluginInfo
   }
   root_info?: {
@@ -207,6 +209,8 @@ export interface LogOtherData {
   // expression; the matched tier and request-rule traces come from the actual
   // settlement run.
   billing_mode?: string
+  billing_unit?: 'token' | 'request'
+  fixed_price?: number
   expr_b64?: string
   matched_tier?: string
   request_rules?: RequestRuleTrace[]
@@ -244,8 +248,6 @@ export interface LogOtherData {
   violation_fee_code?: string
   violation_fee_marker?: string
   fee_quota?: number
-  // Reject / intercept reason (admin)
-  reject_reason?: string
   // Task-related fields (for refund logs, type=6)
   is_task?: boolean
   task_id?: string

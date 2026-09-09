@@ -103,7 +103,6 @@ require (
 	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
-	golang.org/x/oauth2 v0.36.0 // indirect
 )
 
 require (
@@ -111,6 +110,7 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.32.0
 	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/alicebob/miniredis/v2 v2.38.0
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/getkin/kin-openapi v0.142.0
 	github.com/gin-contrib/sessions v0.0.5
 	github.com/go-fuego/fuego v0.20.0
@@ -118,6 +118,7 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/gorilla/sessions v1.4.0
 	github.com/zitadel/oidc/v3 v3.47.9
+	golang.org/x/oauth2 v0.36.0
 )
 
 require (
@@ -139,7 +140,7 @@ require (
 	github.com/dlclark/regexp2/v2 v2.2.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/expr-lang/expr v1.17.8
-	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.0
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/glebarez/go-sqlite v1.21.2

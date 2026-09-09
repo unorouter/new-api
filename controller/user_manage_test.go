@@ -4,17 +4,18 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service/authz"
 
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -22,19 +23,27 @@ import (
 
 func setupManageUserTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	require.NoError(t, i18n.Init())
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousRedisEnabled := common.RedisEnabled
 	previousMainDatabaseType, previousLogDatabaseType := common.MainDatabaseType(), common.LogDatabaseType()
+	dialect := os.Getenv("TEST_MANAGE_USER_DIALECT")
+	if dialect == "" {
+		dialect = "sqlite"
+	}
+	databaseTypes := map[string]common.DatabaseType{
+		"sqlite": common.DatabaseTypeSQLite, "mysql": common.DatabaseTypeMySQL, "postgres": common.DatabaseTypePostgreSQL,
+	}
+	require.Contains(t, databaseTypes, dialect)
+	dsn := os.Getenv("TEST_" + strings.ToUpper(dialect) + "_DSN")
+	db, _ := newAuditTestDatabase(t, dialect, dsn)
+	logDB := db
+	if os.Getenv("TEST_MANAGE_USER_SEPARATE_LOG_DB") == "1" {
+		logDB, _ = newAuditTestDatabase(t, dialect, dsn)
+	}
+	model.DB, model.LOG_DB = db, logDB
 	common.RedisEnabled = false
-	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
-
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	model.DB, model.LOG_DB = db, db
-	require.NoError(t, db.AutoMigrate(
-		&model.User{}, &model.UserSession{}, &model.Log{}, &model.CasbinRule{}, &model.AuthzRole{},
-	))
+	common.SetDatabaseTypes(databaseTypes[dialect], databaseTypes[dialect])
 
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB = previousDB, previousLogDB
@@ -44,7 +53,22 @@ func setupManageUserTestDB(t *testing.T) *gorm.DB {
 		if err == nil {
 			_ = sqlDB.Close()
 		}
+		if logDB != db {
+			sqlLogDB, err := logDB.DB()
+			if err == nil {
+				_ = sqlLogDB.Close()
+			}
+		}
 	})
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.CasbinRule{}, &model.AuthzRole{}))
+	require.NoError(t, logDB.AutoMigrate(&model.Log{}, &model.AuditLog{}))
+	versionQuery := "SELECT version()"
+	if dialect == "sqlite" {
+		versionQuery = "SELECT sqlite_version()"
+	}
+	var version string
+	require.NoError(t, db.Raw(versionQuery).Scan(&version).Error)
+	t.Logf("database: %s %s, separate log database: %v", dialect, version, logDB != db)
 	return db
 }
 
@@ -166,23 +190,12 @@ func TestManageUserDeleteReturnsImmediatelyAndUnknownActionFails(t *testing.T) {
 	assert.Equal(t, common.UserStatusEnabled, unchanged.Status)
 }
 
-func TestManageUserQuotaRespectsWalletCeiling(t *testing.T) {
-	db := setupManageUserTestDB(t)
-	user := model.User{
-		Username: "managed-quota-user", Password: "password", Role: common.RoleCommonUser,
-		Status: common.UserStatusEnabled, Group: "default", Quota: common.MaxWalletQuota - 1,
+func createQuotaTestOperator(t *testing.T, db *gorm.DB, role int) model.User {
+	t.Helper()
+	if role == 0 {
+		role = common.RoleRootUser
 	}
-	require.NoError(t, db.Create(&user).Error)
-
-	recorder := performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"add_quota","mode":"add","value":2}`, user.Id))
-	assert.Contains(t, recorder.Body.String(), `"success":false`)
-
-	var updated model.User
-	require.NoError(t, db.First(&updated, user.Id).Error)
-	assert.Equal(t, common.MaxWalletQuota-1, updated.Quota)
-
-	recorder = performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"add_quota","mode":"override","value":%d}`, user.Id, common.MaxWalletQuota+1))
-	assert.Contains(t, recorder.Body.String(), `"success":false`)
-	require.NoError(t, db.First(&updated, user.Id).Error)
-	assert.Equal(t, common.MaxWalletQuota-1, updated.Quota)
+	operator := model.User{Id: 9999, Username: "root-operator", Role: role, Status: common.UserStatusEnabled, AuthVersion: 1, AffCode: "root-operator-aff"}
+	require.NoError(t, db.Create(&operator).Error)
+	return operator
 }

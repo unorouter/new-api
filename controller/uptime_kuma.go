@@ -127,7 +127,6 @@ func GetUptimeKumaStatus(c fuego.ContextNoBody) (*dto.Response[[]dto.UptimeGroup
 
 	g, gCtx := errgroup.WithContext(ctx)
 	for i, group := range groups {
-		i, group := i, group
 		g.Go(func() error {
 			results[i] = fetchGroupData(gCtx, client, group)
 			return nil

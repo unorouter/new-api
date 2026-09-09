@@ -573,7 +573,7 @@ func creemPaidCoversOrder(tradeNo string, paidCents int) bool {
 // (a $0 order minted with a stolen merchant key, an order with no request_id) were only
 // found hours later in receipt mail. The row feeds the newapi_checkout_refused metric.
 func recordCheckoutRefused(c *gin.Context, reason string, referenceId string, event *dto.CreemWebhookEvent) {
-	model.RecordOperationAuditLog(0, "Creem checkout refused: "+reason, c.ClientIP(), "payment.checkout_refused", map[string]interface{}{
+	model.RecordOperationAuditLog(0, 0, "Creem checkout refused: "+reason, c.ClientIP(), "payment.checkout_refused", map[string]any{
 		"provider":       "creem",
 		"reason":         reason,
 		"request_id":     referenceId,
@@ -581,7 +581,7 @@ func recordCheckoutRefused(c *gin.Context, reason string, referenceId string, ev
 		"amount_paid":    event.Object.Order.AmountPaid,
 		"product":        event.Object.Product.Name,
 		"customer_email": event.Object.Customer.Email,
-	}, nil, nil)
+	}, nil, nil, c)
 }
 
 // 处理支付完成事件

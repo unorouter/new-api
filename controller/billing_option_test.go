@@ -108,7 +108,7 @@ func setupBillingAliasOptionDB(t *testing.T) {
 	previousRedis := common.RedisEnabled
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, database.AutoMigrate(&model.Channel{}, &model.Option{}, &model.Log{}, &model.User{}))
+	require.NoError(t, database.AutoMigrate(&model.Channel{}, &model.Option{}, &model.Log{}, &model.AuditLog{}, &model.User{}))
 	model.DB = database
 	model.LOG_DB = database
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
@@ -183,7 +183,7 @@ export function parseTaskResult() { return {}; }
 	}
 
 	accepted := putExpr("alias-model", `u("seconds")`)
-	assert.True(t, accepted.Success)
+	assert.True(t, accepted.Success, accepted.Message)
 
 	rejectedKey := putExpr("alias-model", `u("clips")`)
 	assert.False(t, rejectedKey.Success)

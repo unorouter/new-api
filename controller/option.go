@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -85,7 +86,7 @@ func GetOptions(c fuego.ContextNoBody) (*dto.Response[[]*model.Option], error) {
 	optionValues := make(map[string]string)
 	common.OptionMapRWMutex.Lock()
 	for k, v := range common.OptionMap {
-		if k == "theme.frontend" {
+		if k == "theme.frontend" || k == "billing_setting.billing_mode" || k == "billing_setting.billing_expr" {
 			continue
 		}
 		value := common.Interface2String(v)
@@ -103,14 +104,23 @@ func GetOptions(c fuego.ContextNoBody) (*dto.Response[[]*model.Option], error) {
 			Key:   k,
 			Value: value,
 		})
-		for _, optionKey := range completionRatioMetaOptionKeys {
-			if optionKey == k {
-				optionValues[k] = value
-				break
-			}
+		if slices.Contains(completionRatioMetaOptionKeys, k) {
+			optionValues[k] = value
 		}
 	}
 	common.OptionMapRWMutex.Unlock()
+	// Display the same effective expressions used by pricing and settlement,
+	// including built-in defaults absent from persisted administrator options.
+	for key, values := range map[string]map[string]string{
+		"billing_setting.billing_mode": billing_setting.GetBillingModeCopy(),
+		"billing_setting.billing_expr": billing_setting.GetBillingExprCopy(),
+	} {
+		encoded, err := common.Marshal(values)
+		if err != nil {
+			return dto.Fail[[]*model.Option](err.Error())
+		}
+		options = append(options, &model.Option{Key: key, Value: string(encoded)})
+	}
 	options = append(options, &model.Option{
 		Key:   "CompletionRatioMeta",
 		Value: buildCompletionRatioMetaValue(optionValues),
@@ -219,8 +229,8 @@ func UpdateOption(c fuego.ContextWithBody[dto.OptionUpdateRequest]) (dto.Message
 			return dto.FailMsg("Cannot enable Turnstile verification, please fill in Turnstile configuration first!")
 		}
 	case "TelegramOAuthEnabled":
-		if option.Value == "true" && common.TelegramBotToken == "" {
-			return dto.FailMsg("Cannot enable Telegram OAuth, please fill in Telegram Bot Token first!")
+		if option.Value == "true" && !system_setting.GetTelegramSettings().IsConfigured() {
+			return dto.FailMsg("Telegram OAuth is not configured or enabled. Please contact your administrator.")
 		}
 	case "theme.frontend":
 		if option.Value != "default" && option.Value != "classic" {
@@ -340,7 +350,7 @@ func UpdateOption(c fuego.ContextWithBody[dto.OptionUpdateRequest]) (dto.Message
 		return dto.FailMsg(err.Error())
 	}
 	// 出于安全考虑只记录被修改的配置项名称，不记录配置值（可能含密钥等敏感信息）。
-	recordManageAudit(dto.GinCtx(c), "option.update", map[string]interface{}{
+	recordManageAudit(dto.GinCtx(c), "option.update", map[string]any{
 		"key": option.Key,
 	})
 	return dto.Msg("")

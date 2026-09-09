@@ -43,11 +43,11 @@ func PostSetup(c fuego.ContextWithBody[dto.SetupRequest]) (dto.MessageResponse, 
 		if req.Password != req.ConfirmPassword {
 			return dto.FailMsg("Passwords do not match")
 		}
-		if len(req.Password) < 8 {
-			return dto.FailMsg("Password must be at least 8 characters")
+		if err := common.ValidateNewAccountPassword(req.Password); err != nil {
+			return dto.FailMsg(err.Error())
 		}
 
-		hashedPassword, err := common.Password2Hash(req.Password)
+		hashedPassword, err := common.HashAccountPassword(req.Password)
 		if err != nil {
 			return dto.FailMsg("System error: {{.Error}}")
 		}

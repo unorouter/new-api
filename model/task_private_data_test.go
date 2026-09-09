@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -32,6 +33,11 @@ func TestTaskPrivateDataValuePersistsEveryField(t *testing.T) {
 			case reflect.Bool:
 				target.SetBool(true)
 			case reflect.Slice:
+				if target.Type() == reflect.TypeOf(json.RawMessage{}) {
+					// A raw message must stay valid JSON or Marshal refuses it.
+					target.SetBytes([]byte(`{}`))
+					break
+				}
 				target.Set(reflect.MakeSlice(target.Type(), 1, 1))
 			case reflect.Ptr:
 				target.Set(reflect.New(target.Type().Elem()))

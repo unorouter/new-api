@@ -52,7 +52,7 @@ func nearlyEqual(a, b float64) bool {
 	return b-a < floatEpsilon
 }
 
-func valuesEqual(a, b interface{}) bool {
+func valuesEqual(a, b any) bool {
 	af, aok := a.(float64)
 	bf, bok := b.(float64)
 	if aok && bok {
@@ -60,6 +60,10 @@ func valuesEqual(a, b interface{}) bool {
 	}
 	return a == b
 }
+
+// pricingSyncFields is upstream's name for the same list; both stay so
+// grafted upstream code compiles unchanged.
+var pricingSyncFields = ratioTypes
 
 var ratioTypes = []string{"model_ratio", "completion_ratio", "cache_ratio", "create_cache_ratio", "image_ratio", "audio_ratio", "audio_completion_ratio", "model_price", billing_setting.BillingModeField, billing_setting.BillingExprField}
 
@@ -118,6 +122,83 @@ func normalizeSyncValue(field string, value any) any {
 		}
 	}
 	return value
+}
+
+func getLocalPricingSyncData() map[string]any {
+	data := billing_setting.GetPricingSyncData(ratio_setting.GetExposedData().ToMap())
+	data["image_ratio"] = ratio_setting.GetImageRatioCopy()
+	data["audio_ratio"] = ratio_setting.GetAudioRatioCopy()
+	data["audio_completion_ratio"] = ratio_setting.GetAudioCompletionRatioCopy()
+	return data
+}
+
+// effectivePricingSyncData follows the billing engine's mode precedence. An
+// inactive expression and numeric settings covered by an active expression
+// are not separate prices and must not appear as synchronization differences.
+func effectivePricingSyncData(data map[string]any) map[string]any {
+	result := make(map[string]any, len(pricingSyncFields))
+	names := make(map[string]struct{})
+	for _, field := range pricingSyncFields {
+		entries := make(map[string]any)
+		for name, raw := range valueMap(data[field]) {
+			value := normalizeSyncValue(field, raw)
+			if numericPricingSyncFields[field] {
+				number, ok := value.(float64)
+				if !ok || math.IsNaN(number) || math.IsInf(number, 0) || number < 0 {
+					continue
+				}
+			}
+			entries[name] = value
+			names[name] = struct{}{}
+		}
+		result[field] = entries
+	}
+	modes := valueMap(result[billing_setting.BillingModeField])
+	expressions := valueMap(result[billing_setting.BillingExprField])
+	for name := range names {
+		expression, _ := expressions[name].(string)
+		if modes[name] == billing_setting.BillingModeTieredExpr {
+			if strings.TrimSpace(expression) == "" {
+				for _, field := range pricingSyncFields {
+					delete(valueMap(result[field]), name)
+				}
+				continue
+			}
+			expressions[name] = strings.TrimSpace(expression)
+			for field := range numericPricingSyncFields {
+				delete(valueMap(result[field]), name)
+			}
+			continue
+		}
+		delete(expressions, name)
+		modes[name] = billing_setting.BillingModeRatio
+		_, fixed := valueMap(result["model_price"])[name]
+		_, token := valueMap(result["model_ratio"])[name]
+		if !fixed && !token {
+			for _, field := range pricingSyncFields {
+				delete(valueMap(result[field]), name)
+			}
+			continue
+		}
+		if fixed {
+			for field := range numericPricingSyncFields {
+				if field != "model_price" {
+					delete(valueMap(result[field]), name)
+				}
+			}
+		}
+	}
+	return result
+}
+
+func modelPricingSyncValues(data map[string]any, name string) map[string]any {
+	values := make(map[string]any)
+	for _, field := range pricingSyncFields {
+		if value, exists := valueMap(data[field])[name]; exists {
+			values[field] = value
+		}
+	}
+	return values
 }
 
 func FetchUpstreamRatios(c fuego.ContextWithBody[relaydto.UpstreamRequest]) (*dto.Response[dto.FetchUpstreamRatiosResult], error) {
@@ -263,7 +344,7 @@ func FetchUpstreamRatios(c fuego.ContextWithBody[relaydto.UpstreamRequest]) (*dt
 			// 简单重试：最多 3 次，指数退避
 			var resp *http.Response
 			var lastErr error
-			for attempt := 0; attempt < 3; attempt++ {
+			for attempt := range 3 {
 				resp, lastErr = client.Do(httpReq)
 				if lastErr == nil {
 					break
@@ -359,11 +440,18 @@ func FetchUpstreamRatios(c fuego.ContextWithBody[relaydto.UpstreamRequest]) (*dt
 
 			// 如果不是 type1，则尝试按 type2 (/api/pricing) 解析
 			var pricingItems []struct {
-				ModelName       string  `json:"model_name"`
-				QuotaType       int     `json:"quota_type"`
-				ModelRatio      float64 `json:"model_ratio"`
-				ModelPrice      float64 `json:"model_price"`
-				CompletionRatio float64 `json:"completion_ratio"`
+				ModelName            string   `json:"model_name"`
+				QuotaType            int      `json:"quota_type"`
+				ModelRatio           *float64 `json:"model_ratio"`
+				ModelPrice           *float64 `json:"model_price"`
+				CompletionRatio      *float64 `json:"completion_ratio"`
+				CacheRatio           *float64 `json:"cache_ratio"`
+				CreateCacheRatio     *float64 `json:"create_cache_ratio"`
+				ImageRatio           *float64 `json:"image_ratio"`
+				AudioRatio           *float64 `json:"audio_ratio"`
+				AudioCompletionRatio *float64 `json:"audio_completion_ratio"`
+				BillingMode          string   `json:"billing_mode"`
+				BillingExpr          string   `json:"billing_expr"`
 			}
 			if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
 				logger.LogWarn(reqCtx, "unrecognized data format from "+chItem.Name+": "+err.Error())
@@ -373,15 +461,50 @@ func FetchUpstreamRatios(c fuego.ContextWithBody[relaydto.UpstreamRequest]) (*dt
 
 			modelRatioMap := make(map[string]float64)
 			completionRatioMap := make(map[string]float64)
+			cacheRatioMap := make(map[string]float64)
+			createCacheRatioMap := make(map[string]float64)
+			imageRatioMap := make(map[string]float64)
+			audioRatioMap := make(map[string]float64)
+			audioCompletionRatioMap := make(map[string]float64)
 			modelPriceMap := make(map[string]float64)
+			billingModeMap := make(map[string]string)
+			billingExprMap := make(map[string]string)
 
 			for _, item := range pricingItems {
+				if item.ModelName == "" {
+					continue
+				}
+				if item.BillingMode == billing_setting.BillingModeTieredExpr {
+					billingModeMap[item.ModelName] = billing_setting.BillingModeTieredExpr
+					billingExprMap[item.ModelName] = item.BillingExpr
+					continue
+				}
 				if item.QuotaType == 1 {
-					modelPriceMap[item.ModelName] = item.ModelPrice
+					if item.ModelPrice != nil {
+						modelPriceMap[item.ModelName] = *item.ModelPrice
+					}
 				} else {
-					modelRatioMap[item.ModelName] = item.ModelRatio
-					// completionRatio 可能为 0，此时也直接赋值，保持与上游一致
-					completionRatioMap[item.ModelName] = item.CompletionRatio
+					if item.ModelRatio != nil {
+						modelRatioMap[item.ModelName] = *item.ModelRatio
+					}
+					if item.CompletionRatio != nil {
+						completionRatioMap[item.ModelName] = *item.CompletionRatio
+					}
+				}
+				if item.CacheRatio != nil {
+					cacheRatioMap[item.ModelName] = *item.CacheRatio
+				}
+				if item.CreateCacheRatio != nil {
+					createCacheRatioMap[item.ModelName] = *item.CreateCacheRatio
+				}
+				if item.ImageRatio != nil {
+					imageRatioMap[item.ModelName] = *item.ImageRatio
+				}
+				if item.AudioRatio != nil {
+					audioRatioMap[item.ModelName] = *item.AudioRatio
+				}
+				if item.AudioCompletionRatio != nil {
+					audioCompletionRatioMap[item.ModelName] = *item.AudioCompletionRatio
 				}
 			}
 
@@ -402,6 +525,21 @@ func FetchUpstreamRatios(c fuego.ContextWithBody[relaydto.UpstreamRequest]) (*dt
 				}
 				converted["completion_ratio"] = compAny
 			}
+			if len(cacheRatioMap) > 0 {
+				converted["cache_ratio"] = valueMap(cacheRatioMap)
+			}
+			if len(createCacheRatioMap) > 0 {
+				converted["create_cache_ratio"] = valueMap(createCacheRatioMap)
+			}
+			if len(imageRatioMap) > 0 {
+				converted["image_ratio"] = valueMap(imageRatioMap)
+			}
+			if len(audioRatioMap) > 0 {
+				converted["audio_ratio"] = valueMap(audioRatioMap)
+			}
+			if len(audioCompletionRatioMap) > 0 {
+				converted["audio_completion_ratio"] = valueMap(audioCompletionRatioMap)
+			}
 
 			if len(modelPriceMap) > 0 {
 				priceAny := make(map[string]any, len(modelPriceMap))
@@ -409,6 +547,12 @@ func FetchUpstreamRatios(c fuego.ContextWithBody[relaydto.UpstreamRequest]) (*dt
 					priceAny[k] = v
 				}
 				converted["model_price"] = priceAny
+			}
+			if len(billingModeMap) > 0 {
+				converted[billing_setting.BillingModeField] = valueMap(billingModeMap)
+			}
+			if len(billingExprMap) > 0 {
+				converted[billing_setting.BillingExprField] = valueMap(billingExprMap)
 			}
 
 			ch <- upstreamResult{Name: uniqueName, Data: converted}
@@ -418,7 +562,7 @@ func FetchUpstreamRatios(c fuego.ContextWithBody[relaydto.UpstreamRequest]) (*dt
 	wg.Wait()
 	close(ch)
 
-	localData := ratio_setting.GetExposedData().ToMap()
+	localData := effectivePricingSyncData(getLocalPricingSyncData())
 
 	var testResults []relaydto.TestResult
 	var successfulChannels []struct {
@@ -441,14 +585,37 @@ func FetchUpstreamRatios(c fuego.ContextWithBody[relaydto.UpstreamRequest]) (*dt
 			successfulChannels = append(successfulChannels, struct {
 				name string
 				data map[string]any
-			}{name: r.Name, data: r.Data})
+			}{name: r.Name, data: effectivePricingSyncData(r.Data)})
 		}
 	}
 
 	differences := buildDifferences(localData, successfulChannels)
+	type modelSyncPrices struct {
+		Current   map[string]any            `json:"current"`
+		Upstreams map[string]map[string]any `json:"upstreams"`
+	}
+	prices := make(map[string]modelSyncPrices, len(differences))
+	for name, fields := range differences {
+		row := modelSyncPrices{Current: modelPricingSyncValues(localData, name), Upstreams: make(map[string]map[string]any)}
+		_, expressionPriority := fields[billing_setting.BillingExprField]
+		for _, channel := range successfulChannels {
+			candidate := modelPricingSyncValues(channel.data, name)
+			if expressionPriority && candidate[billing_setting.BillingModeField] != billing_setting.BillingModeTieredExpr {
+				continue
+			}
+			_, hasRatio := candidate["model_ratio"]
+			_, hasPrice := candidate["model_price"]
+			_, hasExpression := candidate[billing_setting.BillingExprField]
+			if hasRatio || hasPrice || hasExpression {
+				row.Upstreams[channel.name] = candidate
+			}
+		}
+		prices[name] = row
+	}
 
 	return dto.Ok(dto.FetchUpstreamRatiosResult{
 		Differences: differences,
+		Prices:      prices,
 		TestResults: testResults,
 	})
 }
@@ -458,6 +625,16 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 	data map[string]any
 }) map[string]map[string]relaydto.DifferenceItem {
 	differences := make(map[string]map[string]relaydto.DifferenceItem)
+	localData = effectivePricingSyncData(localData)
+	normalizedChannels := make([]struct {
+		name string
+		data map[string]any
+	}, 0, len(successfulChannels))
+	for _, channel := range successfulChannels {
+		channel.data = effectivePricingSyncData(channel.data)
+		normalizedChannels = append(normalizedChannels, channel)
+	}
+	successfulChannels = normalizedChannels
 
 	allModels := make(map[string]struct{})
 
@@ -519,23 +696,31 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 	}
 
 	for modelName := range allModels {
-		for _, ratioType := range ratioTypes {
-			var localValue interface{} = nil
-			if localRatioAny, ok := localData[ratioType]; ok {
-				if localRatio, ok := localRatioAny.(map[string]float64); ok {
-					if val, exists := localRatio[modelName]; exists {
-						localValue = val
-					}
-				}
+		expressionPriority := valueMap(localData[billing_setting.BillingModeField])[modelName] == billing_setting.BillingModeTieredExpr
+		for _, channel := range successfulChannels {
+			if valueMap(channel.data[billing_setting.BillingModeField])[modelName] == billing_setting.BillingModeTieredExpr {
+				expressionPriority = true
+			}
+		}
+		for _, ratioType := range pricingSyncFields {
+			if expressionPriority && numericPricingSyncFields[ratioType] {
+				continue
+			}
+			var localValue any = nil
+			if val, exists := valueMap(localData[ratioType])[modelName]; exists {
+				localValue = normalizeSyncValue(ratioType, val)
 			}
 
-			upstreamValues := make(map[string]interface{})
+			upstreamValues := make(map[string]any)
 			confidenceValues := make(map[string]bool)
 			hasUpstreamValue := false
 			hasDifference := false
 
 			for _, channel := range successfulChannels {
-				var upstreamValue interface{} = nil
+				if expressionPriority && valueMap(channel.data[billing_setting.BillingModeField])[modelName] != billing_setting.BillingModeTieredExpr {
+					continue
+				}
+				var upstreamValue any = nil
 
 				if upstreamRatio, ok := channel.data[ratioType].(map[string]any); ok {
 					if val, exists := upstreamRatio[modelName]; exists {

@@ -6,14 +6,16 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-fuego/fuego"
+	"gorm.io/gorm"
 )
 
 type wechatLoginResponse struct {
@@ -122,28 +124,77 @@ func WeChatAuth(c *gin.Context) {
 	setupLogin(&user, c)
 }
 
-func WeChatBind(c fuego.ContextWithParams[dto.WeChatBindParams]) (dto.MessageResponse, error) {
+type wechatBindRequest struct {
+	Code string `json:"code"`
+}
+
+func WeChatBind(c *gin.Context) {
+	identity, ok := middleware.GetSessionAuthIdentity(c)
+	if !ok {
+		writeSecurityOperationError(c, service.ErrAuthTokenInvalid)
+		return
+	}
+	succeeded, notificationFailed := false, false
+	defer func() {
+		recordUserSecurityAudit(c, identity.UserID, "user.binding_bind", map[string]any{"provider": "wechat", "success": succeeded, "notification_failed": notificationFailed})
+	}()
 	if !common.WeChatAuthEnabled {
-		return dto.FailMsg("the administrator has not enabled login and registration via WeChat")
+		c.JSON(http.StatusOK, gin.H{
+			"message": "the administrator has not enabled login and registration via WeChat",
+			"success": false,
+		})
+		return
 	}
-	p, err := dto.ParseParams[dto.WeChatBindParams](c)
-	if err != nil {
-		return dto.FailMsg("invalid request")
+	var req wechatBindRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "Invalid request",
+		})
+		return
 	}
-	wechatId, err := getWeChatIdByCode(p.Code)
+	code := strings.TrimSpace(req.Code)
+	context, err := common.Marshal(service.AccountBindingContext{Provider: "wechat", Code: code})
 	if err != nil {
-		return dto.FailMsg(err.Error())
+		writeSecurityOperationError(c, err)
+		return
+	}
+	if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: context}) == nil {
+		return
+	}
+	wechatId, err := getWeChatIdByCode(code)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"message": err.Error(),
+			"success": false,
+		})
+		return
 	}
 	if model.IsWeChatIdAlreadyTaken(wechatId) {
-		return dto.FailMsg("this WeChat account is already bound")
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "this WeChat account is already bound",
+		})
+		return
 	}
-	ginCtx := dto.GinCtx(c)
-	userId := ginCtx.GetInt("id")
-	if userId <= 0 {
-		return dto.FailMsg("not logged in")
+	// 只更新绑定列，避免完整用户快照覆盖并发的封禁、降权或分组变更。
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		return model.UpdateUserBindColumnForSessionWithTx(tx, identity, "wechat_id", wechatId)
+	}); err != nil {
+		writeSecurityOperationError(c, err)
+		return
 	}
-	if err = model.UpdateUserBindColumn(userId, "wechat_id", wechatId); err != nil {
-		return dto.FailMsg(err.Error())
+	succeeded = true
+	user, err := model.GetUserById(identity.UserID, false)
+	if err != nil {
+		writeSecurityOperationError(c, err)
+		return
 	}
-	return dto.Msg("")
+	notificationFailed = service.NotifyAccountSecurityChange(user.Email, "WeChat account linked") != nil
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    gin.H{"notification_warning": notificationFailed},
+	})
+	return
 }

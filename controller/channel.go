@@ -331,14 +331,8 @@ func SearchChannels(c fuego.ContextWithParams[dto.SearchChannelsParams]) (*dto.R
 	}
 
 	total := len(channelData)
-	startIdx := (page - 1) * pageSize
-	if startIdx > total {
-		startIdx = total
-	}
-	endIdx := startIdx + pageSize
-	if endIdx > total {
-		endIdx = total
-	}
+	startIdx := min((page-1)*pageSize, total)
+	endIdx := min(startIdx+pageSize, total)
 
 	pagedData := channelData[startIdx:endIdx]
 
@@ -378,8 +372,13 @@ func GetChannelKey(c fuego.ContextNoBody) (*dto.Response[dto.ChannelKeyData], er
 
 	// 获取渠道信息（包含密钥）
 	channel, err := model.GetChannelById(channelId, true)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return dto.Fail[dto.ChannelKeyData](common.TranslateMessage(dto.GinCtx(c), i18n.MsgChannelNotExists))
+	}
 	if err != nil {
-		return dto.Fail[dto.ChannelKeyData](fmt.Sprintf("Failed to get channel information: %v", err))
+		// The raw driver error names hosts and columns; keep it in the log only.
+		common.SysError(fmt.Sprintf("get channel key: channel_id=%d: %v", channelId, err))
+		return dto.Fail[dto.ChannelKeyData]("Failed to get channel information")
 	}
 
 	if channel == nil {
@@ -396,23 +395,6 @@ func GetChannelKey(c fuego.ContextNoBody) (*dto.Response[dto.ChannelKeyData], er
 	return dto.OkMsg("Retrieved successfully", dto.ChannelKeyData{
 		Key: channel.Key,
 	})
-}
-
-// validateTwoFactorAuth 统一的2FA验证函数
-func validateTwoFactorAuth(twoFA *model.TwoFA, code string) bool {
-	// 尝试验证TOTP
-	if cleanCode, err := common.ValidateNumericCode(code); err == nil {
-		if isValid, _ := twoFA.ValidateTOTPAndUpdateUsage(cleanCode); isValid {
-			return true
-		}
-	}
-
-	// 尝试验证备用码
-	if isValid, err := twoFA.ValidateBackupCodeAndUpdateUsage(code); err == nil && isValid {
-		return true
-	}
-
-	return false
 }
 
 // validateChannel 通用的渠道校验函数
@@ -433,11 +415,19 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		if len(pluginKey) > 30 {
 			return fmt.Errorf("task plugin key must not exceed 30 characters")
 		}
-		if _, ok := jsplugin.DefaultRegistry.Get(pluginKey); !ok {
+		plugin, ok := jsplugin.DefaultRegistry.Get(pluginKey)
+		if !ok {
 			return fmt.Errorf("task plugin %q is not registered", pluginKey)
 		}
 		if channel.BaseURL == nil || strings.TrimSpace(*channel.BaseURL) == "" {
-			return fmt.Errorf("base URL is required for task plugin channels")
+			// The plugin default is persisted onto the channel instead of being
+			// resolved per request, so the destination host stays an auditable
+			// channel property that only an administrator edit can change.
+			if plugin.Meta.BaseURL == "" {
+				return fmt.Errorf("base URL is required for task plugin channels")
+			}
+			defaultBaseURL := plugin.Meta.BaseURL
+			channel.BaseURL = &defaultBaseURL
 		}
 	}
 
@@ -535,7 +525,7 @@ func getVertexArrayKeys(c *gin.Context, keys string) ([]string, error) {
 	if keys == "" {
 		return nil, nil
 	}
-	var keyArray []interface{}
+	var keyArray []any
 	err := common.Unmarshal([]byte(keys), &keyArray)
 	if err != nil {
 		return nil, fmt.Errorf("Batch adding Vertex AI must use standard JSON array format, e.g. [{key1}, {key2}...], please check input: %w", err)
@@ -575,6 +565,9 @@ func AddChannel(c fuego.ContextWithBody[AddChannelRequest]) (dto.MessageResponse
 		return dto.FailMsg("task plugin channels require the task_plugin.bind permission")
 	}
 
+	baseURLFromPluginDefault := addChannelRequest.Channel != nil &&
+		addChannelRequest.Channel.Type == constant.ChannelTypeTaskPlugin &&
+		(addChannelRequest.Channel.BaseURL == nil || strings.TrimSpace(*addChannelRequest.Channel.BaseURL) == "")
 	// 使用统一的校验函数
 	if err := validateChannel(addChannelRequest.Channel, true); err != nil {
 		return dto.FailMsg(err.Error())
@@ -595,7 +588,7 @@ func AddChannel(c fuego.ContextWithBody[AddChannelRequest]) (dto.MessageResponse
 			addChannelRequest.Channel.Key = strings.Join(array, "\n")
 		} else {
 			cleanKeys := make([]string, 0)
-			for _, key := range strings.Split(addChannelRequest.Channel.Key, "\n") {
+			for key := range strings.SplitSeq(addChannelRequest.Channel.Key, "\n") {
 				if key == "" {
 					continue
 				}
@@ -643,11 +636,15 @@ func AddChannel(c fuego.ContextWithBody[AddChannelRequest]) (dto.MessageResponse
 		return dto.FailMsg(err.Error())
 	}
 	service.ResetProxyClientCache()
-	recordManageAudit(dto.GinCtx(c), "channel.create", map[string]interface{}{
+	createAudit := map[string]any{
 		"name":  addChannelRequest.Channel.Name,
 		"type":  addChannelRequest.Channel.Type,
 		"count": len(channels),
-	})
+	}
+	if baseURLFromPluginDefault {
+		createAudit["base_url_source"] = "plugin_default"
+	}
+	recordManageAudit(dto.GinCtx(c), "channel.create", createAudit)
 	return dto.Msg("")
 }
 
@@ -817,6 +814,8 @@ func UpdateChannel(c fuego.ContextWithBody[PatchChannel]) (*dto.Response[PatchCh
 		return dto.Fail[PatchChannel]("task plugin channels require the task_plugin.bind permission")
 	}
 
+	baseURLFromPluginDefault := channel.Type == constant.ChannelTypeTaskPlugin &&
+		(channel.BaseURL == nil || strings.TrimSpace(*channel.BaseURL) == "")
 	// 使用统一的校验函数
 	if err := validateChannel(&channel.Channel, false); err != nil {
 		return dto.Fail[PatchChannel](err.Error())
@@ -896,8 +895,8 @@ func UpdateChannel(c fuego.ContextWithBody[PatchChannel]) (*dto.Response[PatchCh
 					}
 				} else {
 					// 普通渠道的处理
-					inputKeys := strings.Split(channel.Key, "\n")
-					for _, key := range inputKeys {
+					inputKeys := strings.SplitSeq(channel.Key, "\n")
+					for key := range inputKeys {
 						key = strings.TrimSpace(key)
 						if key != "" {
 							newKeys = append(newKeys, key)
@@ -961,11 +960,15 @@ func UpdateChannel(c fuego.ContextWithBody[PatchChannel]) (*dto.Response[PatchCh
 	if channel.Key != "" && channel.Key != originChannel.Key {
 		changedFields = append(changedFields, "key")
 	}
-	recordManageAudit(dto.GinCtx(c), "channel.update", map[string]interface{}{
+	updateAudit := map[string]any{
 		"id":             channel.Id,
 		"name":           channel.Name,
 		"changed_fields": changedFields,
-	})
+	}
+	if baseURLFromPluginDefault {
+		updateAudit["base_url_source"] = "plugin_default"
+	}
+	recordManageAudit(dto.GinCtx(c), "channel.update", updateAudit)
 	channel.Key = ""
 	clearChannelInfo(&channel.Channel)
 	return dto.Ok(channel)
@@ -1339,10 +1342,7 @@ func ManageMultiKeys(c fuego.ContextWithBody[MultiKeyManageRequest]) (dto.ApiRes
 
 		// Calculate range for current page
 		start := (page - 1) * pageSize
-		end := start + pageSize
-		if end > filteredTotal {
-			end = filteredTotal
-		}
+		end := min(start+pageSize, filteredTotal)
 
 		// Get the page data
 		var pageKeyStatusList []dto.KeyStatus

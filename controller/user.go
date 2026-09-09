@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -36,11 +35,6 @@ type LoginRequest struct {
 	PasswordEncrypted string `json:"password_encrypted"`
 	EncryptionKeyID   string `json:"encryption_key_id"`
 }
-
-var (
-	errUserPasswordUnset    = errors.New("user password is not set")
-	errOriginalPasswordFail = errors.New("original password is incorrect")
-)
 
 func GetPasswordEncryptionKey(c *gin.Context) {
 	if !common.PasswordLoginEncryptionEnabled {
@@ -106,48 +100,14 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// 检查是否启用2FA
-	twoFAEnabled, err := model.IsTwoFAEnabled(user.Id)
-	if err != nil {
-		common.SysLog(fmt.Sprintf("Login failed to load 2FA status for user %d: %v", user.Id, err))
-		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
-		return
-	}
-	if twoFAEnabled {
-		expiresAt := time.Now().Add(5 * time.Minute)
-		payload, err := common.Marshal(twoFALoginFlowPayload{AuthVersion: user.AuthVersion})
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		flowToken, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
-			Purpose:   model.AuthFlowPurposeTwoFALogin,
-			UserId:    user.Id,
-			Payload:   string(payload),
-			ExpiresAt: expiresAt,
-		})
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"message": i18n.T(c, i18n.MsgUserRequire2FA),
-			"success": true,
-			"data": map[string]interface{}{
-				"require_2fa": true,
-				"flow_token":  flowToken,
-				"expires_at":  expiresAt.Unix(),
-			},
-		})
-		return
-	}
-
 	setupLogin(&user, c)
 }
 
 // loginMethodFromContext 根据请求路径推导登录方式，用于登录审计日志。
 func loginMethodFromContext(c *gin.Context) string {
+	if method := c.GetString("login_method"); method != "" {
+		return method
+	}
 	switch c.FullPath() {
 	case "/api/user/login":
 		return "password"
@@ -173,14 +133,18 @@ func loginMethodFromContext(c *gin.Context) string {
 func recordLoginAudit(user *model.User, c *gin.Context) {
 	method := loginMethodFromContext(c)
 	ip := c.ClientIP()
-	extra := map[string]interface{}{
-		"login_method": method,
-		"user_agent":   c.Request.UserAgent(),
+	extra := model.AuditOther{
+		LoginMethod: method,
+		UserAgent:   c.Request.UserAgent(),
 	}
 	content := fmt.Sprintf("Logged in successfully via %s", method)
-	model.RecordLoginLog(user.Id, user.Username, content, ip, "login", map[string]interface{}{
+	params := map[string]any{
 		"method": method,
-	}, extra)
+	}
+	if verifiedMethod := c.GetString("login_verification_method"); verifiedMethod != "" {
+		params["verification_method"] = verifiedMethod
+	}
+	model.RecordLoginLog(user.Id, user.Role, user.Username, content, ip, "login", params, extra, c)
 }
 
 // publicClientIp returns the client address ONLY when a trusted proxy actually
@@ -253,7 +217,17 @@ func backfillRegisterIp(user *model.User, c *gin.Context) {
 // setupLogin creates a server-controlled login Session and returns the shared
 // authentication bundle used by every login method.
 func setupLogin(user *model.User, c *gin.Context) {
-	setupLoginAtAuthVersion(user, 0, c)
+	challenge, err := service.StartLoginVerification(user, loginMethodFromContext(c))
+	if err != nil {
+		writeSecurityOperationError(c, err)
+		return
+	}
+	if challenge != nil {
+		setAuthNoStore(c)
+		common.ApiSuccess(c, challenge)
+		return
+	}
+	setupLoginAtAuthVersion(user, user.AuthVersion, c)
 }
 
 func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin.Context) {
@@ -288,6 +262,11 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 		writeAuthSessionError(c, err)
 		return
 	}
+	writeLoginResponse(c, currentUser, bundle)
+}
+
+func writeLoginResponse(c *gin.Context, user *model.User, bundle *service.AuthBundle) {
+	c.Set("login_method", bundle.Session.LoginMethod)
 	model.UpdateUserLastLoginAt(user.Id)
 	service.WriteRefreshCookie(c, bundle.RefreshToken)
 	setAuthNoStore(c)
@@ -300,7 +279,7 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 			"token_type":        bundle.TokenType,
 			"access_expires_at": bundle.AccessExpiresAt,
 			"session":           bundle.Session,
-			"user":              buildSelfUserData(currentUser),
+			"user":              buildSelfUserData(user),
 		},
 	})
 }
@@ -822,14 +801,15 @@ func effectiveCommissionRate(perUser *float64) float64 {
 // buildSelfUserData is the single safe dashboard-user DTO used by GetSelf,
 // login and refresh. It intentionally excludes password, management PAT and
 // administrator-only remarks.
-func buildSelfUserData(user *model.User) map[string]interface{} {
+func buildSelfUserData(user *model.User) map[string]any {
 	userSetting := user.GetSetting()
 	permissions := calculateUserPermissions(user.Role)
 	permissions["admin_permissions"] = authz.Capabilities(user.Id, user.Role)
-	return map[string]interface{}{
+	return map[string]any{
 		"id":                user.Id,
 		"username":          user.Username,
 		"display_name":      user.DisplayName,
+		"has_password":      user.HasPassword,
 		"role":              user.Role,
 		"status":            user.Status,
 		"email":             user.Email,
@@ -860,7 +840,7 @@ func calculateUserPermissions(userRole int) map[string]interface{} {
 
 	if userRole == common.RoleRootUser {
 		permissions["sidebar_settings"] = false
-		permissions["sidebar_modules"] = map[string]interface{}{}
+		permissions["sidebar_modules"] = map[string]any{}
 	} else if userRole == common.RoleAdminUser {
 		permissions["sidebar_settings"] = true
 		permissions["sidebar_modules"] = map[string]interface{}{
@@ -940,9 +920,6 @@ func UpdateUser(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error
 	}
 	if !canManageTargetRole(myRole, updatedUser.Role) {
 		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.cannot_create_higher_level"))
-	}
-	if updatedUser.Password == "$I_LOVE_U" {
-		updatedUser.Password = "" // rollback to what it should be
 	}
 	updatePassword := updatedUser.Password != ""
 	// Changing your OWN password belongs on /user/self, which requires the current
@@ -1300,11 +1277,21 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 	if err != nil {
 		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "common.invalid_params"))
 	}
-	user := model.User{
-		Id: req.Id,
+	// A zero id turns the struct lookup below into an unconditioned query that
+	// resolves to whichever row sorts first.
+	if req.Id <= 0 {
+		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "common.invalid_params"))
 	}
-	model.DB.Unscoped().Where(&user).First(&user)
-	if user.Id == 0 {
+	var user model.User
+	if err := model.DB.Unscoped().Where("id = ?", req.Id).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.not_exists"))
+		}
+		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "common.database_error"))
+	}
+	// Balance changes need a live account; the unscoped lookup exists so
+	// enable/delete can still reach soft-deleted rows.
+	if req.Action == "add_quota" && user.DeletedAt.Valid {
 		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.not_exists"))
 	}
 	myRole := dto.UserRole(c)
@@ -1337,6 +1324,11 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		}
 		if err := user.Delete(); err != nil {
 			return dto.Fail[dto.ManageUserData](err.Error())
+		}
+		// Cached relay tokens outlive the row until their TTL; drop them now so a
+		// deleted account cannot keep relaying.
+		if err := model.InvalidateUserTokensCache(user.Id); err != nil {
+			common.SysLog(fmt.Sprintf("failed to invalidate tokens cache for user %d: %s", user.Id, err.Error()))
 		}
 		recordManageAuditFor(ginCtx, user.Id, "user.manage", map[string]interface{}{
 			"action":   req.Action,
@@ -1377,6 +1369,9 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 			if err := common.ValidateWalletQuota(req.Value); err != nil {
 				return dto.Fail[dto.ManageUserData](err.Error())
 			}
+			if err := common.ValidateWalletQuota(user.Quota + req.Value); err != nil {
+				return dto.Fail[dto.ManageUserData](err.Error())
+			}
 			if err := model.IncreaseUserQuota(user.Id, req.Value, true); err != nil {
 				return dto.Fail[dto.ManageUserData](err.Error())
 			}
@@ -1386,6 +1381,12 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		case "subtract":
 			if req.Value <= 0 {
 				return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, i18n.MsgUserQuotaChangeZero))
+			}
+			if err := common.ValidateWalletQuota(req.Value); err != nil {
+				return dto.Fail[dto.ManageUserData](err.Error())
+			}
+			if user.Quota-req.Value < -common.MaxWalletQuota {
+				return dto.Fail[dto.ManageUserData](fmt.Sprintf("wallet quota below -%d", common.MaxWalletQuota))
 			}
 			if err := model.DecreaseUserQuota(user.Id, req.Value, true); err != nil {
 				return dto.Fail[dto.ManageUserData](err.Error())

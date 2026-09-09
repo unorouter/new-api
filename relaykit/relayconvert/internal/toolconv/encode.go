@@ -381,13 +381,13 @@ func attachGeminiRequest(request any, set Set) (any, []types.ConversionDiagnosti
 				diagnostics = append(diagnostics, geminiWebSearchDiagnostics(index, definition.WebSearch)...)
 			}
 		case KindCodeExecution:
-			if set.Source == types.RelayFormatGemini {
+			if set.Source == types.RelayFormatGemini || definition.NativeType == "codeExecution" {
 				tools = append(tools, map[string]any{"codeExecution": map[string]any{}})
 				continue
 			}
 			diagnostics = append(diagnostics, semanticLoss(fmt.Sprintf("tools[%d]", index), "unverified_tool_mapping", "code execution semantics differ across providers"))
 		case KindURLContext:
-			if set.Source == types.RelayFormatGemini {
+			if set.Source == types.RelayFormatGemini || definition.NativeType == "urlContext" {
 				tools = append(tools, map[string]any{"urlContext": map[string]any{}})
 				continue
 			}
@@ -1322,14 +1322,14 @@ func deleteEmptyStrings(value map[string]any) {
 	}
 }
 
-func functionParametersMap(parameters any) (map[string]interface{}, error) {
+func functionParametersMap(parameters any) (map[string]any, error) {
 	if parameters == nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"type":       "object",
-			"properties": map[string]interface{}{},
+			"properties": map[string]any{},
 		}, nil
 	}
-	converted, err := kitutil.Any2Type[map[string]interface{}](parameters)
+	converted, err := kitutil.Any2Type[map[string]any](parameters)
 	if err != nil {
 		return nil, err
 	}
@@ -1337,7 +1337,7 @@ func functionParametersMap(parameters any) (map[string]interface{}, error) {
 		converted["type"] = "object"
 	}
 	if converted["properties"] == nil {
-		converted["properties"] = map[string]interface{}{}
+		converted["properties"] = map[string]any{}
 	}
 	return converted, nil
 }
