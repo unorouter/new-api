@@ -86,7 +86,7 @@ export function ModelPriceCell(props: {
       )
     }
     const hasRequestPrice = dynamic.primaryEntries.some(
-      (entry) => entry.unit === 'request'
+      (entry) => entry.unit === 'request' || entry.unit === 'image'
     )
     metrics = dynamic.primaryEntries
       .slice(0, hasRequestPrice ? 3 : 2)

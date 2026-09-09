@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import i18next from 'i18next'
+import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { TaskUsagePricingEditor } from '../task-usage-pricing-editor'
@@ -117,4 +118,120 @@ it('shows localized enum choices while preserving raw values in generated billin
   expect(expression).toContain('u("action") == "music"')
   expect(expression).toContain('tier("lyrics"')
   expect(expression).not.toContain('Generate lyrics')
+})
+
+function TaskPricingDraft(props: {
+  expression: string
+  onChange: (next: string) => void
+}) {
+  const [billingExpr, setBillingExpr] = useState(props.expression)
+  const [requestRuleExpr, setRequestRuleExpr] = useState(
+    '(header("x-priority") == "high" ? 2 : 1)'
+  )
+  return (
+    <TaskUsagePricingEditor
+      billingExpr={billingExpr}
+      requestRuleExpr={requestRuleExpr}
+      usageSchema={{
+        seconds: {
+          type: 'number',
+          unit: 'second',
+          description: 'Seconds price',
+        },
+        mode: { enum: ['std', 'pro'] },
+      }}
+      onBillingExprChange={(next) => {
+        setBillingExpr(next)
+        props.onChange(next)
+      }}
+      onRequestRuleExprChange={setRequestRuleExpr}
+    />
+  )
+}
+
+it('lets users cancel or discard an unsupported expression and its request rules', async () => {
+  const user = userEvent.setup()
+  const onChange = vi.fn()
+  render(
+    <TaskPricingDraft
+      expression='tier("custom", u("seconds") * u("seconds"))'
+      onChange={onChange}
+    />
+  )
+  const original = screen.getByRole('textbox', { name: 'Billing expression' })
+  const originalValue = (original as HTMLTextAreaElement).value
+  await user.click(screen.getByRole('combobox', { name: 'Editor mode' }))
+  await user.click(screen.getByRole('option', { name: 'Visual editor' }))
+  let dialog = screen.getByRole('alertdialog')
+  expect(dialog).toHaveTextContent('resets all prices to zero')
+  expect(onChange).not.toHaveBeenCalled()
+  await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  expect(original).toHaveValue(originalValue)
+  expect(onChange).not.toHaveBeenCalled()
+
+  await user.click(screen.getByRole('combobox', { name: 'Editor mode' }))
+  await user.click(screen.getByRole('option', { name: 'Visual editor' }))
+  dialog = screen.getByRole('alertdialog')
+  await user.click(
+    within(dialog).getByRole('button', { name: 'Switch to visual editor' })
+  )
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(screen.getByRole('table')).toBeVisible()
+  expect(onChange).toHaveBeenLastCalledWith('tier("base", u("seconds") * 0)')
+  for (const price of within(screen.getByRole('table')).getAllByRole(
+    'textbox'
+  )) {
+    expect(price).toHaveValue('0')
+  }
+  await user.click(screen.getByRole('combobox', { name: 'Editor mode' }))
+  await user.click(screen.getByRole('option', { name: 'Expression editor' }))
+  expect(
+    screen.getByRole('textbox', { name: 'Billing expression' })
+  ).toHaveValue('tier("base", u("seconds") * 0)')
+})
+
+it('confirms regeneration of supported expressions and preserves their prices and request rules', async () => {
+  const user = userEvent.setup()
+  const onChange = vi.fn()
+  const expression =
+    'u("mode") == "std" ? tier("old-standard", u("seconds") * 0.4) : tier("old-pro", u("seconds") * 0.8)'
+  render(<TaskPricingDraft expression={expression} onChange={onChange} />)
+  await user.click(screen.getByRole('combobox', { name: 'Editor mode' }))
+  await user.click(screen.getByRole('option', { name: 'Expression editor' }))
+  expect(
+    (
+      screen.getByRole('textbox', {
+        name: 'Billing expression',
+      }) as HTMLTextAreaElement
+    ).value
+  ).toContain(expression)
+  expect(onChange).not.toHaveBeenCalled()
+  await user.click(screen.getByRole('combobox', { name: 'Editor mode' }))
+  await user.click(screen.getByRole('option', { name: 'Visual editor' }))
+  const dialog = screen.getByRole('alertdialog')
+  expect(dialog).toHaveTextContent(
+    'replaces its original formatting and tier names'
+  )
+  expect(onChange).not.toHaveBeenCalled()
+  await user.click(
+    within(dialog).getByRole('button', { name: 'Switch to visual editor' })
+  )
+  expect(onChange).toHaveBeenLastCalledWith(
+    'u("mode") == "std" ? tier("std", u("seconds") * 0.4) : tier("pro", u("seconds") * 0.8)'
+  )
+  expect(
+    screen.getByRole('textbox', { name: 'Seconds price: mode: std' })
+  ).toHaveValue('0.4')
+  expect(
+    screen.getByRole('textbox', { name: 'Seconds price: mode: pro' })
+  ).toHaveValue('0.8')
+  await user.click(screen.getByRole('combobox', { name: 'Editor mode' }))
+  await user.click(screen.getByRole('option', { name: 'Expression editor' }))
+  expect(
+    (
+      screen.getByRole('textbox', {
+        name: 'Billing expression',
+      }) as HTMLTextAreaElement
+    ).value
+  ).toContain('header("x-priority")')
 })

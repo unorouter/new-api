@@ -19,6 +19,28 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  'Price per image',
+  'Per image',
+  'Audio requests',
+  'Text-only requests',
+  'Realtime pricing must be converted manually.',
+  'This OpenRouter Claude price derives cache-write usage from upstream cost and must be converted manually.',
+  'Gemini and OpenAI audio prices differ for this model. Use separate billing model names to convert them.',
+  'This model has different image request multipliers across channels. Use separate billing model names to convert them.',
+  // Image cache billing and legacy price conversion.
+  'Image cache input price',
+  'Image Cache',
+  'Per-token (deprecated)',
+  'Per-request (deprecated)',
+  'This model already uses an expression.',
+  'Task pricing must be converted manually using the task usage schema.',
+  'This model has provider-specific billing and must be converted manually.',
+  'The model routing configuration could not be verified.',
+  'Audio and Realtime pricing must be converted manually.',
+  'Video pricing must be converted manually.',
+  'Image prices with count, size or quality adjustments must be converted manually.',
+  'Configure an input price before converting this model.',
+  'Prices changed while preparing the conversion. Try again.',
   // Billing expression simulation diagnostics and conditional labels.
   '{{start}}–{{end}}',
 

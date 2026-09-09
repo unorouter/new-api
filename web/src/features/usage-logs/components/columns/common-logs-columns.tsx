@@ -246,8 +246,8 @@ function buildTypeDetailSegments(
             ].includes(entry.field)
         )
         .map((entry) =>
-          entry.unit === 'request'
-            ? `${tieredSummary.tier.label || t('Default')} · ${t(entry.shortLabel)} ${formatPriceCompact(entry.price)}/${t('request')}`
+          entry.unit
+            ? `${tieredSummary.tier.label || t('Default')} · ${t(entry.shortLabel)} ${formatPriceCompact(entry.price)}/${t(entry.unit)}`
             : `${t(entry.shortLabel)} ${formatPrice(entry.price)}`
         )
       if (otherEntries.length > 0) {

@@ -36,6 +36,7 @@ import {
   type ParsedTaskTier,
   type ParsedTier,
 } from './billing-expr'
+import { compileBillingExpression } from './billing-expression/parser'
 import { getDisplayGroupRatio } from './model-helpers'
 import {
   evaluateTaskVisualConfig,
@@ -66,7 +67,7 @@ export type DynamicPriceEntry = {
   value: number
   formatted: string
   formattedRange?: string
-  unit: 'token' | BillingUsageUnit | 'request'
+  unit: 'token' | BillingUsageUnit | 'request' | 'image'
   variable?: BillingVar
   description?: string | Record<string, string>
 }
@@ -120,6 +121,7 @@ export function getDynamicPriceUnitLabelKey(
   // Chat token entries also use unit 'token' but keep the 1M-token label.
   if (entry.unit === 'token' && !entry.variable) return '1M token'
   if (entry.unit === 'request') return 'request'
+  if (entry.unit === 'image') return 'image'
   return null
 }
 
@@ -242,7 +244,9 @@ export function hasDynamicRequestRules(model: PricingModel): boolean {
   const { requestRuleExpr } = splitBillingExprAndRequestRules(
     model.billing_expr || ''
   )
-  return Boolean(tryParseRequestRuleExpr(requestRuleExpr || '')?.length)
+  if (tryParseRequestRuleExpr(requestRuleExpr || '')?.length) return true
+  const compiled = compileBillingExpression(model.billing_expr || '')
+  return compiled.status === 'ready' && compiled.requestRules.length > 0
 }
 
 export function getDynamicPriceEntries(
@@ -259,12 +263,12 @@ export function getDynamicPriceEntries(
       {
         key: 'fixed',
         field: 'fixedPrice',
-        label: 'Price per request',
-        shortLabel: 'Per-call',
+        label: tier.imageCount ? 'Price per image' : 'Price per request',
+        shortLabel: tier.imageCount ? 'Per image' : 'Per-call',
         labelKind: 'i18n',
         value: tier.fixedPrice,
         formatted: formatTaskUsageUnitPrice(tier.fixedPrice, options),
-        unit: 'request',
+        unit: tier.imageCount ? 'image' : 'request',
       },
     ]
   }
@@ -308,13 +312,31 @@ export function getDynamicPriceEntries(
     if (!variable.field) return []
     const value = Number((tier as ParsedTier)[variable.field])
     if (!Number.isFinite(value) || value < 0) return []
+    // Same-price reads can stay in the expression to preserve accounting for
+    // overlapping usage. They do not need a separate displayed price. Keep
+    // explicit zero prices visible, even when the input itself is free.
+    if (
+      variable.key === 'cr' &&
+      value !== 0 &&
+      value === (tier as ParsedTier).inputPrice
+    ) {
+      return []
+    }
 
     return [
       {
         key: variable.key,
         field: variable.field,
-        label: variable.label,
-        shortLabel: variable.shortLabel,
+        label:
+          variable.key === 'cc' &&
+          typeof (tier as ParsedTier).cacheCreate1hPrice === 'number'
+            ? 'Cache Creation (5m)'
+            : variable.label,
+        shortLabel:
+          variable.key === 'cc' &&
+          typeof (tier as ParsedTier).cacheCreate1hPrice === 'number'
+            ? 'Cache Write (5m)'
+            : variable.shortLabel,
         labelKind: 'i18n' as const,
         value,
         formatted: formatDynamicUnitPrice(value, options),
@@ -404,16 +426,24 @@ export function getDynamicPricingSummary(
     rawExpression,
     entries,
     primaryEntries: isTaskUsage
-      ? entries.filter((entry) => entry.unit !== 'request')
+      ? entries.filter(
+          (entry) => entry.unit !== 'request' && entry.unit !== 'image'
+        )
       : entries.filter(
           (entry) =>
-            entry.unit === 'request' || PRIMARY_DYNAMIC_FIELDS.has(entry.field)
+            entry.unit === 'request' ||
+            entry.unit === 'image' ||
+            PRIMARY_DYNAMIC_FIELDS.has(entry.field)
         ),
     secondaryEntries: isTaskUsage
-      ? entries.filter((entry) => entry.unit === 'request')
+      ? entries.filter(
+          (entry) => entry.unit === 'request' || entry.unit === 'image'
+        )
       : entries.filter(
           (entry) =>
-            entry.unit !== 'request' && !PRIMARY_DYNAMIC_FIELDS.has(entry.field)
+            entry.unit !== 'request' &&
+            entry.unit !== 'image' &&
+            !PRIMARY_DYNAMIC_FIELDS.has(entry.field)
         ),
     isTaskUsage,
     isTimePricing: timeTiers !== null,
