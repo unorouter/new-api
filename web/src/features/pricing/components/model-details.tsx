@@ -59,8 +59,10 @@ import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { useBillingTime } from '../hooks/use-billing-time'
 import { usePricingData } from '../hooks/use-pricing-data'
 import type { ParsedTaskTier } from '../lib/billing-expr'
+import { formatBillingCondition } from '../lib/billing-expression/condition-display'
 import {
   formatTaskUsageUnitPrice,
   getDynamicPriceEntries,
@@ -657,7 +659,9 @@ function PriceSection(props: {
   const tokenUnitLabel = props.tokenUnit === 'K' ? '1K' : '1M'
   const baseGroupKey = '_base'
   const baseGroupRatioMap = { [baseGroupKey]: 1 }
+  const billingTime = useBillingTime(props.model.billing_expr)
   const dynamicSummary = getDynamicPricingSummary(props.model, {
+    now: billingTime === undefined ? undefined : new Date(billingTime),
     tokenUnit: props.tokenUnit,
     showRechargePrice: props.showRechargePrice,
     priceRate: props.priceRate,
@@ -1115,9 +1119,10 @@ function GroupPricingSection(props: {
                             className: thClass,
                             cellClassName:
                               'text-muted-foreground py-2.5 whitespace-normal break-words',
-                            cell: (tier: DynamicPricingTier) =>
-                              'unitPrices' in tier
-                                ? taskPricingConditions(
+                            cell: (tier: DynamicPricingTier) => {
+                              if ('unitPrices' in tier) {
+                                return (
+                                  taskPricingConditions(
                                     (tier as ParsedTaskTier).conditions,
                                     props.model.billing_usage_schema,
                                     i18n.language,
@@ -1128,7 +1133,13 @@ function GroupPricingSection(props: {
                                       ? 'Other cases'
                                       : 'All requests'
                                   )
-                                : tier.label || t('Default'),
+                                )
+                              }
+                              if (tier.conditionText) {
+                                return `${tier.label}: ${formatBillingCondition(tier.conditionText, t, i18n.language) ?? tier.conditionText}`
+                              }
+                              return tier.label || t('Default')
+                            },
                           },
                         ]),
                     ...priceFields.map((fieldEntry) => {

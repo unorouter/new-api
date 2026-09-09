@@ -606,6 +606,11 @@ export const ModelPricingEditorPanel = forwardRef<
     ref,
     () => ({
       commitDraft: async () => {
+        if (
+          formElementRef.current?.querySelector('[data-billing-invalid="true"]')
+        ) {
+          return null
+        }
         const amounts =
           formElementRef.current?.querySelectorAll<HTMLInputElement>(
             'input[data-pricing-amount]'

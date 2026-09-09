@@ -2,6 +2,7 @@ package billingexpr_test
 
 import (
 	"math"
+	"os"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -1061,5 +1062,39 @@ func BenchmarkExprRunCached(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		billingexpr.RunExpr(benchComplexExpr, params)
+	}
+}
+
+// Shared fixtures protect the frontend simulator against drift from the real engine.
+func TestFrontendSimulationContract(t *testing.T) {
+	data, err := os.ReadFile("testdata/frontend_simulation.json")
+	require.NoError(t, err)
+	var cases []struct {
+		Name        string
+		Expression  string
+		Tokens      billingexpr.TokenParams
+		Body        map[string]any
+		Headers     map[string]string
+		Usage       map[string]any
+		Cost        float64
+		Tier        string
+		Multipliers []float64
+		Matched     []bool
+	}
+	require.NoError(t, common.Unmarshal(data, &cases))
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			body, err := common.Marshal(tc.Body)
+			require.NoError(t, err)
+			cost, trace, err := billingexpr.RunExprWithRequest(tc.Expression, tc.Tokens, billingexpr.RequestInput{Body: body, Headers: tc.Headers, Usage: tc.Usage})
+			require.NoError(t, err)
+			assert.InDelta(t, tc.Cost, cost, 1e-9)
+			assert.Equal(t, tc.Tier, trace.MatchedTier)
+			require.Len(t, trace.RequestRules, len(tc.Multipliers))
+			for i, rule := range trace.RequestRules {
+				assert.Equal(t, tc.Multipliers[i], rule.Multiplier)
+				assert.Equal(t, tc.Matched[i], rule.Matched)
+			}
+		})
 	}
 }

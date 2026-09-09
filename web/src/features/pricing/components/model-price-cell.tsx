@@ -22,6 +22,7 @@ import { getCurrencyLabel } from '@/lib/currency'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { useBillingTime } from '../hooks/use-billing-time'
 import {
   getDynamicDisplayGroupRatio,
   getDynamicPriceUnitLabelKey,
@@ -52,8 +53,10 @@ export function ModelPriceCell(props: {
   const options = props.options ?? {}
   const tokenUnit = options.tokenUnit ?? DEFAULT_TOKEN_UNIT
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
+  const billingTime = useBillingTime(props.model.billing_expr)
   const dynamic = getDynamicPricingSummary(props.model, {
     ...options,
+    now: billingTime === undefined ? undefined : new Date(billingTime),
     tokenUnit,
     showCurrencySymbol: false,
     groupRatioMultiplier: getDynamicDisplayGroupRatio(
@@ -97,6 +100,7 @@ export function ModelPriceCell(props: {
         </span>
       )
     }
+    if (dynamic.isTimePricing) caption += ` · ${t('Current period price')}`
     if (dynamic.isTaskUsage) caption = currencyLabel
     if (dynamic.tierCount > 1) {
       caption += ` · ${t('{{count}} tiers', { count: dynamic.tierCount })}`
