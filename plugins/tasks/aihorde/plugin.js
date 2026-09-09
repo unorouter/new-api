@@ -381,7 +381,7 @@ export const protocols = {
       const requestBody = { model: model, prompt: prompt };
       if (trimmed(req.size)) requestBody.size = trimmed(req.size);
       if (req.metadata) requestBody.metadata = req.metadata;
-      return { kind: "submit", model: model, action: "generate", requestBody: requestBody };
+      return { kind: "submit", model: trimmed(ctx.model) || model, action: "generate", requestBody: requestBody };
     },
     renderEvents: function (ctx, task, previousState) {
       return renderProgressEvents(ctx, task, previousState, responsesImageText);
@@ -439,7 +439,7 @@ export const protocols = {
       const requestBody = { model: model, prompt: prompt };
       if (trimmed(req.size)) requestBody.size = trimmed(req.size);
       if (req.metadata && typeof req.metadata === "object") requestBody.metadata = req.metadata;
-      return { kind: "submit", model: model, action: "generate", requestBody: requestBody };
+      return { kind: "submit", model: trimmed(ctx.model) || model, action: "generate", requestBody: requestBody };
     },
     // AI Horde is image generation; the video envelope is the transport the task
     // pipeline shares, so report the image task's own state through it.

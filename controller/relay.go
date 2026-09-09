@@ -128,15 +128,14 @@ func moderationGateError(c *gin.Context, relayInfo *relaycommon.RelayInfo, surfa
 		if reason == "" {
 			reason = "Inappropriate prompt: blocked by content moderation. Reword the prompt and retry."
 		}
-		other := map[string]interface{}{
-			"error_type":   "moderation_rejected",
-			"surface":      surface,
-			"request_path": c.Request.URL.Path,
-		}
+		other := model.NewLogOther()
+		other.SetPublic("error_type", "moderation_rejected")
+		other.SetPublic("surface", surface)
+		other.SetPublic("request_path", c.Request.URL.Path)
 		if denyErr := new(service.ModerationDenyError); errors.As(modErr, &denyErr) {
-			other["moderation_category"] = denyErr.Category
-			other["moderation_score"] = denyErr.Score
-			other["moderation_threshold"] = denyErr.Threshold
+			other.SetPublic("moderation_category", denyErr.Category)
+			other.SetPublic("moderation_score", denyErr.Score)
+			other.SetPublic("moderation_threshold", denyErr.Threshold)
 		}
 		model.RecordErrorLog(c, relayInfo.UserId, c.GetInt("channel_id"),
 			c.GetString("original_model"), c.GetString("token_name"), reason,
@@ -799,40 +798,20 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		modelName := c.GetString("original_model")
 		tokenId := c.GetInt("token_id")
 		userGroup := c.GetString("group")
-		channelId := c.GetInt("channel_id")
-		other := make(map[string]interface{})
+		other := model.NewLogOther()
 		if c.Request != nil && c.Request.URL != nil {
-			other["request_path"] = c.Request.URL.Path
+			other.SetPublic("request_path", c.Request.URL.Path)
 		}
-		other["error_type"] = err.GetErrorType()
-		other["error_code"] = err.GetErrorCode()
-		other["status_code"] = err.StatusCode
-		other["channel_id"] = channelId
-		other["channel_name"] = c.GetString("channel_name")
-		other["channel_type"] = c.GetInt("channel_type")
-		adminInfo := make(map[string]interface{})
-		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
-		if relayInfo != nil {
-			if diagnostics := relayInfo.ConversionDiagnostics(); len(diagnostics) > 0 {
-				adminInfo["conversion_diagnostics"] = diagnostics
-			}
-			if relayInfo.ConversionDiagnosticsTruncated() {
-				adminInfo["conversion_diagnostics_truncated"] = true
-			}
-		}
-		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
-		if isMultiKey {
-			adminInfo["is_multi_key"] = true
-			adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
-		}
-		service.AppendChannelAffinityAdminInfo(c, adminInfo)
-		other["admin_info"] = adminInfo
+		other.SetPublic("error_type", err.GetErrorType())
+		other.SetPublic("error_code", err.GetErrorCode())
+		other.SetPublic("status_code", err.StatusCode)
+		service.AppendRelayLogAdminInfo(c, relayInfo, other)
 		// A generic upstream 400 names no field, so without this the log says only
 		// that the request was rejected: which knob did it, and whether the
 		// channel's param_override even ran, both had to be guessed at. Scalars
 		// and shapes only, never message content.
 		if shape := relaycommon.DescribeRequestShape(c); len(shape) > 0 {
-			other["request_shape"] = shape
+			other.SetAdmin("request_shape", shape)
 		}
 		service.AppendClientAttribution(c, other)
 		service.AppendTaskPluginContextAuditInfo(c, other)
@@ -849,7 +828,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		// zero, so nothing here reaches billing or the tokens-served total (both
 		// are scoped to consume logs).
 		promptTokens := service.CountTextToken(relaycommon.ExtractPromptText(c), modelName)
-		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, promptTokens, other)
+		model.RecordErrorLog(c, userId, channelError.ChannelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, promptTokens, other)
 	}
 
 }
@@ -910,6 +889,11 @@ func RelayNotImplemented(c *gin.Context) {
 }
 
 func RelayNotFound(c *gin.Context) {
+	// The web fallback may already have applied static-asset cache headers.
+	// A missing API or asset can appear after an upgrade; never cache its 404.
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, private, max-age=0")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
 	err := types.OpenAIError{
 		Message: fmt.Sprintf("Invalid URL (%s %s)", c.Request.Method, c.Request.URL.Path),
 		Type:    "invalid_request_error",
@@ -1168,6 +1152,9 @@ func executeTaskSubmissionWith(
 	}
 	task.Quota = result.Quota
 	task.Data = result.TaskData
+	if len(result.PluginState) > 0 {
+		task.PrivateData.PluginState = result.PluginState
+	}
 	task.Action = relayInfo.Action
 	if immediate := result.Immediate; immediate != nil {
 		task.Status = model.TaskStatus(immediate.Status)

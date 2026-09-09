@@ -60,6 +60,10 @@ spec:
           env:
             - name: POD_UID
               valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+            # Upstream now writes Argon2id password hashes by default. Keep bcrypt until
+            # every pod runs a dual-format reader; drop this in a later deploy to switch.
+            - name: ACCOUNT_PASSWORD_HASH_ALGORITHM
+              value: bcrypt
             # Without this the instance registers under its pod name, which carries a
             # fresh ReplicaSet hash every deploy: the System Info instance list fills
             # with stale ghosts instead of showing one row per running instance.
@@ -173,6 +177,10 @@ spec:
               valueFrom: {fieldRef: {fieldPath: metadata.uid}}
             - name: NODE_TYPE
               value: slave
+            # Upstream now writes Argon2id password hashes by default. Keep bcrypt until
+            # every pod runs a dual-format reader; drop this in a later deploy to switch.
+            - name: ACCOUNT_PASSWORD_HASH_ALGORITHM
+              value: bcrypt
             # See the master's TRUSTED_PROXIES comment. Slaves serve the same dashboard
             # and relay traffic, so an unset value here would leave the same forgery
             # open on two of the three pods.

@@ -17,6 +17,8 @@ func GetAllLogs(c fuego.ContextWithParams[dto.GetAllLogsParams]) (*dto.Response[
 	ginCtx := dto.GinCtx(c)
 	if ginCtx.GetInt("role") < common.RoleRootUser {
 		model.FormatAdminLogs(logs)
+	} else {
+		model.FormatRootLogs(logs)
 	}
 	// Cross-user log browsing: prompts are not stored, but usernames, models,
 	// spend and channel routing for every account are.

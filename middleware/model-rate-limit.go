@@ -309,12 +309,12 @@ func perModelRateLimit(c *gin.Context) bool {
 			if ch := model.GetChannelForLog(group, mr.Model, c.Request.URL.Path); ch != nil {
 				channelId = ch.Id
 			}
+			other := model.NewLogOther()
+			other.SetPublic("status_code", http.StatusTooManyRequests)
+			other.SetPublic("retry_after", retryAfter)
 			model.RecordErrorLog(c, c.GetInt("id"), channelId, mr.Model,
 				c.GetString("token_name"), msg, c.GetInt("token_id"), 0, false,
-				group, 0, map[string]interface{}{
-					"status_code": http.StatusTooManyRequests,
-					"retry_after": retryAfter,
-				})
+				group, 0, other)
 		}
 		abortWithOpenAiMessage(c, http.StatusTooManyRequests, msg)
 		return false

@@ -284,6 +284,9 @@ func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData)
 }
 
 func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent string) {
+	if usage == nil {
+		usage = &dto.Usage{PromptTokens: relayInfo.GetEstimatePromptTokens(), TotalTokens: relayInfo.GetEstimatePromptTokens()}
+	}
 
 	var tieredUsedVars map[string]bool
 	if snap := relayInfo.TieredBillingSnapshot; snap != nil {
@@ -294,6 +297,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	if tieredOk {
 		tieredResult = tieredRes
 	}
+	fixedPriceBilling := tieredOk && isFixedPriceSettlement(relayInfo, tieredRes)
 
 	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
 	textInputTokens := usage.PromptTokensDetails.TextTokens
@@ -344,7 +348,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	}
 
 	// record all the consume log even if quota is 0
-	if totalTokens == 0 {
+	if totalTokens == 0 && !fixedPriceBilling {
 		// in this case, must be some error happened
 		// we cannot just return, because we may have to return the pre-consumed quota
 		quota = 0
@@ -500,7 +504,7 @@ func checkAndSendQuotaNotify(relayInfo *relaycommon.RelayInfo, quota int, preCon
 
 			// 根据通知方式生成不同的内容格式
 			var content string
-			var values []interface{}
+			var values []any
 
 			notifyType := userSetting.NotifyType
 			if notifyType == "" {
@@ -510,14 +514,14 @@ func checkAndSendQuotaNotify(relayInfo *relaycommon.RelayInfo, quota int, preCon
 			if notifyType == types.NotifyTypeBark {
 				// Bark推送使用简短文本，不支持HTML
 				content = "{{value}}. Remaining quota: {{value}}. Please top up soon."
-				values = []interface{}{prompt, logger.FormatQuota(relayInfo.UserQuota)}
+				values = []any{prompt, logger.FormatQuota(relayInfo.UserQuota)}
 			} else if notifyType == types.NotifyTypeGotify {
 				content = "{{value}}. Your current remaining quota is {{value}}. Please top up soon."
-				values = []interface{}{prompt, logger.FormatQuota(relayInfo.UserQuota)}
+				values = []any{prompt, logger.FormatQuota(relayInfo.UserQuota)}
 			} else {
 				// 默认内容格式，适用于Email和Webhook（支持HTML）
 				content = "{{value}}. Your current remaining quota is {{value}}. To avoid any disruption, please top up soon.<br/>Top-up link: <a href='{{value}}'>{{value}}</a>"
-				values = []interface{}{prompt, logger.FormatQuota(relayInfo.UserQuota), topUpLink, topUpLink}
+				values = []any{prompt, logger.FormatQuota(relayInfo.UserQuota), topUpLink, topUpLink}
 			}
 
 			err := NotifyUser(relayInfo.UserId, relayInfo.UserEmail, relayInfo.UserSetting, dto.NewNotify(dto.NotifyTypeQuotaExceed, prompt, content, values))
@@ -560,7 +564,7 @@ func checkAndSendSubscriptionQuotaNotify(relayInfo *relaycommon.RelayInfo) {
 		topUpLink := PaymentReturnURL("/wallet")
 
 		var content string
-		var values []interface{}
+		var values []any
 		notifyType := userSetting.NotifyType
 		if notifyType == "" {
 			notifyType = types.NotifyTypeEmail
@@ -568,13 +572,13 @@ func checkAndSendSubscriptionQuotaNotify(relayInfo *relaycommon.RelayInfo) {
 
 		if notifyType == types.NotifyTypeBark {
 			content = "{{value}}. Remaining quota: {{value}}. Please top up soon."
-			values = []interface{}{prompt, logger.FormatQuota(int(remaining))}
+			values = []any{prompt, logger.FormatQuota(int(remaining))}
 		} else if notifyType == types.NotifyTypeGotify {
 			content = "{{value}}. Your current remaining quota is {{value}}. Please top up soon."
-			values = []interface{}{prompt, logger.FormatQuota(int(remaining))}
+			values = []any{prompt, logger.FormatQuota(int(remaining))}
 		} else {
 			content = "{{value}}. Your current remaining quota is {{value}}. To avoid any disruption, please top up soon.<br/>Top-up link: <a href='{{value}}'>{{value}}</a>"
-			values = []interface{}{prompt, logger.FormatQuota(int(remaining)), topUpLink, topUpLink}
+			values = []any{prompt, logger.FormatQuota(int(remaining)), topUpLink, topUpLink}
 		}
 
 		if err := NotifyUser(relayInfo.UserId, relayInfo.UserEmail, relayInfo.UserSetting, dto.NewNotify(dto.NotifyTypeQuotaExceed, prompt, content, values)); err != nil {

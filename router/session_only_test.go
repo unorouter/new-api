@@ -79,7 +79,7 @@ func TestCredentialChangingRoutesRequireASession(t *testing.T) {
 				}
 				// Registered on a router whose group carries SessionOnly.
 				for name := range gated {
-					if strings.Contains(line, "("+name+",") {
+					if strings.Contains(line, "("+name+",") || strings.Contains(line, name+".Gin") {
 						return
 					}
 				}
