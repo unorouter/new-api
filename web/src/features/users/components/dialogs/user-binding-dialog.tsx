@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import {
   Mail,
   Globe,
@@ -44,8 +45,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { api } from '@/lib/api'
 import { indexCustomOAuthBindings, type CustomOAuthBinding } from '@/lib/oauth'
+import { statusQueryOptions } from '@/lib/status-query'
 
 import {
   getUser,
@@ -163,38 +164,31 @@ export function UserBindingDialog(props: Props) {
   const { t } = useTranslation()
   const [user, setUser] = useState<User | null>(null)
   const [oauthBindings, setOauthBindings] = useState<CustomOAuthBinding[]>([])
-  const [statusInfo, setStatusInfo] = useState<StatusInfo>({})
   const [loading, setLoading] = useState(false)
   const [showBoundOnly, setShowBoundOnly] = useState(true)
   const [unbindTarget, setUnbindTarget] = useState<BindingItem | null>(null)
   const [unbinding, setUnbinding] = useState(false)
+  const { data: statusInfo, isLoading: statusLoading } = useQuery({
+    ...statusQueryOptions,
+    enabled: props.open && !!props.userId,
+  })
 
   const fetchData = useCallback(async () => {
     if (!props.userId) return
     setLoading(true)
     try {
-      const [userRes, oauthRes, statusRes] = await Promise.all([
+      const [userRes, oauthRes] = await Promise.all([
         getUser(props.userId),
         getUserOAuthBindings(props.userId).catch(() => ({
           success: false,
           data: [],
         })),
-        api
-          .get('/api/status')
-          .then((r) => r.data)
-          .catch(() => ({
-            success: false,
-            data: {},
-          })),
       ])
       if (userRes.success && userRes.data) {
         setUser(userRes.data)
       }
       if (oauthRes.success && oauthRes.data) {
         setOauthBindings(oauthRes.data)
-      }
-      if (statusRes.success && statusRes.data) {
-        setStatusInfo(statusRes.data as StatusInfo)
       }
     } catch {
       toast.error(t('Failed to load'))
@@ -210,12 +204,12 @@ export function UserBindingDialog(props: Props) {
     } else {
       setUser(null)
       setOauthBindings([])
-      setStatusInfo({})
     }
   }, [props.open, props.userId, fetchData])
 
   const allBindings = useMemo<BindingItem[]>(() => {
     const items: BindingItem[] = []
+    const status = statusInfo as StatusInfo | undefined
 
     for (const field of BUILTIN_BINDINGS) {
       const value = user
@@ -223,7 +217,7 @@ export function UserBindingDialog(props: Props) {
         : ''
       const isBound = !!value
       const isEnabled =
-        field.statusKey == null ? true : Boolean(statusInfo[field.statusKey])
+        field.statusKey == null ? true : Boolean(status?.[field.statusKey])
 
       items.push({
         key: field.key,
@@ -238,7 +232,7 @@ export function UserBindingDialog(props: Props) {
 
     const oauthBindingMap = indexCustomOAuthBindings(oauthBindings)
 
-    const customProviders = statusInfo.custom_oauth_providers || []
+    const customProviders = status?.custom_oauth_providers || []
     const seenProviderIds = new Set<number>()
 
     for (const provider of customProviders) {
@@ -328,7 +322,7 @@ export function UserBindingDialog(props: Props) {
         contentHeight='auto'
         bodyClassName='space-y-4'
       >
-        {loading ? (
+        {loading || statusLoading ? (
           <div className='flex items-center justify-center py-8'>
             <Loader2 className='text-muted-foreground h-6 w-6 animate-spin' />
           </div>
