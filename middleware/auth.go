@@ -138,6 +138,22 @@ func TryUserAuth() func(c *gin.Context) {
 	}
 }
 
+// TryUserAuthLenient resolves a dashboard session when one is presented and
+// otherwise continues anonymously, INCLUDING when the presented credential is
+// stale or invalid. The OAuth entry points sit behind it: the BFF forwards
+// whatever cookie the browser still holds, and a login click must never die on
+// a session that expired weeks ago (2026-09-09: every customer with an old
+// cookie got a 401 from /oauth/state and no redirect).
+func TryUserAuthLenient() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		user, identity, credentialKind, err := classifyDashboardCredential(c)
+		if err == nil && credentialKind != dashboardCredentialUnmatched {
+			setDashboardAuthContext(c, user, identity, credentialKind == dashboardCredentialPAT)
+		}
+		c.Next()
+	}
+}
+
 func UserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleCommonUser)
