@@ -11,8 +11,11 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
 	"github.com/go-fuego/fuego"
 )
 
@@ -376,22 +379,48 @@ func GetUserOAuthBindingsByAdmin(c fuego.ContextNoBody) (*dto.Response[[]dto.Use
 }
 
 // UnbindCustomOAuth unbinds a custom OAuth provider from the current user
-func UnbindCustomOAuth(c fuego.ContextNoBody) (dto.MessageResponse, error) {
-	userId := dto.UserID(c)
-	if userId == 0 {
-		return dto.FailMsg("Not logged in")
+func UnbindCustomOAuth(c *gin.Context) {
+	identity, ok := middleware.GetSessionAuthIdentity(c)
+	if !ok {
+		writeSecurityOperationError(c, service.ErrAuthTokenInvalid)
+		return
 	}
 
-	providerId, err := c.PathParamIntErr("provider_id")
+	providerId, err := strconv.Atoi(c.Param("provider_id"))
+	if err != nil || providerId <= 0 {
+		common.ApiErrorMsg(c, "Invalid provider ID")
+		return
+	}
+
+	succeeded, notificationFailed := false, false
+	defer func() {
+		recordUserSecurityAudit(c, identity.UserID, "user.binding_unbind", map[string]any{"provider_id": providerId, "success": succeeded, "notification_failed": notificationFailed})
+	}()
+	context, err := common.Marshal(service.AccountUnbindingContext{ProviderID: providerId})
 	if err != nil {
-		return dto.FailMsg("Invalid provider ID")
+		writeSecurityOperationError(c, err)
+		return
 	}
-
-	if err := model.DeleteUserOAuthBinding(userId, providerId); err != nil {
-		return dto.FailMsg(err.Error())
+	if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeAccountUnbind, Context: context}) == nil {
+		return
 	}
+	if err := service.UnbindAccountOAuth(identity, providerId); err != nil {
+		writeSecurityOperationError(c, err)
+		return
+	}
+	succeeded = true
+	user, err := model.GetUserById(identity.UserID, false)
+	if err != nil {
+		writeSecurityOperationError(c, err)
+		return
+	}
+	notificationFailed = service.NotifyAccountSecurityChange(user.Email, "Login account unlinked") != nil
 
-	return dto.Msg("Unbound successfully")
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Unbound successfully",
+		"data":    gin.H{"notification_warning": notificationFailed},
+	})
 }
 
 func UnbindCustomOAuthByAdmin(c fuego.ContextNoBody) (dto.MessageResponse, error) {

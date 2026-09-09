@@ -335,6 +335,15 @@ func (r *Router) GinPost(path string, handler gin.HandlerFunc, opts ...func(*fue
 	fuegogin.PostGin(r.engine, r.group, path, handler, r.ginOpts("POST", path, handler, opts)...)
 }
 
+// GinPut registers a raw gin handler PUT route.
+func (r *Router) GinPut(path string, handler gin.HandlerFunc, opts ...func(*fuego.BaseRoute)) {
+	if r.engine == nil {
+		fuegogin.PutGin(noopEngine, r.group, path, handler)
+		return
+	}
+	fuegogin.PutGin(r.engine, r.group, path, handler, r.ginOpts("PUT", path, handler, opts)...)
+}
+
 // GinDelete registers a raw gin handler DELETE route.
 func (r *Router) GinDelete(path string, handler gin.HandlerFunc, opts ...func(*fuego.BaseRoute)) {
 	if r.engine == nil {

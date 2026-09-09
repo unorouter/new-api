@@ -65,7 +65,7 @@ func startPendingToolBlocks(state *convmeta.ClaudeConvertInfo) []*dto.ClaudeResp
 				Id:    tool.ID,
 				Type:  "tool_use",
 				Name:  tool.Name,
-				Input: map[string]interface{}{},
+				Input: map[string]any{},
 			},
 		})
 		tool.Started = true
@@ -87,6 +87,21 @@ func startPendingToolBlocks(state *convmeta.ClaudeConvertInfo) []*dto.ClaudeResp
 
 func buildClaudeUsageFromOpenAIUsage(oaiUsage *dto.Usage) *dto.ClaudeUsage {
 	return sharedclaude.UsageFromOpenAI(oaiUsage)
+}
+
+func clientVisibleClaudeStreamUsage(state *convmeta.ClaudeConvertInfo, incoming *dto.Usage) *dto.ClaudeUsage {
+	prior := buildClaudeUsageFromOpenAIUsage(state.Usage)
+	converted := buildClaudeUsageFromOpenAIUsage(incoming)
+	if incoming != nil {
+		state.Usage = dto.MergeUsageNonZero(state.Usage, incoming)
+	}
+	if prior == nil {
+		return converted
+	}
+	if converted == nil {
+		return prior
+	}
+	return dto.MergeClaudeUsageNonZero(prior, converted)
 }
 
 func NormalizeCacheCreationSplit(totalTokens int, tokens5m int, tokens1h int) (int, int) {
@@ -168,15 +183,27 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		}
 	}
 	if info.GetSendResponseCount() == 1 {
+		// Client-visible Claude stream usage matches billing merge: first
+		// frame records first, a later non-zero field overrides, and a later
+		// zero/missing field never erases a first-frame positive. Anthropic
+		// clients treat message_delta as authoritative for the fields it
+		// carries, including a corrected input_tokens.
+		startUsage := &dto.ClaudeUsage{
+			InputTokens:  info.GetEstimatePromptTokens(),
+			OutputTokens: 0,
+		}
+		if openAIResponse.Usage != nil && dto.HasOpenAIUsageTokens(openAIResponse.Usage) {
+			if real := buildClaudeUsageFromOpenAIUsage(openAIResponse.Usage); real != nil {
+				startUsage = real
+			}
+			state.Usage = dto.MergeUsageNonZero(state.Usage, openAIResponse.Usage)
+		}
 		msg := &dto.ClaudeMediaMessage{
 			Id:    openAIResponse.Id,
 			Model: openAIResponse.Model,
 			Type:  "message",
 			Role:  "assistant",
-			Usage: &dto.ClaudeUsage{
-				InputTokens:  info.GetEstimatePromptTokens(),
-				OutputTokens: 0,
-			},
+			Usage: startUsage,
 		}
 		msg.SetContent(make([]any, 0))
 		claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
@@ -187,10 +214,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 
 	if len(openAIResponse.Choices) == 0 {
 		// Some OpenAI-compatible upstreams end with a usage-only SSE chunk.
-		oaiUsage := openAIResponse.Usage
-		if oaiUsage == nil {
-			oaiUsage = state.Usage
-		}
+		oaiUsage := clientVisibleClaudeStreamUsage(state, openAIResponse.Usage)
 		if oaiUsage != nil {
 			appendStopOpenBlocks()
 			stopReason := stopReasonOpenAI2Claude(state.FinishReason)
@@ -199,7 +223,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 			}
 			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
 				Type:  "message_delta",
-				Usage: buildClaudeUsageFromOpenAIUsage(oaiUsage),
+				Usage: oaiUsage,
 				Delta: &dto.ClaudeMediaMessage{
 					StopReason: kitutil.GetPointer[string](stopReason),
 				},
@@ -280,7 +304,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 							Id:    tool.ID,
 							Type:  "tool_use",
 							Name:  tool.Name,
-							Input: map[string]interface{}{},
+							Input: map[string]any{},
 						},
 					})
 					tool.Started = true
@@ -367,10 +391,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		appendCitationDeltas(chosenChoice.Delta.Annotations)
 
 		if doneChunk || state.Done {
-			oaiUsage := openAIResponse.Usage
-			if oaiUsage == nil {
-				oaiUsage = state.Usage
-			}
+			oaiUsage := clientVisibleClaudeStreamUsage(state, openAIResponse.Usage)
 			if oaiUsage == nil {
 				// Some upstreams emit finish_reason first, then send a final usage-only chunk.
 				// Keep content blocks open until usage is available so the terminal message_delta
@@ -380,7 +401,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 			appendStopOpenBlocks()
 			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
 				Type:  "message_delta",
-				Usage: buildClaudeUsageFromOpenAIUsage(oaiUsage),
+				Usage: oaiUsage,
 				Delta: &dto.ClaudeMediaMessage{
 					StopReason: kitutil.GetPointer[string](stopReasonOpenAI2Claude(state.FinishReason)),
 				},
@@ -414,7 +435,7 @@ func FinalizeStreamResponseOpenAI2Claude(info convmeta.Meta) []*dto.ClaudeRespon
 	responses = append(responses,
 		&dto.ClaudeResponse{
 			Type:  "message_delta",
-			Usage: buildClaudeUsageFromOpenAIUsage(state.Usage),
+			Usage: clientVisibleClaudeStreamUsage(state, nil),
 			Delta: &dto.ClaudeMediaMessage{
 				StopReason: kitutil.GetPointer[string](stopReason),
 			},
@@ -459,9 +480,9 @@ func ResponseOpenAI2Claude(openAIResponse *dto.OpenAITextResponse, info convmeta
 			claudeContent.Type = "tool_use"
 			claudeContent.Id = toolUse.ID
 			claudeContent.Name = toolUse.Function.Name
-			mapParams := map[string]interface{}{}
+			mapParams := map[string]any{}
 			if strings.TrimSpace(toolUse.Function.Arguments) != "" {
-				var parsed map[string]interface{}
+				var parsed map[string]any
 				if err := kitutil.Unmarshal([]byte(toolUse.Function.Arguments), &parsed); err == nil && parsed != nil {
 					mapParams = parsed
 				}

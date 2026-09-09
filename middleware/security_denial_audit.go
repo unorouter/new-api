@@ -111,17 +111,20 @@ func recordSecurityDenial(c *gin.Context, action string, reason string, extra ma
 
 	model.RecordOperationAuditLog(
 		c.GetInt("id"),
+		c.GetInt("role"),
 		"Security check refused: "+reason,
 		c.ClientIP(),
 		action,
 		params,
-		map[string]interface{}{
-			"admin_id":       c.GetInt("id"),
-			"admin_username": c.GetString("username"),
-			"admin_role":     c.GetInt("role"),
-			"auth_method":    auditAuthMethodForDenial(c),
+		&model.AuditAdminInfo{
+			AdminID:        c.GetInt("id"),
+			AdminUsername:  c.GetString("username"),
+			AdminRole:      c.GetInt("role"),
+			AuthMethod:     auditAuthMethodForDenial(c),
+			TrustedNetwork: IsTrustedNetwork(c.ClientIP()),
 		},
 		nil,
+		c,
 	)
 }
 

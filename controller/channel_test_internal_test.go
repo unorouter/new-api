@@ -169,7 +169,7 @@ func TestCopyChannelRejectsInvalidLegacyProxySettings(t *testing.T) {
 
 func TestDeleteChannelResetsProxyCacheWhenPreReadFails(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.Log{}))
+	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.AuditLog{}))
 	service.ResetProxyClientCache()
 	t.Cleanup(service.ResetProxyClientCache)
 
@@ -193,7 +193,7 @@ func TestDeleteChannelResetsProxyCacheWhenPreReadFails(t *testing.T) {
 
 func TestDeleteChannelBatchReportsAndAuditsActualDeletedCount(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.Log{}))
+	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.AuditLog{}))
 	channel := &model.Channel{Name: "existing", Key: "test-key"}
 	require.NoError(t, db.Create(channel).Error)
 
@@ -216,14 +216,16 @@ func TestDeleteChannelBatchReportsAndAuditsActualDeletedCount(t *testing.T) {
 	assert.True(t, response.Success)
 	assert.Equal(t, int64(1), response.Data)
 
-	var auditLog model.Log
+	var auditLog model.AuditLog
 	require.NoError(t, db.Order("id desc").First(&auditLog).Error)
 	var auditData struct {
 		Operation struct {
 			Params map[string]any `json:"params"`
 		} `json:"op"`
 	}
-	require.NoError(t, common.UnmarshalJsonStr(auditLog.Other, &auditData))
+	encodedAudit, err := common.Marshal(auditLog.Other)
+	require.NoError(t, err)
+	require.NoError(t, common.Unmarshal(encodedAudit, &auditData))
 	assert.Equal(t, float64(1), auditData.Operation.Params["count"])
 }
 
@@ -285,10 +287,11 @@ func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {
 		RequestRules: requestRules,
 	})
 
-	require.Equal(t, "tiered_expr", other["billing_mode"])
-	require.Equal(t, "base", other["matched_tier"])
-	require.Equal(t, requestRules, other["request_rules"])
-	require.NotEmpty(t, other["expr_b64"])
+	fields := other.Snapshot()
+	require.Equal(t, "tiered_expr", fields["billing_mode"])
+	require.Equal(t, "base", fields["matched_tier"])
+	require.Equal(t, requestRules, fields["request_rules"])
+	require.NotEmpty(t, fields["expr_b64"])
 }
 
 func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {

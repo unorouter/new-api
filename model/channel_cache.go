@@ -57,12 +57,12 @@ func InitChannelCache() {
 		if channel.Status != common.ChannelStatusEnabled {
 			continue // skip disabled channels
 		}
-		groups := strings.Split(channel.Group, ",")
-		for _, group := range groups {
+		groups := strings.SplitSeq(channel.Group, ",")
+		for group := range groups {
 			if newGroup2model2channels[group] == nil {
 				newGroup2model2channels[group] = make(map[string][]int)
 			}
-			models := strings.Split(channel.Models, ",")
+			models := channel.GetModels()
 			for _, model := range models {
 				if _, ok := newGroup2model2channels[group][model]; !ok {
 					newGroup2model2channels[group][model] = make([]int, 0)
@@ -139,7 +139,7 @@ func GetRandomSatisfiedChannel(
 
 	// If no channels found, try to find channels with the normalized model name.
 	if len(channels) == 0 {
-		normalizedModel := ratio_setting.FormatMatchingModelName(model)
+		normalizedModel := ratio_setting.RoutingMatchModelName(model)
 		channels, _ = filterCandidateIDs(group2model2channels[group][normalizedModel], model, filters)
 	}
 

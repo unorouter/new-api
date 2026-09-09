@@ -248,7 +248,7 @@ export const protocols = {
         image: trimmed(req.image) || images[0] || "",
       });
       const decoded = videoRequestBody(ctx, merged);
-      return { kind: "submit", model: decoded.model, action: decoded.action, requestBody: decoded.body };
+      return { kind: "submit", model: trimmed(ctx.model) || decoded.model, action: decoded.action, requestBody: decoded.body };
     },
     renderEvents: function (ctx, task, previousState) {
       return renderProgressEvents(ctx, task, previousState, responsesVideoText);
@@ -300,7 +300,7 @@ export const protocols = {
         }
       }
       const decoded = videoRequestBody(ctx, req);
-      return { kind: "submit", model: decoded.model, action: decoded.action, requestBody: decoded.body };
+      return { kind: "submit", model: trimmed(ctx.model) || decoded.model, action: decoded.action, requestBody: decoded.body };
     },
     render: function (_ctx, task) {
       return renderVideo(task);
