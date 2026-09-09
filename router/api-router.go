@@ -85,7 +85,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// State creation and the provider callback resolve an optional dashboard
 		// session (same-origin bind and verify intents need it); anonymous login
 		// flows pass through TryUserAuth untouched.
-		oauthSession := dto.NewRouter(engine, apiRouter.Group("", middleware.CORS(), middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.TryUserAuth()), "OAuth", secPublic())
+		oauthSession := dto.NewRouter(engine, apiRouter.Group("", middleware.CORS(), middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.TryUserAuthLenient()), "OAuth", secPublic())
 		// GET is the external frontend's (BFF) entry, POST the built-in one.
 		dto.GetP(oauthSession, "/oauth/state", controller.GenerateOAuthCodeQuery)
 		oauthSession.GinPost("/oauth/state", controller.GenerateOAuthCode, dto.GinResp[dto.ApiResponse]())
