@@ -1303,13 +1303,20 @@ func testChannelForCycle(ctx context.Context, channel *model.Channel, testUserID
 		// A flapping channel passes the tiny recovery probe but dies again under
 		// real traffic; hold it disabled with exponential cooldown instead of
 		// re-enabling it every probe cycle (each flap leaks user-visible errors).
+		monitor := operation_setting.GetMonitorSetting()
 		if wait := model.FlapCooldownRemainingSeconds(channel.Id); wait > 0 {
 			common.SysLog(fmt.Sprintf("channel-test: probe passed but channel #%d (%s) is flapping; keeping disabled for %ds more", channel.Id, channel.Name, wait))
+		} else if wait := model.PaidReenableHoldRemainingSeconds(channel, monitor.ChannelPaidReenableHoldSeconds); wait > 0 {
+			common.SysLog(fmt.Sprintf("channel-test: probe passed but paid channel #%d (%s) is inside its re-enable hold; %ds more", channel.Id, channel.Name, wait))
+		} else if !service.RecordRecoveryProbePass(channel.Id) {
+			common.SysLog(fmt.Sprintf("channel-test: probe passed for channel #%d (%s); waiting for %d consecutive passes", channel.Id, channel.Name, monitor.ChannelReenableProbePasses))
 		} else {
+			service.ResetRecoveryProbePasses(channel.Id)
 			service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name,
 				model.WithChannelStatusTrigger(model.ChannelStatusTriggerScheduledTest),
 				model.WithChannelStatusModel(testModel),
 				model.WithChannelStatusResponseTime(int(milliseconds)))
+			service.StartChannelProbation(channel.Id)
 			summary.Enabled++
 		}
 	}
@@ -1319,6 +1326,7 @@ func testChannelForCycle(ctx context.Context, channel *model.Channel, testUserID
 	// failure as a self-transition row (upsert on error signature) to make
 	// always-failing channels visible.
 	if newAPIError != nil && !isChannelEnabled {
+		service.ResetRecoveryProbePasses(channel.Id)
 		model.RecordChannelProbeFailure(channel, newAPIError.StatusCode, string(newAPIError.GetErrorCode()),
 			newAPIError.ErrorWithStatusCode(), model.ChannelStatusTriggerScheduledTest, testModel, int(milliseconds))
 	}

@@ -108,6 +108,30 @@ const monitoringSchema = z
         .number()
         .int()
         .min(1, 'Streak must be at least 1'),
+      channel_probation_seconds: z.coerce
+        .number()
+        .int()
+        .min(0, 'Seconds must be 0 or more'),
+      channel_probation_streak_floor: z.coerce
+        .number()
+        .int()
+        .min(1, 'Streak must be at least 1'),
+      channel_probation_rate_threshold: z.coerce
+        .number()
+        .min(0, 'Rate must be between 0 and 1')
+        .max(1, 'Rate must be between 0 and 1'),
+      channel_probation_min_samples: z.coerce
+        .number()
+        .int()
+        .min(1, 'Minimum samples must be at least 1'),
+      channel_reenable_probe_passes: z.coerce
+        .number()
+        .int()
+        .min(1, 'Probe passes must be at least 1'),
+      channel_paid_reenable_hold_seconds: z.coerce
+        .number()
+        .int()
+        .min(0, 'Seconds must be 0 or more'),
     }),
   })
   .superRefine((values, ctx) => {
@@ -166,6 +190,12 @@ type MonitoringSettingsSectionProps = {
     'monitor_setting.channel_failure_absolute_floor': number
     'monitor_setting.channel_failure_dead_floor': number
     'monitor_setting.channel_failure_streak_floor': number
+    'monitor_setting.channel_probation_seconds': number
+    'monitor_setting.channel_probation_streak_floor': number
+    'monitor_setting.channel_probation_rate_threshold': number
+    'monitor_setting.channel_probation_min_samples': number
+    'monitor_setting.channel_reenable_probe_passes': number
+    'monitor_setting.channel_paid_reenable_hold_seconds': number
   }
 }
 
@@ -197,6 +227,12 @@ type NormalizedMonitoringValues = {
   'monitor_setting.channel_failure_absolute_floor': number
   'monitor_setting.channel_failure_dead_floor': number
   'monitor_setting.channel_failure_streak_floor': number
+  'monitor_setting.channel_probation_seconds': number
+  'monitor_setting.channel_probation_streak_floor': number
+  'monitor_setting.channel_probation_rate_threshold': number
+  'monitor_setting.channel_probation_min_samples': number
+  'monitor_setting.channel_reenable_probe_passes': number
+  'monitor_setting.channel_paid_reenable_hold_seconds': number
 }
 
 const buildFormDefaults = (
@@ -245,6 +281,18 @@ const buildFormDefaults = (
       defaults['monitor_setting.channel_failure_dead_floor'],
     channel_failure_streak_floor:
       defaults['monitor_setting.channel_failure_streak_floor'],
+    channel_probation_seconds:
+      defaults['monitor_setting.channel_probation_seconds'],
+    channel_probation_streak_floor:
+      defaults['monitor_setting.channel_probation_streak_floor'],
+    channel_probation_rate_threshold:
+      defaults['monitor_setting.channel_probation_rate_threshold'],
+    channel_probation_min_samples:
+      defaults['monitor_setting.channel_probation_min_samples'],
+    channel_reenable_probe_passes:
+      defaults['monitor_setting.channel_reenable_probe_passes'],
+    channel_paid_reenable_hold_seconds:
+      defaults['monitor_setting.channel_paid_reenable_hold_seconds'],
   },
 })
 
@@ -297,6 +345,18 @@ const normalizeDefaults = (
     defaults['monitor_setting.channel_failure_dead_floor'],
   'monitor_setting.channel_failure_streak_floor':
     defaults['monitor_setting.channel_failure_streak_floor'],
+  'monitor_setting.channel_probation_seconds':
+    defaults['monitor_setting.channel_probation_seconds'],
+  'monitor_setting.channel_probation_streak_floor':
+    defaults['monitor_setting.channel_probation_streak_floor'],
+  'monitor_setting.channel_probation_rate_threshold':
+    defaults['monitor_setting.channel_probation_rate_threshold'],
+  'monitor_setting.channel_probation_min_samples':
+    defaults['monitor_setting.channel_probation_min_samples'],
+  'monitor_setting.channel_reenable_probe_passes':
+    defaults['monitor_setting.channel_reenable_probe_passes'],
+  'monitor_setting.channel_paid_reenable_hold_seconds':
+    defaults['monitor_setting.channel_paid_reenable_hold_seconds'],
 })
 
 const normalizeFormValues = (
@@ -346,6 +406,18 @@ const normalizeFormValues = (
     values.monitor_setting.channel_failure_dead_floor,
   'monitor_setting.channel_failure_streak_floor':
     values.monitor_setting.channel_failure_streak_floor,
+  'monitor_setting.channel_probation_seconds':
+    values.monitor_setting.channel_probation_seconds,
+  'monitor_setting.channel_probation_streak_floor':
+    values.monitor_setting.channel_probation_streak_floor,
+  'monitor_setting.channel_probation_rate_threshold':
+    values.monitor_setting.channel_probation_rate_threshold,
+  'monitor_setting.channel_probation_min_samples':
+    values.monitor_setting.channel_probation_min_samples,
+  'monitor_setting.channel_reenable_probe_passes':
+    values.monitor_setting.channel_reenable_probe_passes,
+  'monitor_setting.channel_paid_reenable_hold_seconds':
+    values.monitor_setting.channel_paid_reenable_hold_seconds,
 })
 
 export function MonitoringSettingsSection({
@@ -1086,6 +1158,222 @@ export function MonitoringSettingsSection({
                   <FormDescription>
                     {t(
                       'Empty responses that disable a channel with zero successes in the window.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <div className='space-y-1'>
+            <h3 className='text-sm font-medium'>{t('Probation after re-enable')}</h3>
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                "After an automatic re-enable a lane runs under these tighter thresholds for a while, so one that passes its probe but fails under real traffic is pulled again after a few requests instead of a window's worth."
+              )}
+            </p>
+          </div>
+
+          <div className='grid gap-6 md:grid-cols-2'>
+            <FormField
+              control={form.control}
+              name='monitor_setting.channel_probation_seconds'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Probation window (seconds)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      step={1}
+                      value={
+                        typeof field.value === 'number' &&
+                        Number.isFinite(field.value)
+                          ? field.value
+                          : ''
+                      }
+                      onChange={(event) =>
+                        field.onChange(event.target.valueAsNumber)
+                      }
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'How long the probation thresholds apply after an automatic re-enable. 0 turns probation off.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='monitor_setting.channel_probation_streak_floor'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Probation consecutive failures')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={1}
+                      step={1}
+                      value={
+                        typeof field.value === 'number' &&
+                        Number.isFinite(field.value)
+                          ? field.value
+                          : ''
+                      }
+                      onChange={(event) =>
+                        field.onChange(event.target.valueAsNumber)
+                      }
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Unbroken failures that disable a channel while it is on probation.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='monitor_setting.channel_probation_rate_threshold'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Probation failure rate (0-1)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      step={0.05}
+                      value={
+                        typeof field.value === 'number' &&
+                        Number.isFinite(field.value)
+                          ? field.value
+                          : ''
+                      }
+                      onChange={(event) =>
+                        field.onChange(event.target.valueAsNumber)
+                      }
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Failure share that disables a channel on probation once the sample floor is met.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='monitor_setting.channel_probation_min_samples'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Probation min samples')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={1}
+                      step={1}
+                      value={
+                        typeof field.value === 'number' &&
+                        Number.isFinite(field.value)
+                          ? field.value
+                          : ''
+                      }
+                      onChange={(event) =>
+                        field.onChange(event.target.valueAsNumber)
+                      }
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Requests on probation before the rate is trusted.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='monitor_setting.channel_reenable_probe_passes'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Clean probes to re-enable')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={1}
+                      step={1}
+                      value={
+                        typeof field.value === 'number' &&
+                        Number.isFinite(field.value)
+                          ? field.value
+                          : ''
+                      }
+                      onChange={(event) =>
+                        field.onChange(event.target.valueAsNumber)
+                      }
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Consecutive passing recovery probes before an auto-disabled channel comes back.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='monitor_setting.channel_paid_reenable_hold_seconds'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Paid lane re-enable hold (seconds)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      step={60}
+                      value={
+                        typeof field.value === 'number' &&
+                        Number.isFinite(field.value)
+                          ? field.value
+                          : ''
+                      }
+                      onChange={(event) =>
+                        field.onChange(event.target.valueAsNumber)
+                      }
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Minimum time a paid lane (group ratio above 0) stays auto-disabled. Skipped when its models have no other enabled channel. 0 turns the hold off.'
                     )}
                   </FormDescription>
                   <FormMessage />

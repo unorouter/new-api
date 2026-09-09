@@ -45,6 +45,19 @@ type MonitorSetting struct {
 	// floor inside one fixed window, so a fully dead upstream would otherwise keep
 	// serving errors indefinitely.
 	ChannelFailureStreakFloor int `json:"channel_failure_streak_floor"`
+	// Probation after an automatic re-enable. The recovery probe is one tiny
+	// request, so a lane that answers probes but fails under load comes back and
+	// dies again within minutes; while on probation these tighter thresholds
+	// replace the normal ones so the relapse is caught in a handful of requests.
+	ChannelProbationSeconds       int     `json:"channel_probation_seconds"`
+	ChannelProbationStreakFloor   int     `json:"channel_probation_streak_floor"`
+	ChannelProbationRateThreshold float64 `json:"channel_probation_rate_threshold"`
+	ChannelProbationMinSamples    int     `json:"channel_probation_min_samples"`
+	// Consecutive clean recovery probes before an auto-disabled channel comes back.
+	ChannelReenableProbePasses int `json:"channel_reenable_probe_passes"`
+	// Minimum seconds a paid lane (group ratio > 0) stays auto-disabled, 0 = none.
+	// Skipped when none of the lane's models has another enabled channel.
+	ChannelPaidReenableHoldSeconds int `json:"channel_paid_reenable_hold_seconds"`
 }
 
 const (
@@ -82,6 +95,12 @@ var monitorSetting = MonitorSetting{
 	ChannelFailureAbsoluteFloor:      20,
 	ChannelFailureDeadFloor:          5,
 	ChannelFailureStreakFloor:        3,
+	ChannelProbationSeconds:          1800,
+	ChannelProbationStreakFloor:      3,
+	ChannelProbationRateThreshold:    0.2,
+	ChannelProbationMinSamples:       5,
+	ChannelReenableProbePasses:       1,
+	ChannelPaidReenableHoldSeconds:   0,
 }
 
 func init() {

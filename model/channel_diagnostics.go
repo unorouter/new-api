@@ -1,6 +1,7 @@
 package model
 
 import (
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"regexp"
 	"sort"
 	"strconv"
@@ -240,6 +241,47 @@ func FlapBackoffSeconds(disables int) int64 {
 		return flapBackoffCapSeconds
 	}
 	return wait
+}
+
+// PaidReenableHoldRemainingSeconds returns how long a paid lane (group ratio > 0)
+// must still stay auto-disabled under the flat hold, 0 when the hold does not
+// apply: free lanes, a hold of 0, or a lane whose models have no other enabled
+// channel (holding it would be an outage, not a failover).
+func PaidReenableHoldRemainingSeconds(channel *Channel, holdSeconds int) int64 {
+	if holdSeconds <= 0 || channel == nil {
+		return 0
+	}
+	paid := false
+	for _, g := range channel.GetGroups() {
+		if ratio_setting.GetGroupRatio(g) > 0 {
+			paid = true
+			break
+		}
+	}
+	if !paid {
+		return 0
+	}
+	var others int64
+	err := DB.Model(&Ability{}).
+		Where("model IN ? AND enabled = ? AND channel_id <> ?", channel.GetModels(), true, channel.Id).
+		Count(&others).Error
+	if err != nil || others == 0 {
+		return 0
+	}
+	now := common.GetTimestamp()
+	var last int64
+	err = DB.Table("channel_diagnostics").
+		Select("COALESCE(MAX(created_at), 0)").
+		Where("probe_only = ? AND to_status = ? AND channel_id = ?", false, common.ChannelStatusAutoDisabled, channel.Id).
+		Scan(&last).Error
+	if err != nil || last == 0 {
+		return 0
+	}
+	remaining := last + int64(holdSeconds) - now
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
 }
 
 // FlapCooldownRemainingSeconds returns how many seconds a channel whose recovery
