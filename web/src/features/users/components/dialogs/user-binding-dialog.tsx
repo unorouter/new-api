@@ -45,7 +45,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { handleServerError } from '@/lib/handle-server-error'
 import { indexCustomOAuthBindings, type CustomOAuthBinding } from '@/lib/oauth'
+import { requireServerSuccess } from '@/lib/server-error-message'
 import { statusQueryOptions } from '@/lib/status-query'
 
 import {
@@ -184,14 +186,15 @@ export function UserBindingDialog(props: Props) {
           data: [],
         })),
       ])
+      requireServerSuccess(userRes)
       if (userRes.success && userRes.data) {
         setUser(userRes.data)
       }
       if (oauthRes.success && oauthRes.data) {
         setOauthBindings(oauthRes.data)
       }
-    } catch {
-      toast.error(t('Failed to load'))
+    } catch (error) {
+      handleServerError(error, t('Failed to load'))
     } finally {
       setLoading(false)
     }
@@ -294,10 +297,10 @@ export function UserBindingDialog(props: Props) {
         await fetchData()
         props.onUnbindSuccess?.()
       } else {
-        toast.error(res?.message || t('Unbind failed'))
+        handleServerError(res, t('Unbind failed'))
       }
-    } catch {
-      toast.error(t('Unbind failed'))
+    } catch (error) {
+      handleServerError(error, t('Unbind failed'))
     } finally {
       setUnbinding(false)
       setUnbindTarget(null)
