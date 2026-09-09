@@ -14,13 +14,13 @@ spec:
     endpointURL: https://s3.unorouter.com
     s3Credentials:
       accessKeyId:
-        name: newapi-pg-hz
+        name: s3gw
         key: ACCESS_KEY_ID
       secretAccessKey:
-        name: newapi-pg-hz
+        name: s3gw
         key: ACCESS_SECRET_KEY
       region:
-        name: newapi-pg-hz
+        name: s3gw
         key: REGION
     wal:
       compression: gzip
@@ -116,7 +116,7 @@ spec:
         isWALArchiver: false
         parameters:
           barmanObjectName: newapi-pg-hz
-          serverName: newapi-pg-v5 # RESTORE-FROM lineage: the 2026-09-09 copy of the R2 v5 lineage on Hetzner (locked until 2026-10-09)
+          serverName: newapi-pg-v7 # RESTORE-FROM lineage: only read at bootstrap; on a DR create bump ARCHIVE-TO to v8 (the pair must differ)
 
   # The webhook defaults below (enabled, isWALArchiver, and the role's connectionLimit,
   # ensure, inherit) are written out because these are atomic lists: ArgoCD compares the
@@ -127,7 +127,7 @@ spec:
       isWALArchiver: true
       parameters:
         barmanObjectName: newapi-pg-hz
-        serverName: newapi-pg-v6 # ARCHIVE-TO lineage (current+1); MUST differ from restore-from
+        serverName: newapi-pg-v7 # ARCHIVE-TO lineage: crypt gateway from 2026-09-09; v5 and v6 are SSE-C era, unreadable through it
 
   # Teleport-provisioned read role, declared here so CNPG reconciles it on every DR.
   managed:
