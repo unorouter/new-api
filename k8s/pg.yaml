@@ -80,6 +80,41 @@ spec:
       - name: AWS_RESPONSE_CHECKSUM_VALIDATION
         value: when_required
 ---
+# Hetzner Object Storage through the in-cluster s3-gateway, which adds SSE-C (barman cannot).
+# The bucket is Object Locked with a 30 day COMPLIANCE retention: no retentionPolicy here,
+# the plugin must never delete; the bucket lifecycle expires objects instead.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: newapi-pg-hz
+  namespace: databases
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  configuration:
+    destinationPath: s3://unorouter-backups/
+    endpointURL: https://s3.unorouter.com
+    s3Credentials:
+      accessKeyId:
+        name: newapi-pg-hz
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: newapi-pg-hz
+        key: ACCESS_SECRET_KEY
+      region:
+        name: newapi-pg-hz
+        key: REGION
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+  instanceSidecarConfiguration:
+    env:
+      - name: AWS_REQUEST_CHECKSUM_CALCULATION
+        value: when_required
+      - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+        value: when_required
+---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -162,8 +197,8 @@ spec:
         enabled: true
         isWALArchiver: false
         parameters:
-          barmanObjectName: newapi-pg-r2
-          serverName: newapi-pg-v5 # RESTORE-FROM lineage (R2; Hetzner v4 deleted 2026-09-06)
+          barmanObjectName: newapi-pg-hz
+          serverName: newapi-pg-v5 # RESTORE-FROM lineage: the 2026-09-09 copy of the R2 v5 lineage on Hetzner (locked until 2026-10-09)
 
   # The webhook defaults below (enabled, isWALArchiver, and the role's connectionLimit,
   # ensure, inherit) are written out because these are atomic lists: ArgoCD compares the
@@ -173,8 +208,8 @@ spec:
       enabled: true
       isWALArchiver: true
       parameters:
-        barmanObjectName: newapi-pg-r2
-        serverName: newapi-pg-v5 # ARCHIVE-TO lineage (current+1); MUST differ from restore-from
+        barmanObjectName: newapi-pg-hz
+        serverName: newapi-pg-v6 # ARCHIVE-TO lineage (current+1); MUST differ from restore-from
 
   # Teleport-provisioned read role, declared here so CNPG reconciles it on every DR.
   managed:
