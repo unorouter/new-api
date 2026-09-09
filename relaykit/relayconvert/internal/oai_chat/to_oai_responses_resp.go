@@ -166,21 +166,13 @@ func UsageFromChatUsage(src *dto.Usage) *dto.Usage {
 	} else {
 		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	}
-	if src.PromptTokensDetails.CachedTokens != 0 ||
-		src.PromptTokensDetails.ImageTokens != 0 ||
-		src.PromptTokensDetails.AudioTokens != 0 ||
-		src.PromptTokensDetails.CachedCreationTokens != 0 ||
-		src.PromptTokensDetails.CacheWriteTokens != 0 ||
-		src.PromptTokensDetails.TextTokens != 0 {
-		details := src.PromptTokensDetails
-		usage.InputTokensDetails = &details
-	}
-	if src.CompletionTokenDetails.ReasoningTokens != 0 ||
-		src.CompletionTokenDetails.TextTokens != 0 ||
-		src.CompletionTokenDetails.AudioTokens != 0 ||
-		src.CompletionTokenDetails.ImageTokens != 0 {
-		usage.CompletionTokenDetails = src.CompletionTokenDetails
-	}
+	// Always objects, zeros included: OpenAI emits both on every response and
+	// a strict client deserializes null as a failure after every message.
+	inputDetails := src.PromptTokensDetails
+	usage.InputTokensDetails = &inputDetails
+	usage.CompletionTokenDetails = src.CompletionTokenDetails
+	outputDetails := src.CompletionTokenDetails
+	usage.OutputTokensDetails = &outputDetails
 	usage.ClaudeCacheCreation5mTokens = src.ClaudeCacheCreation5mTokens
 	usage.ClaudeCacheCreation1hTokens = src.ClaudeCacheCreation1hTokens
 	return usage
