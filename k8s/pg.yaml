@@ -1,4 +1,4 @@
-# Hetzner Object Storage through the in-cluster s3-gateway, which adds SSE-C (barman cannot).
+# Hetzner Object Storage through the in-cluster s3-gateway, which encrypts (barman cannot).
 # The bucket is Object Locked with a 30 day COMPLIANCE retention: no retentionPolicy here,
 # the plugin must never delete; the bucket lifecycle expires objects instead.
 apiVersion: barmancloud.cnpg.io/v1
