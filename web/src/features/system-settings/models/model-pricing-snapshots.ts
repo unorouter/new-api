@@ -81,9 +81,9 @@ const ratioToPrice = (ratio?: string, denominator?: string) => {
 }
 
 export const getModeLabel = (mode?: string) => {
-  if (mode === 'per-request') return 'Per-request'
+  if (mode === 'per-request') return 'Per-request (deprecated)'
   if (mode === 'tiered_expr') return 'Expression'
-  return 'Per-token'
+  return 'Per-token (deprecated)'
 }
 
 export const getModeVariant = (

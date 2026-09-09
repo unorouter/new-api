@@ -35,13 +35,20 @@ import {
   pricingValuesByModel,
   type PricingOptions,
   type PricingValues,
+  type CacheWriteMode,
+  type LegacyBillingDetails,
 } from './pricing'
 
-export type ModelPricingEntry = {
+export type ModelPricingDescription = {
+  billing_details?: LegacyBillingDetails
+  effective: PricingValues
+  cache_write_mode?: CacheWriteMode
+}
+
+export type ModelPricingEntry = ModelPricingDescription & {
   model_name: string
   version: string
   configured: PricingValues
-  effective: PricingValues
   usage_schema?: BillingUsageSchema
 }
 
@@ -55,6 +62,44 @@ export type ModelPricingChange = {
   expected_version: string
   pricing: PricingValues
   reset?: boolean
+}
+
+export type ModelPricingConversion = Partial<ModelPricingDescription> & {
+  expression?: string
+  unsupported_reason?: string
+}
+
+export async function previewModelPricingConversion(request: {
+  model_name: string
+  pricing: PricingValues
+}): Promise<ModelPricingConversion> {
+  const response = await api.post('/api/option/model_pricing/convert', request)
+  if (!response.data.success) {
+    throw createServerError(
+      response.data,
+      t('Failed to prepare pricing conversion')
+    )
+  }
+  return response.data.data
+}
+
+export async function previewModelPricing(request: {
+  model_name: string
+  pricing: PricingValues
+}): Promise<{
+  effective: PricingValues
+  cacheWriteMode?: CacheWriteMode
+  billingDetails?: LegacyBillingDetails
+}> {
+  const response = await api.post('/api/option/model_pricing/preview', request)
+  if (!response.data.success) {
+    throw createServerError(response.data, t('Failed to load model pricing'))
+  }
+  return {
+    effective: response.data.data.effective,
+    cacheWriteMode: response.data.data.cache_write_mode,
+    billingDetails: response.data.data.billing_details,
+  }
 }
 
 export function useCanEditModelPricing() {
@@ -86,6 +131,7 @@ export function useModelPricing(names: string[] = [], enabled = true) {
 export async function invalidateModelPricing(client: QueryClient) {
   await Promise.all([
     client.invalidateQueries({ queryKey: ['model-pricing-config'] }),
+    client.invalidateQueries({ queryKey: ['model-pricing-preview'] }),
     client.invalidateQueries({ queryKey: ['system-options'] }),
     client.invalidateQueries({ queryKey: ['pricing'] }),
     client.invalidateQueries({ queryKey: ['models'] }),

@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Save } from 'lucide-react'
 import {
   forwardRef,
@@ -61,11 +62,20 @@ import {
 } from '@/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
+  previewModelPricing,
+  previewModelPricingConversion,
+} from '@/features/model-pricing/api'
+import {
   getSitePricingCurrency,
   isValidPricingCurrency,
   USD_PRICING_CURRENCY,
 } from '@/features/model-pricing/currency'
+import { pricingFromDraft, pricingRow } from '@/features/model-pricing/pricing'
 import { PricingAmountInput } from '@/features/model-pricing/pricing-amount-input'
+import {
+  PricingConversionDialog,
+  type PricingConversionPreview,
+} from '@/features/model-pricing/pricing-conversion-dialog'
 import { PricingCurrencySelector } from '@/features/model-pricing/pricing-currency-selector'
 import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
 import {
@@ -73,6 +83,8 @@ import {
   generateTaskExprFromConfig,
 } from '@/features/pricing/lib/task-expr'
 import type { BillingUsageSchema } from '@/features/pricing/types'
+import { useDebounce } from '@/hooks/use-debounce'
+import { handleServerError } from '@/lib/handle-server-error'
 import { cn } from '@/lib/utils'
 import { usePricingPreferencesStore } from '@/stores/pricing-preferences-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
@@ -196,7 +208,7 @@ export const ModelPricingEditorPanel = forwardRef<
     preference === 'site' && isValidPricingCurrency(siteCurrency)
       ? siteCurrency
       : USD_PRICING_CURRENCY
-  const [pricingMode, setPricingMode] = useState<PricingMode>('per-token')
+  const [pricingMode, setPricingMode] = useState<PricingMode>('tiered_expr')
   const [promptPrice, setPromptPrice] = useState('')
   const [lanePrices, setLanePrices] = useState<Record<LaneKey, string>>({
     ...EMPTY_LANE_PRICES,
@@ -204,11 +216,39 @@ export const ModelPricingEditorPanel = forwardRef<
   const [laneEnabled, setLaneEnabled] = useState<Record<LaneKey, boolean>>({
     ...EMPTY_LANE_ENABLED,
   })
-  const [billingExpr, setBillingExpr] = useState('')
+  const [billingExpr, setBillingExpr] = useState(DEFAULT_TOKEN_BILLING_EXPR)
+  const [conversionReason, setConversionReason] = useState('')
+  const [wasConverted, setWasConverted] = useState(false)
+  const conversionGeneration = useRef(0)
+  const [conversionPreview, setConversionPreview] =
+    useState<PricingConversionPreview | null>(null)
+  const conversion = useMutation({
+    mutationFn: previewModelPricingConversion,
+    meta: { errorToast: false },
+  })
   const [requestRuleExpr, setRequestRuleExpr] = useState('')
   const [editorReloadToken, setEditorReloadToken] = useState(0)
   const autoSwitchedForRef = useRef<string | null>(null)
   const isEditMode = !!editData
+  const hasLegacyPricing =
+    editData &&
+    [
+      editData.price,
+      editData.ratio,
+      editData.completionRatio,
+      editData.cacheRatio,
+      editData.createCacheRatio,
+      editData.imageRatio,
+      editData.audioRatio,
+      editData.audioCompletionRatio,
+    ].some(hasValue)
+  let initialPricingMode: PricingMode = 'tiered_expr'
+  if (editData?.billingMode !== 'tiered_expr' && hasLegacyPricing) {
+    initialPricingMode = hasValue(editData?.price) ? 'per-request' : 'per-token'
+  }
+  const initialBillingExpr =
+    editData?.billingExpr ||
+    (initialPricingMode === 'tiered_expr' ? DEFAULT_TOKEN_BILLING_EXPR : '')
   const { models: pricingModels } = usePricingData()
 
   const form = useForm<ModelPricingFormValues>({
@@ -226,6 +266,33 @@ export const ModelPricingEditorPanel = forwardRef<
     },
   })
   const watchedValues = form.watch()
+  let previewRequest = ''
+  if (pricingMode === 'per-token' && watchedValues.name.trim()) {
+    try {
+      previewRequest = JSON.stringify({
+        model_name: watchedValues.name.trim(),
+        pricing: pricingFromDraft({
+          ...watchedValues,
+          billingMode: 'per-token',
+        }),
+      })
+    } catch {
+      // Incomplete numeric input is validated by the editor before saving.
+    }
+  }
+  const debouncedPreviewRequest = useDebounce(previewRequest, 250)
+  const pricePreview = useQuery({
+    queryKey: ['model-pricing-preview', debouncedPreviewRequest],
+    queryFn: () => previewModelPricing(JSON.parse(debouncedPreviewRequest)),
+    enabled:
+      Boolean(debouncedPreviewRequest) &&
+      debouncedPreviewRequest === previewRequest,
+    retry: false,
+    refetchOnWindowFocus: false,
+    meta: { errorToast: false },
+  })
+  const effectivePreview =
+    previewRequest === debouncedPreviewRequest ? pricePreview.data : undefined
   const usageSchemaByModel = useMemo(
     () =>
       new Map(
@@ -266,6 +333,10 @@ export const ModelPricingEditorPanel = forwardRef<
       : billingExpr
 
   useEffect(() => {
+    conversionGeneration.current += 1
+    setConversionReason('')
+    setWasConverted(false)
+    setConversionPreview(null)
     const nextLaneState = createInitialLaneState(editData)
 
     if (editData) {
@@ -280,14 +351,8 @@ export const ModelPricingEditorPanel = forwardRef<
         audioRatio: editData.audioRatio || '',
         audioCompletionRatio: editData.audioCompletionRatio || '',
       })
-      let nextPricingMode: PricingMode = 'per-token'
-      if (editData.billingMode === 'tiered_expr') {
-        nextPricingMode = 'tiered_expr'
-      } else if (editData.price) {
-        nextPricingMode = 'per-request'
-      }
-      setPricingMode(nextPricingMode)
-      setBillingExpr(editData.billingExpr || '')
+      setPricingMode(initialPricingMode)
+      setBillingExpr(initialBillingExpr)
       setRequestRuleExpr(editData.requestRuleExpr || '')
     } else {
       form.reset({
@@ -301,8 +366,8 @@ export const ModelPricingEditorPanel = forwardRef<
         audioRatio: '',
         audioCompletionRatio: '',
       })
-      setPricingMode('per-token')
-      setBillingExpr('')
+      setPricingMode('tiered_expr')
+      setBillingExpr(DEFAULT_TOKEN_BILLING_EXPR)
       setRequestRuleExpr('')
     }
 
@@ -311,7 +376,7 @@ export const ModelPricingEditorPanel = forwardRef<
     setLaneEnabled(nextLaneState.enabled)
     setEditorReloadToken((token) => token + 1)
     autoSwitchedForRef.current = null
-  }, [editData, form])
+  }, [editData, form, initialPricingMode, initialBillingExpr])
 
   useEffect(() => {
     if (!editData) return
@@ -327,13 +392,10 @@ export const ModelPricingEditorPanel = forwardRef<
   }, [editData, usageSchemaByModel, usageSchema])
 
   useEffect(() => {
-    let originalMode: PricingMode = 'per-token'
-    if (editData?.billingMode === 'tiered_expr') originalMode = 'tiered_expr'
-    else if (editData?.price) originalMode = 'per-request'
     onDirtyChange?.(
       form.formState.isDirty ||
-        pricingMode !== originalMode ||
-        billingExpr !== (editData?.billingExpr ?? '') ||
+        pricingMode !== initialPricingMode ||
+        billingExpr !== initialBillingExpr ||
         requestRuleExpr !== (editData?.requestRuleExpr ?? '')
     )
   }, [
@@ -343,6 +405,8 @@ export const ModelPricingEditorPanel = forwardRef<
     billingExpr,
     requestRuleExpr,
     editData,
+    initialPricingMode,
+    initialBillingExpr,
   ])
 
   const setFormValue = (field: keyof ModelPricingFormValues, value: string) => {
@@ -456,6 +520,8 @@ export const ModelPricingEditorPanel = forwardRef<
   }
 
   const handleModeChange = (value: string) => {
+    conversionGeneration.current += 1
+    setConversionReason('')
     const nextMode = value as PricingMode
     setPricingMode(nextMode)
     if (nextMode === 'tiered_expr' && !billingExpr) {
@@ -463,31 +529,42 @@ export const ModelPricingEditorPanel = forwardRef<
     }
   }
 
-  const previewRows = useMemo(
-    () =>
-      buildPreviewRows(
-        watchedValues,
-        pricingMode,
-        resolvedBillingExpr,
-        requestRuleExpr,
-        promptPrice,
-        lanePrices,
-        laneEnabled,
-        t,
-        currency
-      ),
-    [
-      resolvedBillingExpr,
-      laneEnabled,
-      lanePrices,
-      pricingMode,
+  const previewRows = useMemo(() => {
+    let previewLanes = {
       promptPrice,
-      requestRuleExpr,
-      t,
+      prices: lanePrices,
+      enabled: laneEnabled,
+    }
+    if (pricingMode === 'per-token' && effectivePreview) {
+      previewLanes = createInitialLaneState(
+        pricingRow(watchedValues.name, effectivePreview.effective)
+      )
+    }
+    return buildPreviewRows(
       watchedValues,
+      pricingMode,
+      resolvedBillingExpr,
+      requestRuleExpr,
+      previewLanes.promptPrice,
+      previewLanes.prices,
+      previewLanes.enabled,
+      t,
       currency,
-    ]
-  )
+      effectivePreview?.cacheWriteMode,
+      effectivePreview?.billingDetails
+    )
+  }, [
+    resolvedBillingExpr,
+    laneEnabled,
+    lanePrices,
+    pricingMode,
+    promptPrice,
+    requestRuleExpr,
+    t,
+    watchedValues,
+    currency,
+    effectivePreview,
+  ])
 
   const warnings = useMemo(() => {
     const nextWarnings: string[] = []
@@ -605,6 +682,76 @@ export const ModelPricingEditorPanel = forwardRef<
     [pricingMode, requestRuleExpr, resolvedBillingExpr]
   )
 
+  const convertPricing = async () => {
+    if (
+      conversion.isPending ||
+      conversionPreview ||
+      billingExpr.trim() ||
+      pricingMode === 'tiered_expr'
+    ) {
+      return
+    }
+    if (!(await form.trigger()) || !validatePricingValues()) return
+    const draft = buildSubmitData(form.getValues())
+    const generation = ++conversionGeneration.current
+    setConversionReason('')
+    try {
+      const pricing = pricingFromDraft(draft)
+      const result = await conversion.mutateAsync({
+        model_name: draft.name,
+        pricing,
+      })
+      if (generation !== conversionGeneration.current) return
+      const current = buildSubmitData(form.getValues())
+      if (
+        current.name !== draft.name ||
+        JSON.stringify(pricingFromDraft(current)) !== JSON.stringify(pricing)
+      ) {
+        setConversionReason(
+          'Prices changed while preparing the conversion. Try again.'
+        )
+        return
+      }
+      if (result.unsupported_reason) {
+        setConversionReason(result.unsupported_reason)
+        return
+      }
+      if (!result.expression || !result.effective) {
+        throw new Error(t('Failed to prepare pricing conversion'))
+      }
+      setConversionPreview({
+        modelName: draft.name,
+        effective: result.effective,
+        expression: result.expression,
+        draftFingerprint: JSON.stringify(draft),
+        cacheWriteMode: result.cache_write_mode,
+        billingDetails: result.billing_details,
+      })
+    } catch (error) {
+      handleServerError(error, t('Failed to prepare pricing conversion'))
+    }
+  }
+
+  const applyConversion = () => {
+    if (!conversionPreview) return
+    setConversionPreview(null)
+    if (
+      billingExpr.trim() ||
+      pricingMode === 'tiered_expr' ||
+      JSON.stringify(buildSubmitData(form.getValues())) !==
+        conversionPreview.draftFingerprint
+    ) {
+      setConversionReason(
+        'Prices changed while preparing the conversion. Try again.'
+      )
+      return
+    }
+    setBillingExpr(conversionPreview.expression)
+    setWasConverted(true)
+    setPricingMode('tiered_expr')
+    setEditorReloadToken((token) => token + 1)
+  }
+
   useImperativeHandle(
     ref,
     () => ({
@@ -716,16 +863,58 @@ export const ModelPricingEditorPanel = forwardRef<
                   className='gap-4'
                 >
                   <TabsList className='grid w-full grid-cols-3'>
-                    <TabsTrigger value='per-token'>
-                      {t('Per-token')}
-                    </TabsTrigger>
-                    <TabsTrigger value='per-request'>
-                      {t('Per-request')}
-                    </TabsTrigger>
                     <TabsTrigger value='tiered_expr'>
                       {t('Expression')}
                     </TabsTrigger>
+                    <TabsTrigger value='per-token'>
+                      {t('Per-token (deprecated)')}
+                    </TabsTrigger>
+                    <TabsTrigger value='per-request'>
+                      {t('Per-request (deprecated)')}
+                    </TabsTrigger>
                   </TabsList>
+
+                  {pricingMode !== 'tiered_expr' && (
+                    <Alert className='border-amber-500/40 bg-amber-500/10 p-4 text-amber-900 dark:text-amber-100'>
+                      <AlertTriangle aria-hidden='true' className='size-5' />
+                      <AlertDescription className='space-y-3 text-sm text-inherit'>
+                        <p className='font-medium'>
+                          {t(
+                            'Legacy pricing is deprecated. Convert the current prices to an expression draft, then save to apply it.'
+                          )}
+                        </p>
+                        <Button
+                          type='button'
+                          className='w-full sm:w-auto'
+                          disabled={
+                            conversion.isPending || Boolean(billingExpr.trim())
+                          }
+                          onClick={() => void convertPricing()}
+                        >
+                          {conversion.isPending
+                            ? t('Preparing conversion...')
+                            : t('Convert to expression')}
+                        </Button>
+                        {billingExpr.trim() && (
+                          <p>
+                            {t(
+                              'An expression draft already exists. Open the Expression tab to keep editing it.'
+                            )}
+                          </p>
+                        )}
+                        {conversionReason && (
+                          <p role='status'>{t(conversionReason)}</p>
+                        )}
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  {(pricingMode !== 'tiered_expr' || wasConverted) && (
+                    <p className='text-muted-foreground text-xs'>
+                      {t(
+                        'After conversion, expression reservation and rounding rules apply. Effective unit prices are preserved; individual rounded charges may differ.'
+                      )}
+                    </p>
+                  )}
 
                   <TabsContent
                     value='per-token'
@@ -757,14 +946,18 @@ export const ModelPricingEditorPanel = forwardRef<
                           </AlertDescription>
                         </Alert>
                       )}
-                    {embedded && (
-                      <p className='text-muted-foreground mb-3 text-xs'>
-                        {t('{{currency}} price per 1M tokens.', {
-                          currency: currency.label,
-                        })}{' '}
-                        {t('Disabled lanes are omitted on save.')}
-                      </p>
-                    )}
+                    <p className='text-muted-foreground mb-3 text-xs'>
+                      {embedded && (
+                        <>
+                          {t('{{currency}} price per 1M tokens.', {
+                            currency: currency.label,
+                          })}{' '}
+                        </>
+                      )}
+                      {t(
+                        'Unset legacy prices use the billing engine defaults.'
+                      )}
+                    </p>
                     <div
                       className={cn(
                         'grid min-w-0 gap-3',
@@ -911,23 +1104,34 @@ export const ModelPricingEditorPanel = forwardRef<
                   <div className='text-sm font-medium'>{t('Preview')}</div>
                 </div>
                 <div className='divide-y'>
-                  {previewRows.map((row) => (
-                    <div key={row.key} className='grid gap-1 px-3 py-2.5'>
-                      <span className='text-muted-foreground text-xs'>
-                        {row.label}
-                      </span>
-                      <span
-                        className={cn(
-                          'min-w-0 text-sm',
-                          row.multiline
-                            ? 'font-mono text-xs leading-5 break-words whitespace-pre-wrap'
-                            : 'truncate'
-                        )}
-                      >
-                        {row.value}
-                      </span>
-                    </div>
-                  ))}
+                  {pricingMode === 'per-token' && !effectivePreview && (
+                    <p
+                      className='text-muted-foreground px-3 py-2 text-xs'
+                      role='status'
+                    >
+                      {pricePreview.isError
+                        ? t('Failed to load model pricing')
+                        : t('Loading...')}
+                    </p>
+                  )}
+                  {(pricingMode !== 'per-token' || effectivePreview) &&
+                    previewRows.map((row) => (
+                      <div key={row.key} className='grid gap-1 px-3 py-2.5'>
+                        <span className='text-muted-foreground text-xs'>
+                          {row.label}
+                        </span>
+                        <span
+                          className={cn(
+                            'min-w-0 text-sm',
+                            row.multiline
+                              ? 'font-mono text-xs leading-5 break-words whitespace-pre-wrap'
+                              : 'truncate'
+                          )}
+                        >
+                          {row.value}
+                        </span>
+                      </div>
+                    ))}
                 </div>
               </aside>
             </div>
@@ -951,6 +1155,18 @@ export const ModelPricingEditorPanel = forwardRef<
           )}
         </form>
       </Form>
+      {conversionPreview && (
+        <PricingConversionDialog
+          preview={conversionPreview}
+          currency={currency}
+          onCancel={() => {
+            conversionGeneration.current += 1
+            setConversionPreview(null)
+            setConversionReason('')
+          }}
+          onConfirm={applyConversion}
+        />
+      )}
     </div>
   )
 })
