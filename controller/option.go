@@ -208,6 +208,10 @@ func UpdateOption(c fuego.ContextWithBody[dto.OptionUpdateRequest]) (dto.Message
 		if option.Value == "true" && system_setting.GetDiscordSettings().ClientId == "" {
 			return dto.FailMsg("Cannot enable Discord OAuth, please fill in Discord Client ID and Discord Client Secret first!")
 		}
+	case "google.enabled":
+		if option.Value == "true" && system_setting.GetGoogleSettings().ClientId == "" {
+			return dto.FailMsg("Cannot enable Google OAuth, please fill in Google Client ID and Google Client Secret first!")
+		}
 	case "oidc.enabled":
 		if option.Value == "true" && system_setting.GetOIDCSettings().ClientId == "" {
 			return dto.FailMsg("Cannot enable OIDC login, please fill in OIDC Client ID and OIDC Client Secret first!")

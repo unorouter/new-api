@@ -14,6 +14,8 @@ type StatusData struct {
 	GitHubClientId             string      `json:"github_client_id"`
 	DiscordOAuth               bool        `json:"discord_oauth"`
 	DiscordClientId            string      `json:"discord_client_id"`
+	GoogleOAuth                bool        `json:"google_oauth"`
+	GoogleClientId             string      `json:"google_client_id"`
 	LinuxDOOAuth               bool        `json:"linuxdo_oauth"`
 	LinuxDOClientId            string      `json:"linuxdo_client_id"`
 	LinuxDOMinimumTrustLevel   int         `json:"linuxdo_minimum_trust_level"`

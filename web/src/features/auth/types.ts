@@ -98,6 +98,8 @@ export interface SystemStatus {
     github_client_id?: string
     discord_oauth?: boolean
     discord_client_id?: string
+    google_oauth?: boolean
+    google_client_id?: string
     oidc_enabled?: boolean
     oidc_authorization_endpoint?: string
     oidc_client_id?: string
@@ -145,6 +147,8 @@ export interface SystemStatus {
   github_client_id?: string
   discord_oauth?: boolean
   discord_client_id?: string
+  google_oauth?: boolean
+  google_client_id?: string
   oidc_enabled?: boolean
   oidc_authorization_endpoint?: string
   oidc_client_id?: string
@@ -191,7 +195,7 @@ export interface SystemStatus {
 
 export interface OAuthProvider {
   name: string
-  type: 'github' | 'discord' | 'oidc' | 'linuxdo' | 'telegram' | 'wechat'
+  type: 'github' | 'discord' | 'google' | 'oidc' | 'linuxdo' | 'telegram' | 'wechat'
   enabled: boolean
   clientId?: string
   authEndpoint?: string

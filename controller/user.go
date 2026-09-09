@@ -750,6 +750,7 @@ func GetSelf(c fuego.ContextNoBody) (*dto.Response[dto.UserSelfData], error) {
 		Email:                     user.Email,
 		GitHubId:                  user.GitHubId,
 		DiscordId:                 user.DiscordId,
+		GoogleId:                  user.GoogleId,
 		OidcId:                    user.OidcId,
 		WeChatId:                  user.WeChatId,
 		TelegramId:                user.TelegramId,
@@ -815,6 +816,7 @@ func buildSelfUserData(user *model.User) map[string]any {
 		"email":             user.Email,
 		"github_id":         user.GitHubId,
 		"discord_id":        user.DiscordId,
+		"google_id":         user.GoogleId,
 		"oidc_id":           user.OidcId,
 		"wechat_id":         user.WeChatId,
 		"telegram_id":       user.TelegramId,
@@ -997,6 +999,7 @@ func AdminClearUserBinding(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 var selfUnbindableTypes = map[string]bool{
 	"github":   true,
 	"discord":  true,
+	"google":   true,
 	"oidc":     true,
 	"wechat":   true,
 	"telegram": true,

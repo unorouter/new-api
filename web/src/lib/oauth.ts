@@ -83,6 +83,22 @@ export function buildLinuxDOOAuthUrl(clientId: string, state: string): string {
   return `https://connect.linux.do/oauth2/authorize?response_type=code&client_id=${clientId}&state=${state}`
 }
 
+/**
+ * Build Google OAuth URL
+ */
+export function buildGoogleOAuthUrl(clientId: string, state: string): string {
+  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth')
+  url.searchParams.set('client_id', clientId)
+  url.searchParams.set(
+    'redirect_uri',
+    `${window.location.origin}/oauth/google`
+  )
+  url.searchParams.set('response_type', 'code')
+  url.searchParams.set('scope', 'openid email profile')
+  url.searchParams.set('state', state)
+  return url.toString()
+}
+
 export function buildOAuthAuthorizationUrl(
   provider: string,
   state: string,
@@ -97,6 +113,11 @@ export function buildOAuthAuthorizationUrl(
     case 'discord':
       if (status.discord_client_id) {
         return buildDiscordOAuthUrl(status.discord_client_id, state)
+      }
+      break
+    case 'google':
+      if (status.google_client_id) {
+        return buildGoogleOAuthUrl(status.google_client_id, state)
       }
       break
     case 'oidc':

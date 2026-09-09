@@ -85,7 +85,7 @@ func UnbindUserOAuthForSession(identity AuthSessionIdentity, providerID int, ena
 		}
 		hasLogin := enabled.Password && current.Password != "" || enabled.WeChat && current.WeChatId != ""
 		columns := map[string]string{
-			"github_id": current.GitHubId, "discord_id": current.DiscordId,
+			"github_id": current.GitHubId, "discord_id": current.DiscordId, "google_id": current.GoogleId,
 			"oidc_id": current.OidcId, "linux_do_id": current.LinuxDOId, "telegram_id": current.TelegramId,
 		}
 		for _, column := range enabled.OAuthColumns {

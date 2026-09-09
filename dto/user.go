@@ -105,6 +105,7 @@ type UserSelfData struct {
 	Email             string  `json:"email"`
 	GitHubId          string  `json:"github_id"`
 	DiscordId         string  `json:"discord_id"`
+	GoogleId          string  `json:"google_id"`
 	OidcId            string  `json:"oidc_id"`
 	WeChatId          string  `json:"wechat_id"`
 	TelegramId        string  `json:"telegram_id"`

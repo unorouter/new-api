@@ -71,6 +71,7 @@ export function loginMethodLabel(method: string, t: TFunction): string {
   const providerNames: Record<string, string> = {
     discord: 'Discord',
     github: 'GitHub',
+    google: 'Google',
     linuxdo: 'LinuxDO',
     oidc: 'OIDC',
   }

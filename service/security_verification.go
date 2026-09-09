@@ -294,6 +294,8 @@ func verificationOAuthProviders(user *model.User) ([]VerificationOAuthProvider, 
 				userID = user.GitHubId
 			case "discord_id":
 				userID = user.DiscordId
+			case "google_id":
+				userID = user.GoogleId
 			case "oidc_id":
 				userID = user.OidcId
 			case "linux_do_id":

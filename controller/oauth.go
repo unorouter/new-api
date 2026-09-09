@@ -679,6 +679,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 			if err := tx.Model(user).Updates(map[string]any{
 				"github_id":   user.GitHubId,
 				"discord_id":  user.DiscordId,
+				"google_id":   user.GoogleId,
 				"oidc_id":     user.OidcId,
 				"linux_do_id": user.LinuxDOId,
 				"wechat_id":   user.WeChatId,
