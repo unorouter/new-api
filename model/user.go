@@ -88,6 +88,7 @@ type User struct {
 	Email                     string                     `json:"email" gorm:"index" validate:"max=50"`
 	GitHubId                  string                     `json:"github_id" gorm:"column:github_id;index"`
 	DiscordId                 string                     `json:"discord_id" gorm:"column:discord_id;index"`
+	GoogleId                  string                     `json:"google_id" gorm:"column:google_id;index"`
 	OidcId                    string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
 	WeChatId                  string                     `json:"wechat_id" gorm:"column:wechat_id;index"`
 	TelegramId                string                     `json:"telegram_id" gorm:"column:telegram_id;index"`
@@ -222,6 +223,7 @@ func UpdateUserSetting(userId int, setting types.UserSetting) error {
 var userBindColumns = map[string]bool{
 	"github_id":   true,
 	"discord_id":  true,
+	"google_id":   true,
 	"oidc_id":     true,
 	"linux_do_id": true,
 	"wechat_id":   true,
@@ -500,8 +502,8 @@ func SearchUsers(keyword string, group string, role *int, status *int, negativeQ
 	query := tx.Unscoped().Model(&User{})
 
 	// 构建搜索条件
-	likeCondition := "username LIKE ? OR email LIKE ? OR display_name LIKE ? OR github_id LIKE ? OR discord_id LIKE ? OR oidc_id LIKE ? OR wechat_id LIKE ? OR telegram_id LIKE ? OR linux_do_id LIKE ?"
-	likeArgs := []interface{}{"%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%"}
+	likeCondition := "username LIKE ? OR email LIKE ? OR display_name LIKE ? OR github_id LIKE ? OR discord_id LIKE ? OR google_id LIKE ? OR oidc_id LIKE ? OR wechat_id LIKE ? OR telegram_id LIKE ? OR linux_do_id LIKE ?"
+	likeArgs := []interface{}{"%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%"}
 
 	// 尝试将关键字转换为整数ID
 	keywordInt, err := strconv.Atoi(keyword)
@@ -592,7 +594,7 @@ func GetSelfUserById(id int) (*User, error) {
 	}
 	err := DB.Model(&User{}).Select([]string{
 		"id", "username", "display_name", "role", "status", "email",
-		"github_id", "discord_id", "oidc_id", "wechat_id", "telegram_id",
+		"github_id", "discord_id", "google_id", "oidc_id", "wechat_id", "telegram_id",
 		"group", "quota", "used_quota", "request_count", "aff_code", "aff_count",
 		"aff_quota", "aff_history", "inviter_id", "linux_do_id", "setting",
 		"stripe_customer", "creem_customer", "referral_commission_percent", "topup_bonus_percent",
@@ -1161,6 +1163,7 @@ func (user *User) ClearBinding(bindingType string) error {
 		"email":    "email",
 		"github":   "github_id",
 		"discord":  "discord_id",
+		"google":   "google_id",
 		"oidc":     "oidc_id",
 		"wechat":   "wechat_id",
 		"telegram": "telegram_id",
@@ -1385,6 +1388,14 @@ func (user *User) FillUserByDiscordId() error {
 	return nil
 }
 
+func (user *User) FillUserByGoogleId() error {
+	if user.GoogleId == "" {
+		return errors.New("google id is empty")
+	}
+	DB.Where(User{GoogleId: user.GoogleId}).First(user)
+	return nil
+}
+
 func (user *User) FillUserByOidcId() error {
 	if user.OidcId == "" {
 		return errors.New("oidc id is empty")
@@ -1480,6 +1491,10 @@ func IsGitHubIdAlreadyTaken(githubId string) bool {
 
 func IsDiscordIdAlreadyTaken(discordId string) bool {
 	return DB.Unscoped().Where("discord_id = ?", discordId).Find(&User{}).RowsAffected == 1
+}
+
+func IsGoogleIdAlreadyTaken(googleId string) bool {
+	return DB.Unscoped().Where("google_id = ?", googleId).Find(&User{}).RowsAffected == 1
 }
 
 func IsOidcIdAlreadyTaken(oidcId string) bool {
