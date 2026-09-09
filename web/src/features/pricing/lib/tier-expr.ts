@@ -35,6 +35,8 @@ export type TierConditionInput = {
 }
 
 export type VisualTier = {
+  billing_unit?: 'token' | 'request'
+  fixed_price?: string
   label: string
   conditions: TierConditionInput[]
   input_unit_cost: number
@@ -119,6 +121,7 @@ function buildConditionStr(conditions: TierConditionInput[]): string {
 }
 
 function buildTierBodyExpr(tier: VisualTier): string {
+  if (tier.billing_unit === 'request') return `fixed(${tier.fixed_price ?? ''})`
   const parts: string[] = []
   const ic = Number(tier.input_unit_cost) || 0
   const oc = Number(tier.output_unit_cost) || 0
@@ -272,6 +275,7 @@ export type EvalResult = {
   cost: number
   matchedTier: string
   error: string | null
+  billingUnit?: 'token' | 'request'
 }
 
 export function evalExprLocally(
@@ -292,7 +296,14 @@ export function evalExprLocally(
   if (result.status !== 'success') {
     return { cost: 0, matchedTier: '', error: result.diagnostic.detail }
   }
-  return { cost: result.cost, matchedTier: result.matchedTier, error: null }
+  return {
+    cost: result.cost,
+    matchedTier: result.matchedTier,
+    error: null,
+    ...(result.billingUnit === 'request'
+      ? { billingUnit: result.billingUnit }
+      : {}),
+  }
 }
 
 export function buildEstimatorTokens(

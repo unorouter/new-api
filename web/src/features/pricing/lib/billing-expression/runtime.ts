@@ -180,6 +180,8 @@ export function timeInBillingZone(
 class BillingRuntime {
   readonly requestRules: BillingRequestRule[]
   matchedTier = ''
+  billingUnit: 'token' | 'request' = 'token'
+  fixedPrice?: number
   private readonly now: Date
   private readonly timeValues = new Map<string, Record<TimeFunction, number>>()
   private readonly headers = new Map<string, string>()
@@ -409,6 +411,12 @@ class BillingRuntime {
   private call(node: Extract<ExpressionNode, { kind: 'call' }>): RuntimeValue {
     const args = node.args
     switch (node.name) {
+      case 'fixed': {
+        const amount = this.numeric(args[0]).value
+        this.billingUnit = 'request'
+        this.fixedPrice = amount
+        return { value: amount * 1_000_000 }
+      }
       case 'tier': {
         const name = this.string(args[0])
         const value = this.numeric(args[1]).value
@@ -538,6 +546,10 @@ export function evaluateBillingExpression(
     return {
       status: 'success',
       cost: result,
+      billingUnit: runtime.billingUnit,
+      ...(runtime.fixedPrice !== undefined
+        ? { fixedPrice: runtime.fixedPrice }
+        : {}),
       matchedTier: runtime.matchedTier,
       requestRules: runtime.requestRules,
     }

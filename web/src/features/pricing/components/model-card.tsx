@@ -144,6 +144,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               {t('Current period price')}
             </span>
           )}
+          {dynamicSummary.isMixedBilling && (
+            <span className='text-muted-foreground col-span-full text-xs'>
+              {t('Token or per-call pricing')}
+            </span>
+          )}
           {cardExamplePrice && (
             <span className='text-muted-foreground col-span-full text-xs break-words'>
               {cardExamplePrice.label} ≈ {cardExamplePrice.formatted}

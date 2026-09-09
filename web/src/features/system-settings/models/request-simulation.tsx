@@ -327,6 +327,7 @@ export function RequestSimulation(props: RequestSimulationProps) {
                 success.cost / (props.mode === 'token' ? 1_000_000 : 1),
                 props.currency
               )}
+              {success.billingUnit === 'request' && `/${t('request')}`}
             </p>
             {success.matchedTier && (
               <Badge variant='outline'>

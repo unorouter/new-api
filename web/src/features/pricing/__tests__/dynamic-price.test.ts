@@ -54,6 +54,43 @@ const summaryOptions = {
 }
 
 describe('expression price summaries', () => {
+  test('keeps request prices unchanged by token units and separates mixed billing units', () => {
+    const model = pricingModel({
+      billing_mode: 'tiered_expr',
+      billing_expr:
+        'len < 1000 ? tier("request", fixed(0.01)) : tier("tokens", p * 2 + c * 8)',
+    })
+    const thousand = getDynamicPricingSummary(model, { tokenUnit: 'K' })
+    const million = getDynamicPricingSummary(model, { tokenUnit: 'M' })
+    const request = thousand?.primaryEntries.find(
+      (entry) => entry.unit === 'request'
+    )
+    expect(request?.value).toBe(0.01)
+    expect(request?.formatted).toBe(
+      million?.primaryEntries.find((entry) => entry.unit === 'request')
+        ?.formatted
+    )
+    expect(thousand?.primaryEntries.map((entry) => entry.unit)).toEqual([
+      'token',
+      'token',
+      'request',
+    ])
+    expect(thousand?.isMixedBilling).toBe(true)
+    expect(
+      thousand?.primaryEntries.every(
+        (entry) => entry.formattedRange === undefined
+      )
+    ).toBe(true)
+    const free = getDynamicPricingSummary(
+      pricingModel({
+        billing_mode: 'tiered_expr',
+        billing_expr: 'tier("free", fixed(0))',
+      }),
+      { tokenUnit: 'M' }
+    )
+    expect(free?.primaryEntries).toHaveLength(1)
+    expect(free?.primaryEntries[0].value).toBe(0)
+  })
   const timeExpression =
     'weekday("Asia/Shanghai") >= 1 && weekday("Asia/Shanghai") <= 5 && ((hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 12) || (hour("Asia/Shanghai") >= 14 && hour("Asia/Shanghai") < 18)) ? tier("peak", p * 3 + cr * 0.1 + c * 9) : tier("off_peak", p * 1.5 + cr * 0.05 + c * 4.5)'
 

@@ -37,6 +37,18 @@ import type { PricingModel, BillingUsageSchema } from '../types'
 
 vi.mock('@visactor/react-vchart', () => ({ VChart: () => null }))
 
+it('shows an explicit free request price alongside token prices with distinct units', () => {
+  render(
+    <DynamicPricingBreakdown
+      billingExpr='len < 1000 ? tier("free", fixed(0)) : tier("tokens", p * 2 + c * 8)'
+      matchedTierLabel='free'
+    />
+  )
+  expect(screen.getAllByText('$0/request').length).toBeGreaterThan(0)
+  expect(screen.getAllByText('Input / 1M token').length).toBeGreaterThan(0)
+  expect(screen.getAllByText('Price per request').length).toBeGreaterThan(0)
+})
+
 it('renders weekday and hour conditions as time windows instead of expression source', () => {
   const condition =
     'weekday("Asia/Shanghai") >= 1 && weekday("Asia/Shanghai") <= 5 && ((hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 12) || (hour("Asia/Shanghai") >= 14 && hour("Asia/Shanghai") < 18))'

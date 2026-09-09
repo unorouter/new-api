@@ -59,6 +59,32 @@ export const deepSeekExpression = `${peakCondition} ? tier("peak", p * 3 + cr * 
 afterEach(() => vi.useRealTimers())
 
 describe('local billing expression evaluation', () => {
+  test('evaluates request prices without token inputs and retains an explicit zero price', () => {
+    expect(
+      evaluateBillingExpression('tier("request", fixed(0.01))')
+    ).toMatchObject({
+      status: 'success',
+      cost: 10000,
+      billingUnit: 'request',
+      fixedPrice: 0.01,
+    })
+    expect(evaluateBillingExpression('tier("free", fixed(0))')).toMatchObject({
+      status: 'success',
+      cost: 0,
+      billingUnit: 'request',
+      fixedPrice: 0,
+    })
+  })
+  test('preserves mixed fixed and token leaves through an unedited visual round trip', () => {
+    const source =
+      'v1:len <= 32000 ? tier(\'short\', fixed(0.0100)) : tier("long", p * 2 + c * 8)'
+    const document = parseVisualBillingDocument(source)
+    assert(document)
+    expect(serializeVisualBillingDocument(document)).toEqual({
+      ok: true,
+      source,
+    })
+  })
   test('localizes peak and complement conditions without exposing source code', async () => {
     const translations = createInstance()
     await translations.init({ lng: 'zh', resources: { zh } })
@@ -103,6 +129,10 @@ describe('local billing expression evaluation', () => {
     if (result.status !== 'success') return
     expect(result.cost).toBeCloseTo(fixture.cost, 9)
     expect(result.matchedTier).toBe(fixture.tier)
+    if (fixture.billingUnit) {
+      expect(result.billingUnit).toBe(fixture.billingUnit)
+      expect(result.fixedPrice).toBe(fixture.fixedPrice)
+    }
     expect(result.requestRules.map((rule) => rule.multiplier)).toEqual(
       fixture.multipliers ?? []
     )

@@ -411,7 +411,9 @@ function checkExpressionTypes(ast: ExpressionNode): void {
         result = 'number'
       } else if ((TIME_FUNCTIONS as readonly string[]).includes(node.name)) {
         result = 'number'
-      } else if (['min', 'max', 'abs', 'ceil', 'floor'].includes(node.name)) {
+      } else if (
+        ['fixed', 'min', 'max', 'abs', 'ceil', 'floor'].includes(node.name)
+      ) {
         node.args.forEach((arg) => requireType(arg, 'number'))
         result = 'number'
       }
@@ -421,6 +423,62 @@ function checkExpressionTypes(ast: ExpressionNode): void {
 }
 
 const compiledCache = new Map<string, CompilationResult>()
+
+function containsPricingMarker(node: ExpressionNode): boolean {
+  const calls = expressionDependencies(node).functions
+  return calls.has('tier') || calls.has('fixed')
+}
+
+function validateFixedPricingTree(
+  node: ExpressionNode,
+  rules: CompiledBillingExpression['requestRules']
+): void {
+  if (node.kind === 'conditional' && !containsPricingMarker(node.condition)) {
+    validateFixedPricingTree(node.yes, rules)
+    validateFixedPricingTree(node.no, rules)
+    return
+  }
+  if (node.kind === 'binary' && node.operator === '*') {
+    for (const [factor, pricing] of [
+      [node.right, node.left],
+      [node.left, node.right],
+    ]) {
+      const rule = rules.find((candidate) => candidate.node === factor)
+      if (
+        rule &&
+        rule.multiplier >= 0 &&
+        !containsPricingMarker(rule.condition)
+      ) {
+        validateFixedPricingTree(pricing, rules)
+        return
+      }
+    }
+  }
+  if (
+    node.kind === 'call' &&
+    node.name === 'tier' &&
+    !containsPricingMarker(node.args[0])
+  ) {
+    const price = node.args[1]
+    if (price.kind === 'call' && price.name === 'fixed') {
+      const amount = price.args[0]
+      if (
+        amount.kind === 'literal' &&
+        typeof amount.value === 'number' &&
+        amount.value >= 0 &&
+        Number.isFinite(amount.value * 1_000_000)
+      ) {
+        return
+      }
+    } else if (!containsPricingMarker(price)) return
+  }
+  throw new BillingExpressionError({
+    code: 'type',
+    detail:
+      'Use tier(name, fixed(amount)) with a finite, non-negative numeric literal; combine pricing branches only with conditions and request multipliers.',
+    position: node.start,
+  })
+}
 
 export function compileBillingExpression(source: string): CompilationResult {
   const cached = compiledCache.get(source)
@@ -456,6 +514,9 @@ export function compileBillingExpression(source: string): CompilationResult {
         cond: source.slice(node.condition.start, node.condition.end),
       })
     })
+    if (dependencies.functions.has('fixed')) {
+      validateFixedPricingTree(ast, requestRules)
+    }
     result = {
       status: 'ready',
       version: 1,

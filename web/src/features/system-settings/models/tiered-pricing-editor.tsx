@@ -82,6 +82,7 @@ import {
   type TimeCondition,
   type TimeFunc,
 } from '@/features/pricing/lib/billing-expr'
+import { compileBillingExpression } from '@/features/pricing/lib/billing-expression/parser'
 import {
   parseVisualBillingDocument,
   serializeVisualBillingDocument,
@@ -521,6 +522,12 @@ function VisualTierCard({
 
       <TierPriceFields
         currency={currency}
+        billingUnit={tier.billing_unit}
+        fixedPrice={tier.fixed_price}
+        onBillingUnitChange={(billing_unit) =>
+          onChange({ ...tier, billing_unit })
+        }
+        onFixedPriceChange={(fixed_price) => onChange({ ...tier, fixed_price })}
         prices={{
           p: tier.input_unit_cost,
           c: tier.output_unit_cost,
@@ -684,10 +691,16 @@ function RawExprEditor({ exprString, onChange }: RawExprEditorProps) {
             <code>ao</code>
           </div>
           <div>
-            {t('Functions')}: <code>tier(name, value)</code>, <code>max</code>,{' '}
-            <code>min</code>, <code>ceil</code>, <code>floor</code>,{' '}
-            <code>abs</code>, <code>header(name)</code>,{' '}
-            <code>param(path)</code>, <code>has(source, text)</code>
+            {t('Functions')}: <code>tier(name, value)</code>,{' '}
+            <code>fixed(amount)</code>, <code>max</code>, <code>min</code>,{' '}
+            <code>ceil</code>, <code>floor</code>, <code>abs</code>,{' '}
+            <code>header(name)</code>, <code>param(path)</code>,{' '}
+            <code>has(source, text)</code>
+          </div>
+          <div>
+            {t(
+              'Use tier(name, fixed(amount)) for a USD price per request. Group and request multipliers still apply.'
+            )}
           </div>
         </AlertDescription>
       </Alert>
@@ -1210,6 +1223,7 @@ function CostEstimator({ effectiveExpr, fullExpr, currency }: EstimatorProps) {
             <span className='font-medium'>
               {t('Estimated cost')}:{' '}
               {formatPricingAmount(result.cost / 1_000_000, currency)}
+              {result.billingUnit === 'request' && `/${t('request')}`}
             </span>
             {result.matchedTier && (
               <Badge variant='outline' className='text-xs'>
@@ -1264,6 +1278,7 @@ Important: len is NOT affected by auto-exclusion. Tier conditions should use len
 ### Built-in Functions
 
 - tier(name, value) — labels the billing tier; must wrap the cost expression
+- fixed(amount) — a finite non-negative USD price per request, used only as tier("name", fixed(0.01)); replaces token charges in that leaf. Other leaves may still use token prices. Group/request multipliers and existing tool surcharges still apply. Unsupported for task usage expressions and Realtime.
 - max(a, b), min(a, b) — maximum/minimum
 - ceil(x), floor(x), abs(x) — ceiling, floor, absolute value
 - header(name) — reads a request header
@@ -1470,7 +1485,16 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
       visualDocument ? serializeVisualBillingDocument(visualDocument) : null,
     [visualDocument]
   )
-  const invalidDraft = editorMode === 'visual' && serialized?.ok === false
+  const invalidFlatDraft = useMemo(
+    () =>
+      visualConfig?.tiers.some((tier) => tier.billing_unit === 'request') &&
+      compileBillingExpression(generateExprFromVisualConfig(visualConfig))
+        .status !== 'ready',
+    [visualConfig]
+  )
+  const invalidDraft =
+    editorMode === 'visual' &&
+    (serialized?.ok === false || Boolean(invalidFlatDraft))
   const canUseVisualRules =
     !ruleExpr || tryParseRequestRuleExpr(ruleExpr) !== null
   const effectiveExpr = baseExpr
@@ -1479,6 +1503,12 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
     (next: VisualConfig) => {
       setVisualConfig(next)
       const expression = generateExprFromVisualConfig(next)
+      if (
+        next.tiers.some((tier) => tier.billing_unit === 'request') &&
+        compileBillingExpression(expression).status !== 'ready'
+      ) {
+        return
+      }
       setBaseExpr(expression)
       onBillingExprChange(expression)
     },

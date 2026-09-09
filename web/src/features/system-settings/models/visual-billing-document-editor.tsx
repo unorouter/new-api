@@ -171,6 +171,24 @@ function PricingBranch(props: {
       </div>
       <TierPriceFields
         currency={props.currency}
+        billingUnit={node.billingUnit}
+        fixedPrice={node.fixedPrice}
+        onBillingUnitChange={(billingUnit) =>
+          props.onChange({
+            ...node,
+            billingUnit,
+            prices:
+              billingUnit === 'token' && node.prices.length === 0
+                ? [
+                    { variable: 'p', value: '0' },
+                    { variable: 'c', value: '0' },
+                  ]
+                : node.prices,
+          })
+        }
+        onFixedPriceChange={(fixedPrice) =>
+          props.onChange({ ...node, fixedPrice })
+        }
         prices={Object.fromEntries(
           node.prices.map((price) => [price.variable, price.value])
         )}

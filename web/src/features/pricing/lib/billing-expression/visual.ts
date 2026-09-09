@@ -44,7 +44,13 @@ export type VisualPrice = {
   origin?: ExpressionNode
 }
 export type VisualPricingNode =
-  | (Origin & { kind: 'tier'; label: string; prices: VisualPrice[] })
+  | (Origin & {
+      kind: 'tier'
+      label: string
+      prices: VisualPrice[]
+      billingUnit: 'token' | 'request'
+      fixedPrice: string
+    })
   | (Origin & {
       kind: 'branch'
       condition: VisualCondition
@@ -149,6 +155,21 @@ function readVisualPricing(node: ExpressionNode): VisualPricingNode | null {
     return null
   }
   const prices: VisualPrice[] = []
+  const body = node.args[1]
+  if (
+    body.kind === 'call' &&
+    body.name === 'fixed' &&
+    body.args[0].kind === 'literal'
+  ) {
+    return {
+      ...identity,
+      kind: 'tier',
+      label: node.args[0].value,
+      prices,
+      billingUnit: 'request',
+      fixedPrice: String(body.args[0].value),
+    }
+  }
   for (const term of flattenBinary(node.args[1], '+')) {
     if (
       term.kind !== 'binary' ||
@@ -169,7 +190,14 @@ function readVisualPricing(node: ExpressionNode): VisualPricingNode | null {
       origin: term,
     })
   }
-  return { ...identity, kind: 'tier', label: node.args[0].value, prices }
+  return {
+    ...identity,
+    kind: 'tier',
+    label: node.args[0].value,
+    prices,
+    billingUnit: 'token',
+    fixedPrice: '',
+  }
 }
 
 export function parseVisualBillingDocument(
@@ -340,6 +368,42 @@ function writeVisualPricing(
       ])
     }
     return `(${condition}) ? (${yes}) : (${no})`
+  }
+  if (node.billingUnit === 'request') {
+    const value = parseNonNegativeNumber(node.fixedPrice)
+    if (value === null || !Number.isFinite(value * 1_000_000)) {
+      issues.push({
+        id: `${node.id}:fixed`,
+        message: 'Enter a finite, non-negative price.',
+      })
+    }
+    const origin = node.origin
+    if (origin?.kind === 'call' && origin.name === 'tier') {
+      const label = origin.args[0]
+      const labelText =
+        label.kind === 'literal' && label.value === node.label
+          ? source.slice(label.start, label.end)
+          : JSON.stringify(node.label)
+      const price = origin.args[1]
+      let priceText = `fixed(${node.fixedPrice})`
+      if (
+        price.kind === 'call' &&
+        price.name === 'fixed' &&
+        price.args[0].kind === 'literal'
+      ) {
+        const amount = price.args[0]
+        const text =
+          value === amount.value
+            ? source.slice(amount.start, amount.end)
+            : node.fixedPrice
+        priceText = patchSource(source, price, [{ node: amount, text }])
+      }
+      return patchSource(source, origin, [
+        { node: label, text: labelText },
+        { node: price, text: priceText },
+      ])
+    }
+    return `tier(${JSON.stringify(node.label)}, fixed(${node.fixedPrice}))`
   }
   if (node.prices.length === 0) {
     issues.push({

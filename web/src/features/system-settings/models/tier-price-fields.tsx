@@ -23,6 +23,14 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { PricingCurrency } from '@/features/model-pricing/currency'
 import { PricingAmountInput } from '@/features/model-pricing/pricing-amount-input'
@@ -98,6 +106,10 @@ function PriceField({
 }
 
 type TierPriceFieldsProps = {
+  billingUnit?: 'token' | 'request'
+  fixedPrice?: string
+  onBillingUnitChange?: (unit: 'token' | 'request') => void
+  onFixedPriceChange?: (value: string) => void
   currency: PricingCurrency
   prices: Partial<Record<VisualPrice['variable'], number | string>>
   onChange: (variable: VisualPrice['variable'], value: string) => void
@@ -138,8 +150,52 @@ export function TierPriceFields(props: TierPriceFieldsProps) {
       invalid={props.invalidVariables?.includes(variable.key)}
     />
   )
+  const billingControl = props.onBillingUnitChange && (
+    <Select
+      items={[
+        { value: 'token', label: t('Per token') },
+        { value: 'request', label: t('Per-call') },
+      ]}
+      value={props.billingUnit ?? 'token'}
+      onValueChange={(value) => {
+        if (value === 'token' || value === 'request') {
+          props.onBillingUnitChange?.(value)
+        }
+      }}
+    >
+      <SelectTrigger
+        aria-label={t('Tier billing mode')}
+        size='sm'
+        className='w-full sm:w-48'
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent alignItemWithTrigger={false}>
+        <SelectGroup>
+          <SelectItem value='token'>{t('Per token')}</SelectItem>
+          <SelectItem value='request'>{t('Per-call')}</SelectItem>
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  )
+  if (props.billingUnit === 'request') {
+    return (
+      <>
+        {billingControl}
+        <PriceField
+          currency={props.currency}
+          label={t('Price per request')}
+          value={props.fixedPrice ?? ''}
+          onChange={(value) => props.onFixedPriceChange?.(value)}
+          hint={`${props.currency.symbol}/${t('request')}`}
+          invalid={props.invalidVariables?.includes('fixed')}
+        />
+      </>
+    )
+  }
   return (
     <>
+      {billingControl}
       <div className='space-y-2'>
         <div className='flex items-center justify-between gap-3'>
           <Label className='text-sm font-semibold'>{t('Token prices')}</Label>

@@ -163,5 +163,64 @@
     },
     "cost": 22,
     "tier": "base"
+  },
+  {
+    "name": "fixed request with zero usage",
+    "expression": "tier(\"request\", fixed(0.01))",
+    "cost": 10000,
+    "tier": "request",
+    "billingUnit": "request",
+    "fixedPrice": 0.01
+  },
+  {
+    "name": "explicit free request",
+    "expression": "tier(\"free\", fixed(0))",
+    "tokens": {
+      "p": 1000
+    },
+    "cost": 0,
+    "tier": "free",
+    "billingUnit": "request",
+    "fixedPrice": 0
+  },
+  {
+    "name": "mixed expression token fallback",
+    "expression": "len <= 32000 ? tier(\"short\", fixed(0.01)) : tier(\"long\", p * 2 + c * 8)",
+    "tokens": {
+      "p": 32001,
+      "c": 100,
+      "len": 32001
+    },
+    "cost": 64802,
+    "tier": "long",
+    "billingUnit": "token"
+  },
+  {
+    "name": "fixed request with multiplier",
+    "expression": "(len <= 32000 ? tier(\"short\", fixed(0.01)) : tier(\"long\", p * 2 + c * 8)) * (param(\"fast\") == true ? 2 : 1)",
+    "tokens": {
+      "len": 1
+    },
+    "body": {
+      "fast": true
+    },
+    "cost": 20000,
+    "tier": "short",
+    "multipliers": [
+      2
+    ],
+    "matched": [
+      true
+    ],
+    "billingUnit": "request",
+    "fixedPrice": 0.01
+  },
+  {
+    "name": "fixed time condition",
+    "expression": "hour(\"Asia/Shanghai\") >= 0 && hour(\"Asia/Shanghai\") < 24 ? tier(\"today\", fixed(0.02)) : tier(\"fallback\", p * 2)",
+    "cost": 20000,
+    "tier": "today",
+    "billingUnit": "request",
+    "fixedPrice": 0.02
   }
 ]

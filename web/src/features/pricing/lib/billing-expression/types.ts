@@ -39,6 +39,7 @@ export const TIME_FUNCTIONS = [
 export type TimeFunction = (typeof TIME_FUNCTIONS)[number]
 export const BILLING_FUNCTIONS: Readonly<Record<string, number>> = {
   tier: 2,
+  fixed: 1,
   param: 1,
   header: 1,
   has: 2,
@@ -134,6 +135,8 @@ export type BillingEvaluationResult =
       status: 'success'
       /** Token expressions are unscaled; task expressions already return cost. */
       cost: number
+      billingUnit: 'token' | 'request'
+      fixedPrice?: number
       matchedTier: string
       requestRules: BillingRequestRule[]
     }

@@ -85,14 +85,25 @@ export function ModelPriceCell(props: {
         </span>
       )
     }
-    metrics = dynamic.primaryEntries.slice(0, 2).map((entry) => {
-      const unit = getDynamicPriceUnitLabelKey(entry)
-      return {
-        label:
-          entry.labelKind === 'schema' ? entry.shortLabel : t(entry.shortLabel),
-        value: `${entry.formattedRange ?? entry.formatted}${unit ? `/${t(unit)}` : ''}`,
-      }
-    })
+    const hasRequestPrice = dynamic.primaryEntries.some(
+      (entry) => entry.unit === 'request'
+    )
+    metrics = dynamic.primaryEntries
+      .slice(0, hasRequestPrice ? 3 : 2)
+      .map((entry) => {
+        const unit = getDynamicPriceUnitLabelKey(entry)
+        let suffix = unit ? `/${t(unit)}` : ''
+        if (hasRequestPrice && entry.unit === 'token') {
+          suffix = `/${t('{{unit}} tokens', { unit: tokenUnitLabel })}`
+        }
+        return {
+          label:
+            entry.labelKind === 'schema'
+              ? entry.shortLabel
+              : t(entry.shortLabel),
+          value: `${entry.formattedRange ?? entry.formatted}${suffix}`,
+        }
+      })
     if (metrics.length === 0) {
       return (
         <span className='text-muted-foreground text-sm'>
@@ -100,8 +111,11 @@ export function ModelPriceCell(props: {
         </span>
       )
     }
+    if (dynamic.isTaskUsage || hasRequestPrice) caption = currencyLabel
     if (dynamic.isTimePricing) caption += ` · ${t('Current period price')}`
-    if (dynamic.isTaskUsage) caption = currencyLabel
+    if (dynamic.isMixedBilling) {
+      caption += ` · ${t('Token or per-call pricing')}`
+    }
     if (dynamic.tierCount > 1) {
       caption += ` · ${t('{{count}} tiers', { count: dynamic.tierCount })}`
     }

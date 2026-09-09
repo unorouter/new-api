@@ -737,6 +737,11 @@ function PriceSection(props: {
     return (
       <section>
         <SectionTitle>{t('Base Price')}</SectionTitle>
+        {dynamicSummary.isMixedBilling && (
+          <p className='text-muted-foreground mb-2 text-xs'>
+            {t('Token or per-call pricing')}
+          </p>
+        )}
         {dynamicSummary.primaryEntries.length > 0 ? (
           <div
             className={cn(
@@ -1024,6 +1029,9 @@ function GroupPricingSection(props: {
           props.model.billing_usage_schema
         )
       : getDynamicPricingTiers(props.model)
+    const hasRequestPrice = dynamicTiers.some(
+      (tier) => !('unitPrices' in tier) && tier.billingUnit === 'request'
+    )
 
     if (dynamicTiers.length === 0) {
       return (
@@ -1147,6 +1155,12 @@ function GroupPricingSection(props: {
                     ...priceFields.map((fieldEntry) => {
                       const unitLabelKey =
                         getDynamicPriceUnitLabelKey(fieldEntry)
+                      let unitLabel = unitLabelKey ? t(unitLabelKey) : ''
+                      if (!unitLabel && hasRequestPrice) {
+                        unitLabel = t('{{unit}} tokens', {
+                          unit: tokenUnitLabel,
+                        })
+                      }
                       const fieldLabel =
                         fieldEntry.labelKind === 'schema' ? (
                           <DynamicPriceEntryLabel entry={fieldEntry} />
@@ -1155,10 +1169,10 @@ function GroupPricingSection(props: {
                         )
                       return {
                         id: fieldEntry.field,
-                        header: unitLabelKey ? (
+                        header: unitLabel ? (
                           <>
                             {fieldLabel}
-                            {` / ${t(unitLabelKey)}`}
+                            {` / ${unitLabel}`}
                           </>
                         ) : (
                           fieldLabel
@@ -1217,7 +1231,9 @@ function GroupPricingSection(props: {
             )
           })}
           <p className='text-muted-foreground/40 mt-1.5 text-[10px]'>
-            {dynamicTiers.some((tier) => 'unitPrices' in tier)
+            {dynamicTiers.some(
+              (tier) => 'unitPrices' in tier || tier.billingUnit === 'request'
+            )
               ? t('Prices shown per usage unit')
               : `${t('Prices shown per')} ${tokenUnitLabel} tokens`}
           </p>

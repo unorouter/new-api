@@ -29,6 +29,114 @@ const expression =
   'weekday("Asia/Shanghai") >= 1 && weekday("Asia/Shanghai") <= 5 && ((hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 12) || (hour("Asia/Shanghai") >= 14 && hour("Asia/Shanghai") < 18))\n  ? tier("peak", p * 3 + cr * 0.10 + c * 9)\n  : tier("off_peak", p * 1.5 + cr * 0.05 + c * 4.5)'
 
 describe('visual time billing editor', () => {
+  test.each([
+    ['simple tiers', 'tier("base", p * 2 + c * 8)', '2'],
+    ['condition tree', expression, '3'],
+  ])(
+    'switches %s between token and request prices while preserving drafts',
+    async (_name, source, tokenPrice) => {
+      const onBillingExprChange = vi.fn()
+      const onRequestRuleExprChange = vi.fn()
+      render(
+        <TieredPricingEditor
+          billingExpr={source}
+          requestRuleExpr='(param("fast") == true ? 2 : 1)'
+          onBillingExprChange={onBillingExprChange}
+          onRequestRuleExprChange={onRequestRuleExprChange}
+        />
+      )
+      const user = userEvent.setup()
+      await user.click(
+        screen.getAllByRole('combobox', { name: 'Tier billing mode' })[0]
+      )
+      await user.click(screen.getByRole('option', { name: 'Per-call' }))
+      expect(
+        screen.getByRole('textbox', { name: 'Price per request' })
+      ).toHaveValue('')
+      expect(screen.getAllByRole('alert').length).toBeGreaterThan(0)
+      expect(onBillingExprChange).not.toHaveBeenCalled()
+      fireEvent.change(
+        screen.getByRole('textbox', { name: 'Price per request' }),
+        { target: { value: '0.02' } }
+      )
+      expect(onBillingExprChange.mock.lastCall?.[0]).toContain('fixed(0.02)')
+      await user.click(
+        screen.getAllByRole('combobox', { name: 'Tier billing mode' })[0]
+      )
+      await user.click(screen.getByRole('option', { name: 'Per token' }))
+      expect(
+        screen.getAllByRole('textbox', { name: 'Input price' })[0]
+      ).toHaveValue(tokenPrice)
+      await user.click(
+        screen.getAllByRole('combobox', { name: 'Tier billing mode' })[0]
+      )
+      await user.click(screen.getByRole('option', { name: 'Per-call' }))
+      expect(
+        screen.getByRole('textbox', { name: 'Price per request' })
+      ).toHaveValue('0.02')
+      fireEvent.change(
+        screen.getByRole('textbox', { name: 'Price per request' }),
+        { target: { value: '0' } }
+      )
+      expect(onBillingExprChange.mock.lastCall?.[0]).toContain('fixed(0)')
+      expect(onRequestRuleExprChange).not.toHaveBeenCalled()
+    }
+  )
+  test('converts request price input currency without rewriting untouched USD prices', () => {
+    const onBillingExprChange = vi.fn()
+    const props = {
+      billingExpr: 'tier("request", fixed(0.0100))',
+      requestRuleExpr: '',
+      onBillingExprChange,
+      onRequestRuleExprChange: vi.fn(),
+    }
+    const { rerender } = render(
+      <TieredPricingEditor
+        {...props}
+        currency={{ label: 'CNY', symbol: '¥', exchangeRate: 7 }}
+      />
+    )
+    expect(
+      screen.getByRole('textbox', { name: 'Price per request' })
+    ).toHaveValue('0.07')
+    expect(onBillingExprChange).not.toHaveBeenCalled()
+    fireEvent.change(
+      screen.getByRole('textbox', { name: 'Price per request' }),
+      { target: { value: '0.14' } }
+    )
+    expect(onBillingExprChange).toHaveBeenLastCalledWith(
+      'tier("request", fixed(0.02))'
+    )
+    rerender(
+      <TieredPricingEditor
+        {...props}
+        currency={{ label: 'USD', symbol: '$', exchangeRate: 1 }}
+      />
+    )
+    expect(
+      screen.getByRole('textbox', { name: 'Price per request' })
+    ).toHaveValue('0.02')
+    expect(onBillingExprChange).toHaveBeenCalledTimes(1)
+  })
+  test('opens mixed request and token prices visually without rewriting the expression', () => {
+    const onBillingExprChange = vi.fn()
+    render(
+      <TieredPricingEditor
+        billingExpr='len <= 32000 ? tier("short", fixed(0.01)) : tier("long", p * 2 + c * 8)'
+        requestRuleExpr=''
+        onBillingExprChange={onBillingExprChange}
+        onRequestRuleExprChange={vi.fn()}
+      />
+    )
+    const tier = screen.getByRole('group', { name: 'Pricing tier short' })
+    expect(
+      within(tier).getByRole('textbox', { name: 'Price per request' })
+    ).toHaveValue('0.01')
+    expect(
+      within(tier).queryByRole('textbox', { name: 'Input price' })
+    ).not.toBeInTheDocument()
+    expect(onBillingExprChange).not.toHaveBeenCalled()
+  })
   test('opens group actions by keyboard and returns focus when dismissed', async () => {
     const onBillingExprChange = vi.fn()
     render(

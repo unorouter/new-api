@@ -33,6 +33,8 @@ export type TokenTierCondition = {
   value: number
 }
 export type TokenTier = {
+  billingUnit?: 'token' | 'request'
+  fixedPrice?: number
   label: string
   conditions: TokenTierCondition[]
   prices: Partial<Record<TokenVariable, number>>
@@ -108,6 +110,21 @@ function tokenTier(
     return null
   }
   const prices: TokenTier['prices'] = {}
+  const body = node.args[1]
+  if (
+    body.kind === 'call' &&
+    body.name === 'fixed' &&
+    body.args[0].kind === 'literal' &&
+    typeof body.args[0].value === 'number'
+  ) {
+    return {
+      label: node.args[0].value,
+      conditions,
+      prices,
+      billingUnit: 'request',
+      fixedPrice: body.args[0].value,
+    }
+  }
   for (const term of flattenBinary(node.args[1], '+')) {
     if (
       term.kind !== 'binary' ||

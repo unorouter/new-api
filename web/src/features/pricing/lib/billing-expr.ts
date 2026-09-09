@@ -250,6 +250,8 @@ export type TierCondition = {
 }
 
 export type ParsedTier = {
+  billingUnit?: 'token' | 'request'
+  fixedPrice?: number
   conditionText?: string
   label: string
   conditions: TierCondition[]
@@ -278,6 +280,9 @@ function mapTokenTier(
   return {
     label: tier.label,
     conditions: tier.conditions,
+    ...(tier.billingUnit === 'request'
+      ? { billingUnit: tier.billingUnit, fixedPrice: tier.fixedPrice }
+      : {}),
     ...(tier.conditionText ? { conditionText: tier.conditionText } : {}),
     ...Object.fromEntries(
       Object.entries(tier.prices).map(([key, price]) => [
