@@ -31,10 +31,10 @@ type ModelPricingChange struct {
 }
 
 type ModelPricingEntry struct {
+	ModelPricingDescription
 	ModelName   string                               `json:"model_name"`
 	Version     string                               `json:"version"`
 	Configured  PricingValues                        `json:"configured"`
-	Effective   PricingValues                        `json:"effective"`
 	UsageSchema map[string]jsplugin.UsageFieldSchema `json:"usage_schema,omitempty"`
 }
 
@@ -121,7 +121,8 @@ func effectiveModelPricing(values map[string]map[string]any, name string) Pricin
 	result := modelPricingValues(values, name)
 	// Legacy wildcard aliases are resolved by the same normalization as relay.
 	alias := ratio_setting.FormatMatchingModelName(name)
-	for _, key := range modelPricingOptionKeys[:8] {
+	for _, key := range []string{"ModelPrice", "ModelRatio", "CompletionRatio", "AudioRatio", "AudioCompletionRatio"} {
+		delete(result, key)
 		if value, exists := values[key][alias]; exists {
 			result[key] = value
 		}
@@ -151,11 +152,43 @@ func effectiveModelPricing(values map[string]map[string]any, name string) Pricin
 	}
 	// Completion ratios include engine-enforced model defaults. Expose their
 	// effective value without persisting them into the editable configuration.
-	completion := ratio_setting.GetCompletionRatioInfo(name)
-	if _, exists := result["CompletionRatio"]; !exists || completion.Locked {
-		result["CompletionRatio"] = completion.Ratio
+	var configuredCompletion *float64
+	if ratio, exists := result["CompletionRatio"].(float64); exists {
+		configuredCompletion = &ratio
+	}
+	result["CompletionRatio"] = ratio_setting.ResolveCompletionRatio(name, configuredCompletion).Ratio
+	for key, fallback := range map[string]float64{
+		"CacheRatio":       ratio_setting.DefaultCacheRatio,
+		"CreateCacheRatio": ratio_setting.DefaultCreateCacheRatio,
+		"ImageRatio":       ratio_setting.DefaultImageRatio,
+	} {
+		if _, exists := result[key]; !exists {
+			result[key] = fallback
+		}
 	}
 	return result
+}
+
+// PreviewModelPricing resolves a complete editable draft using the same defaults
+// as the saved-price display and conversion. It has no write side effects.
+func PreviewModelPricing(name string, draft PricingValues) (PricingValues, error) {
+	if draft == nil {
+		return nil, errors.New("pricing draft is required")
+	}
+	if err := ValidateModelPricing(name, draft); err != nil {
+		return nil, err
+	}
+	values, _, _, err := readModelPricingMaps(DB)
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range modelPricingOptionKeys {
+		delete(values[key], name)
+		if value, exists := draft[key]; exists {
+			values[key][name] = value
+		}
+	}
+	return effectiveModelPricing(values, name), nil
 }
 
 func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
@@ -182,7 +215,10 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 	generation := jsplugin.DefaultRegistry.Generation()
 	for _, name := range names {
 		configured := modelPricingValues(values, name)
-		entry := ModelPricingEntry{ModelName: name, Version: ModelPricingVersion(configured), Configured: configured, Effective: effectiveModelPricing(values, name)}
+		entry := ModelPricingEntry{ModelName: name, Version: ModelPricingVersion(configured), Configured: configured,
+			ModelPricingDescription: ModelPricingDescription{Effective: effectiveModelPricing(values, name)}}
+		entry.CacheWriteMode = ResolveCacheWriteMode(name, configured)
+		entry.BillingDetails = ResolveLegacyBillingDetails(name, entry.Effective, configured)
 		if plugin, ok := generation.GetByModel(name); ok {
 			entry.UsageSchema = plugin.Meta.UsageSchema
 		} else if target, ok := ResolveTaskModelAlias(generation, name); ok {
