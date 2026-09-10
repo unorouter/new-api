@@ -67,7 +67,10 @@ var upstreamRules = []upstreamRule{
 	// Any host, the lane cannot serve this model's requests at all (unsupported
 	// parameter, wrong model id, audio model behind a chat route): deterministic
 	// for this lane only, so fail over AND let the rate guard pull it.
-	{markers: []string{"does not support the requested parameter", "input should be '", "does not support chat completions"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure}},
+	{markers: []string{"does not support the requested parameter", "input should be '"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure}},
+	// Any host, the client called an audio model on the chat route: every sibling
+	// answers the same, and the lane did nothing wrong.
+	{markers: []string{"does not support chat completions"}, class: UpstreamClass{Known: true, Failover: false, Count: CountNone}},
 }
 
 func upstreamHost(baseURL string) string {
