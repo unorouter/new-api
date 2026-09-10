@@ -36,7 +36,13 @@ type ChannelSettings struct {
 	// non-streamed paid traffic against 0.8% everywhere else. The global switch
 	// (general_setting.force_upstream_streaming_enabled) still forces it for all
 	// channels; this is the per-channel opt-in.
-	ForceUpstreamStream  bool                 `json:"force_upstream_stream,omitempty"`
+	ForceUpstreamStream bool `json:"force_upstream_stream,omitempty"`
+	// MaxConcurrency caps in-flight requests on this channel and MaxRPS its
+	// request rate; a saturated channel is passed over like a cooled one. Zero
+	// means unlimited. AI Horde documents 2 req/s and 30 parallel per key and
+	// answered 190k requests a week with 429 for want of this.
+	MaxConcurrency       int                  `json:"max_concurrency,omitempty"`
+	MaxRPS               float64              `json:"max_rps,omitempty"`
 	SystemPrompt         string               `json:"system_prompt,omitempty"`
 	SystemPromptOverride bool                 `json:"system_prompt_override,omitempty"`
 	Capabilities         *ChannelCapabilities `json:"capabilities,omitempty"`
