@@ -816,9 +816,13 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// The upstream's own text decides before the status-code rules: a rate limit
 	// counts nothing, a lane-fatal state disables now, the rest feeds the guard.
 	class := service.ClassifyUpstreamError(c.GetString(string(constant.ContextKeyChannelBaseUrl)), err)
+	// A credential fault keeps its immediate disable: a drained key does not recover.
+	if service.IsCredentialFault(err) {
+		class = service.UpstreamClass{}
+	}
 	if class.Known {
 		shouldDisable = class.DisableNow || class.Count == service.CountFailure
-		if class.Count == service.CountNone {
+		if class.Cooldown && !class.DisableNow {
 			if d := service.CoolLane(channelError.ChannelId); d > 0 {
 				logger.LogInfo(c, fmt.Sprintf("channel-guard: lane #%d (%s) cooled for %s: %s", channelError.ChannelId, channelError.ChannelName, d, common.LocalLogPreview(err.Error())))
 			}
