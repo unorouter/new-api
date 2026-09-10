@@ -303,6 +303,8 @@ func TestClassifyUpstreamError(t *testing.T) {
 		{"audio model on the chat route is the caller's fault", "https://api.groq.com", mk("The model `whisper-large-v3-turbo` does not support chat completions", 400), UpstreamClass{Known: true, Failover: false, Count: CountNone}},
 		{"unknown 504 counts and cools", "https://marketplace.example", mk("bad response status code 504", 504), UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
 		{"unknown 400 stays generic", "https://api.example", mk("invalid model", 400), UpstreamClass{}},
+		{"a6 context over the merchant cap", "https://marketplace.example", mk("请求内容过大。 原因：本次上下文、附件或输出预算超过了可处理范围。", 413), UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}},
+		{"any 413 teaches the cap", "https://api.example", mk("request entity too large", 413), UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}},
 	}
 	for _, tc := range cases {
 		assert.Equal(t, tc.want, ClassifyUpstreamError(tc.host, tc.err), tc.name)
