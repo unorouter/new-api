@@ -424,6 +424,9 @@ export type OperationsSettings = {
   'monitor_setting.channel_probation_min_samples': number
   'monitor_setting.channel_reenable_probe_passes': number
   'monitor_setting.channel_paid_reenable_hold_seconds': number
+  'monitor_setting.channel_cooldown_base_seconds': number
+  'monitor_setting.channel_cooldown_max_seconds': number
+  'monitor_setting.provider_cooldown_seconds': number
   SMTPServer: string
   SMTPPort: string
   SMTPAccount: string

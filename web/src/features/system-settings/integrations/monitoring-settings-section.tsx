@@ -132,6 +132,18 @@ const monitoringSchema = z
         .number()
         .int()
         .min(0, 'Seconds must be 0 or more'),
+      channel_cooldown_base_seconds: z.coerce
+        .number()
+        .int()
+        .min(0, 'Seconds must be 0 or more'),
+      channel_cooldown_max_seconds: z.coerce
+        .number()
+        .int()
+        .min(0, 'Seconds must be 0 or more'),
+      provider_cooldown_seconds: z.coerce
+        .number()
+        .int()
+        .min(0, 'Seconds must be 0 or more'),
     }),
   })
   .superRefine((values, ctx) => {
@@ -196,6 +208,9 @@ type MonitoringSettingsSectionProps = {
     'monitor_setting.channel_probation_min_samples': number
     'monitor_setting.channel_reenable_probe_passes': number
     'monitor_setting.channel_paid_reenable_hold_seconds': number
+  'monitor_setting.channel_cooldown_base_seconds': number
+  'monitor_setting.channel_cooldown_max_seconds': number
+  'monitor_setting.provider_cooldown_seconds': number
   }
 }
 
@@ -233,6 +248,9 @@ type NormalizedMonitoringValues = {
   'monitor_setting.channel_probation_min_samples': number
   'monitor_setting.channel_reenable_probe_passes': number
   'monitor_setting.channel_paid_reenable_hold_seconds': number
+  'monitor_setting.channel_cooldown_base_seconds': number
+  'monitor_setting.channel_cooldown_max_seconds': number
+  'monitor_setting.provider_cooldown_seconds': number
 }
 
 const buildFormDefaults = (
@@ -293,6 +311,12 @@ const buildFormDefaults = (
       defaults['monitor_setting.channel_reenable_probe_passes'],
     channel_paid_reenable_hold_seconds:
       defaults['monitor_setting.channel_paid_reenable_hold_seconds'],
+    channel_cooldown_base_seconds:
+      defaults['monitor_setting.channel_cooldown_base_seconds'],
+    channel_cooldown_max_seconds:
+      defaults['monitor_setting.channel_cooldown_max_seconds'],
+    provider_cooldown_seconds:
+      defaults['monitor_setting.provider_cooldown_seconds'],
   },
 })
 
@@ -357,6 +381,12 @@ const normalizeDefaults = (
     defaults['monitor_setting.channel_reenable_probe_passes'],
   'monitor_setting.channel_paid_reenable_hold_seconds':
     defaults['monitor_setting.channel_paid_reenable_hold_seconds'],
+  'monitor_setting.channel_cooldown_base_seconds':
+    defaults['monitor_setting.channel_cooldown_base_seconds'],
+  'monitor_setting.channel_cooldown_max_seconds':
+    defaults['monitor_setting.channel_cooldown_max_seconds'],
+  'monitor_setting.provider_cooldown_seconds':
+    defaults['monitor_setting.provider_cooldown_seconds'],
 })
 
 const normalizeFormValues = (
@@ -418,6 +448,12 @@ const normalizeFormValues = (
     values.monitor_setting.channel_reenable_probe_passes,
   'monitor_setting.channel_paid_reenable_hold_seconds':
     values.monitor_setting.channel_paid_reenable_hold_seconds,
+  'monitor_setting.channel_cooldown_base_seconds':
+    values.monitor_setting.channel_cooldown_base_seconds,
+  'monitor_setting.channel_cooldown_max_seconds':
+    values.monitor_setting.channel_cooldown_max_seconds,
+  'monitor_setting.provider_cooldown_seconds':
+    values.monitor_setting.provider_cooldown_seconds,
 })
 
 export function MonitoringSettingsSection({
@@ -1374,6 +1410,108 @@ export function MonitoringSettingsSection({
                   <FormDescription>
                     {t(
                       'Minimum time a paid lane (group ratio above 0) stays auto-disabled. Skipped when its models have no other enabled channel. 0 turns the hold off.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='monitor_setting.channel_cooldown_base_seconds'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Lane cooldown base (seconds)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      step={10}
+                      value={
+                        typeof field.value === 'number' &&
+                        Number.isFinite(field.value)
+                          ? field.value
+                          : ''
+                      }
+                      onChange={(event) =>
+                        field.onChange(event.target.valueAsNumber)
+                      }
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'First skip after a rate limit or capacity error; each repeat doubles it. The lane stays enabled and is tried again when the cooldown ends. 0 turns cooldowns off.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='monitor_setting.channel_cooldown_max_seconds'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Lane cooldown cap (seconds)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      step={60}
+                      value={
+                        typeof field.value === 'number' &&
+                        Number.isFinite(field.value)
+                          ? field.value
+                          : ''
+                      }
+                      onChange={(event) =>
+                        field.onChange(event.target.valueAsNumber)
+                      }
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Longest a lane is skipped by the exponential cooldown.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='monitor_setting.provider_cooldown_seconds'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Provider cooldown (seconds)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      step={10}
+                      value={
+                        typeof field.value === 'number' &&
+                        Number.isFinite(field.value)
+                          ? field.value
+                          : ''
+                      }
+                      onChange={(event) =>
+                        field.onChange(event.target.valueAsNumber)
+                      }
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'How long every lane of a provider is skipped after it reports a platform-wide throttle.'
                     )}
                   </FormDescription>
                   <FormMessage />

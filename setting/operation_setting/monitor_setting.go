@@ -58,6 +58,11 @@ type MonitorSetting struct {
 	// Minimum seconds a paid lane (group ratio > 0) stays auto-disabled, 0 = none.
 	// Skipped when none of the lane's models has another enabled channel.
 	ChannelPaidReenableHoldSeconds int `json:"channel_paid_reenable_hold_seconds"`
+	// Transient faults skip the lane for a growing cooldown instead of disabling it;
+	// a provider-wide throttle skips every lane of that host.
+	ChannelCooldownBaseSeconds int `json:"channel_cooldown_base_seconds"`
+	ChannelCooldownMaxSeconds  int `json:"channel_cooldown_max_seconds"`
+	ProviderCooldownSeconds    int `json:"provider_cooldown_seconds"`
 }
 
 const (
@@ -101,6 +106,9 @@ var monitorSetting = MonitorSetting{
 	ChannelProbationMinSamples:       5,
 	ChannelReenableProbePasses:       1,
 	ChannelPaidReenableHoldSeconds:   0,
+	ChannelCooldownBaseSeconds:       30,
+	ChannelCooldownMaxSeconds:        600,
+	ProviderCooldownSeconds:          60,
 }
 
 func init() {
