@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/notify"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
@@ -391,7 +392,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// that counter on every group switch, so only a tally the switch cannot reach
 	// bounds the whole chain.
 	attempts := 0
-	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
+	retryBudget := common.RetryTimes
+	if notify.IsFreeModel(relayInfo.OriginModelName) && common.FreeRetryTimes > retryBudget {
+		retryBudget = common.FreeRetryTimes
+	}
+	for ; retryParam.GetRetry() <= retryBudget; retryParam.IncreaseRetry() {
 		if attempts >= common.MaxTotalRelayAttempts {
 			logger.LogError(c, fmt.Sprintf("relay attempt ceiling reached (%d attempts across groups), giving up", attempts))
 			break
@@ -483,7 +488,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 
-		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
+		if !shouldRetry(c, newAPIError, retryBudget-retryParam.GetRetry()) {
 			break
 		}
 	}
