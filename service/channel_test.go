@@ -297,6 +297,7 @@ func TestClassifyUpstreamError(t *testing.T) {
 		{"a6 text on another host is generic", "https://other-upstream.example", mk("原因：您固定的商家当前处于繁忙", 400), UpstreamClass{}},
 		{"horde rate limit", "https://aihorde.net", mk(`{"message":"2 per 1 second"}`, 429), UpstreamClass{Known: true, Failover: true, Count: CountNone}},
 		{"unsupported parameter is lane-dead", "https://tokenhub.example", mk("Model kinfra-text-embedding-4b does not support the requested parameter", 400), UpstreamClass{Known: true, Failover: true, Count: CountFailure}},
+		{"audio model on the chat route is the caller's fault", "https://api.groq.com", mk("The model `whisper-large-v3-turbo` does not support chat completions", 400), UpstreamClass{Known: true, Failover: false, Count: CountNone}},
 		{"unknown text", "https://marketplace.example", mk("bad response status code 504", 504), UpstreamClass{}},
 	}
 	for _, tc := range cases {
