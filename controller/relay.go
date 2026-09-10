@@ -468,6 +468,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError = relayHandler(c, relayInfo)
 		}
 
+		service.ReleaseLane(channel)
+
 		if newAPIError == nil {
 			relayInfo.LastError = nil
 			// Denominator for every rate-based disable gate, so it must be recorded
@@ -597,20 +599,36 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			skipCooled[id] = true
 		}
 	}
-	for hops := 0; hops < 8 && err == nil && channel != nil && (service.LaneCooled(channel.Id) || service.HostCooled(service.UpstreamHostOf(channel.GetBaseURL()))); hops++ {
-		if cooled == nil {
-			cooled, cooledGroup = channel, selectGroup
+	// A saturated lane (its own concurrency or rate cap) is skipped the same way,
+	// but never used as the fallback: the cap is what keeps the upstream from
+	// answering 429 to everyone.
+	acquired := false
+	for hops := 0; hops < 8 && err == nil && channel != nil; hops++ {
+		if service.LaneCooled(channel.Id) || service.HostCooled(service.UpstreamHostOf(channel.GetBaseURL())) {
+			if cooled == nil {
+				cooled, cooledGroup = channel, selectGroup
+			}
+		} else if service.TryAcquireLane(channel) {
+			acquired = true
+			break
 		}
 		skipCooled[channel.Id] = true
 		channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam, skipCooled)
 	}
-	if (err != nil || channel == nil) && cooled != nil {
-		channel, selectGroup, err = cooled, cooledGroup, nil
+	if !acquired && cooled != nil && service.TryAcquireLane(cooled) {
+		channel, selectGroup, err, acquired = cooled, cooledGroup, nil, true
 	}
 	// Excluding the tried channels can empty the candidate set when the model has no
 	// untried sibling left; retrying the same channel still beats failing outright.
-	if (err != nil || channel == nil) && len(skipChannels) > 0 && len(skipChannels[0]) > 0 {
+	if !acquired && len(skipChannels) > 0 && len(skipChannels[0]) > 0 {
 		channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
+		if err == nil && channel != nil && !service.TryAcquireLane(channel) {
+			channel = nil
+		}
+		acquired = err == nil && channel != nil
+	}
+	if !acquired {
+		channel = nil
 	}
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
@@ -652,6 +670,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
 	if newAPIError != nil {
+		service.ReleaseLane(channel)
 		return nil, newAPIError
 	}
 	return channel, nil
