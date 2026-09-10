@@ -587,6 +587,26 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		}, nil
 	}
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam, skipChannels...)
+	// A lane or provider under cooldown stays enabled but is passed over while a
+	// sibling can serve; when nothing else can, the cooled lane still beats no lane.
+	var cooled *model.Channel
+	cooledGroup := selectGroup
+	skipCooled := map[int]bool{}
+	for _, tried := range skipChannels {
+		for id := range tried {
+			skipCooled[id] = true
+		}
+	}
+	for hops := 0; hops < 8 && err == nil && channel != nil && (service.LaneCooled(channel.Id) || service.HostCooled(service.UpstreamHostOf(channel.GetBaseURL()))); hops++ {
+		if cooled == nil {
+			cooled, cooledGroup = channel, selectGroup
+		}
+		skipCooled[channel.Id] = true
+		channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam, skipCooled)
+	}
+	if (err != nil || channel == nil) && cooled != nil {
+		channel, selectGroup, err = cooled, cooledGroup, nil
+	}
 	// Excluding the tried channels can empty the candidate set when the model has no
 	// untried sibling left; retrying the same channel still beats failing outright.
 	if (err != nil || channel == nil) && len(skipChannels) > 0 && len(skipChannels[0]) > 0 {
@@ -774,6 +794,17 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	class := service.ClassifyUpstreamError(c.GetString(string(constant.ContextKeyChannelBaseUrl)), err)
 	if class.Known {
 		shouldDisable = class.DisableNow || class.Count == service.CountFailure
+		if class.Count == service.CountNone {
+			if d := service.CoolLane(channelError.ChannelId); d > 0 {
+				logger.LogInfo(c, fmt.Sprintf("channel-guard: lane #%d (%s) cooled for %s: %s", channelError.ChannelId, channelError.ChannelName, d, common.LocalLogPreview(err.Error())))
+			}
+		}
+		if class.Provider {
+			host := service.UpstreamHostOf(c.GetString(string(constant.ContextKeyChannelBaseUrl)))
+			if d := service.CoolHost(host); d > 0 {
+				logger.LogInfo(c, fmt.Sprintf("channel-guard: provider %s cooled for %s: %s", host, d, common.LocalLogPreview(err.Error())))
+			}
+		}
 	}
 	// PROD-ONLY (fork): spare non-recoverable media/native-image channels from disable on
 	// user-caused request errors (the channel-test cron has no probe path for them, so a
