@@ -26,6 +26,9 @@ type UpstreamClass struct {
 	DisableNow bool
 	// Provider marks a fault every lane of the host shares right now.
 	Provider bool
+	// Cooldown skips the lane for a growing period even when the failure still
+	// counts: a flapping upstream is passed over, a dead one still trips the guard.
+	Cooldown bool
 }
 
 type upstreamRule struct {
@@ -44,11 +47,11 @@ type upstreamRule struct {
 var upstreamRules = []upstreamRule{
 	// marketplace, platform-wide protective throttle: every a6 lane answers the same 503
 	// for the next seconds, so counting it per lane mass-disables healthy merchants.
-	{host: "marketplace.example", markers: []string{"平台正在进行保护性限流"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Provider: true}},
+	{host: "marketplace.example", markers: []string{"平台正在进行保护性限流"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true, Provider: true}},
 	// marketplace, request over this merchant's context budget: another merchant serves it.
-	{host: "marketplace.example", markers: []string{"超过了可处理范围"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone}},
+	{host: "marketplace.example", markers: []string{"超过了可处理范围"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}},
 	// marketplace, merchant rate limited.
-	{host: "marketplace.example", markers: []string{"该商家上游正在限流"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone}},
+	{host: "marketplace.example", markers: []string{"该商家上游正在限流"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}},
 	// marketplace, the merchant is fused on their side for a cooldown: every further try
 	// during it fails, so the lane leaves rotation now and the probe brings it back.
 	{host: "marketplace.example", markers: []string{"熔断冷却"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}},
@@ -63,7 +66,7 @@ var upstreamRules = []upstreamRule{
 	// Any host, rate limits and capacity: fail over, count nothing. AI Horde alone
 	// produced 190k of these in a week; each one disabled a lane the probe
 	// re-enabled five minutes later.
-	{markers: []string{"per 1 second", "parallel requests (", "rate limit reached", "rate limit exceeded", "resource has been exhausted", "temporarily overloaded", "this model is busy right now", "rate_limit_exceeded"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone}},
+	{markers: []string{"per 1 second", "parallel requests (", "rate limit reached", "rate limit exceeded", "resource has been exhausted", "temporarily overloaded", "this model is busy right now", "rate_limit_exceeded"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}},
 	// Any host, the lane cannot serve this model's requests at all (unsupported
 	// parameter, wrong model id, audio model behind a chat route): deterministic
 	// for this lane only, so fail over AND let the rate guard pull it.
@@ -90,8 +93,8 @@ func ClassifyUpstreamError(baseURL string, err *types.NewAPIError) UpstreamClass
 	}
 	// Our own first-byte deadline on the lane: the upstream was slow, not broken,
 	// and the largest error class of all (176k a week) must fail over and cool.
-	if err.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded {
-		return UpstreamClass{Known: true, Failover: true, Count: CountNone}
+	if err.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded || err.GetErrorCode() == types.ErrorCodeChannelEmptyResponse {
+		return UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}
 	}
 	if err.GetErrorType() == types.ErrorTypeNewAPIError {
 		return UpstreamClass{}
@@ -107,6 +110,16 @@ func ClassifyUpstreamError(baseURL string, err *types.NewAPIError) UpstreamClass
 				return rule.class
 			}
 		}
+	}
+	// Status defaults for texts no rule names. Every upstream 429 is a limit of
+	// some kind (rpm, tpm, shards, daily quota): nothing about the lane is broken.
+	// A 5xx is capacity or a real fault; the rate guard tells them apart over the
+	// window, the cooldown keeps the lane out of rotation while it decides.
+	switch {
+	case err.StatusCode == 429:
+		return UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}
+	case err.StatusCode >= 500 && err.StatusCode <= 504, err.StatusCode >= 520 && err.StatusCode <= 530:
+		return UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}
 	}
 	return UpstreamClass{}
 }
