@@ -1,13 +1,13 @@
 package channel
 
 import (
-	"strconv"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -513,6 +513,13 @@ func firstTokenDeadline(c *gin.Context, info *common.RelayInfo) time.Duration {
 	}
 	perAttempt := hosttypes.ClampFirstTokenSeconds(info.UserSetting.MaxFirstTokenSeconds)
 	chain := hosttypes.ClampFirstTokenSeconds(info.UserSetting.MaxChainFirstTokenSeconds)
+	// A free lane may not eat the whole chain budget on its first byte: with a
+	// third of it per attempt, two more lanes still fit before the chain gives up.
+	if chain > 0 && strings.HasSuffix(strings.ToLower(info.OriginModelName), ":free") {
+		if share := chain / 3; share > 0 && (perAttempt == 0 || share < perAttempt) {
+			perAttempt = hosttypes.ClampFirstTokenSeconds(share)
+		}
+	}
 
 	deadline := time.Duration(perAttempt) * time.Second
 	if chain > 0 {

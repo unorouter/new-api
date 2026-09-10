@@ -179,6 +179,11 @@ var PreConsumedQuota = 500
 
 var RetryTimes = 0
 
+// FreeRetryTimes is the per-group retry budget for a :free model. Free lanes
+// fail far more often than paid ones (30% against 4%) and a failed free request
+// costs nothing to retry, so the chain walks further before giving up.
+var FreeRetryTimes = 3
+
 // MaxTotalRelayAttempts caps how many channels one request may be tried against
 // in total. RetryTimes is per-group once cross-group auto-retry resets the
 // counter on each group switch, so without this the ceiling scales with the

@@ -82,7 +82,15 @@ func upstreamHost(baseURL string) string {
 // status code does not carry. Local errors (our own filters, quota, request
 // build) are never upstream faults and return Known false.
 func ClassifyUpstreamError(baseURL string, err *types.NewAPIError) UpstreamClass {
-	if err == nil || err.GetErrorType() == types.ErrorTypeNewAPIError {
+	if err == nil {
+		return UpstreamClass{}
+	}
+	// Our own first-byte deadline on the lane: the upstream was slow, not broken,
+	// and the largest error class of all (176k a week) must fail over and cool.
+	if err.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded {
+		return UpstreamClass{Known: true, Failover: true, Count: CountNone}
+	}
+	if err.GetErrorType() == types.ErrorTypeNewAPIError {
 		return UpstreamClass{}
 	}
 	host := upstreamHost(baseURL)
