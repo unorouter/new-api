@@ -653,9 +653,15 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if types.IsSkipRetryError(openaiErr) {
 		return false
 	}
+	// The upstream's own text outranks its status code: marketplace masks "pinned
+	// merchant busy" as 400 and a rate limiter's 429 is not a request fault.
+	class := service.ClassifyUpstreamError(c.GetString(string(constant.ContextKeyChannelBaseUrl)), openaiErr)
+	if class.Known && !class.Failover {
+		return false
+	}
 	// Upstream 400 = malformed request; retrying other channels yields the same
 	// rejection. Fail fast, never failover.
-	if types.IsDeterministicUpstreamError(openaiErr) {
+	if !class.Known && types.IsDeterministicUpstreamError(openaiErr) {
 		return false
 	}
 	if retryTimes <= 0 {
@@ -663,6 +669,9 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	}
 	if service.GetChannelConstraints(c).SuppressesRetry() {
 		return false
+	}
+	if class.Known {
+		return true
 	}
 	// A moderation verdict from a filter every sibling shares (those shards all
 	// front the same z.ai endpoint) repeats identically on failover, so the chain
@@ -760,6 +769,12 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 	shouldDisable := service.ShouldDisableChannel(err)
+	// The upstream's own text decides before the status-code rules: a rate limit
+	// counts nothing, a lane-fatal state disables now, the rest feeds the guard.
+	class := service.ClassifyUpstreamError(c.GetString(string(constant.ContextKeyChannelBaseUrl)), err)
+	if class.Known {
+		shouldDisable = class.DisableNow || class.Count == service.CountFailure
+	}
 	// PROD-ONLY (fork): spare non-recoverable media/native-image channels from disable on
 	// user-caused request errors (the channel-test cron has no probe path for them, so a
 	// false-disable is permanent). Genuine channel faults are channel:* coded and NOT skipped.
@@ -772,7 +787,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// to be a sustained share of the channel's recent traffic before pulling it, so a
 	// capacity blip on a busy lane fails over instead of removing it for everyone.
 	// Credential faults are exempt: those cannot recover on their own.
-	if shouldDisable && !service.IsCredentialFault(err) && !service.RecordChannelFailure(channelError.ChannelId) {
+	if shouldDisable && !class.DisableNow && !service.IsCredentialFault(err) && !service.RecordChannelFailure(channelError.ChannelId) {
 		fails, oks := service.ChannelFailureWindow(channelError.ChannelId)
 		logger.LogInfo(c, fmt.Sprintf("channel-guard: kept channel #%d (%s) enabled, fault below threshold: fail=%d ok=%d status=%d code=%s",
 			channelError.ChannelId, channelError.ChannelName, fails, oks, err.StatusCode, err.GetErrorCode()))
