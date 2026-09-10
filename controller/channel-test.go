@@ -93,6 +93,11 @@ func isTaskChannel(channel *model.Channel) bool {
 // to completion (a valid submit proves auth + endpoint + model), and it skips all
 // billing/moderation/refund (this is a bare submit, not a real relay). Free task
 // channels only; the caller gates on that.
+// A paid task channel is never probed (a submit would bill a generation), so a
+// disabled one can only come back blind: after the flap cooldown and the paid
+// hold, straight into probation, which re-disables it fast if it is still bad.
+var errPaidTaskProbeSkipped = errors.New("paid task channel test is skipped")
+
 func testTaskChannelSubmit(ctx context.Context, channel *model.Channel, testUserID int, testModel string) testResult {
 	platform := constant.TaskPlatform(strconv.Itoa(channel.Type))
 	adaptor := relay.GetTaskAdaptor(platform)
@@ -221,7 +226,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	// text model through the task probe and fail with "task_id is empty". Free only.
 	if isTaskChannel(channel) && isNonTextModel(testModel) {
 		if !isFreeChannel(channel) {
-			return testResult{localErr: fmt.Errorf("%s paid task channel test is skipped", constant.GetChannelTypeName(channel.Type))}
+			return testResult{localErr: fmt.Errorf("%s: %w", constant.GetChannelTypeName(channel.Type), errPaidTaskProbeSkipped)}
 		}
 		return testTaskChannelSubmit(ctx, channel, testUserID, testModel)
 	}
@@ -1319,6 +1324,25 @@ func testChannelForCycle(ctx context.Context, channel *model.Channel, testUserID
 			service.StartChannelProbation(channel.Id)
 			summary.Enabled++
 		}
+	}
+
+	if errors.Is(result.localErr, errPaidTaskProbeSkipped) && !isChannelEnabled && channel.GetAutoBan() {
+		monitor := operation_setting.GetMonitorSetting()
+		if wait := model.FlapCooldownRemainingSeconds(channel.Id); wait > 0 {
+			common.SysLog(fmt.Sprintf("channel-test: task channel #%d (%s) cannot be probed; flap cooldown %ds more", channel.Id, channel.Name, wait))
+		} else if wait := model.PaidReenableHoldRemainingSeconds(channel, monitor.ChannelPaidReenableHoldSeconds); wait > 0 {
+			common.SysLog(fmt.Sprintf("channel-test: task channel #%d (%s) cannot be probed; re-enable hold %ds more", channel.Id, channel.Name, wait))
+		} else {
+			common.SysLog(fmt.Sprintf("channel-test: task channel #%d (%s) cannot be probed; re-enabling into probation", channel.Id, channel.Name))
+			service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name,
+				model.WithChannelStatusTrigger(model.ChannelStatusTriggerScheduledTest),
+				model.WithChannelStatusModel(testModel),
+				model.WithChannelStatusResponseTime(int(milliseconds)))
+			service.StartChannelProbation(channel.Id)
+			summary.Enabled++
+		}
+		channel.UpdateResponseTime(milliseconds)
+		return summary
 	}
 
 	// probe of an already-disabled channel failed again (no status flip): the
