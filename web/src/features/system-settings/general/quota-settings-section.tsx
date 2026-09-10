@@ -67,6 +67,9 @@ const quotaSchema = z.object({
     free_abuse_max_per_day: z.coerce.number().min(0),
     free_abuse_max_errors_per_hour: z.coerce.number().min(0),
     free_abuse_max_media_err_models: z.coerce.number().min(0),
+    free_abuse_network_min_accounts: z.coerce.number().min(0),
+    free_abuse_network_max_identity_pct: z.coerce.number().min(0).max(100),
+    free_abuse_network_window_days: z.coerce.number().min(1),
     charge_on_error: z.boolean(),
   }),
 })
@@ -455,6 +458,86 @@ export function QuotaSettingsSection({
                   <FormDescription>
                     {t(
                       'Auto-block when a zero-balance user fails this many DISTINCT free image/audio/video models within a minute (catalog probing). Media only; text models are exempt. Kept low because no legitimate user fires several failing media generations back-to-back. 0 disables. Only applies when auto-block is enabled.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_network_min_accounts'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    {t('Accounts per network before it counts as a farm')}
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Registrations are grouped by network (IPv4 /24, IPv6 /48). Once a network passes this count, further sign-ups from it are refused and its existing identity-less, never-paid accounts are shadow-banned from free models. Catches farms that rent a range and rotate addresses to stay under the per-IP cap. 0 disables.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_network_max_identity_pct'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Network identity exemption (%)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'A network is left alone when at least this percent of its accounts bound a third-party login (GitHub, Discord, OIDC, Telegram, LinuxDO, WeChat). Protects households, campuses and carrier NAT, which share an address but do bind real identities. A typed email does not count while email verification is off.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_network_window_days'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Network reputation window (days)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.'
                     )}
                   </FormDescription>
                   <FormMessage />

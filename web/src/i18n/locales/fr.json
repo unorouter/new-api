@@ -6339,6 +6339,12 @@
     "Limits only the wait for the first token. A reply that has started streaming is never cut off.": "Limite uniquement l'attente du premier token. Une réponse déjà en cours de diffusion n'est jamais interrompue.",
     "Per provider (seconds, 0 = off)": "Par fournisseur (secondes, 0 = désactivé)",
     "Whole chain (seconds, 0 = off)": "Chaîne entière (secondes, 0 = désactivé)",
-    "Negative quota": "Quota négatif"
+    "Negative quota": "Quota négatif",
+    "Accounts per network before it counts as a farm": "Comptes par réseau avant qu'il soit considéré comme une ferme",
+    "Registrations are grouped by network (IPv4 /24, IPv6 /48). Once a network passes this count, further sign-ups from it are refused and its existing identity-less, never-paid accounts are shadow-banned from free models. Catches farms that rent a range and rotate addresses to stay under the per-IP cap. 0 disables.": "Les inscriptions sont regroupées par réseau (IPv4 /24, IPv6 /48). Une fois ce nombre dépassé, les nouvelles inscriptions depuis ce réseau sont refusées et ses comptes existants sans identité tierce et n'ayant jamais payé sont bannis silencieusement des modèles gratuits. Détecte les fermes qui louent une plage et font tourner les adresses pour rester sous la limite par IP. 0 désactive.",
+    "Network identity exemption (%)": "Exemption d'identité du réseau (%)",
+    "A network is left alone when at least this percent of its accounts bound a third-party login (GitHub, Discord, OIDC, Telegram, LinuxDO, WeChat). Protects households, campuses and carrier NAT, which share an address but do bind real identities. A typed email does not count while email verification is off.": "Un réseau est épargné lorsqu'au moins ce pourcentage de ses comptes a lié une connexion tierce (GitHub, Discord, OIDC, Telegram, LinuxDO, WeChat). Protège les foyers, les campus et le NAT des opérateurs, qui partagent une adresse mais lient de vraies identités. Une adresse e-mail saisie ne compte pas tant que la vérification par e-mail est désactivée.",
+    "Network reputation window (days)": "Fenêtre de réputation du réseau (jours)",
+    "How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.": "Profondeur d'historique des inscriptions prise en compte pour évaluer un réseau. Plus longue, elle détecte les fermes qui s'inscrivent lentement ; plus courte, elle laisse un réseau assaini récupérer plus vite."
   }
 }
