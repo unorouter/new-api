@@ -29,6 +29,9 @@ type UpstreamClass struct {
 	// Cooldown skips the lane for a growing period even when the failure still
 	// counts: a flapping upstream is passed over, a dead one still trips the guard.
 	Cooldown bool
+	// ContextCap marks a prompt the lane cannot take: its size becomes the lane's
+	// learned ceiling and bigger prompts route past it.
+	ContextCap bool
 }
 
 type upstreamRule struct {
@@ -49,7 +52,7 @@ var upstreamRules = []upstreamRule{
 	// for the next seconds, so counting it per lane mass-disables healthy merchants.
 	{host: "marketplace.example", markers: []string{"平台正在进行保护性限流"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true, Provider: true}},
 	// marketplace, request over this merchant's context budget: another merchant serves it.
-	{host: "marketplace.example", markers: []string{"超过了可处理范围"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}},
+	{host: "marketplace.example", markers: []string{"超过了可处理范围"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}},
 	// marketplace, merchant rate limited.
 	{host: "marketplace.example", markers: []string{"该商家上游正在限流"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}},
 	// marketplace, the merchant is fused on their side for a cooldown: every further try
@@ -116,6 +119,8 @@ func ClassifyUpstreamError(baseURL string, err *types.NewAPIError) UpstreamClass
 	// A 5xx is capacity or a real fault; the rate guard tells them apart over the
 	// window, the cooldown keeps the lane out of rotation while it decides.
 	switch {
+	case err.StatusCode == 413:
+		return UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}
 	case err.StatusCode == 429:
 		return UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}
 	case err.StatusCode >= 500 && err.StatusCode <= 504, err.StatusCode >= 520 && err.StatusCode <= 530:
