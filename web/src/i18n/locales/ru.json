@@ -6339,6 +6339,12 @@
     "Limits only the wait for the first token. A reply that has started streaming is never cut off.": "Ограничивает только ожидание первого токена. Начавшийся ответ никогда не обрывается.",
     "Per provider (seconds, 0 = off)": "На провайдера (секунды, 0 = выключено)",
     "Whole chain (seconds, 0 = off)": "Вся цепочка (секунды, 0 = выключено)",
-    "Negative quota": "Отрицательная квота"
+    "Negative quota": "Отрицательная квота",
+    "Accounts per network before it counts as a farm": "Аккаунтов в сети до признания её фермой",
+    "Registrations are grouped by network (IPv4 /24, IPv6 /48). Once a network passes this count, further sign-ups from it are refused and its existing identity-less, never-paid accounts are shadow-banned from free models. Catches farms that rent a range and rotate addresses to stay under the per-IP cap. 0 disables.": "Регистрации группируются по сети (IPv4 /24, IPv6 /48). Когда сеть превышает это количество, новые регистрации из неё отклоняются, а существующие аккаунты без сторонней привязки и без единого платежа теневой блокируются для бесплатных моделей. Отлавливает фермы, которые арендуют диапазон и меняют адреса, чтобы оставаться под лимитом на один IP. 0 отключает.",
+    "Network identity exemption (%)": "Исключение сети по привязанной личности (%)",
+    "A network is left alone when at least this percent of its accounts bound a third-party login (GitHub, Discord, OIDC, Telegram, LinuxDO, WeChat). Protects households, campuses and carrier NAT, which share an address but do bind real identities. A typed email does not count while email verification is off.": "Сеть не ограничивается, если хотя бы такой процент её аккаунтов привязал сторонний вход (GitHub, Discord, OIDC, Telegram, LinuxDO, WeChat). Защищает домашние сети, кампусы и NAT операторов: они делят адрес, но привязывают настоящие личности. Введённый вручную адрес почты не считается привязкой, пока проверка почты отключена.",
+    "Network reputation window (days)": "Окно репутации сети (дней)",
+    "How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.": "На сколько дней назад учитываются регистрации при оценке сети. Большее значение отлавливает фермы, регистрирующиеся медленно; меньшее быстрее снимает ограничение с исправившейся сети."
   }
 }

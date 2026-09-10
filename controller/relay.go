@@ -328,7 +328,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
 
 	if priceData.FreeModel {
-		if relayInfo.UserSetting.BlockFreeWhenNoQuota && relayInfo.UserQuota <= 0 {
+		// Two independent routes to the same shadow ban: the per-account abuse flag,
+		// and an account farm identified by the network the account registered from.
+		// The farm verdict is held in memory rather than written to the account, so
+		// a stockpile dies one request at a time instead of at a single timestamp.
+		if relayInfo.UserQuota <= 0 &&
+			(relayInfo.UserSetting.BlockFreeWhenNoQuota || service.FreeModelsShadowBanned(relayInfo.UserId)) {
 			// Shadow ban: return the same 429 rate-limit response a throttled free
 			// user gets, so an abuser cannot tell they are specifically blocked.
 			paidName := strings.TrimSuffix(relayInfo.OriginModelName, ":free")
