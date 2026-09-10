@@ -1334,9 +1334,13 @@ func (user *User) ValidateAndFill() (err error) {
 	if user.Password == "" {
 		return ErrInvalidCredentials
 	}
-	okay := common.ValidatePasswordAndHash(password, user.Password)
-	if !okay || user.Status != common.UserStatusEnabled {
+	if !common.ValidatePasswordAndHash(password, user.Password) {
 		return ErrInvalidCredentials
+	}
+	// Only a caller who proved the password learns the account is suspended: a
+	// wrong password on a suspended account is still just a wrong password.
+	if user.Status != common.UserStatusEnabled {
+		return ErrUserDisabled
 	}
 	return nil
 }
