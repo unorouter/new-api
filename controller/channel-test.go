@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -112,7 +113,15 @@ func testTaskChannelSubmit(ctx context.Context, channel *model.Channel, testUser
 	defer cancel()
 
 	// Minimal task submit body. GetTaskRequest reads this off the request body.
-	submit := relaycommon.TaskSubmitReq{Prompt: "test", Model: testModel, Size: "512x512"}
+	// A plugin channel validates the reported size against its own enum, so the
+	// probe has to ask for one it declares (512x512 disabled 67 free lanes at once).
+	size := "512x512"
+	if js, ok := adaptor.(*jsplugin.TaskAdaptor); ok {
+		if declared := js.ProbeSize(); declared != "" {
+			size = declared
+		}
+	}
+	submit := relaycommon.TaskSubmitReq{Prompt: "test", Model: testModel, Size: size}
 	raw, _ := common.Marshal(submit)
 	c.Request = httptest.NewRequestWithContext(probeCtx, http.MethodPost, "/v1/task/submit", bytes.NewReader(raw))
 	c.Request.Header.Set("Content-Type", "application/json")
