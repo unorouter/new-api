@@ -609,7 +609,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	// answering 429 to everyone.
 	acquired := false
 	for hops := 0; hops < 8 && err == nil && channel != nil; hops++ {
-		if service.LaneCooled(channel.Id) || service.HostCooled(service.UpstreamHostOf(channel.GetBaseURL())) {
+		if service.LaneCooled(channel.Id) || service.HostCooled(service.UpstreamHostOf(channel.GetBaseURL())) || service.LaneRejectsPrompt(channel.Id, info.GetEstimatePromptTokens()) {
 			if cooled == nil {
 				cooled, cooledGroup = channel, selectGroup
 			}
@@ -826,6 +826,9 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			if d := service.CoolLane(channelError.ChannelId); d > 0 {
 				logger.LogInfo(c, fmt.Sprintf("channel-guard: lane #%d (%s) cooled for %s: %s", channelError.ChannelId, channelError.ChannelName, d, common.LocalLogPreview(err.Error())))
 			}
+		}
+		if class.ContextCap && relayInfo != nil {
+			service.RecordLanePromptCap(channelError.ChannelId, relayInfo.GetEstimatePromptTokens())
 		}
 		if class.Provider {
 			host := service.UpstreamHostOf(c.GetString(string(constant.ContextKeyChannelBaseUrl)))
