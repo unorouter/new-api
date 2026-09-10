@@ -209,6 +209,7 @@ func resetFailureStreak(channelId int) {
 
 func RecordChannelSuccess(channelId int) {
 	bumpWindowCounter(channelSuccessCounterKey(channelId), &channelSuccessCounts, channelId)
+	ClearLaneCooldown(channelId)
 	// Any success breaks the run, so the streak must not survive it.
 	resetFailureStreak(channelId)
 }

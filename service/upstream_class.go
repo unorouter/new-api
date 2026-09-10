@@ -24,6 +24,8 @@ type UpstreamClass struct {
 	Failover   bool
 	Count      CountMode
 	DisableNow bool
+	// Provider marks a fault every lane of the host shares right now.
+	Provider bool
 }
 
 type upstreamRule struct {
@@ -42,7 +44,7 @@ type upstreamRule struct {
 var upstreamRules = []upstreamRule{
 	// marketplace, platform-wide protective throttle: every a6 lane answers the same 503
 	// for the next seconds, so counting it per lane mass-disables healthy merchants.
-	{host: "marketplace.example", markers: []string{"平台正在进行保护性限流"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone}},
+	{host: "marketplace.example", markers: []string{"平台正在进行保护性限流"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Provider: true}},
 	// marketplace, request over this merchant's context budget: another merchant serves it.
 	{host: "marketplace.example", markers: []string{"超过了可处理范围"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone}},
 	// marketplace, merchant rate limited.

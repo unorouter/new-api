@@ -102,6 +102,12 @@ const OPERATIONS_SECTIONS = [
             settings['monitor_setting.channel_reenable_probe_passes'] ?? 1,
           'monitor_setting.channel_paid_reenable_hold_seconds':
             settings['monitor_setting.channel_paid_reenable_hold_seconds'] ?? 0,
+          'monitor_setting.channel_cooldown_base_seconds':
+            settings['monitor_setting.channel_cooldown_base_seconds'] ?? 30,
+          'monitor_setting.channel_cooldown_max_seconds':
+            settings['monitor_setting.channel_cooldown_max_seconds'] ?? 600,
+          'monitor_setting.provider_cooldown_seconds':
+            settings['monitor_setting.provider_cooldown_seconds'] ?? 60,
         }}
       />
     ),
