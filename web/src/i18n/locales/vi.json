@@ -6339,6 +6339,12 @@
     "Limits only the wait for the first token. A reply that has started streaming is never cut off.": "Chỉ giới hạn thời gian chờ token đầu tiên. Câu trả lời đã bắt đầu truyền sẽ không bao giờ bị cắt.",
     "Per provider (seconds, 0 = off)": "Mỗi nhà cung cấp (giây, 0 = tắt)",
     "Whole chain (seconds, 0 = off)": "Toàn bộ chuỗi (giây, 0 = tắt)",
-    "Negative quota": "Hạn mức âm"
+    "Negative quota": "Hạn mức âm",
+    "Accounts per network before it counts as a farm": "Số tài khoản trên mỗi mạng trước khi bị coi là trang trại tài khoản",
+    "Registrations are grouped by network (IPv4 /24, IPv6 /48). Once a network passes this count, further sign-ups from it are refused and its existing identity-less, never-paid accounts are shadow-banned from free models. Catches farms that rent a range and rotate addresses to stay under the per-IP cap. 0 disables.": "Các lượt đăng ký được nhóm theo mạng (IPv4 /24, IPv6 /48). Khi một mạng vượt quá số này, các lượt đăng ký mới từ đó bị từ chối và những tài khoản hiện có trên mạng đó chưa liên kết danh tính bên thứ ba và chưa từng thanh toán sẽ bị chặn ngầm khỏi các mô hình miễn phí. Bắt các trang trại thuê nguyên dải địa chỉ và xoay vòng IP để luôn nằm dưới giới hạn mỗi IP. 0 để tắt.",
+    "Network identity exemption (%)": "Miễn trừ mạng theo danh tính liên kết (%)",
+    "A network is left alone when at least this percent of its accounts bound a third-party login (GitHub, Discord, OIDC, Telegram, LinuxDO, WeChat). Protects households, campuses and carrier NAT, which share an address but do bind real identities. A typed email does not count while email verification is off.": "Một mạng được bỏ qua khi có ít nhất tỷ lệ phần trăm này số tài khoản đã liên kết đăng nhập bên thứ ba (GitHub, Discord, OIDC, Telegram, LinuxDO, WeChat). Bảo vệ hộ gia đình, trường học và NAT của nhà mạng, vốn dùng chung địa chỉ nhưng vẫn liên kết danh tính thật. Email tự nhập không được tính là danh tính khi xác minh email đang tắt.",
+    "Network reputation window (days)": "Cửa sổ đánh giá uy tín mạng (ngày)",
+    "How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.": "Số ngày truy ngược để tính các lượt đăng ký khi chấm điểm một mạng. Dài hơn sẽ bắt được các trang trại đăng ký chậm; ngắn hơn giúp một mạng đã lành mạnh sớm được gỡ hạn chế."
   }
 }

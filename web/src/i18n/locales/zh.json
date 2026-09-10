@@ -6339,6 +6339,12 @@
     "Limits only the wait for the first token. A reply that has started streaming is never cut off.": "仅限制等待首个 token 的时间。已开始输出的回复不会被中断。",
     "Per provider (seconds, 0 = off)": "每个服务商（秒，0 = 关闭）",
     "Whole chain (seconds, 0 = off)": "整条重试链（秒，0 = 关闭）",
-    "Negative quota": "负额度"
+    "Negative quota": "负额度",
+    "Accounts per network before it counts as a farm": "判定为账号农场所需的同网段账号数",
+    "Registrations are grouped by network (IPv4 /24, IPv6 /48). Once a network passes this count, further sign-ups from it are refused and its existing identity-less, never-paid accounts are shadow-banned from free models. Catches farms that rent a range and rotate addresses to stay under the per-IP cap. 0 disables.": "注册按网段分组（IPv4 /24、IPv6 /48）。网段账号数超过该值后，来自该网段的新注册将被拒绝，其中未绑定第三方身份且从未付费的现有账号将被影子封禁，无法使用免费模型。用于识别租用整段地址、轮换 IP 以规避单 IP 上限的账号农场。填 0 禁用。",
+    "Network identity exemption (%)": "网段身份豁免比例（%）",
+    "A network is left alone when at least this percent of its accounts bound a third-party login (GitHub, Discord, OIDC, Telegram, LinuxDO, WeChat). Protects households, campuses and carrier NAT, which share an address but do bind real identities. A typed email does not count while email verification is off.": "当网段内至少该比例的账号绑定了第三方登录（GitHub、Discord、OIDC、Telegram、LinuxDO、微信）时，该网段不受限制。用于保护家庭宽带、校园网和运营商 NAT：它们共用地址，但确实会绑定真实身份。在邮箱验证关闭时，手动填写的邮箱不计入身份。",
+    "Network reputation window (days)": "网段信誉统计窗口（天）",
+    "How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.": "评估网段时回溯统计注册记录的天数。设置越长越能识别缓慢注册的农场；越短则让已恢复正常的网段更快解除限制。"
   }
 }

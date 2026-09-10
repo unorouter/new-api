@@ -427,6 +427,12 @@ func Logout(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 
 // registerIpLimited reports whether ip already created REGISTER_IP_MAX_ACCOUNTS accounts (<=0 disables).
 func registerIpLimited(ip string) (bool, error) {
+	// The per-IP cap only ever sees one address, so a farm renting a /24 rotates
+	// through it and stays under the limit on every individual IP. Refusing the
+	// whole allocation is the only version of this check it cannot outspend.
+	if service.RegistrationNetworkFlagged(ip) {
+		return true, nil
+	}
 	limit := common.GetEnvOrDefault("REGISTER_IP_MAX_ACCOUNTS", 1)
 	if limit <= 0 || ip == "" {
 		return false, nil

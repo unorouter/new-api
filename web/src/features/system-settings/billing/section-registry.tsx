@@ -83,6 +83,12 @@ const BILLING_SECTIONS = [
               settings['quota_setting.free_abuse_max_errors_per_hour'],
             free_abuse_max_media_err_models:
               settings['quota_setting.free_abuse_max_media_err_models'],
+            free_abuse_network_min_accounts:
+              settings['quota_setting.free_abuse_network_min_accounts'],
+            free_abuse_network_max_identity_pct:
+              settings['quota_setting.free_abuse_network_max_identity_pct'],
+            free_abuse_network_window_days:
+              settings['quota_setting.free_abuse_network_window_days'],
             charge_on_error: settings['quota_setting.charge_on_error'],
           },
         }}
@@ -184,7 +190,8 @@ const BILLING_SECTIONS = [
             settings.ModerationProvidersMedia ?? 'openai,creem',
           ModerationCategoryThresholds:
             settings.ModerationCategoryThresholds ?? '{}',
-          ModerationDefaultThreshold: settings.ModerationDefaultThreshold ?? 0.8,
+          ModerationDefaultThreshold:
+            settings.ModerationDefaultThreshold ?? 0.8,
           ModerationFailOpen: settings.ModerationFailOpen ?? true,
           ModerationMaxInputChars: settings.ModerationMaxInputChars ?? 8000,
           CreemProducts: settings.CreemProducts,

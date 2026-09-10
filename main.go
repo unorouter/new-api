@@ -392,6 +392,7 @@ func InitResources() error {
 	}
 
 	service.StartAuthArtifactCleanup()
+	service.StartNetworkReputation()
 
 	return nil
 }

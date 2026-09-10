@@ -271,6 +271,9 @@ export type BillingSettings = {
   'quota_setting.free_abuse_max_per_day': number
   'quota_setting.free_abuse_max_errors_per_hour': number
   'quota_setting.free_abuse_max_media_err_models': number
+  'quota_setting.free_abuse_network_min_accounts': number
+  'quota_setting.free_abuse_network_max_identity_pct': number
+  'quota_setting.free_abuse_network_window_days': number
   'quota_setting.charge_on_error': boolean
   QuotaPerUnit: number
   USDExchangeRate: number
