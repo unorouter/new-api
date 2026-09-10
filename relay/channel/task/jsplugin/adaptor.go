@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -88,7 +89,28 @@ type TaskAdaptor struct {
 }
 
 func New(plugin *pluginruntime.LoadedPlugin) *TaskAdaptor { return &TaskAdaptor{plugin: plugin} }
-func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo)   { a.info = info }
+
+var probeSizePattern = regexp.MustCompile(`^\d+x\d+$`)
+
+// ProbeSize is a size the plugin's usage schema admits, for the recovery probe:
+// the probe's request size comes back as reported usage, and a value outside the
+// declared enum fails validation exactly like a broken upstream would.
+func (a *TaskAdaptor) ProbeSize() string {
+	keys := make([]string, 0, len(a.plugin.Meta.UsageSchema))
+	for key := range a.plugin.Meta.UsageSchema {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		for _, value := range a.plugin.Meta.UsageSchema[key].Enum {
+			if probeSizePattern.MatchString(value) {
+				return value
+			}
+		}
+	}
+	return ""
+}
+func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) { a.info = info }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskError {
 	if pinnedValue, exists := c.Get(pluginruntime.ContextKeyPinnedEndpoint); exists {
