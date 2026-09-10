@@ -275,3 +275,33 @@ func TestShouldDisableChannelSparesNonChannelFaults(t *testing.T) {
 		})
 	}
 }
+
+// The upstream's text, not its status, decides failover and counting: marketplace's
+// 400-masked "pinned merchant busy" fails over, its platform throttle counts
+// nothing, its fused merchant disables now, and a generic rate limit is never a
+// fault. Unknown text falls back to the status-code rules.
+func TestClassifyUpstreamError(t *testing.T) {
+	mk := func(msg string, status int) *types.NewAPIError {
+		return types.NewOpenAIError(errors.New(msg), types.ErrorCodeBadResponse, status)
+	}
+	cases := []struct {
+		name string
+		host string
+		err  *types.NewAPIError
+		want UpstreamClass
+	}{
+		{"a6 pinned busy masked as 400", "https://marketplace.example", mk("固定商家当前不可用。 原因：您固定的商家当前处于繁忙、冷却、不可用或能力不匹配状态。", 400), UpstreamClass{Known: true, Failover: true, Count: CountFailure}},
+		{"a6 platform throttle", "https://marketplace.example", mk("平台当前繁忙，请稍后重试。 原因：平台正在进行保护性限流或资源保护。", 503), UpstreamClass{Known: true, Failover: true, Count: CountNone}},
+		{"a6 merchant fused", "https://marketplace.example/", mk("固定商家当前不可用。 原因：该商家渠道近期连续失败，正处于熔断冷却保护中。", 503), UpstreamClass{Known: true, Failover: true, DisableNow: true}},
+		{"a6 price raised", "https://marketplace.example", mk("原因：该商家上调了价格，您的固定关系已被暂停", 402), UpstreamClass{Known: true, Failover: true, DisableNow: true}},
+		{"a6 text on another host is generic", "https://other-upstream.example", mk("原因：您固定的商家当前处于繁忙", 400), UpstreamClass{}},
+		{"horde rate limit", "https://aihorde.net", mk(`{"message":"2 per 1 second"}`, 429), UpstreamClass{Known: true, Failover: true, Count: CountNone}},
+		{"unsupported parameter is lane-dead", "https://tokenhub.example", mk("Model kinfra-text-embedding-4b does not support the requested parameter", 400), UpstreamClass{Known: true, Failover: true, Count: CountFailure}},
+		{"unknown text", "https://marketplace.example", mk("bad response status code 504", 504), UpstreamClass{}},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, ClassifyUpstreamError(tc.host, tc.err), tc.name)
+	}
+	local := types.NewError(errors.New("原因：平台正在进行保护性限流"), types.ErrorCodeGenRelayInfoFailed)
+	assert.Equal(t, UpstreamClass{}, ClassifyUpstreamError("https://marketplace.example", local), "local errors are never upstream classes")
+}
