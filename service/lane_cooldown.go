@@ -54,9 +54,23 @@ func CoolLane(channelId int) time.Duration {
 	return d
 }
 
-// ClearLaneCooldown forgets the lane's strikes: a success proves it serves again.
+// ClearLaneCooldown ends the current cooldown and sheds ONE strike, rather than
+// forgetting the run outright. Deleting the entry let a lane that alternates
+// pass/fail reset the ladder forever: a7-3304 answered every ~22s, inside its own
+// 30s base cooldown, so every strike was erased before the next doubling and a
+// 59%-failing lane never cooled for longer than the first rung. Decaying keeps the
+// original intent (a recovering lane climbs back down) without that.
 func ClearLaneCooldown(channelId int) {
-	laneCooldowns.Delete(channelId)
+	v, ok := laneCooldowns.Load(channelId)
+	if !ok {
+		return
+	}
+	strikes := v.(laneCooldown).strikes - 1
+	if strikes <= 0 {
+		laneCooldowns.Delete(channelId)
+		return
+	}
+	laneCooldowns.Store(channelId, laneCooldown{strikes: strikes})
 }
 
 func LaneCooled(channelId int) bool {
