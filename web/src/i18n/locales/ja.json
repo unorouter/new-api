@@ -6249,6 +6249,8 @@
     "Free model requests per minute before auto-block": "自動ブロックまでの1分あたりの無料モデルリクエスト数",
     "Distinct free models per minute before auto-block": "自動ブロックまでの1分あたりの異なる無料モデル数",
     "Auto-block when a user hits more than this many different free models in a minute (fast model-switching = scraping). Only applies when auto-block is enabled.": "ユーザーが1分間にこの数を超える異なる無料モデルを呼び出した場合に自動ブロックします（高速なモデル切り替えはスクレイピングと見なします）。自動ブロックが有効な場合のみ適用されます。",
+    "Distinct free models per day before auto-block": "自動ブロックまでの1日あたりの異なる無料モデル数",
+    "Catches the same catalog scraping paced slowly enough to stay under the per-minute limit above: dozens of different free models across a day, never many in one minute. Requires Redis; without it this signal does nothing. 0 disables. Only applies when auto-block is enabled.": "上記の1分あたりの上限をすり抜けるようにペースを落とした、同じカタログスクレイピングを検出します。1日で数十種類の異なる無料モデルに触れる一方、1分間あたりの数は常に少ないままです。Redis が必要で、無効な場合このシグナルは機能しません。0 で無効。自動ブロックが有効な場合のみ適用されます。",
     "Threshold for auto-block detection. Only applies when auto-block is enabled.": "自動ブロック検出のしきい値。自動ブロックが有効な場合にのみ適用されます。",
     "Channel Status History": "Channel Status History",
     "History": "History",

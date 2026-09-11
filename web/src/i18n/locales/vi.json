@@ -6249,6 +6249,8 @@
     "Free model requests per minute before auto-block": "Số yêu cầu mô hình miễn phí mỗi phút trước khi tự động chặn",
     "Distinct free models per minute before auto-block": "Số mô hình miễn phí khác nhau mỗi phút trước khi tự động chặn",
     "Auto-block when a user hits more than this many different free models in a minute (fast model-switching = scraping). Only applies when auto-block is enabled.": "Tự động chặn khi người dùng truy cập nhiều hơn số mô hình miễn phí khác nhau này trong một phút (chuyển mô hình nhanh = thu thập dữ liệu). Chỉ áp dụng khi bật tự động chặn.",
+    "Distinct free models per day before auto-block": "Số mô hình miễn phí khác nhau mỗi ngày trước khi tự động chặn",
+    "Catches the same catalog scraping paced slowly enough to stay under the per-minute limit above: dozens of different free models across a day, never many in one minute. Requires Redis; without it this signal does nothing. 0 disables. Only applies when auto-block is enabled.": "Phát hiện cùng kiểu quét danh mục nhưng được làm chậm vừa đủ để lọt dưới giới hạn mỗi phút ở trên: hàng chục mô hình miễn phí khác nhau trong một ngày, mà mỗi phút không bao giờ nhiều. Cần Redis; nếu không có, tín hiệu này không hoạt động. 0 để tắt. Chỉ áp dụng khi bật tự động chặn.",
     "Threshold for auto-block detection. Only applies when auto-block is enabled.": "Ngưỡng phát hiện để tự động chặn. Chỉ áp dụng khi bật tự động chặn.",
     "Channel Status History": "Channel Status History",
     "History": "History",
