@@ -77,46 +77,50 @@ func resolveUserSortOptions(sortOptions []UserSortOptions) UserSortOptions {
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
-	Id                        int                        `json:"id"`
-	Username                  string                     `json:"username" gorm:"unique;index" validate:"max=20"`
-	Password                  string                     `json:"password" gorm:"not null;" validate:"omitempty,min=8,max=128"`
-	HasPassword               bool                       `json:"-" gorm:"-:all"`
-	OriginalPassword          string                     `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
-	DisplayName               string                     `json:"display_name" gorm:"index" validate:"max=20"`
-	Role                      int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
-	Status                    int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
-	Email                     string                     `json:"email" gorm:"index" validate:"max=50"`
-	GitHubId                  string                     `json:"github_id" gorm:"column:github_id;index"`
-	DiscordId                 string                     `json:"discord_id" gorm:"column:discord_id;index"`
-	GoogleId                  string                     `json:"google_id" gorm:"column:google_id;index"`
-	OidcId                    string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
-	WeChatId                  string                     `json:"wechat_id" gorm:"column:wechat_id;index"`
-	TelegramId                string                     `json:"telegram_id" gorm:"column:telegram_id;index"`
-	VerificationCode          string                     `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
-	AccessToken               *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
-	AccessTokenCreatedAt      *int64                     `json:"-" gorm:"type:bigint;column:access_token_created_at"`
-	Quota                     int                        `json:"quota" gorm:"type:int;default:0"`
-	UsedQuota                 int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
-	RequestCount              int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
-	Group                     string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
-	AffCode                   string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
-	AffCount                  int                        `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
-	AffQuota                  int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
-	AffHistoryQuota           int                        `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
-	InviterId                 int                        `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
-	ReferralCommissionPercent *float64                   `json:"referral_commission_percent" gorm:"type:decimal(5,2);column:referral_commission_percent"` // nil = use global default
-	TopUpBonusPercent         *float64                   `json:"topup_bonus_percent" gorm:"type:decimal(5,2);column:topup_bonus_percent"`                 // nil = no bonus; top-up only, never redemption
-	DeletedAt                 gorm.DeletedAt             `gorm:"index"`
-	LinuxDOId                 string                     `json:"linux_do_id" gorm:"column:linux_do_id;index"`
-	Setting                   string                     `json:"setting" gorm:"type:text;column:setting"`
-	Remark                    string                     `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
-	StripeCustomer            string                     `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
-	CreemCustomer             string                     `json:"creem_customer" gorm:"type:varchar(64);column:creem_customer;index"`
-	CreatedAt                 int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
-	LastLoginAt               int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
-	RegisterIp                string                     `json:"register_ip,omitempty" gorm:"type:varchar(64);column:register_ip;index"`
-	AuthVersion               int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
-	AdminPermissions          map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
+	Id                        int            `json:"id"`
+	Username                  string         `json:"username" gorm:"unique;index" validate:"max=20"`
+	Password                  string         `json:"password" gorm:"not null;" validate:"omitempty,min=8,max=128"`
+	HasPassword               bool           `json:"-" gorm:"-:all"`
+	OriginalPassword          string         `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
+	DisplayName               string         `json:"display_name" gorm:"index" validate:"max=20"`
+	Role                      int            `json:"role" gorm:"type:int;default:1"`   // admin, common
+	Status                    int            `json:"status" gorm:"type:int;default:1"` // enabled, disabled
+	Email                     string         `json:"email" gorm:"index" validate:"max=50"`
+	GitHubId                  string         `json:"github_id" gorm:"column:github_id;index"`
+	DiscordId                 string         `json:"discord_id" gorm:"column:discord_id;index"`
+	GoogleId                  string         `json:"google_id" gorm:"column:google_id;index"`
+	OidcId                    string         `json:"oidc_id" gorm:"column:oidc_id;index"`
+	WeChatId                  string         `json:"wechat_id" gorm:"column:wechat_id;index"`
+	TelegramId                string         `json:"telegram_id" gorm:"column:telegram_id;index"`
+	VerificationCode          string         `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
+	AccessToken               *string        `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
+	AccessTokenCreatedAt      *int64         `json:"-" gorm:"type:bigint;column:access_token_created_at"`
+	Quota                     int            `json:"quota" gorm:"type:int;default:0"`
+	UsedQuota                 int            `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
+	RequestCount              int            `json:"request_count" gorm:"type:int;default:0;"`               // request number
+	Group                     string         `json:"group" gorm:"type:varchar(64);default:'default'"`
+	AffCode                   string         `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
+	AffCount                  int            `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
+	AffQuota                  int            `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
+	AffHistoryQuota           int            `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
+	InviterId                 int            `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
+	ReferralCommissionPercent *float64       `json:"referral_commission_percent" gorm:"type:decimal(5,2);column:referral_commission_percent"` // nil = use global default
+	TopUpBonusPercent         *float64       `json:"topup_bonus_percent" gorm:"type:decimal(5,2);column:topup_bonus_percent"`                 // nil = no bonus; top-up only, never redemption
+	DeletedAt                 gorm.DeletedAt `gorm:"index"`
+	LinuxDOId                 string         `json:"linux_do_id" gorm:"column:linux_do_id;index"`
+	Setting                   string         `json:"setting" gorm:"type:text;column:setting"`
+	Remark                    string         `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
+	StripeCustomer            string         `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
+	CreemCustomer             string         `json:"creem_customer" gorm:"type:varchar(64);column:creem_customer;index"`
+	// Indexed: every registration-window scan (RegistrationProvenanceSince on each
+	// pod every 10 minutes, the abuse metrics every 30 seconds) filtered on this
+	// column and got a sequential scan, because it was the only filtered column on
+	// this table without an index.
+	CreatedAt        int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at;index"`
+	LastLoginAt      int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
+	RegisterIp       string                     `json:"register_ip,omitempty" gorm:"type:varchar(64);column:register_ip;index"`
+	AuthVersion      int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
+	AdminPermissions map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
 }
 
 func (user *User) ToBaseUser() *UserBase {

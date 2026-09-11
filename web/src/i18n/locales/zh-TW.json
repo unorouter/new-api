@@ -6234,6 +6234,8 @@
     "All Disabled": "所有已停用",
     "Auto-block free model abuse": "自動封鎖免費模型濫用",
     "Auto-block when a user hits more than this many different free models in a minute (fast model-switching = scraping). Only applies when auto-block is enabled.": "當使用者在一分鐘內命中的不同免費模型數超過此值時自動封鎖（快速切換模型即視為爬取）。僅在啟用自動封鎖時生效。",
+    "Distinct free models per day before auto-block": "自動封鎖前每天允許命中的不同免費模型數",
+    "Catches the same catalog scraping paced slowly enough to stay under the per-minute limit above: dozens of different free models across a day, never many in one minute. Requires Redis; without it this signal does nothing. 0 disables. Only applies when auto-block is enabled.": "捕捉同一種目錄爬取，只是放慢節奏以繞開上面的每分鐘上限：一整天掃過數十個不同的免費模型，但任何一分鐘內都不多。需要 Redis，未啟用時該訊號不生效。0=關閉。僅在啟用自動封鎖時生效。",
     "Block free models when balance is zero": "餘額為零時禁止免費模型",
     "Channel Analytics": "Channel Analytics",
     "Channel Diagnostics": "通道診斷",

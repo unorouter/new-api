@@ -77,6 +77,8 @@ const BILLING_SECTIONS = [
               settings['quota_setting.free_abuse_max_per_minute'],
             free_abuse_max_distinct_models:
               settings['quota_setting.free_abuse_max_distinct_models'],
+            free_abuse_max_distinct_models_per_day:
+              settings['quota_setting.free_abuse_max_distinct_models_per_day'],
             free_abuse_max_per_day:
               settings['quota_setting.free_abuse_max_per_day'],
             free_abuse_max_errors_per_hour:

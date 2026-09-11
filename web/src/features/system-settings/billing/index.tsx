@@ -35,6 +35,7 @@ const defaultBillingSettings: BillingSettings = {
   'quota_setting.enable_free_abuse_auto_block': false,
   'quota_setting.free_abuse_max_per_minute': 5,
   'quota_setting.free_abuse_max_distinct_models': 8,
+  'quota_setting.free_abuse_max_distinct_models_per_day': 0,
   'quota_setting.free_abuse_max_per_day': 0,
   'quota_setting.free_abuse_max_errors_per_hour': 0,
   'quota_setting.free_abuse_max_media_err_models': 3,
