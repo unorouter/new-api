@@ -24,7 +24,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 import { TaskUsagePricingEditor } from '../task-usage-pricing-editor'
 
-function renderPricing() {
+function renderPricing(unitLabel?: Record<string, string>) {
   const onBillingExprChange = vi.fn()
   render(
     <TaskUsagePricingEditor
@@ -42,6 +42,7 @@ function renderPricing() {
         clips: {
           type: 'number',
           unit: 'count',
+          unitLabel,
           description: { en: 'Song generation unit price', zh: '生成歌曲单价' },
         },
       }}
@@ -74,6 +75,20 @@ it('shows localized schema explanations in the price table and calculator', asyn
   await act(() => i18next.changeLanguage('zhCN'))
   expect(within(table).getByText('生成歌曲单价')).toBeVisible()
   expect(screen.getByRole('combobox', { name: '生成歌曲或歌词' })).toBeVisible()
+})
+
+it('uses count unit labels in the price matrix and calculator without changing the charge', async () => {
+  renderPricing({ en: 'song', zh: '首' })
+  expect(within(screen.getByRole('table')).getByText('$/song')).toBeVisible()
+  expect(
+    screen.getByText(
+      'Additional charge: $1 + Song generation unit price: 1 song × $11/song = $12'
+    )
+  ).toBeVisible()
+  await act(() => i18next.changeLanguage('zhCN'))
+  expect(within(screen.getByRole('table')).getByText('$/首')).toBeVisible()
+  expect(screen.getByText('首')).toBeVisible()
+  expect(screen.getByText(/1 首 × \$11\/首 = \$12/)).toBeVisible()
 })
 
 it('identifies pricing conditions and keeps the additional charge unchanged when sample usage changes', async () => {
@@ -235,3 +250,56 @@ it('confirms regeneration of supported expressions and preserves their prices an
     ).value
   ).toContain('header("x-priority")')
 })
+
+it.each(['image', 'video'] as const)(
+  'limits pricing fields to the resolved %s model schema',
+  (kind) => {
+    const usageSchema = {
+      image: {
+        image_count: {
+          type: 'number' as const,
+          unit: 'count' as const,
+          unitLabel: { en: 'image', zh: '张' },
+          description: { en: 'Image quantity' },
+        },
+      },
+      video: {
+        seconds: {
+          type: 'number' as const,
+          unit: 'second' as const,
+          description: { en: 'Video duration' },
+        },
+        resolution: {
+          enum: ['720P', '1080P'],
+          description: { en: 'Resolution' },
+        },
+      },
+    }
+    const field = kind === 'image' ? 'image_count' : 'seconds'
+    render(
+      <TaskUsagePricingEditor
+        billingExpr={`tier("base", u("${field}") * 1)`}
+        requestRuleExpr=''
+        usageSchema={usageSchema[kind]}
+        onBillingExprChange={vi.fn()}
+        onRequestRuleExprChange={vi.fn()}
+      />
+    )
+    const presentLabel = kind === 'image' ? 'Image quantity' : 'Video duration'
+    const absentLabel = kind === 'image' ? 'Video duration' : 'Image quantity'
+    expect(
+      screen.getByRole('spinbutton', { name: `Usage · ${presentLabel}` })
+    ).toBeVisible()
+    expect(
+      screen.queryByRole('spinbutton', { name: `Usage · ${absentLabel}` })
+    ).not.toBeInTheDocument()
+    if (kind === 'image') {
+      expect(screen.getByText('$/image')).toBeVisible()
+      expect(
+        screen.queryByRole('combobox', { name: 'Resolution' })
+      ).not.toBeInTheDocument()
+    } else {
+      expect(screen.getByRole('combobox', { name: 'Resolution' })).toBeVisible()
+    }
+  }
+)

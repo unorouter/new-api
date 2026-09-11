@@ -24,7 +24,11 @@ import {
 } from '@tanstack/react-query'
 import { t } from 'i18next'
 
-import type { BillingUsageSchema } from '@/features/pricing/types'
+import { pluginExpressionsEqual } from '@/features/pricing/lib/plugin-pricing'
+import type {
+  BillingUsageSchema,
+  BillingUsageExample,
+} from '@/features/pricing/types'
 import { api } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
 import { createServerError } from '@/lib/server-error-message'
@@ -45,7 +49,20 @@ export type ModelPricingDescription = {
   cache_write_mode?: CacheWriteMode
 }
 
+export type ModelPricingPluginVariant = {
+  plugin_key: string
+  plugin_name: string
+  icon?: string
+  usage_schema: BillingUsageSchema
+  usage_examples?: BillingUsageExample[]
+  configured: string
+  effective: string
+  compatible: boolean
+  stale?: boolean
+}
+
 export type ModelPricingEntry = ModelPricingDescription & {
+  plugin_variants?: ModelPricingPluginVariant[]
   model_name: string
   version: string
   configured: PricingValues
@@ -170,15 +187,19 @@ export function buildPricingChanges(
   for (const name of new Set([...previous.keys(), ...next.keys()])) {
     const oldValues = previous.get(name) ?? {}
     const newValues = next.get(name) ?? {}
-    const dirty = PRICING_KEYS.filter(
-      (key) => oldValues[key] !== newValues[key]
+    const dirty = PRICING_KEYS.filter((key) =>
+      key === 'billing_setting.plugin_billing_expr'
+        ? !pluginExpressionsEqual(oldValues[key], newValues[key])
+        : oldValues[key] !== newValues[key]
     )
     if (!dirty.length) continue
     const entry = entries.get(name)
     const pricing = { ...entry?.configured }
     for (const key of dirty) {
       delete pricing[key]
-      if (newValues[key] !== undefined) pricing[key] = newValues[key]
+      if (newValues[key] !== undefined) {
+        Object.assign(pricing, { [key]: newValues[key] })
+      }
     }
     if (newValues['billing_setting.billing_mode'] === 'tiered_expr') {
       pricing['billing_setting.billing_mode'] = 'tiered_expr'

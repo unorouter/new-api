@@ -286,6 +286,7 @@ function PricingFormFixture(props: {
     AudioCompletionRatio: '{}',
     BillingMode: '{}',
     BillingExpr: '{}',
+    PluginBillingExpr: '{}',
     ExposeRatioEnabled: false,
   }
   const [actionsContainer, setActionsContainer] =

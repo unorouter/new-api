@@ -16,7 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
 import { useBillingTime } from '../hooks/use-billing-time'
@@ -46,15 +49,31 @@ export function CachedPriceCell(props: {
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
 
   const model = props.model
+  const currency = useSystemConfigStore((state) => state.config.currency)
   const billingTime = useBillingTime(model.billing_expr)
-  const dynamicSummary = getDynamicPricingSummary(model, {
-    now: billingTime === undefined ? undefined : new Date(billingTime),
-    tokenUnit,
-    showRechargePrice,
-    priceRate,
-    usdExchangeRate,
-    groupRatioMultiplier: getDynamicDisplayGroupRatio(model, selectedGroup),
-  })
+  const dynamicSummary = useMemo(
+    () =>
+      getDynamicPricingSummary(model, {
+        now: billingTime === undefined ? undefined : new Date(billingTime),
+        tokenUnit,
+        showRechargePrice,
+        priceRate,
+        usdExchangeRate,
+        groupRatioMultiplier: getDynamicDisplayGroupRatio(model, selectedGroup),
+      }),
+    // Currency is read indirectly by the price formatter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      model,
+      tokenUnit,
+      showRechargePrice,
+      priceRate,
+      usdExchangeRate,
+      selectedGroup,
+      billingTime,
+      currency,
+    ]
+  )
 
   if (dynamicSummary) {
     if (dynamicSummary.isSpecialExpression) {

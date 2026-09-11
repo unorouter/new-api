@@ -273,6 +273,72 @@ The usage-log UI treats `request_rules` as the authoritative rule list and rende
 Task plugins can expose validated, provider-specific billing facts through
 `meta.usageSchema`. Expressions read those facts with `u("key")`. A literal key
 must be declared by the plugin schema before the expression can be saved.
+
+Multiple plugins may serve the same model with different usage schemas. The
+executing channel identifies the plugin; clients do not select a billing
+provider. Task expression resolution uses this order:
+
+1. `billing_setting.plugin_billing_expr["<pluginKey>::<clientModel>"]`
+2. The same plugin's override for the final mapped model, when present
+3. The client model's expression when its billing mode is `tiered_expr`
+4. The final mapped model's expression when the client model has no expression
+   billing mode
+
+Plugin overrides always use task-usage semantics, independently of the model's
+billing mode. The flat override map is a separate option and never contributes
+composite keys to model names or model-price synchronization exports. Existing
+prices are not rewritten. The billing snapshot freezes the selected expression;
+completion uses that snapshot even if provider pricing later changes.
+
+A model-level expression save smoke-tests each candidate's selected schema,
+skipping candidates with their own override in the same complete draft.
+Provider expression saves validate the plugin/model binding and that plugin's
+schema; errors identify both model and plugin. For a shared model, an effective
+expression referencing an undeclared literal `u()` key is unconfigured for that
+provider, including references in branches skipped by the current request.
+Submission rejects it with 400 `model_price_error`; administration and public
+pricing expose the unconfigured state. Public model-level metadata remains the
+first plugin's view in ascending key order, with provider variants added
+separately.
+
+Saved provider overrides remain visible when only one provider remains.
+Administration exposes unavailable plugin/model bindings as `stale` and permits
+preserving or removing their existing expressions. Changes to those expressions
+still require a valid binding; writes compare against the locked database
+snapshot rather than the process cache. No overrides are silently pruned.
+Public provider variants include their effective `billing_mode` so inherited
+ratio/per-call pricing is distinct from an unconfigured usage expression.
+
+Plugins serving different model families can optionally declare
+`meta.usageProfiles: [{models: ["image-model"], schema: {...}, examples: [...]}]`.
+Each profile provides the complete usage schema and optional display examples
+for its declared models. It replaces, rather than merges with, the plugin's
+default `usageSchema` and `usageExamples`. A model may belong to only one
+profile, and profile model names must use the spelling declared in `meta.models`.
+An empty profile schema is allowed; a missing or null schema is not. Token-unit
+profiles require their own examples, using the same validation as the defaults.
+
+The host resolves model aliases before selecting usage metadata. Model-level
+pricing and expression-save APIs use the declared target; an ambiguous alias
+with multiple targets in the same plugin retains the plugin defaults. Request
+and usage validation use the executing plugin and final upstream model. Polling
+selects metadata from each saved task's model, including in mixed-model batches.
+Unmatched models and plugins without profiles retain the plugin defaults.
+
+Profiles do not introduce a request-body whitelist or remove legacy multiplier
+extensions. Numeric hook facts retain a consistent floating-point representation
+for expression evaluation, including fields outside the selected profile.
+Saving an expression checks literal usage keys against the selected schema;
+already stored expressions are not migrated. Single-plugin submissions retain
+the existing key-check behavior; shared models enforce the compatibility rule
+above. Existing runtime error and quota safety checks still apply.
+Completion continues to evaluate the frozen expression after overlaying measured
+facts; no schema snapshot or database migration is introduced.
+
+This is an optional addition to plugin API version 1. New hosts accept existing
+plugins unchanged. Older hosts reject the new metadata field, so upgrade the
+host before installing a plugin that declares profiles.
+
 Numeric facts are finite, non-negative values in the declared canonical unit
 (`second`, `count`, `token`, or `credit`); enum facts are exact strings from the
 declared value list. The schema description is display-only metadata and never

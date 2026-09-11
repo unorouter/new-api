@@ -38,6 +38,7 @@ import {
 } from './billing-expr'
 import { compileBillingExpression } from './billing-expression/parser'
 import { getDisplayGroupRatio } from './model-helpers'
+import { withPluginPricing } from './plugin-pricing'
 import {
   evaluateTaskVisualConfig,
   getTaskNumberFields,
@@ -67,7 +68,10 @@ export type DynamicPriceEntry = {
   value: number
   formatted: string
   formattedRange?: string
+  minValue?: number
+  maxValue?: number
   unit: 'token' | BillingUsageUnit | 'request' | 'image'
+  unitLabel?: string | Record<string, string>
   variable?: BillingVar
   description?: string | Record<string, string>
 }
@@ -92,6 +96,8 @@ export type DynamicPricingSummary = {
   isTaskUsage: boolean
   isTimePricing?: boolean
   isMixedBilling?: boolean
+  providerCount?: number
+  hasUnconfiguredProviders?: boolean
 }
 
 export function getTaskUsageQuantityUnitLabelKey(
@@ -135,6 +141,12 @@ function isTaskPricingTier(tier: DynamicPricingTier): tier is ParsedTaskTier {
 }
 
 export function isDynamicPricingModel(model: PricingModel): boolean {
+  if (model.billing_plugin_variants?.length) {
+    return model.billing_plugin_variants.some(
+      (variant) =>
+        variant.billing_mode !== 'ratio' && Boolean(variant.billing_expr)
+    )
+  }
   return model.billing_mode === 'tiered_expr' && Boolean(model.billing_expr)
 }
 
@@ -147,6 +159,13 @@ export function isTaskUsagePricingModel(model: PricingModel): boolean {
 }
 
 export function isUnconfiguredTaskUsageModel(model: PricingModel): boolean {
+  if (model.billing_plugin_variants?.length) {
+    return model.billing_plugin_variants.every((variant) =>
+      variant.billing_mode === 'ratio'
+        ? isUnconfiguredTaskUsageModel(withPluginPricing(model, variant))
+        : !variant.billing_expr
+    )
+  }
   return (
     model.quota_type !== 1 &&
     hasTaskUsageSchema(model) &&
@@ -229,6 +248,11 @@ export function formatTaskUsageUnitPrice(
 export function getDynamicPricingTiers(
   model: PricingModel
 ): DynamicPricingTier[] {
+  if (model.billing_plugin_variants?.length) {
+    return model.billing_plugin_variants.flatMap((variant) =>
+      getDynamicPricingTiers(withPluginPricing(model, variant))
+    )
+  }
   if (!isDynamicPricingModel(model)) return []
   const { billingExpr } = splitBillingExprAndRequestRules(
     model.billing_expr || ''
@@ -240,6 +264,11 @@ export function getDynamicPricingTiers(
 }
 
 export function hasDynamicRequestRules(model: PricingModel): boolean {
+  if (model.billing_plugin_variants?.length) {
+    return model.billing_plugin_variants.some((variant) =>
+      hasDynamicRequestRules(withPluginPricing(model, variant))
+    )
+  }
   if (!isDynamicPricingModel(model)) return false
   const { requestRuleExpr } = splitBillingExprAndRequestRules(
     model.billing_expr || ''
@@ -289,6 +318,7 @@ export function getDynamicPriceEntries(
           value,
           formatted: formatTaskUsageUnitPrice(value, options),
           unit: definition.unit,
+          unitLabel: definition.unitLabel,
           description: definition.description,
         } satisfies DynamicPriceEntry,
       ]
@@ -356,6 +386,112 @@ export function getDynamicPricingSummary(
   model: PricingModel,
   options: DynamicPriceOptions
 ): DynamicPricingSummary | null {
+  const variants = model.billing_plugin_variants
+  if (variants?.length) {
+    const summaries = variants.flatMap((variant) => {
+      const summary = getDynamicPricingSummary(
+        withPluginPricing(model, variant),
+        options
+      )
+      return summary ? [summary] : []
+    })
+    const perCallEntries: DynamicPriceEntry[] = []
+    if (
+      model.quota_type === 1 &&
+      typeof model.model_price === 'number' &&
+      variants.some((variant) => variant.billing_mode === 'ratio')
+    ) {
+      perCallEntries.push({
+        key: 'modelPrice',
+        field: 'modelPrice',
+        label: 'Price per request',
+        shortLabel: 'Per-call',
+        labelKind: 'i18n',
+        value: model.model_price,
+        formatted: formatTaskUsageUnitPrice(model.model_price, options),
+        unit: 'request',
+      })
+    }
+    const ranges = new Map<
+      string,
+      { entry: DynamicPriceEntry; min: number; max: number }
+    >()
+    for (const providerEntries of [
+      ...summaries.map((summary) => summary.entries),
+      perCallEntries,
+    ]) {
+      for (const entry of providerEntries) {
+        // Identical field names with different units describe different prices.
+        const key = `${entry.field}:${entry.unit}`
+        const range = ranges.get(key)
+        const merged = range?.entry ?? { ...entry, key }
+        if (
+          !merged.unitLabel ||
+          (typeof merged.unitLabel === 'object' &&
+            Object.keys(merged.unitLabel).length === 0)
+        ) {
+          merged.unitLabel = entry.unitLabel
+        }
+        ranges.set(key, {
+          entry: merged,
+          min: Math.min(range?.min ?? Infinity, entry.minValue ?? entry.value),
+          max: Math.max(range?.max ?? -Infinity, entry.maxValue ?? entry.value),
+        })
+      }
+    }
+    const entries = [...ranges.values()].map(({ entry, min, max }) => ({
+      ...entry,
+      value: min,
+      minValue: min,
+      maxValue: max,
+      formatted: formatTaskUsageUnitPrice(min, options),
+      formattedRange:
+        min === max
+          ? undefined
+          : `${formatTaskUsageUnitPrice(min, options)} – ${formatTaskUsageUnitPrice(max, options)}`,
+    }))
+    const primaryKeys = new Set(
+      summaries.flatMap((summary) =>
+        summary.primaryEntries
+          .slice(0, 1)
+          .map((entry) => `${entry.field}:${entry.unit}`)
+      )
+    )
+    const primary = entries.filter(
+      (entry) =>
+        (entry.unit !== 'request' && entry.unit !== 'image') ||
+        entry.field === 'modelPrice'
+    )
+    primary.sort(
+      (a, b) => Number(primaryKeys.has(b.key)) - Number(primaryKeys.has(a.key))
+    )
+    const tiers = summaries.flatMap((summary) => summary.tiers)
+    return {
+      tiers,
+      tier: summaries[0]?.tier ?? null,
+      tierCount: tiers.length,
+      hasRequestRules: summaries.some((summary) => summary.hasRequestRules),
+      isSpecialExpression:
+        perCallEntries.length === 0 &&
+        summaries.length > 0 &&
+        summaries.every((summary) => summary.isSpecialExpression),
+      rawExpression: summaries[0]?.rawExpression ?? '',
+      entries,
+      primaryEntries: primary,
+      secondaryEntries: entries.filter(
+        (entry) =>
+          (entry.unit === 'request' || entry.unit === 'image') &&
+          entry.field !== 'modelPrice'
+      ),
+      isTaskUsage: true,
+      providerCount: variants.length >= 2 ? variants.length : undefined,
+      hasUnconfiguredProviders: variants.some((variant) =>
+        variant.billing_mode === 'ratio'
+          ? isUnconfiguredTaskUsageModel(withPluginPricing(model, variant))
+          : !variant.billing_expr
+      ),
+    }
+  }
   if (!isDynamicPricingModel(model)) return null
 
   const tiers = getDynamicPricingTiers(model)
@@ -408,10 +544,15 @@ export function getDynamicPricingSummary(
     }
     entries = entries.map((entry) => {
       const range = priceRanges.get(entry.field)
-      if (!range || range.min === range.max) return entry
+      if (!range) return entry
       return {
         ...entry,
-        formattedRange: `${formatTaskUsageUnitPrice(range.min, options)} – ${formatTaskUsageUnitPrice(range.max, options)}`,
+        minValue: range.min,
+        maxValue: range.max,
+        formattedRange:
+          range.min === range.max
+            ? undefined
+            : `${formatTaskUsageUnitPrice(range.min, options)} – ${formatTaskUsageUnitPrice(range.max, options)}`,
       }
     })
   }
@@ -455,6 +596,14 @@ export function getCardExamplePrice(
   model: PricingModel,
   options: DynamicPriceOptions
 ): CardExamplePrice | null {
+  if (model.billing_plugin_variants?.length) {
+    const variant = model.billing_plugin_variants.find(
+      (provider) => provider.billing_expr
+    )
+    return variant
+      ? getCardExamplePrice(withPluginPricing(model, variant), options)
+      : null
+  }
   if (!isTaskUsagePricingModel(model)) return null
   const schema = model.billing_usage_schema
   const firstExample = model.billing_usage_examples?.[0]

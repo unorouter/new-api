@@ -68,7 +68,7 @@ func modelManagementDB(t *testing.T, kind, dsn string) *gorm.DB {
 	for _, value := range restoreRatios {
 		require.NoError(t, value.restore("{}"))
 	}
-	config.UpdateConfigFromMap(config.GlobalConfig.Get("billing_setting"), map[string]string{"billing_mode": "{}", "billing_expr": "{}"})
+	config.UpdateConfigFromMap(config.GlobalConfig.Get("billing_setting"), map[string]string{"billing_mode": "{}", "billing_expr": "{}", "plugin_billing_expr": "{}"})
 	var version string
 	query := "SELECT version()"
 	if kind == "sqlite" {
@@ -80,7 +80,7 @@ func modelManagementDB(t *testing.T, kind, dsn string) *gorm.DB {
 		for _, value := range restoreRatios {
 			require.NoError(t, value.restore(value.value))
 		}
-		config.UpdateConfigFromMap(config.GlobalConfig.Get("billing_setting"), map[string]string{"billing_mode": previousConfig["billing_setting.billing_mode"], "billing_expr": previousConfig["billing_setting.billing_expr"]})
+		config.UpdateConfigFromMap(config.GlobalConfig.Get("billing_setting"), map[string]string{"billing_mode": previousConfig["billing_setting.billing_mode"], "billing_expr": previousConfig["billing_setting.billing_expr"], "plugin_billing_expr": previousConfig[billing_setting.PluginBillingExprOption]})
 		common.OptionMap = previousOptions
 		common.IsMasterNode, common.SQLitePath = previousMaster, previousSQLite
 		common.RedisEnabled, common.MemoryCacheEnabled = previousRedis, previousMemory
@@ -1499,6 +1499,171 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 				_, err := model.DeleteModelMetadata(ids, true, false)
 				assert.Error(t, err)
 			}
+		})
+	}
+}
+
+func TestSharedModelPluginPricingDatabaseMatrix(t *testing.T) {
+	const name = "shared-model::priced"
+	const base = `tier("base", u("seconds") * 0.4)`
+	const variant = `tier("beta", u("credits") * 2)`
+	for _, dialect := range []struct{ kind, env string }{{"sqlite", ""}, {"mysql", "TEST_MYSQL_DSN"}, {"postgres", "TEST_POSTGRES_DSN"}} {
+		t.Run(dialect.kind, func(t *testing.T) {
+			if dialect.env != "" && os.Getenv(dialect.env) == "" {
+				t.Skip("set " + dialect.env + " to run this database")
+			}
+			db := modelManagementDB(t, dialect.kind, os.Getenv(dialect.env))
+			for _, spec := range []struct{ key, field, unit string }{{"matrix-alpha", "seconds", "second"}, {"matrix-beta", "credits", "credit"}} {
+				source := fmt.Sprintf(`
+		export const meta = {apiVersion:1,key:%q,name:%q,version:"1.0.0",author:{name:"Test"},models:[%q],fetchMode:"per_task",usageSchema:{%s:{type:"number",unit:%q}}};
+		export function buildSubmitRequest(){return {};}
+		export function parseSubmitResponse(){return {};}
+		export function buildQueryRequest(){return {};}
+		export function parseTaskResult(){return {};}
+		`, spec.key, spec.key, name, spec.field, spec.unit)
+				_, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
+				require.NoError(t, err)
+				t.Cleanup(func() { jsplugin.DefaultRegistry.Unregister(spec.key) })
+			}
+
+			// Representative existing options have no plugin-expression row.
+			baseJSON, err := common.Marshal(map[string]string{name: base})
+			require.NoError(t, err)
+			modeJSON, err := common.Marshal(map[string]string{name: "tiered_expr"})
+			require.NoError(t, err)
+			require.NoError(t, db.Create(&[]model.Option{
+				{Key: "ModelPrice", Value: `{"unrelated-model":0.75}`},
+				{Key: "billing_setting.billing_expr", Value: string(baseJSON)},
+				{Key: "billing_setting.billing_mode", Value: string(modeJSON)},
+			}).Error)
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+				"billing_setting.billing_expr": string(baseJSON), "billing_setting.billing_mode": string(modeJSON),
+			}))
+			before, err := model.GetModelPricingSnapshot([]string{name})
+			require.NoError(t, err)
+			require.Len(t, before.Entries, 1)
+			require.Len(t, before.Entries[0].PluginVariants, 2)
+			assert.True(t, before.Entries[0].PluginVariants[0].Compatible)
+			assert.False(t, before.Entries[0].PluginVariants[1].Compatible)
+			assert.Equal(t, base, before.Entries[0].PluginVariants[1].Effective)
+			change := model.ModelPricingChange{ModelName: name, ExpectedVersion: before.Entries[0].Version, Pricing: model.PricingValues{
+				"billing_setting.billing_mode": "tiered_expr", "billing_setting.billing_expr": base,
+				billing_setting.PluginBillingExprOption: map[string]any{"matrix-beta": variant},
+			}}
+			require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{change}))
+			loaded, err := model.GetModelPricingSnapshot([]string{name})
+			require.NoError(t, err)
+			assert.Equal(t, change.Pricing, loaded.Entries[0].Configured)
+			require.Len(t, loaded.Entries[0].PluginVariants, 2)
+			assert.True(t, loaded.Entries[0].PluginVariants[0].Compatible)
+			assert.Equal(t, base, loaded.Entries[0].PluginVariants[0].Effective)
+			assert.True(t, loaded.Entries[0].PluginVariants[1].Compatible)
+			assert.Equal(t, variant, loaded.Entries[0].PluginVariants[1].Configured)
+			var flat map[string]string
+			require.NoError(t, common.UnmarshalJsonStr(loaded.Options[billing_setting.PluginBillingExprOption], &flat))
+			assert.Equal(t, map[string]string{"matrix-beta::" + name: variant}, flat)
+			all, err := model.GetModelPricingSnapshot(nil)
+			require.NoError(t, err)
+			for _, entry := range all.Entries {
+				assert.NotEqual(t, "matrix-beta::"+name, entry.ModelName)
+			}
+			unrelated, err := model.GetModelPricingSnapshot([]string{"unrelated-model"})
+			require.NoError(t, err)
+			assert.Equal(t, float64(0.75), unrelated.Entries[0].Configured["ModelPrice"])
+			assert.NotContains(t, billing_setting.GetPricingSyncData(map[string]any{}), "plugin_billing_expr")
+			assert.NotContains(t, billing_setting.GetPricingSyncData(map[string]any{})["billing_expr"], "matrix-beta::"+name)
+			// Restart/re-read is idempotent; a second save based on its version succeeds.
+			require.NoError(t, db.AutoMigrate(&model.Option{}))
+			change.ExpectedVersion = loaded.Entries[0].Version
+			require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{change}))
+			repeated, err := model.GetModelPricingSnapshot([]string{name})
+			require.NoError(t, err)
+			assert.Equal(t, loaded.Entries[0].Version, repeated.Entries[0].Version)
+			// Changing only the provider price changes the model version.
+			change.Pricing[billing_setting.PluginBillingExprOption] = map[string]any{"matrix-beta": `tier("free", u("credits") * 0)`}
+			require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{change}))
+			updated, err := model.GetModelPricingSnapshot([]string{name})
+			require.NoError(t, err)
+			assert.NotEqual(t, loaded.Entries[0].Version, updated.Entries[0].Version)
+			assert.ErrorIs(t, model.UpdateModelPricing([]model.ModelPricingChange{change}), model.ErrModelPricingConflict)
+			// The legacy option API validates the full draft and cannot drop a required override.
+			response := modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: billing_setting.PluginBillingExprOption, Value: `{}`}, nil)
+			assert.Contains(t, response.Body.String(), `"success":false`)
+			assert.Contains(t, response.Body.String(), "matrix-beta")
+			afterFailure, err := model.GetModelPricingSnapshot([]string{name})
+			require.NoError(t, err)
+			assert.Equal(t, updated.Entries[0].Version, afterFailure.Entries[0].Version)
+			// Model-level legacy saves also skip providers with a stored override.
+			response = modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: "billing_setting.billing_expr", Value: string(baseJSON)}, nil)
+			assert.Contains(t, response.Body.String(), `"success":true`)
+			flat["matrix-beta::"+name] = variant
+			raw, err := common.Marshal(flat)
+			require.NoError(t, err)
+			response = modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: billing_setting.PluginBillingExprOption, Value: string(raw)}, nil)
+			assert.Contains(t, response.Body.String(), `"success":true`)
+			final, err := model.GetModelPricingSnapshot([]string{name})
+			require.NoError(t, err)
+			assert.Equal(t, variant, final.Entries[0].PluginVariants[1].Effective)
+			// A provider may disappear without making every legacy price save fail.
+			require.NoError(t, jsplugin.DefaultRegistry.Unregister("matrix-beta"))
+			stale, err := model.GetModelPricingSnapshot([]string{name})
+			require.NoError(t, err)
+			require.Len(t, stale.Entries[0].PluginVariants, 2)
+			assert.True(t, stale.Entries[0].PluginVariants[1].Stale)
+			assert.Equal(t, variant, stale.Entries[0].PluginVariants[1].Configured)
+			assert.Empty(t, stale.Entries[0].PluginVariants[1].Effective)
+			_, err = model.PreviewModelPricing(name, stale.Entries[0].Configured)
+			require.NoError(t, err)
+			ratioJSON, err := common.Marshal(map[string]float64{name: 2})
+			require.NoError(t, err)
+			response = modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: "ModelRatio", Value: string(ratioJSON)}, nil)
+			assert.Contains(t, response.Body.String(), `"success":true`)
+			response = modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: "billing_setting.billing_expr", Value: string(baseJSON)}, nil)
+			assert.Contains(t, response.Body.String(), `"success":true`)
+			final, err = model.GetModelPricingSnapshot([]string{name})
+			require.NoError(t, err)
+			assert.Equal(t, variant, final.Entries[0].PluginVariants[1].Configured)
+			// The versioned save also preserves an unchanged stale expression.
+			change = model.ModelPricingChange{ModelName: name, ExpectedVersion: final.Entries[0].Version, Pricing: final.Entries[0].Configured}
+			require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{change}))
+			change.Pricing[billing_setting.PluginBillingExprOption] = map[string]any{"matrix-beta": "1"}
+			// Even if this process's cache is ahead of storage, a changed stale
+			// override is validated against the locked database value.
+			tamperedJSON, err := common.Marshal(map[string]string{"matrix-beta::" + name: "1"})
+			require.NoError(t, err)
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{billing_setting.PluginBillingExprOption: string(tamperedJSON)}))
+			require.ErrorContains(t, model.UpdateModelPricing([]model.ModelPricingChange{change}), "does not declare this model")
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{billing_setting.PluginBillingExprOption: final.Options[billing_setting.PluginBillingExprOption]}))
+			// Updating a plugin to stop declaring this model also leaves the
+			// stored override visible and inert, even with no active providers.
+			_, err = jsplugin.DefaultRegistry.Register(`
+export const meta = {apiVersion:1,key:"matrix-beta",name:"Beta updated",version:"2.0.0",author:{name:"Test"},models:["replacement-model"],fetchMode:"per_task",usageSchema:{credits:{type:"number",unit:"credit"}}};
+export function buildSubmitRequest(){return {};}
+export function parseSubmitResponse(){return {};}
+export function buildQueryRequest(){return {};}
+export function parseTaskResult(){return {};}
+`, jsplugin.Options{})
+			require.NoError(t, err)
+			require.NoError(t, jsplugin.DefaultRegistry.Unregister("matrix-alpha"))
+			stale, err = model.GetModelPricingSnapshot([]string{name})
+			require.NoError(t, err)
+			require.Len(t, stale.Entries[0].PluginVariants, 1)
+			assert.True(t, stale.Entries[0].PluginVariants[0].Stale)
+			assert.Equal(t, "Beta updated", stale.Entries[0].PluginVariants[0].PluginName)
+			require.NoError(t, model.UpdateModelPricingOptions(map[string]string{"ModelRatio": string(ratioJSON)}))
+			// Removing just the stale override succeeds and leaves other prices.
+			response = modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: billing_setting.PluginBillingExprOption, Value: `{}`}, nil)
+			assert.Contains(t, response.Body.String(), `"success":true`)
+			final, err = model.GetModelPricingSnapshot([]string{name})
+			require.NoError(t, err)
+			assert.Empty(t, final.Entries[0].PluginVariants)
+			assert.Equal(t, base, final.Entries[0].Configured["billing_setting.billing_expr"])
+			// A complete reset removes all provider keys, including models containing ::.
+			require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: name, ExpectedVersion: final.Entries[0].Version, Reset: true}}))
+			final, err = model.GetModelPricingSnapshot([]string{name})
+			require.NoError(t, err)
+			assert.Empty(t, final.Entries[0].Configured)
+			assert.Equal(t, "{}", final.Options[billing_setting.PluginBillingExprOption])
 		})
 	}
 }

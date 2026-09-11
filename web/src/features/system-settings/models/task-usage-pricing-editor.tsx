@@ -65,6 +65,7 @@ import {
 } from '@/features/pricing/lib/task-expr'
 import {
   taskPriceLabel,
+  taskUsageUnitLabel,
   taskEnumLabel,
   taskPricingConditions,
 } from '@/features/pricing/lib/task-price-display'
@@ -116,12 +117,21 @@ function TaskBillingPreview(props: TaskBillingPreviewProps) {
     const definition = props.usageSchema[part.field ?? '']
     const quantityUnitKey = getTaskUsageQuantityUnitLabelKey(definition?.unit)
     const priceUnitKey = getTaskUsagePriceUnitLabelKey(definition?.unit)
-    const quantityUnitLabel = t(quantityUnitKey)
+    const quantityUnitLabel = taskUsageUnitLabel(
+      definition,
+      i18n.language,
+      t(quantityUnitKey)
+    )
+    const priceUnitLabel = taskUsageUnitLabel(
+      definition,
+      i18n.language,
+      t(priceUnitKey)
+    )
     const quantityLabel =
       definition?.unit === 'second'
         ? `${formatPricingNumber(part.quantity)}${quantityUnitLabel}`
         : `${formatPricingNumber(part.quantity)} ${quantityUnitLabel}`
-    return `${taskPriceLabel(definition?.description, part.field ?? '', i18n.language)}: ${quantityLabel} × ${formatPricingAmount(part.unitPrice ?? 0, props.currency)}/${t(priceUnitKey)}`
+    return `${taskPriceLabel(definition?.description, part.field ?? '', i18n.language)}: ${quantityLabel} × ${formatPricingAmount(part.unitPrice ?? 0, props.currency)}/${priceUnitLabel}`
   })
   const formulaLeft =
     formulaParts.length > 0
@@ -230,7 +240,11 @@ function TaskBillingPreview(props: TaskBillingPreviewProps) {
                   className='font-mono'
                 />
                 <span className='text-muted-foreground shrink-0 text-xs'>
-                  {t(getTaskUsageQuantityUnitLabelKey(definition.unit))}
+                  {taskUsageUnitLabel(
+                    definition,
+                    i18n.language,
+                    t(getTaskUsageQuantityUnitLabelKey(definition.unit))
+                  )}
                 </span>
               </div>
             </Field>
@@ -544,8 +558,14 @@ export const TaskUsagePricingEditor = memo(function TaskUsagePricingEditor(
                                     .symbol
                                 }
                                 /
-                                {t(
-                                  getTaskUsagePriceUnitLabelKey(definition.unit)
+                                {taskUsageUnitLabel(
+                                  definition,
+                                  i18n.language,
+                                  t(
+                                    getTaskUsagePriceUnitLabelKey(
+                                      definition.unit
+                                    )
+                                  )
                                 )}
                               </span>
                             </div>
