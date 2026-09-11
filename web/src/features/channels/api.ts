@@ -59,6 +59,7 @@ export type TaskPluginOption = {
   hasIcon?: boolean
   baseUrl?: string
   models: string[]
+  channelTypes?: number[] | null
 }
 
 export async function getTaskPluginOptions(): Promise<TaskPluginOption[]> {

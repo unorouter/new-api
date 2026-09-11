@@ -178,6 +178,10 @@ import {
   type ChannelProviderTarget,
 } from '../../lib/channel-configuration'
 import {
+  getChannelPluginExtensions,
+  supportsChannelPluginExtensions,
+} from '../../lib/channel-plugin-extensions'
+import {
   collectInvalidStatusCodeEntries,
   collectNewDisallowedStatusCodeRedirects,
 } from '../../lib/status-code-risk-guard'
@@ -186,6 +190,7 @@ import {
   nextTaskPluginBaseUrl,
 } from '../../lib/task-plugin-base-url'
 import type { Channel } from '../../types'
+import { ChannelPluginExtensions } from '../channel-plugin-extensions'
 import { ChannelTypeLogo } from '../channel-type-badge'
 import { useChannels } from '../channels-provider'
 import { AdvancedCustomEditorDialog } from '../dialogs/advanced-custom-editor-dialog'
@@ -401,7 +406,9 @@ export function ChannelMutateDrawer({
     ((action: MissingModelsAction) => void) | null
   >(null)
   const channelFormRef = useRef<HTMLFormElement>(null)
-  const [configureModelsOpen, setConfigureModelsOpen] = useState(false)
+  const [modelConfiguration, setModelConfiguration] = useState<{
+    pluginKey?: string
+  } | null>(null)
   const [paramOverrideEditorOpen, setParamOverrideEditorOpen] = useState(false)
   const [advancedCustomEditorOpen, setAdvancedCustomEditorOpen] =
     useState(false)
@@ -671,14 +678,19 @@ export function ChannelMutateDrawer({
   const taskPluginOptionsQuery = useQuery({
     queryKey: ['task-plugin-options'],
     queryFn: async () => requireServerSuccess(await getTaskPluginOptions()),
-    enabled:
-      open &&
-      canBindTaskPlugin &&
-      (!isEditing ||
-        showProviderPicker ||
-        currentType === CHANNEL_TYPE_TASK_PLUGIN),
+    enabled: open && canBindTaskPlugin,
     meta: { errorToast: false },
   })
+  const canHavePluginExtensions = supportsChannelPluginExtensions(currentType)
+  const pluginExtensions = useMemo(() => {
+    if (!canBindTaskPlugin || !taskPluginOptionsQuery.isSuccess) return []
+    return getChannelPluginExtensions(currentType, taskPluginOptionsQuery.data)
+  }, [
+    canBindTaskPlugin,
+    currentType,
+    taskPluginOptionsQuery.isSuccess,
+    taskPluginOptionsQuery.data,
+  ])
   const boundTaskPlugin =
     currentType === CHANNEL_TYPE_TASK_PLUGIN
       ? taskPluginOptionsQuery.data?.find(
@@ -792,12 +804,16 @@ export function ChannelMutateDrawer({
 
   // Transform models to multi-select options
   const modelOptions = useMemo(() => {
-    const allModels = new Set([...allModelsList, ...currentModelsArray])
+    const allModels = new Set([
+      ...allModelsList,
+      ...currentModelsArray,
+      ...pluginExtensions.flatMap((plugin) => plugin.models),
+    ])
     return [...allModels].map((model) => ({
       value: model,
       label: model,
     }))
-  }, [allModelsList, currentModelsArray])
+  }, [allModelsList, currentModelsArray, pluginExtensions])
 
   const modelMappingGuardrail = useMemo<ModelMappingGuardrail>(() => {
     if (!currentModelMapping?.trim()) {
@@ -895,7 +911,7 @@ export function ChannelMutateDrawer({
   // Load channel data into form when editing
   useEffect(() => {
     if (!open) {
-      setConfigureModelsOpen(false)
+      setModelConfiguration(null)
       form.reset(CHANNEL_FORM_DEFAULT_VALUES)
       loadedForm.current = null
       setProviderTarget(null)
@@ -926,7 +942,7 @@ export function ChannelMutateDrawer({
           : { kind: 'builtin', type: defaults.type }
       )
       if (isNewChannel) {
-        setConfigureModelsOpen(false)
+        setModelConfiguration(null)
         setChoosingProvider(false)
         setConfigurationSection('connection')
         setPendingErrorFocus(null)
@@ -2697,8 +2713,13 @@ export function ChannelMutateDrawer({
                       type='button'
                       variant='outline'
                       size='sm'
-                      onClick={() => setConfigureModelsOpen(true)}
-                      disabled={currentModelsArray.length === 0}
+                      onClick={() => setModelConfiguration({})}
+                      disabled={
+                        currentModelsArray.length === 0 &&
+                        !pluginExtensions.some(
+                          (plugin) => plugin.models.length > 0
+                        )
+                      }
                     >
                       <Settings className='mr-2 h-4 w-4' aria-hidden='true' />
                       {t('Configure Models')}
@@ -2716,6 +2737,34 @@ export function ChannelMutateDrawer({
                       copyChipOnClick
                     />
                   </FormControl>
+                  {canBindTaskPlugin &&
+                    canHavePluginExtensions &&
+                    !showProviderPicker && (
+                      <>
+                        {taskPluginOptionsQuery.isLoading && (
+                          <LoadingState
+                            inline
+                            message={t('Loading plugins...')}
+                          />
+                        )}
+                        {taskPluginOptionsQuery.isError && (
+                          <ErrorState
+                            className='min-h-0 p-3'
+                            title={t('Failed to load plugins')}
+                            onRetry={() => {
+                              void taskPluginOptionsQuery.refetch()
+                            }}
+                          />
+                        )}
+                        <ChannelPluginExtensions
+                          plugins={pluginExtensions}
+                          selected={currentModelsArray}
+                          onConfigure={(pluginKey) =>
+                            setModelConfiguration({ pluginKey })
+                          }
+                        />
+                      </>
+                    )}
                   {modelMappingGuardrail.exposedTargetModels.length > 0 && (
                     <Alert className='border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-50'>
                       <AlertDescription className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
@@ -4253,6 +4302,7 @@ export function ChannelMutateDrawer({
 
           {showProviderPicker && (
             <ChannelProviderPicker
+              isCreating={!isEditing}
               plugins={taskPluginOptionsQuery.data ?? []}
               currentProvider={providerTarget}
               canBindPlugin={canBindTaskPlugin}
@@ -4361,11 +4411,15 @@ export function ChannelMutateDrawer({
         </SheetContent>
       </Sheet>
 
-      {open && configureModelsOpen && (
+      {open && modelConfiguration && (
         <ConfigureModelsDialog
-          open={configureModelsOpen}
+          open
           models={currentModelsArray}
-          onOpenChange={setConfigureModelsOpen}
+          plugins={pluginExtensions}
+          initialPluginKey={modelConfiguration.pluginKey}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setModelConfiguration(null)
+          }}
           onApply={handleModelsChange}
         />
       )}

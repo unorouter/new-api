@@ -52,7 +52,7 @@ export const CHANNEL_TYPES = {
   23: 'Tencent',
   24: 'Gemini',
   25: 'Moonshot',
-  26: 'Zhipu V4',
+  26: 'Zhipu GLM',
   27: 'Perplexity',
   31: 'LingYiWanWu',
   33: 'AWS',
@@ -169,8 +169,8 @@ export const CHANNEL_PROVIDER_PRESENTATION: Partial<
 >
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
-  1, 14, 33, 24, 43, 3, 41, 48, 60, 58, 61, 42, 34, 20, 4, 40, 27, 25, 17, 26,
-  15, 46, 23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 59, 22, 21, 44,
+  1, 14, 24, 33, 43, 3, 41, 17, 45, 25, 26, 23, 48, 60, 58, 59, 61, 42, 34, 20,
+  4, 40, 27, 15, 46, 18, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 22, 21, 44,
   2, 5, 36, 50, 51, 52, 53, 54, 55, 56,
 ]
 
