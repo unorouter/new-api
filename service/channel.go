@@ -30,10 +30,12 @@ func formatNotifyType(channelId int, status int) string {
 // across swarm replicas; an in-process map is the single-instance fallback.
 const emptyResponseCounterTTL = 10 * time.Minute
 
-var emptyResponseFailCounts sync.Map // channelId -> emptyResponseWindow, fallback when Redis is unavailable
-var channelSuccessCounts sync.Map    // channelId -> emptyResponseWindow, fallback when Redis is unavailable
-var channelFailureCounts sync.Map    // channelId -> emptyResponseWindow, fallback when Redis is unavailable
-var channelFailureStreaks sync.Map   // channelId -> int, fallback when Redis is unavailable
+var emptyResponseFailCounts sync.Map  // channelId -> emptyResponseWindow, fallback when Redis is unavailable
+var channelSuccessCounts sync.Map     // channelId -> emptyResponseWindow, fallback when Redis is unavailable
+var channelFailureCounts sync.Map     // channelId -> emptyResponseWindow, fallback when Redis is unavailable
+var channelFailureStreaks sync.Map    // channelId -> int, fallback when Redis is unavailable
+var channelTruncationCounts sync.Map  // channelId -> emptyResponseWindow, fallback when Redis is unavailable
+var channelLongRequestCounts sync.Map // channelId -> emptyResponseWindow, fallback when Redis is unavailable
 
 type emptyResponseWindow struct {
 	count int
@@ -50,6 +52,14 @@ func channelSuccessCounterKey(channelId int) string {
 
 func channelFailureCounterKey(channelId int) string {
 	return fmt.Sprintf("channel_fail:%d", channelId)
+}
+
+func channelTruncationCounterKey(channelId int) string {
+	return fmt.Sprintf("channel_truncation:%d", channelId)
+}
+
+func channelLongRequestCounterKey(channelId int) string {
+	return fmt.Sprintf("channel_long_request:%d", channelId)
 }
 
 func channelFailureStreakKey(channelId int) string {
@@ -350,6 +360,41 @@ func RecordChannelFailure(channelId int, soft bool) bool {
 		return failures >= deadFloor
 	}
 	return channelFailureRateExceeded(m, failures, successes)
+}
+
+// A truncation is an upstream failure that landed after content had already
+// reached the client. Nothing can hide it: the retry loop cannot re-answer a
+// request the client is already reading, so the customer sees a cut-off response.
+// It is counted against LONG requests only, because the failure mode is
+// duration-dependent: on a7 lane 4056 the rate was 1.0% under 60s and 79.6%
+// between 120s and 180s, which a whole-traffic rate averages into invisibility.
+//
+// Counting always runs so the rate is observable; only the disable is gated, so
+// the gate can ship inert and be armed once its numbers have been watched.
+func RecordChannelLongRequest(channelId int) {
+	bumpWindowCounter(channelLongRequestCounterKey(channelId), &channelLongRequestCounts, channelId)
+}
+
+// RecordChannelTruncation counts one truncation and reports the window so far plus
+// whether the lane has earned a disable.
+func RecordChannelTruncation(channelId int) (truncations int, total int, exceeded bool) {
+	truncations = bumpWindowCounter(channelTruncationCounterKey(channelId), &channelTruncationCounts, channelId)
+	total = bumpWindowCounter(channelLongRequestCounterKey(channelId), &channelLongRequestCounts, channelId)
+
+	m := operation_setting.GetMonitorSetting()
+	if m.ChannelTruncationRateThreshold <= 0 || m.ChannelTruncationMinSamples <= 0 {
+		return truncations, total, false
+	}
+	if total < m.ChannelTruncationMinSamples {
+		return truncations, total, false
+	}
+	return truncations, total, float64(truncations)/float64(total) >= m.ChannelTruncationRateThreshold
+}
+
+// ChannelTruncationMinDuration is the age a request must reach before it counts
+// toward the truncation window. Zero disables the duration filter.
+func ChannelTruncationMinDuration() time.Duration {
+	return time.Duration(operation_setting.GetMonitorSetting().ChannelTruncationMinDurationSec) * time.Second
 }
 
 // channelFailureRateExceeded is the honest measure once a window holds real

@@ -36,6 +36,17 @@ type MonitorSetting struct {
 	ChannelFailureRateThreshold float64 `json:"channel_failure_rate_threshold"`
 	ChannelFailureMinSamples    int     `json:"channel_failure_min_samples"`
 	ChannelFailureAbsoluteFloor int     `json:"channel_failure_absolute_floor"`
+	// A truncation is an upstream failure that arrived after the client had already
+	// received content: the answer is cut off and no retry can hide it. Measured on
+	// a7 lane 4056, the failure rate is a function of how long the request runs:
+	// 1.0% under 60s, 79.6% between 120s and 180s. The ordinary failure gate cannot
+	// see that, because the lane still reads 94.8% healthy overall. Counted and
+	// gated separately, over requests that ran at least
+	// ChannelTruncationMinDurationSeconds so short traffic cannot dilute the rate.
+	// Threshold 0 disables the gate entirely.
+	ChannelTruncationRateThreshold  float64 `json:"channel_truncation_rate_threshold"`
+	ChannelTruncationMinSamples     int     `json:"channel_truncation_min_samples"`
+	ChannelTruncationMinDurationSec int     `json:"channel_truncation_min_duration_sec"`
 	// Floor for a channel with zero successes in the window. Kept far below the
 	// absolute floor because a dead channel on a low-traffic model only fails a few
 	// times per counter window and must still be able to park.
@@ -97,6 +108,9 @@ var monitorSetting = MonitorSetting{
 	EmptyResponseAbsoluteFloor:       5,
 	ChannelFailureRateThreshold:      0.5,
 	ChannelFailureMinSamples:         10,
+	ChannelTruncationRateThreshold:   0,
+	ChannelTruncationMinSamples:      200,
+	ChannelTruncationMinDurationSec:  60,
 	ChannelFailureAbsoluteFloor:      20,
 	ChannelFailureDeadFloor:          5,
 	ChannelFailureStreakFloor:        3,
