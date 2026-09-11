@@ -796,7 +796,7 @@ func shouldChargeOnError(err *types.NewAPIError) bool {
 // as 400s, so isTransientInfraError never covers them, yet they are not abuse:
 // the filter refuses ONE prompt the user typed, and each refusal is a different
 // message rather than a retry. Counting them auto-blocked real users, because the
-// only free provider (chatglm) rejects ordinary roleplay often enough to cross
+// one upstream serving every free lane rejects ordinary roleplay often enough to cross
 // FreeAbuseMaxErrorsPerHour in a single sitting.
 func isModerationRejection(err *types.NewAPIError) bool {
 	return types.IsUpstreamModerationError(err) || types.IsSharedFilterModerationError(err)

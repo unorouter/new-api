@@ -17,8 +17,14 @@ import (
 // sitting. Nine accounts with 113 to 3638 successful requests were blocked that
 // way, every one of them at ~40 rejections in an hour.
 func TestModerationRejectionsAreNotCountedAsFreeModelAbuse(t *testing.T) {
+	// The marker list is deployment config, so the test supplies its own rather
+	// than naming an upstream here.
+	prev := types.SharedFilterModerationMarkersProvider
+	types.SharedFilterModerationMarkersProvider = func() []string { return []string{"shared-filter moderation"} }
+	t.Cleanup(func() { types.SharedFilterModerationMarkersProvider = prev })
+
 	// Verbatim from the production log of a blocked account (user 23831).
-	const chatglmReject = "非常抱歉，我目前无法提供你需要的具体信息，如果你有其他的问题或者需要查找其他信息，我非常乐意帮助你。 (shared-filter moderation: input_sensitive/REJECT)"
+	const sharedFilterReject = "非常抱歉，我目前无法提供你需要的具体信息，如果你有其他的问题或者需要查找其他信息，我非常乐意帮助你。 (shared-filter moderation: input_sensitive/REJECT)"
 
 	for _, tc := range []struct {
 		name    string
@@ -27,8 +33,8 @@ func TestModerationRejectionsAreNotCountedAsFreeModelAbuse(t *testing.T) {
 		comment string
 	}{
 		{
-			name:   "chatglm shared filter reject",
-			err:    types.NewOpenAIError(errors.New(chatglmReject), types.ErrorCodeBadResponse, http.StatusBadRequest),
+			name:   "shared filter reject",
+			err:    types.NewOpenAIError(errors.New(sharedFilterReject), types.ErrorCodeBadResponse, http.StatusBadRequest),
 			exempt: true,
 		},
 		{

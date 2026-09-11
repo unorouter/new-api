@@ -700,16 +700,18 @@ func IsUpstreamModerationError(err *NewAPIError) bool {
 	return false
 }
 
-// sharedFilterModerationMarkers are moderation rejects from an upstream filter
-// that EVERY sibling channel shares (all those shards front the same z.ai
-// guest endpoint), so failing over re-runs the identical verdict: a real user
-// burned 4 shards and 19 seconds on one refusal. Unlike the per-upstream
-// markers above, these must stop the chain and reach the user directly. Still
-// no channel fault: the request caused it, the lane is healthy.
-var sharedFilterModerationMarkers = []string{
-	// The chatglm shard proxy's tag for z.ai's last_error intervene verdict.
-	"shared-filter moderation",
-}
+// SharedFilterModerationMarkersProvider supplies the moderation-reject fragments
+// that EVERY sibling channel shares, because those shards front one guest
+// endpoint and failing over re-runs the identical verdict: a real user burned 4
+// shards and 19 seconds on one refusal. Unlike the per-upstream markers above,
+// these must stop the chain and reach the user directly. Still no channel fault:
+// the request caused it, the lane is healthy.
+//
+// Supplied at startup by operation_setting rather than written here, for the
+// same reason as ChannelFaultKeywordsProvider, and because the fragments name
+// the upstream a lane fronts and this repo is public. Nil means no marker
+// matches, so the chain behaves as it did before the markers existed.
+var SharedFilterModerationMarkersProvider func() []string
 
 // IsSharedFilterModerationError reports an upstream moderation reject that every
 // sibling would repeat, so retrying is pure waste.
@@ -717,8 +719,11 @@ func IsSharedFilterModerationError(err *NewAPIError) bool {
 	if err == nil || err.errorType == ErrorTypeNewAPIError {
 		return false
 	}
+	if SharedFilterModerationMarkersProvider == nil {
+		return false
+	}
 	msg := strings.ToLower(err.Error())
-	for _, marker := range sharedFilterModerationMarkers {
+	for _, marker := range SharedFilterModerationMarkersProvider() {
 		if strings.Contains(msg, marker) {
 			return true
 		}

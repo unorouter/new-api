@@ -1,6 +1,7 @@
 package operation_setting
 
 import (
+	"os"
 	"strings"
 
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -10,6 +11,24 @@ func init() {
 	// Feed the admin-editable channel-fault keyword list into the types package
 	// (which does the error reclassification but cannot import this package).
 	types.ChannelFaultKeywordsProvider = func() []string { return ChannelFaultKeywords }
+	types.SharedFilterModerationMarkersProvider = func() []string { return SharedFilterModerationMarkers }
+}
+
+// Moderation rejects that every sibling lane repeats, because those lanes front
+// a single guest endpoint. Seeded from SHARED_FILTER_MODERATION_MARKERS (comma
+// separated) rather than written here: the fragments name the upstream a lane
+// fronts and this repo is public. Empty means the chain never short circuits on
+// a moderation verdict, which is how it behaved before the markers existed.
+var SharedFilterModerationMarkers = parseMarkerList(os.Getenv("SHARED_FILTER_MODERATION_MARKERS"))
+
+func parseMarkerList(raw string) []string {
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if trimmed := strings.ToLower(strings.TrimSpace(part)); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 var DemoSiteEnabled = false
