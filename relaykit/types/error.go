@@ -96,15 +96,16 @@ const (
 )
 
 type NewAPIError struct {
-	Err            error
-	RelayError     any
-	skipRetry      bool
-	skipDisable    bool
-	recordErrorLog *bool
-	errorType      ErrorType
-	errorCode      ErrorCode
-	StatusCode     int
-	Metadata       json.RawMessage
+	Err             error
+	RelayError      any
+	skipRetry       bool
+	skipDisable     bool
+	streamTruncated bool
+	recordErrorLog  *bool
+	errorType       ErrorType
+	errorCode       ErrorCode
+	StatusCode      int
+	Metadata        json.RawMessage
 }
 
 // Unwrap enables errors.Is / errors.As to work with NewAPIError by exposing the underlying error.
@@ -791,6 +792,25 @@ func ErrOptionWithSkipRetry() NewAPIErrorOptions {
 // auto-banned even if the code/status would normally disable it. For faults that
 // fail over cleanly (nothing committed to the client) where a single occurrence is
 // not proof the channel is dead - the scheduled autotest still disables dead ones.
+// ErrOptionWithStreamTruncated marks an upstream failure that arrived AFTER the
+// response had begun reaching the client. Retry is impossible once bytes are on
+// the wire, so the only remedy is to stop routing to a lane that does it; this
+// flag is what lets the channel guard count those separately from faults that
+// failed over cleanly.
+func ErrOptionWithStreamTruncated() NewAPIErrorOptions {
+	return func(e *NewAPIError) {
+		e.streamTruncated = true
+	}
+}
+
+func IsStreamTruncatedError(err *NewAPIError) bool {
+	if err == nil {
+		return false
+	}
+
+	return err.streamTruncated
+}
+
 func ErrOptionWithSkipDisable() NewAPIErrorOptions {
 	return func(e *NewAPIError) {
 		e.skipDisable = true

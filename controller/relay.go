@@ -485,6 +485,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			// Denominator for every rate-based disable gate, so it must be recorded
 			// regardless of which of those gates happens to be enabled.
 			service.RecordChannelSuccess(relayInfo.ChannelId)
+			// A long request that finished is the denominator the truncation gate
+			// measures against: only requests old enough to meet whatever cuts long
+			// streams belong in that window.
+			if requestRanAtLeast(c, service.ChannelTruncationMinDuration()) {
+				service.RecordChannelLongRequest(channel.Id)
+			}
 			return
 		}
 
@@ -810,6 +816,19 @@ func isTransientInfraError(err *types.NewAPIError) bool {
 
 // relayInfo may be nil (the scheduled channel test has no relay); statusOpts is
 // prod's channel-status provenance, which the test path supplies instead.
+// requestRanAtLeast reports whether this request has been in flight for at least
+// d. A zero or negative d means the duration filter is off and everything counts.
+func requestRanAtLeast(c *gin.Context, d time.Duration) bool {
+	if d <= 0 {
+		return true
+	}
+	started := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
+	if started.IsZero() {
+		return false
+	}
+	return time.Since(started) >= d
+}
+
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo, statusOpts ...model.ChannelStatusChangeOpt) {
 	if c.Request != nil && c.Request.Context().Err() != nil {
 		return
@@ -870,6 +889,18 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		logger.LogInfo(c, fmt.Sprintf("channel-guard: kept channel #%d (%s) enabled, fault below threshold: fail=%d ok=%d status=%d code=%s",
 			channelError.ChannelId, channelError.ChannelName, fails, oks, err.StatusCode, err.GetErrorCode()))
 		shouldDisable = false
+	}
+	// A truncation cannot fail over: the client is already reading the answer when
+	// the upstream cuts it. It is therefore counted on its own, far tighter window
+	// instead of the shared fault rate, which a lane that is perfect on short
+	// requests and fatal on long ones never trips.
+	if types.IsStreamTruncatedError(err) && requestRanAtLeast(c, service.ChannelTruncationMinDuration()) {
+		truncations, total, exceeded := service.RecordChannelTruncation(channelError.ChannelId)
+		logger.LogInfo(c, fmt.Sprintf("channel-guard: truncation on channel #%d (%s): %d/%d long requests cut, exceeded=%t status=%d code=%s",
+			channelError.ChannelId, channelError.ChannelName, truncations, total, exceeded, err.StatusCode, err.GetErrorCode()))
+		if exceeded {
+			shouldDisable = true
+		}
 	}
 	if shouldDisable && channelError.AutoBan {
 		// Default the status-history trigger to a live relay request; the

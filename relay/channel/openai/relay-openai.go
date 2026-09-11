@@ -436,7 +436,10 @@ func buildStreamErrorAPIError(errChunk string, streamingStarted bool) *types.New
 	}
 	var opts []types.NewAPIErrorOptions
 	if streamingStarted {
-		opts = append(opts, types.ErrOptionWithSkipRetry())
+		// Content already reached the client, so the answer is truncated and no
+		// sibling lane can rescue it. Flag it so the guard can weigh a truncation
+		// far more heavily than a fault that failed over invisibly.
+		opts = append(opts, types.ErrOptionWithSkipRetry(), types.ErrOptionWithStreamTruncated())
 	}
 	return types.WithOpenAIError(oaiErr, status, opts...)
 }
