@@ -1111,6 +1111,27 @@ func executeTaskSubmissionWith(
 		return nil, service.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
 	}
 
+	// The same shadow ban the chat relay applies to free models, on the path that
+	// never reached it. It sits ahead of the retry loop because RelayTaskSubmit
+	// prices the request, and shouldRetryTaskRelay retries every 429 before it
+	// checks LocalError, so a ban raised downstream would fan out to every
+	// channel instead of refusing once. Keyed on the model name rather than
+	// PriceData.FreeModel: the tiered branch in relay/relay_task.go builds
+	// PriceData by hand and never sets that flag.
+	if notify.IsFreeModel(relayInfo.OriginModelName) {
+		if relayInfo.UserQuota <= 0 &&
+			(relayInfo.UserSetting.BlockFreeWhenNoQuota || service.FreeModelsShadowBanned(relayInfo.UserId)) {
+			paidName := strings.TrimSuffix(relayInfo.OriginModelName, ":free")
+			return nil, service.TaskErrorWrapperLocal(
+				fmt.Errorf("Too many requests. The free tier allows %d request(s) every %d min per account on %s - nothing is used up, retry in %ds. The paid %s has no per-minute limit.",
+					1, 1, relayInfo.OriginModelName, 60, paidName),
+				string(types.ErrorCodeRateLimitExceeded), http.StatusTooManyRequests)
+		}
+		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels {
+			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName)
+		}
+	}
+
 	retryParam := &service.RetryParam{
 		Ctx:         c,
 		TokenGroup:  relayInfo.TokenGroup,
