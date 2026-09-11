@@ -312,6 +312,11 @@ func perModelRateLimit(c *gin.Context) bool {
 			other := model.NewLogOther()
 			other.SetPublic("status_code", http.StatusTooManyRequests)
 			other.SetPublic("retry_after", retryAfter)
+			// This row is a policy decision, not a fault: the request was refused by
+			// our own free-tier limiter and nothing upstream was even asked. It is
+			// marked so error-rate reporting can exclude it; unmarked it was 4.4
+			// points of a 34% "error rate" and made the free tier look broken.
+			other.SetPublic("policy_throttle", true)
 			model.RecordErrorLog(c, c.GetInt("id"), channelId, mr.Model,
 				c.GetString("token_name"), msg, c.GetInt("token_id"), 0, false,
 				group, 0, other)
