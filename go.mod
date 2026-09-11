@@ -18,7 +18,7 @@ require (
 	github.com/gin-contrib/gzip v0.0.6
 	github.com/gin-contrib/static v0.0.1
 	github.com/gin-gonic/gin v1.12.0
-	github.com/glebarez/sqlite v1.9.0
+	github.com/glebarez/sqlite v1.11.0
 	github.com/go-audio/aiff v1.1.0
 	github.com/go-audio/wav v1.1.0
 	github.com/go-playground/validator/v10 v10.30.3
@@ -56,9 +56,9 @@ require (
 	golang.org/x/sys v0.46.0
 	golang.org/x/text v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
-	gorm.io/driver/mysql v1.4.3
-	gorm.io/driver/postgres v1.5.2
-	gorm.io/gorm v1.25.2
+	gorm.io/driver/mysql v1.5.7
+	gorm.io/driver/postgres v1.5.9
+	gorm.io/gorm v1.25.12
 )
 
 require (
