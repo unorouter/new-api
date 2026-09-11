@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -35,36 +36,48 @@ type UpstreamClass struct {
 }
 
 type upstreamRule struct {
-	host    string // substring of the channel host, "" matches every host
-	markers []string
-	class   UpstreamClass
+	host string // substring of the channel host, "" matches every host
+	// marketplace scopes a rule to the reseller host in MARKETPLACE_UPSTREAM_HOST
+	// instead of a literal. The host names a commercial supplier and this repo is
+	// public, so it is deployment config, not source. Unset leaves these rules
+	// inert rather than letting them match every host.
+	marketplace bool
+	markers     []string
+	class       UpstreamClass
 }
+
+// marketplaceHost is the reseller whose error bodies wrap every merchant state in
+// one type, so only its 原因 sentence tells the states apart.
+var marketplaceHost = strings.ToLower(strings.TrimSpace(os.Getenv("MARKETPLACE_UPSTREAM_HOST")))
 
 // Ordered: the first rule whose host matches and whose marker is in the message
 // wins. Every marker is lowercase; the message is lowercased before matching.
 //
-// marketplace wraps every merchant state in type fixed_merchant_unavailable and the
+// The marketplace wraps every merchant state in one error type and the
 // only stable discriminator is the 原因 sentence. Its statuses lie: "pinned
 // merchant busy/cooling" and "merchant rejects the request" arrive as 400, which
 // the generic rules read as a malformed request and never fail over.
 var upstreamRules = []upstreamRule{
-	// marketplace, platform-wide protective throttle: every a6 lane answers the same 503
+	// Marketplace, platform-wide protective throttle: every lane on it answers the same 503
 	// for the next seconds, so counting it per lane mass-disables healthy merchants.
-	{host: "marketplace.example", markers: []string{"平台正在进行保护性限流"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true, Provider: true}},
-	// marketplace, request over this merchant's context budget: another merchant serves it.
-	{host: "marketplace.example", markers: []string{"超过了可处理范围"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}},
-	// marketplace, merchant rate limited.
-	{host: "marketplace.example", markers: []string{"该商家上游正在限流"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}},
-	// marketplace, the merchant is fused on their side for a cooldown: every further try
+	{marketplace: true, markers: []string{"平台正在进行保护性限流"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true, Provider: true}},
+	// Marketplace, request over this merchant's context budget: another merchant serves it.
+	{marketplace: true, markers: []string{"超过了可处理范围"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}},
+	// Marketplace, merchant rate limited.
+	{marketplace: true, markers: []string{"该商家上游正在限流"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}},
+	// Marketplace, the merchant is fused on their side for a cooldown: every further try
 	// during it fails, so the lane leaves rotation now and the probe brings it back.
-	{host: "marketplace.example", markers: []string{"熔断冷却"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}},
-	// marketplace, lane-fatal states: capability blocked, price raised and the pin
+	{marketplace: true, markers: []string{"熔断冷却"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}},
+	// Marketplace, lane-fatal states: capability blocked, price raised and the pin
 	// suspended, our token refused, model gone from the merchant.
-	{host: "marketplace.example", markers: []string{"暂时无法访问该商家的上游能力", "上调了价格", "账号或令牌状态不允许", "未开放或找不到该模型"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}},
-	// marketplace, pinned merchant busy or cooling (masked as 400 a third of the time)
+	{marketplace: true, markers: []string{"暂时无法访问该商家的上游能力", "上调了价格", "账号或令牌状态不允许", "未开放或找不到该模型"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}},
+	// Marketplace, pinned merchant busy or cooling (masked as 400 a third of the time)
 	// and merchant rejecting the request's parameters or capability: a sibling
 	// merchant serves the same body, and a lane doing this all day is dead.
-	{host: "marketplace.example", markers: []string{"您固定的商家当前处于繁忙", "该商家拒绝了本次请求", "该商家上游返回了错误"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure}},
+	// Cooled as well as counted: the body says the merchant is busy or cooling, so
+	// sending it the next request immediately just buys another failure. A healthy
+	// lane sheds the strike on its next success, so only real bursts bite.
+	{marketplace: true, markers: []string{"您固定的商家当前处于繁忙", "该商家拒绝了本次请求", "该商家上游返回了错误"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
 
 	// Any host, rate limits and capacity: fail over, count nothing. AI Horde alone
 	// produced 190k of these in a week; each one disabled a lane the probe
@@ -105,6 +118,9 @@ func ClassifyUpstreamError(baseURL string, err *types.NewAPIError) UpstreamClass
 	host := upstreamHost(baseURL)
 	msg := strings.ToLower(err.Error())
 	for _, rule := range upstreamRules {
+		if rule.marketplace && (marketplaceHost == "" || !strings.Contains(host, marketplaceHost)) {
+			continue
+		}
 		if rule.host != "" && !strings.Contains(host, rule.host) {
 			continue
 		}

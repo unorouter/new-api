@@ -708,7 +708,7 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if types.IsSkipRetryError(openaiErr) {
 		return false
 	}
-	// The upstream's own text outranks its status code: marketplace masks "pinned
+	// The upstream's own text outranks its status code: the marketplace masks "pinned
 	// merchant busy" as 400 and a rate limiter's 429 is not a request fault.
 	class := service.ClassifyUpstreamError(c.GetString(string(constant.ContextKeyChannelBaseUrl)), openaiErr)
 	if class.Known && !class.Failover {
