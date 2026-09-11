@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -145,6 +146,8 @@ export function PasskeySection(props: PasskeySectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
   const [domainHelpOpen, setDomainHelpOpen] = useState(false)
+  const [pendingDomainChange, setPendingDomainChange] =
+    useState<FlatPasskeyDefaults | null>(null)
 
   const formDefaults = useMemo(
     () => buildFormDefaults(props.defaultValues),
@@ -156,7 +159,11 @@ export function PasskeySection(props: PasskeySectionProps) {
     defaultValues: formDefaults,
   })
 
-  const { data: status, isError: statusError } = useQuery({
+  const {
+    data: status,
+    isError: statusError,
+    isFetching: statusLoading,
+  } = useQuery({
     ...statusQueryOptions,
     refetchOnMount: 'always',
   })
@@ -173,12 +180,14 @@ export function PasskeySection(props: PasskeySectionProps) {
     !/^\d+\.\d+\.\d+\.\d+$/.test(currentHostname)
   const serverRPID =
     typeof status?.passkey_rp_id === 'string' ? status.passkey_rp_id.trim() : ''
+  const existingRPID = props.defaultValues['passkey.rp_id'].trim() || serverRPID
+  const suggestedRPID = existingRPID || currentHostname
   const previewRPID = (rpId.trim() || serverRPID).toLowerCase()
   const domainMismatch =
     previewRPID !== '' &&
     currentHostname !== previewRPID &&
     !currentHostname.endsWith(`.${previewRPID}`)
-  const hasDomainWarning = rpId.trim() === '' || domainMismatch
+  const hasDomainWarning = previewRPID === '' || domainMismatch
   const currentOriginMissing =
     origins.trim() !== '' &&
     !origins.split(/[,\n]/).some((origin) => origin.trim() === currentOrigin)
@@ -196,8 +205,7 @@ export function PasskeySection(props: PasskeySectionProps) {
     form.reset(buildFormDefaults(props.defaultValues))
   }, [props.defaultValues, form])
 
-  const onSubmit = async (values: PasskeyFormValues) => {
-    const normalized = normalizeFormValues(values)
+  const saveSettings = async (normalized: FlatPasskeyDefaults) => {
     const changedKeys = (
       Object.keys(normalized) as Array<keyof FlatPasskeyDefaults>
     ).filter((key) => normalized[key] !== baselineRef.current[key])
@@ -207,16 +215,35 @@ export function PasskeySection(props: PasskeySectionProps) {
       return
     }
 
-    for (const key of changedKeys) {
-      await updateOption.mutateAsync({
-        key,
-        value: normalized[key],
-      })
+    try {
+      for (const key of changedKeys) {
+        await updateOption.mutateAsync({
+          key,
+          value: normalized[key],
+        })
+      }
+    } catch {
+      // useUpdateOption reports the error. Keep the form and confirmation for retry.
+      return
     }
 
     baselineRef.current = normalized
     baselineSerializedRef.current = JSON.stringify(normalized)
     form.reset(buildFormDefaults(normalized))
+    setPendingDomainChange(null)
+  }
+
+  const onSubmit = async (values: PasskeyFormValues) => {
+    const normalized = normalizeFormValues(values)
+    const nextRPID = normalized['passkey.rp_id'].trim()
+    const changesDomain =
+      nextRPID !== baselineRef.current['passkey.rp_id'].trim() &&
+      nextRPID !== existingRPID
+    if (changesDomain) {
+      setPendingDomainChange(normalized)
+      return
+    }
+    await saveSettings(normalized)
   }
 
   return (
@@ -303,14 +330,19 @@ export function PasskeySection(props: PasskeySectionProps) {
                       hasDomainWarning && 'text-amber-700 dark:text-amber-400'
                     )}
                   >
-                    {rpId.trim() === '' &&
+                    {previewRPID === '' &&
                       t('Set the website where users will use their Passkeys.')}
-                    {rpId.trim() !== '' &&
-                      domainMismatch &&
+                    {domainMismatch &&
                       t(
                         'This domain does not match the current website. Passkeys may not work here.'
                       )}
                     {!hasDomainWarning &&
+                      rpId.trim() === '' &&
+                      t('The system currently uses: {{domain}}', {
+                        domain: serverRPID,
+                      })}
+                    {!hasDomainWarning &&
+                      rpId.trim() !== '' &&
                       t('Enter the website domain, such as example.com.')}
                   </FormDescription>
                   <Dialog
@@ -344,10 +376,12 @@ export function PasskeySection(props: PasskeySectionProps) {
                         <Button
                           type='button'
                           disabled={
-                            !canUseCurrentSite || updateOption.isPending
+                            !canUseCurrentSite ||
+                            statusLoading ||
+                            updateOption.isPending
                           }
                           onClick={() => {
-                            form.setValue('passkey.rp_id', currentHostname, {
+                            form.setValue('passkey.rp_id', suggestedRPID, {
                               shouldDirty: true,
                             })
                             if (!form.getValues('passkey.origins').trim()) {
@@ -358,14 +392,16 @@ export function PasskeySection(props: PasskeySectionProps) {
                             setDomainHelpOpen(false)
                           }}
                         >
-                          {t('Fill in this website')}
+                          {existingRPID
+                            ? t('Keep existing domain')
+                            : t('Fill in this website')}
                         </Button>
                       </>
                     }
                   >
                     <p>
                       {t(
-                        'If left blank, the system may use a different website address and Passkey sign-in can fail here.'
+                        'An empty field uses the system website address. If Passkeys already work, keep the existing domain.'
                       )}
                     </p>
                     <div className='bg-muted space-y-2 rounded-lg p-3 break-all'>
@@ -374,11 +410,13 @@ export function PasskeySection(props: PasskeySectionProps) {
                           origin: currentOrigin,
                         })}
                       </p>
-                      <p className='font-medium'>
-                        {t('For this website, you can enter: {{domain}}', {
-                          domain: currentHostname,
-                        })}
-                      </p>
+                      {!existingRPID && (
+                        <p className='font-medium'>
+                          {t('For this website, you can enter: {{domain}}', {
+                            domain: currentHostname,
+                          })}
+                        </p>
+                      )}
                       {serverRPID && !statusError && (
                         <p className='text-muted-foreground'>
                           {t('The system currently uses: {{domain}}', {
@@ -396,7 +434,7 @@ export function PasskeySection(props: PasskeySectionProps) {
                     )}
                     <p>
                       {t(
-                        'Enter only the domain, such as example.com, without https://, a port or a page path. If you use both example.com and api.example.com, you can enter example.com.'
+                        'Enter only the domain, without https://, a port or a page path. example.com and www.example.com are different Passkey domains; changing between them does not migrate existing Passkeys.'
                       )}
                     </p>
                     <p>
@@ -570,6 +608,37 @@ export function PasskeySection(props: PasskeySectionProps) {
           />
         </SettingsForm>
       </Form>
+      <ConfirmDialog
+        open={pendingDomainChange !== null}
+        onOpenChange={(open) => {
+          if (!open && !updateOption.isPending) setPendingDomainChange(null)
+        }}
+        title={t('Change the Passkey domain?')}
+        desc={t(
+          'Existing Passkeys remain tied to the old domain and may stop working. Keep the old domain to preserve access, or confirm only if you have a recovery plan.'
+        )}
+        confirmText={t('Change domain')}
+        destructive
+        isLoading={updateOption.isPending}
+        handleConfirm={() => {
+          if (pendingDomainChange) void saveSettings(pendingDomainChange)
+        }}
+      >
+        <div className='space-y-2 text-sm break-all'>
+          <p>
+            {t('Current domain: {{domain}}', {
+              domain: existingRPID || t('Unknown'),
+            })}
+          </p>
+          <p>
+            {t('New domain: {{domain}}', {
+              domain:
+                pendingDomainChange?.['passkey.rp_id'].trim() ||
+                t('Automatic from system website address'),
+            })}
+          </p>
+        </div>
+      </ConfirmDialog>
     </SettingsSection>
   )
 }

@@ -83,12 +83,12 @@ beforeEach(async () => {
   })
   localStorage.clear()
   vi.spyOn(api, 'get').mockResolvedValue({
-    data: { success: true, data: { passkey_rp_id: 'old.example.com' } },
+    data: { success: true, data: { passkey_rp_id: window.location.hostname } },
   })
 })
 
 describe('Passkey website guidance', () => {
-  it('marks a blank website field in yellow, explains it on request and restores focus when dismissed', async () => {
+  it('shows the effective domain for a blank field without suggesting a change and restores focus', async () => {
     const put = vi.spyOn(api, 'put')
     const user = userEvent.setup()
     render(<Fixture />)
@@ -96,9 +96,9 @@ describe('Passkey website guidance', () => {
       name: 'Passkey website domain',
     })
     expect(input).toHaveValue('')
-    expect(input).toHaveClass('border-amber-500')
+    await waitFor(() => expect(input).not.toHaveClass('border-amber-500'))
     expect(input).toHaveAccessibleDescription(
-      'Set the website where users will use their Passkeys.'
+      `The system currently uses: ${window.location.hostname}`
     )
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(
@@ -115,14 +115,12 @@ describe('Passkey website guidance', () => {
     )
     expect(
       await within(dialog).findByText(
-        'The system currently uses: old.example.com'
+        `The system currently uses: ${window.location.hostname}`
       )
     ).toBeVisible()
     expect(
-      within(dialog).getByText(
-        `For this website, you can enter: ${window.location.hostname}`
-      )
-    ).toBeVisible()
+      within(dialog).queryByText(/For this website, you can enter:/)
+    ).not.toBeInTheDocument()
     await user.keyboard('{Escape}')
     await waitFor(() =>
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -131,21 +129,18 @@ describe('Passkey website guidance', () => {
     expect(put).not.toHaveBeenCalled()
   })
 
-  it('fills the domain from the dialog, keeps existing websites and waits for Save Changes', async () => {
-    const put = vi.spyOn(api, 'put').mockImplementation(async () => {
-      vi.mocked(api.get).mockResolvedValue({
-        data: {
-          success: true,
-          data: { passkey_rp_id: window.location.hostname },
-        },
-      })
-      return { data: { success: true } }
+  it('preserves an effective parent domain instead of replacing it with the current hostname', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: { success: true, data: { passkey_rp_id: 'example.com' } },
     })
+    const put = vi
+      .spyOn(api, 'put')
+      .mockResolvedValue({ data: { success: true } })
     const user = userEvent.setup()
     render(<Fixture />)
     await user.click(screen.getByRole('button', { name: 'Why set this?' }))
     await user.click(
-      screen.getByRole('button', { name: 'Fill in this website' })
+      await screen.findByRole('button', { name: 'Keep existing domain' })
     )
     await waitFor(() =>
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -153,7 +148,7 @@ describe('Passkey website guidance', () => {
     const input = screen.getByRole('textbox', {
       name: 'Passkey website domain',
     })
-    expect(input).toHaveValue(window.location.hostname)
+    expect(input).toHaveValue('example.com')
     expect(input).not.toHaveClass('border-amber-500')
     expect(
       screen.getByRole('textbox', { name: 'Allowed Passkey websites' })
@@ -163,15 +158,13 @@ describe('Passkey website guidance', () => {
     await waitFor(() =>
       expect(put).toHaveBeenCalledWith('/api/option/', {
         key: 'passkey.rp_id',
-        value: window.location.hostname,
+        value: 'example.com',
       })
     )
     expect(put).toHaveBeenCalledTimes(1)
     await user.click(screen.getByRole('button', { name: 'Why set this?' }))
     expect(
-      await screen.findByText(
-        `The system currently uses: ${window.location.hostname}`
-      )
+      await screen.findByText('The system currently uses: example.com')
     ).toBeVisible()
   })
 
@@ -185,7 +178,7 @@ describe('Passkey website guidance', () => {
       )
     ).toBeVisible()
     await user.click(
-      screen.getByRole('button', { name: 'Fill in this website' })
+      await screen.findByRole('button', { name: 'Keep existing domain' })
     )
     await waitFor(() =>
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -262,7 +255,7 @@ describe('Passkey website guidance', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Save Changes' }))
     await user.click(screen.getByRole('button', { name: 'Why set this?' }))
-    const fill = screen.getByRole('button', { name: 'Fill in this website' })
+    const fill = screen.getByRole('button', { name: 'Keep existing domain' })
     expect(fill).toBeDisabled()
     finishSave({ data: { success: true } })
     await waitFor(() => expect(fill).toBeEnabled())
@@ -272,16 +265,18 @@ describe('Passkey website guidance', () => {
     await testI18n.changeLanguage('zh')
     const user = userEvent.setup()
     render(<Fixture />)
-    expect(
-      screen.getByRole('textbox', { name: '通行密钥使用的网站域名' })
-    ).toHaveClass('border-amber-500')
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: '通行密钥使用的网站域名' })
+      ).not.toHaveClass('border-amber-500')
+    )
     await user.click(screen.getByRole('button', { name: '为什么需要设置？' }))
     const dialog = screen.getByRole('dialog', {
       name: '为什么要填写网站域名？',
     })
     expect(dialog).not.toHaveTextContent(/RP ID|Origins?|依赖方/)
     expect(
-      within(dialog).getByRole('button', { name: '填入当前网站' })
+      within(dialog).getByRole('button', { name: '保留现有域名' })
     ).toBeVisible()
   })
 
@@ -298,5 +293,104 @@ describe('Passkey website guidance', () => {
     expect(
       screen.getByRole('button', { name: 'Fill in this website' })
     ).toBeEnabled()
+  })
+
+  it('requires confirmation before replacing an automatically resolved domain and lets users cancel', async () => {
+    const put = vi
+      .spyOn(api, 'put')
+      .mockResolvedValue({ data: { success: true } })
+    const user = userEvent.setup()
+    render(<Fixture />)
+    const input = screen.getByRole('textbox', {
+      name: 'Passkey website domain',
+    })
+    await waitFor(() =>
+      expect(input).toHaveAccessibleDescription(
+        `The system currently uses: ${window.location.hostname}`
+      )
+    )
+    await user.type(input, 'example.com')
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+    const dialog = screen.getByRole('alertdialog', {
+      name: 'Change the Passkey domain?',
+    })
+    expect(dialog).toHaveTextContent(
+      `Current domain: ${window.location.hostname}`
+    )
+    expect(dialog).toHaveTextContent('New domain: example.com')
+    expect(put).not.toHaveBeenCalled()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(put).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+    await user.click(screen.getByRole('button', { name: 'Change domain' }))
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledExactlyOnceWith('/api/option/', {
+        key: 'passkey.rp_id',
+        value: 'example.com',
+      })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    )
+  })
+
+  it('warns before clearing an explicit domain back to automatic configuration', async () => {
+    const put = vi.spyOn(api, 'put')
+    const user = userEvent.setup()
+    render(<Fixture rpId='example.com' />)
+    await user.clear(
+      screen.getByRole('textbox', { name: 'Passkey website domain' })
+    )
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+    const dialog = screen.getByRole('alertdialog', {
+      name: 'Change the Passkey domain?',
+    })
+    expect(dialog).toHaveTextContent('Current domain: example.com')
+    expect(dialog).toHaveTextContent(
+      'New domain: Automatic from system website address'
+    )
+    expect(put).not.toHaveBeenCalled()
+  })
+
+  it('still requires confirmation if the effective domain cannot be loaded', async () => {
+    vi.mocked(api.get).mockRejectedValue(new Error('Offline'))
+    const put = vi.spyOn(api, 'put')
+    const user = userEvent.setup()
+    render(<Fixture />)
+    await user.type(
+      screen.getByRole('textbox', { name: 'Passkey website domain' }),
+      'example.com'
+    )
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+    expect(
+      screen.getByRole('alertdialog', { name: 'Change the Passkey domain?' })
+    ).toHaveTextContent('Current domain: Unknown')
+    expect(put).not.toHaveBeenCalled()
+  })
+
+  it('keeps a failed domain change available for retry without an unhandled rejection', async () => {
+    const put = vi.spyOn(api, 'put').mockRejectedValueOnce(new Error('Offline'))
+    const user = userEvent.setup()
+    render(<Fixture rpId={window.location.hostname} />)
+    const input = screen.getByRole('textbox', {
+      name: 'Passkey website domain',
+    })
+    await user.clear(input)
+    await user.type(input, 'example.com')
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+    await user.click(screen.getByRole('button', { name: 'Change domain' }))
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Change domain' })
+      ).toBeEnabled()
+    )
+    put.mockResolvedValue({ data: { success: true } })
+    await user.click(screen.getByRole('button', { name: 'Change domain' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    )
+    expect(put).toHaveBeenCalledTimes(2)
   })
 })

@@ -358,15 +358,16 @@ func TestMasterSwitchEmptiesOptionsAndKeepsList(t *testing.T) {
 	assert.Equal(t, "kling", item.Meta.Key)
 }
 
-func TestGetTaskPluginOptionsIncludesUsageSchemaIconAndBaseURL(t *testing.T) {
+func TestGetTaskPluginOptionsIncludesDescriptionUsageSchemaIconAndBaseURL(t *testing.T) {
 	setupTaskPluginControllerTest(t)
 	const key = "usage-options-probe"
 	source := `
 export const meta = {
   apiVersion: 1, key: "usage-options-probe", name: "Usage Options", version: "1.0.0", author: {name: "Test"},
+  description: {en: "Video generation via the vendor API", zh: "通过厂商接口生成视频"},
   icon: "text:UO", baseUrl: "http://localhost:9000/",
   models: ["usage-options-model"], fetchMode: "per_task",
-  usageSchema: {seconds: {type: "number", unit: "second", description: "Generated media duration."}}
+  usageSchema: {seconds: {type: "number", unit: "second", description: "Video generation unit price"}}
 };
 export function buildSubmitRequest() { return {}; }
 export function parseSubmitResponse() { return {}; }
@@ -387,6 +388,7 @@ export function parseTaskResult() { return {}; }
 		Success bool `json:"success"`
 		Data    []struct {
 			Key         string                               `json:"key"`
+			Description jsplugin.LocalizedText               `json:"description"`
 			Icon        string                               `json:"icon"`
 			BaseURL     string                               `json:"baseUrl"`
 			UsageSchema map[string]jsplugin.UsageFieldSchema `json:"usageSchema"`
@@ -398,8 +400,9 @@ export function parseTaskResult() { return {}; }
 		if option.Key != key {
 			continue
 		}
+		assert.Equal(t, jsplugin.LocalizedText{"en": "Video generation via the vendor API", "zh": "通过厂商接口生成视频"}, option.Description)
 		assert.Equal(t, "second", option.UsageSchema["seconds"].Unit)
-		assert.Equal(t, "Generated media duration.", option.UsageSchema["seconds"].Description["en"])
+		assert.Equal(t, "Video generation unit price", option.UsageSchema["seconds"].Description["en"])
 		assert.Equal(t, "text:UO", option.Icon)
 		assert.Equal(t, "http://localhost:9000", option.BaseURL, "the drawer prefills the normalized plugin default")
 		return
