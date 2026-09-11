@@ -1167,6 +1167,56 @@ test('an operator without sensitive write permission can discover saved models a
   expect(put.mock.calls[0]?.[1]).not.toHaveProperty('key')
 })
 
+test.each([
+  ['random', 'Random', 'polling', 'Polling'],
+  ['polling', 'Polling', 'random', 'Random'],
+] as const)(
+  'multi-key editing switches from %s without replacing keys',
+  async (initialMode, initialLabel, nextMode, nextLabel) => {
+    editingChannel.channel_info = {
+      ...editingChannel.channel_info,
+      is_multi_key: true,
+      multi_key_size: 2,
+      multi_key_mode: initialMode,
+    }
+    const put = vi
+      .spyOn(api, 'put')
+      .mockResolvedValue({ data: { success: true } })
+    const user = userEvent.setup()
+    render(<ConfigurationHarness currentRow={editingChannel} />)
+    await screen.findByDisplayValue('Existing channel')
+    const strategy = screen.getByRole('combobox', {
+      name: 'Multi-Key Strategy',
+    })
+    expect(strategy).toHaveTextContent(initialLabel)
+    await user.click(strategy)
+    await user.click(screen.getByRole('option', { name: nextLabel }))
+    expect(strategy).toHaveTextContent(nextLabel)
+    await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+    await waitFor(() => expect(put).toHaveBeenCalled())
+    expect(put.mock.calls[0]?.[1]).toMatchObject({
+      id: 42,
+      multi_key_mode: nextMode,
+    })
+    expect(put.mock.calls[0]?.[1]).not.toHaveProperty('key')
+    expect(put.mock.calls[0]?.[1]).not.toHaveProperty('key_mode')
+  }
+)
+
+test('single-key editing omits the multi-key strategy control and update field', async () => {
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  expect(
+    screen.queryByRole('combobox', { name: 'Multi-Key Strategy' })
+  ).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  expect(put.mock.calls[0]?.[1]).not.toHaveProperty('multi_key_mode')
+})
+
 test.each(['append', 'replace'])(
   'multi-key editing submits the selected %s mode with new keys',
   async (mode) => {

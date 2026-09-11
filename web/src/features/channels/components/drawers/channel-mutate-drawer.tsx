@@ -3968,7 +3968,8 @@ export function ChannelMutateDrawer({
                 />
               )}
 
-              {!isEditing && multiKeyMode === 'multi_to_single' && (
+              {(isMultiKeyChannel ||
+                (!isEditing && multiKeyMode === 'multi_to_single')) && (
                 <FormField
                   control={form.control}
                   name='multi_key_type'
