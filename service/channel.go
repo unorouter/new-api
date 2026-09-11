@@ -294,11 +294,19 @@ func IsCredentialFault(err *types.NewAPIError) bool {
 // busiest lanes are not banned for the scattered 429s that come with carrying the
 // most traffic. The absolute floor applies only once a channel has piled up failures
 // with no successes to show for them, which is what a genuinely dead lane looks like.
-func RecordChannelFailure(channelId int) bool {
+// A soft failure is one the upstream's own text marks as a capacity limit rather
+// than a fault: it still counts toward the rate gate, but skips every gate that
+// fires on a short run (streak, probation streak, dead floor). Those read a few
+// concurrent 429s as a dead lane and produced ~19k disables a week; the rate gate
+// needs a sustained share of the window and does not.
+func RecordChannelFailure(channelId int, soft bool) bool {
 	failures := bumpWindowCounter(channelFailureCounterKey(channelId), &channelFailureCounts, channelId)
 	successes := readWindowCounter(channelSuccessCounterKey(channelId), &channelSuccessCounts, channelId)
 
 	m := operation_setting.GetMonitorSetting()
+	if soft {
+		return channelFailureRateExceeded(m, failures, successes)
+	}
 	// An unbroken run of failures is the cheapest strong signal that the upstream is
 	// down, and it is independent of the window counts - a trickle spread thin never
 	// reaches a count floor.
@@ -341,6 +349,13 @@ func RecordChannelFailure(channelId int) bool {
 		}
 		return failures >= deadFloor
 	}
+	return channelFailureRateExceeded(m, failures, successes)
+}
+
+// channelFailureRateExceeded is the honest measure once a window holds real
+// traffic: a sustained share of failures, floored so a handful of errors on a
+// quiet lane cannot reach the threshold on their own.
+func channelFailureRateExceeded(m *operation_setting.MonitorSetting, failures, successes int) bool {
 	floor := m.ChannelFailureAbsoluteFloor
 	if floor <= 0 {
 		floor = 20

@@ -118,7 +118,7 @@ func TestRecordChannelFailureRate(t *testing.T) {
 	feedScattered := func(n int) bool {
 		var last bool
 		for i := 0; i < n; i++ {
-			last = RecordChannelFailure(ch)
+			last = RecordChannelFailure(ch, false)
 			RecordChannelSuccess(ch)
 		}
 		return last
@@ -126,7 +126,7 @@ func TestRecordChannelFailureRate(t *testing.T) {
 	feedConsecutive := func(n int) bool {
 		var last bool
 		for i := 0; i < n; i++ {
-			last = RecordChannelFailure(ch)
+			last = RecordChannelFailure(ch, false)
 		}
 		return last
 	}
@@ -148,8 +148,8 @@ func TestRecordChannelFailureRate(t *testing.T) {
 		feedSuccess(10)
 		trip := false
 		for i := 0; i < 40 && !trip; i++ {
-			RecordChannelFailure(ch)
-			trip = RecordChannelFailure(ch)
+			RecordChannelFailure(ch, false)
+			trip = RecordChannelFailure(ch, false)
 			if !trip {
 				RecordChannelSuccess(ch)
 			}
@@ -166,7 +166,7 @@ func TestRecordChannelFailureRate(t *testing.T) {
 	t.Run("dead channel with no successes trips the streak floor first", func(t *testing.T) {
 		reset()
 		assert.False(t, feedConsecutive(2), "below streak floor -> keep")
-		assert.True(t, RecordChannelFailure(ch), "3rd consecutive failure -> disable")
+		assert.True(t, RecordChannelFailure(ch, false), "3rd consecutive failure -> disable")
 	})
 
 	// The fishx outage: three channels sat at fail=4 ok=0 on 502s, one short of the
@@ -197,6 +197,39 @@ func TestRecordChannelFailureRate(t *testing.T) {
 		reset()
 		feedSuccess(2)
 		assert.False(t, feedScattered(19), "19 fail / 21 ok under the floor -> keep")
+	})
+
+	// A capacity 429 is soft: it must skip every short-run gate, because a few
+	// concurrent rate limits are not a dead lane. This is the churn the soft path
+	// exists to avoid.
+	t.Run("soft failures skip the streak and dead floors", func(t *testing.T) {
+		reset()
+		// Streak floor is 3 and the dead floor 5, so a hard failure would have been
+		// pulled here; a run of capacity 429s must not be.
+		for i := 1; i < 20; i++ {
+			require.False(t, RecordChannelFailure(ch, true), "soft failure %d of 19, below the absolute floor -> keep", i)
+		}
+		// ...but a lane that only ever fails is still dead, and the rate gate says so
+		// once the absolute floor is reached. This is the 13080 case: 5,548 failures,
+		// zero successes, enabled the whole time.
+		assert.True(t, RecordChannelFailure(ch, true), "20th soft failure at 100% -> disable")
+	})
+
+	// The regression: a7-3304 served a paying user at 59% failure for hours because
+	// soft failures were never counted at all, so no gate could ever see them.
+	t.Run("soft failures still reach the rate gate", func(t *testing.T) {
+		reset()
+		feedSuccess(10)
+		trip := false
+		for i := 0; i < 40 && !trip; i++ {
+			RecordChannelFailure(ch, true)
+			trip = RecordChannelFailure(ch, true)
+			if !trip {
+				RecordChannelSuccess(ch)
+			}
+		}
+		fails, oks := ChannelFailureWindow(ch)
+		assert.True(t, trip, "sustained 2 soft fail per 1 ok crosses 50% past the floor -> disable (fail=%d ok=%d)", fails, oks)
 	})
 }
 

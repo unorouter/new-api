@@ -53,7 +53,17 @@ var ChannelFaultKeywords = []string{
 	// clear on its own, so every further request is a wasted failover hop. A bare
 	// capacity 429 carries none of these and stays rate-gated.
 	"token plan limit exhausted",
+	"token plan entitlement exhausted",
 	"tokens per day limit exceeded",
+	// Cloudflare Workers AI: the account's daily neuron allowance is spent.
+	"you have used up your daily free allocation",
+	// Resellers whose free tier is a daily counter, not a rate: the first says so,
+	// the second names the reset ("the counter resets at 00:00 UTC").
+	"reached the limit of the free model quota",
+	"free-model daily limit reached",
+	// OpenRouter's daily free-model allowance, both the plain and high-balance
+	// variants ("Rate limit exceeded: free-models-per-day[-high-balance]").
+	"free-models-per-day",
 	// Google free tier: a spent DAILY allowance, not a per-second rate limit, so it
 	// cannot clear on its own and every further request is a wasted failover hop.
 	"you exceeded your current quota",

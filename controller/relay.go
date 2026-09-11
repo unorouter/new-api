@@ -825,8 +825,19 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	if service.IsCredentialFault(err) {
 		class = service.UpstreamClass{}
 	}
+	// A CountNone class means "not an instant fault", not "never a fault": it governs
+	// failover and cooldown, and must not veto the operator's disable policy. Holding
+	// it to the rate gate alone is what setting/operation_setting/operation_setting.go
+	// promises when it says a bare capacity 429 "stays rate-gated" - without this the
+	// guard never even counts the failure, and a lane failing 100% stays enabled.
+	softFailure := false
 	if class.Known {
-		shouldDisable = class.DisableNow || class.Count == service.CountFailure
+		switch {
+		case class.DisableNow, class.Count == service.CountFailure:
+			shouldDisable = true
+		default:
+			softFailure = true
+		}
 		if class.Cooldown && !class.DisableNow {
 			if d := service.CoolLane(channelError.ChannelId); d > 0 {
 				logger.LogInfo(c, fmt.Sprintf("channel-guard: lane #%d (%s) cooled for %s: %s", channelError.ChannelId, channelError.ChannelName, d, common.LocalLogPreview(err.Error())))
@@ -854,7 +865,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// to be a sustained share of the channel's recent traffic before pulling it, so a
 	// capacity blip on a busy lane fails over instead of removing it for everyone.
 	// Credential faults are exempt: those cannot recover on their own.
-	if shouldDisable && !class.DisableNow && !service.IsCredentialFault(err) && !service.RecordChannelFailure(channelError.ChannelId) {
+	if shouldDisable && !class.DisableNow && !service.IsCredentialFault(err) && !service.RecordChannelFailure(channelError.ChannelId, softFailure) {
 		fails, oks := service.ChannelFailureWindow(channelError.ChannelId)
 		logger.LogInfo(c, fmt.Sprintf("channel-guard: kept channel #%d (%s) enabled, fault below threshold: fail=%d ok=%d status=%d code=%s",
 			channelError.ChannelId, channelError.ChannelName, fails, oks, err.StatusCode, err.GetErrorCode()))
