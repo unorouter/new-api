@@ -19,12 +19,21 @@ metadata:
   namespace: services
 spec:
   replicas: 1 # singleton: runs migrations + scheduled jobs (IsMasterNode)
-  # Recreate, not the default RollingUpdate: at replicas 1 maxSurge rounds up to 1, so the
-  # new master starts while the old one still runs and neither goes Ready until migration
-  # finishes. On 2026-09-11 both masters issued the same ALTER at the same second, fighting
-  # for ACCESS EXCLUSIVE on quota_data. A singleton that migrates must never overlap itself.
+  # maxSurge 0 so the old master is gone before the new one starts. The default rounds
+  # maxSurge up to 1 at replicas 1, so the new master booted while the old one still ran and
+  # neither went Ready until migration finished: on 2026-09-11 both issued the same ALTER in
+  # the same second, fighting for ACCESS EXCLUSIVE on quota_data. A singleton that migrates
+  # must never overlap itself.
+  #
+  # This is Recreate semantics written as a RollingUpdate on purpose. Setting type: Recreate
+  # is rejected while the live object still carries its defaulted rollingUpdate block
+  # ("Forbidden: may not be specified when strategy type is 'Recreate'"), which leaves the
+  # whole app OutOfSync and silently blocks every later image pin.
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels: { app: new-api, tier: master }
   template:
