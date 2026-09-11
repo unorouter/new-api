@@ -64,6 +64,7 @@ const quotaSchema = z.object({
     enable_free_abuse_auto_block: z.boolean(),
     free_abuse_max_per_minute: z.coerce.number().min(0),
     free_abuse_max_distinct_models: z.coerce.number().min(0),
+    free_abuse_max_distinct_models_per_day: z.coerce.number().min(0),
     free_abuse_max_per_day: z.coerce.number().min(0),
     free_abuse_max_errors_per_hour: z.coerce.number().min(0),
     free_abuse_max_media_err_models: z.coerce.number().min(0),
@@ -374,6 +375,34 @@ export function QuotaSettingsSection({
                   <FormDescription>
                     {t(
                       'Auto-block when a user hits more than this many different free models in a minute (fast model-switching = scraping). Only applies when auto-block is enabled.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_max_distinct_models_per_day'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    {t('Distinct free models per day before auto-block')}
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Catches the same catalog scraping paced slowly enough to stay under the per-minute limit above: dozens of different free models across a day, never many in one minute. Requires Redis; without it this signal does nothing. 0 disables. Only applies when auto-block is enabled.'
                     )}
                   </FormDescription>
                   <FormMessage />

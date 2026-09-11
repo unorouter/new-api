@@ -268,6 +268,7 @@ export type BillingSettings = {
   'quota_setting.enable_free_abuse_auto_block': boolean
   'quota_setting.free_abuse_max_per_minute': number
   'quota_setting.free_abuse_max_distinct_models': number
+  'quota_setting.free_abuse_max_distinct_models_per_day': number
   'quota_setting.free_abuse_max_per_day': number
   'quota_setting.free_abuse_max_errors_per_hour': number
   'quota_setting.free_abuse_max_media_err_models': number

@@ -35,13 +35,20 @@ const freeAbuseWindowSeconds = 60
 const freeAbuseDaySeconds = 86400
 const freeAbuseErrWindowSeconds = 3600
 
+// Outlives the UTC date its key is named for, so a set still being written just
+// before midnight is not dropped mid-day. Only garbage collection: the day itself
+// comes from the key name (see recordDistinctFreeModelDay).
+const freeAbuseDayModelTTL = 26 * time.Hour
+
 // TrackFreeModelUsage records a single free-model request for a user and auto-sets
-// BlockFreeWhenNoQuota when the user's balance is non-positive AND either signal
-// trips: the per-minute request count exceeds FreeAbuseMaxPerMinute, or the number
-// of DISTINCT free models hit in the window exceeds FreeAbuseMaxDistinctModels
-// (fast model-switching = scraping). No-op when the global auto-block setting is
-// disabled. The flag clears automatically on the next quota top-up
-// (see model.IncreaseUserQuota).
+// BlockFreeWhenNoQuota when the user's balance is non-positive AND any signal
+// trips: the per-minute request count exceeds FreeAbuseMaxPerMinute, the number of
+// DISTINCT free models hit in the minute exceeds FreeAbuseMaxDistinctModels (fast
+// model-switching = scraping), the daily request count exceeds FreeAbuseMaxPerDay,
+// or the distinct free models seen TODAY exceed FreeAbuseMaxDistinctModelsPerDay
+// (the same scraping shape, paced slowly enough to stay under the minute windows).
+// No-op when the global auto-block setting is disabled. The flag clears
+// automatically on the next quota top-up (see model.IncreaseUserQuota).
 func TrackFreeModelUsage(userId int, userQuota int, modelName string) {
 	setting := operation_setting.GetQuotaSetting()
 	if !setting.EnableFreeAbuseAutoBlock {
@@ -62,7 +69,14 @@ func TrackFreeModelUsage(userId int, userQuota int, modelName string) {
 	overDaily := maxPerDay > 0 &&
 		recordWindowedUsage("freeAbuseDay", &freeAbuseDayLimiter, userId, maxPerDay, freeAbuseDaySeconds)
 
-	if (!over && !tooManyModels && !overDaily) || userQuota > 0 {
+	// Catalog sweep paced under every per-minute limit. Unlike the signals above
+	// this one checks the balance BEFORE recording: its keys live for a day, and a
+	// day of keys for a user who can never be blocked is pure waste.
+	maxDistinctDay := setting.FreeAbuseMaxDistinctModelsPerDay
+	tooManyModelsDaily := maxDistinctDay > 0 && modelName != "" && userQuota <= 0 &&
+		recordDistinctFreeModelDay(userId, modelName) > maxDistinctDay
+
+	if (!over && !tooManyModels && !overDaily && !tooManyModelsDaily) || userQuota > 0 {
 		return
 	}
 
@@ -152,6 +166,43 @@ func recordDistinctFreeModel(userId int, modelName string) int {
 // set above.
 func recordDistinctMediaErrModel(userId int, modelName string) int {
 	return recordDistinctModelSet("freeAbuseMediaErrModels", &freeMediaErrModelSets, userId, modelName)
+}
+
+// recordDistinctFreeModelDay counts the distinct free models a user has touched
+// today. The per-minute set above cannot see a scraper that spreads its catalog
+// sweep over hours: a farm measured on 2026-09-10 averaged 25 to 39 distinct free
+// models a day while never exceeding 8 within any minute.
+//
+// The window lives in the KEY, not in the expiry. Reusing the sliding window would
+// mean re-arming EXPIRE on every newly discovered model, which is harmless over 60
+// seconds but over a day lets a slow discoverer hold one key open indefinitely. A
+// date-stamped key is a real day no matter what the TTL does, so the TTL is only
+// garbage collection and a plain Expire stays portable to pre-7.0 Redis.
+//
+// Redis-only on purpose: the in-memory fallback used by recordDistinctModelSet
+// never evicts idle users from its outer map and rescans a user's whole model map
+// under one global mutex per request. Both are fine for a minute of names and
+// become a leak and a lock convoy for a day of them. Without Redis this signal is
+// inert rather than dangerous.
+func recordDistinctFreeModelDay(userId int, modelName string) int {
+	if !common.RedisEnabled {
+		return 0
+	}
+	ctx := context.Background()
+	key := fmt.Sprintf("freeAbuseModelsDay:user:%d:%s", userId, time.Now().UTC().Format("20060102"))
+	added, err := common.RDB.SAdd(ctx, key, modelName).Result()
+	if err != nil {
+		common.SysLog("free abuse daily model-set add failed: " + err.Error())
+		return 0
+	}
+	if added > 0 {
+		common.RDB.Expire(ctx, key, freeAbuseDayModelTTL)
+	}
+	total, err := common.RDB.SCard(ctx, key).Result()
+	if err != nil {
+		return 0
+	}
+	return int(total)
 }
 
 // recordDistinctModelSet adds modelName to the user's per-window set under

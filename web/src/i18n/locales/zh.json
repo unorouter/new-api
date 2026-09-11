@@ -6249,6 +6249,8 @@
     "Free model requests per minute before auto-block": "自动封禁前每分钟允许的免费模型请求数",
     "Distinct free models per minute before auto-block": "自动封禁前每分钟允许命中的不同免费模型数",
     "Auto-block when a user hits more than this many different free models in a minute (fast model-switching = scraping). Only applies when auto-block is enabled.": "当用户在一分钟内命中的不同免费模型数超过此值时自动封禁（快速切换模型即视为爬取）。仅在启用自动封禁时生效。",
+    "Distinct free models per day before auto-block": "自动封禁前每天允许命中的不同免费模型数",
+    "Catches the same catalog scraping paced slowly enough to stay under the per-minute limit above: dozens of different free models across a day, never many in one minute. Requires Redis; without it this signal does nothing. 0 disables. Only applies when auto-block is enabled.": "捕捉同一种目录爬取，只是放慢节奏以绕开上面的每分钟上限：一整天扫过几十个不同的免费模型，但任何一分钟内都不多。需要 Redis，未启用时该信号不生效。0=关闭。仅在启用自动封禁时生效。",
     "Threshold for auto-block detection. Only applies when auto-block is enabled.": "自动封禁检测的阈值，仅在启用自动封禁时生效。",
     "Channel Status History": "Channel Status History",
     "History": "History",

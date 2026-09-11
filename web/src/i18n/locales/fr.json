@@ -6249,6 +6249,8 @@
     "Free model requests per minute before auto-block": "Requêtes de modèles gratuits par minute avant blocage automatique",
     "Distinct free models per minute before auto-block": "Modèles gratuits distincts par minute avant blocage automatique",
     "Auto-block when a user hits more than this many different free models in a minute (fast model-switching = scraping). Only applies when auto-block is enabled.": "Blocage automatique lorsqu'un utilisateur atteint plus que ce nombre de modèles gratuits différents en une minute (changement rapide de modèles = extraction). Ne s'applique que lorsque le blocage automatique est activé.",
+    "Distinct free models per day before auto-block": "Modèles gratuits distincts par jour avant blocage automatique",
+    "Catches the same catalog scraping paced slowly enough to stay under the per-minute limit above: dozens of different free models across a day, never many in one minute. Requires Redis; without it this signal does nothing. 0 disables. Only applies when auto-block is enabled.": "Détecte le même balayage de catalogue, ralenti juste assez pour rester sous la limite par minute ci-dessus : des dizaines de modèles gratuits différents sur une journée, sans jamais en cumuler beaucoup en une minute. Nécessite Redis ; sans lui, ce signal reste inactif. 0 pour désactiver. Ne s'applique que si le blocage automatique est activé.",
     "Threshold for auto-block detection. Only applies when auto-block is enabled.": "Seuil de détection pour le blocage automatique. Ne s'applique que lorsque le blocage automatique est activé.",
     "Channel Status History": "Channel Status History",
     "History": "History",
