@@ -560,7 +560,7 @@ var transientUpstream400Markers = []string{
 	// and blames the request. The identical body succeeds on the same channel
 	// minutes apart, so this must failover and count toward the rate guard.
 	"model name cannot be empty",
-	// marketplace masks any merchant fault as this 400; the same body succeeds on a
+	// The marketplace masks any merchant fault as this 400; the same body succeeds on a
 	// sibling merchant, so it must failover and count toward the rate guard.
 	"上游服务暂时不可用",
 }
