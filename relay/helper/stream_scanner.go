@@ -340,6 +340,17 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 func firstDataTimeout(info *relaycommon.RelayInfo) time.Duration {
 	seconds := constant.StreamFirstDataTimeout
 	if info != nil {
+		// A lane carrying cooldown strikes has failed recently and a strike is only
+		// shed by a success, so it is on probation: spend a fraction of the budget
+		// proving it before moving on. The full 60s on such a lane is what a user
+		// experiences as a hang, and it is paid per attempt: one model had three
+		// lanes that never answered, and a request burned 60s on each before giving
+		// up, 122s of silence with nothing to show. Two strikes rather than one, so
+		// a single blip on a healthy lane costs it nothing.
+		if probation := constant.StreamFirstDataProbationTimeout; probation > 0 &&
+			probation < seconds && info.ChannelMeta != nil && service.LaneStrikes(info.ChannelId) >= 2 {
+			seconds = probation
+		}
 		if user := hosttypes.ClampFirstTokenSeconds(info.UserSetting.MaxFirstTokenSeconds); user > 0 && user < seconds {
 			seconds = user
 		}
