@@ -2,6 +2,7 @@ package constant
 
 var StreamingTimeout int
 var StreamFirstDataTimeout int
+var StreamFirstDataProbationTimeout int
 var DifyDebug bool
 var MaxFileDownloadMB int
 var StreamScannerMaxBufferMB int

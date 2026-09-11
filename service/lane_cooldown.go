@@ -73,6 +73,17 @@ func ClearLaneCooldown(channelId int) {
 	laneCooldowns.Store(channelId, laneCooldown{strikes: strikes})
 }
 
+// LaneStrikes reports the lane's unshed cooldown strikes. Strikes outlive the
+// cooldown itself (only a success sheds one), so this answers "has this lane been
+// misbehaving lately" rather than "is it skipped right now".
+func LaneStrikes(channelId int) int {
+	v, ok := laneCooldowns.Load(channelId)
+	if !ok {
+		return 0
+	}
+	return v.(laneCooldown).strikes
+}
+
 func LaneCooled(channelId int) bool {
 	v, ok := laneCooldowns.Load(channelId)
 	if !ok {
