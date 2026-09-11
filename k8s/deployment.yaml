@@ -19,12 +19,22 @@ metadata:
   namespace: services
 spec:
   replicas: 1 # singleton: runs migrations + scheduled jobs (IsMasterNode)
+  # Recreate, not the default RollingUpdate: at replicas 1 maxSurge rounds up to 1, so the
+  # new master starts while the old one still runs and neither goes Ready until migration
+  # finishes. On 2026-09-11 both masters issued the same ALTER at the same second, fighting
+  # for ACCESS EXCLUSIVE on quota_data. A singleton that migrates must never overlap itself.
+  strategy:
+    type: Recreate
   selector:
     matchLabels: { app: new-api, tier: master }
   template:
     metadata:
       labels: { app: new-api, tier: master }
     spec:
+      # Above SHUTDOWN_TIMEOUT_SECONDS (120s, main.go). The 30s default SIGKILLs a pod
+      # with queries still streaming, which strands the backend in ClientWrite holding
+      # its table locks: that is how one dead client blocked 105 sessions on 2026-09-11.
+      terminationGracePeriodSeconds: 150
       affinity:
         # keep the gateway off node1: it is the 4-core node carrying etcd's leader,
         # Prometheus and ArgoCD, and it saturated within 90s every time it also
@@ -138,6 +148,10 @@ spec:
     metadata:
       labels: { app: new-api, tier: slave }
     spec:
+      # Above SHUTDOWN_TIMEOUT_SECONDS (120s, main.go). The 30s default SIGKILLs a pod
+      # with queries still streaming, which strands the backend in ClientWrite holding
+      # its table locks: that is how one dead client blocked 105 sessions on 2026-09-11.
+      terminationGracePeriodSeconds: 150
       affinity:
         # keep the gateway off node1: it is the 4-core node carrying etcd's leader,
         # Prometheus and ArgoCD, and it saturated within 90s every time it also
