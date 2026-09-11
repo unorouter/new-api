@@ -710,7 +710,7 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	}
 	// The upstream's own text outranks its status code: the marketplace masks "pinned
 	// merchant busy" as 400 and a rate limiter's 429 is not a request fault.
-	class := service.ClassifyUpstreamError(c.GetString(string(constant.ContextKeyChannelBaseUrl)), openaiErr)
+	class := service.ClassifyUpstreamError(openaiErr)
 	if class.Known && !class.Failover {
 		return false
 	}
@@ -839,7 +839,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	shouldDisable := service.ShouldDisableChannel(err)
 	// The upstream's own text decides before the status-code rules: a rate limit
 	// counts nothing, a lane-fatal state disables now, the rest feeds the guard.
-	class := service.ClassifyUpstreamError(c.GetString(string(constant.ContextKeyChannelBaseUrl)), err)
+	class := service.ClassifyUpstreamError(err)
 	// A credential fault keeps its immediate disable: a drained key does not recover.
 	if service.IsCredentialFault(err) {
 		class = service.UpstreamClass{}

@@ -309,48 +309,39 @@ func TestShouldDisableChannelSparesNonChannelFaults(t *testing.T) {
 	}
 }
 
-// The reseller host is deployment config (MARKETPLACE_UPSTREAM_HOST), so the
-// table drives it through a stand-in rather than naming a supplier in a public
-// repo.
-const marketplaceTestURL = "https://marketplace.example"
-
-// The upstream's text, not its status, decides failover and counting: the
-// marketplace's 400-masked "pinned merchant busy" fails over, its platform
-// throttle counts nothing, its fused merchant disables now, and a generic rate
-// limit is never a fault. Unknown text falls back to the status-code rules.
+// The upstream's text, not its status, decides failover and counting, and the
+// text alone: a 400-masked "pinned merchant busy" fails over, a platform
+// throttle counts nothing, a fused merchant disables now, and a generic rate
+// limit is never a fault. These sentences mean the same thing whoever sends
+// them, so no rule is scoped to a host. Unknown text falls back to the
+// status-code rules.
 func TestClassifyUpstreamError(t *testing.T) {
-	prevHost := marketplaceHost
-	marketplaceHost = "marketplace.example"
-	t.Cleanup(func() { marketplaceHost = prevHost })
-
 	mk := func(msg string, status int) *types.NewAPIError {
 		return types.NewOpenAIError(errors.New(msg), types.ErrorCodeBadResponse, status)
 	}
 	cases := []struct {
 		name string
-		host string
 		err  *types.NewAPIError
 		want UpstreamClass
 	}{
-		{"marketplace pinned busy masked as 400", marketplaceTestURL, mk("固定商家当前不可用。 原因：您固定的商家当前处于繁忙、冷却、不可用或能力不匹配状态。", 400), UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
-		{"marketplace platform throttle", marketplaceTestURL, mk("平台当前繁忙，请稍后重试。 原因：平台正在进行保护性限流或资源保护。", 503), UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true, Provider: true}},
-		{"marketplace merchant fused", marketplaceTestURL + "/", mk("固定商家当前不可用。 原因：该商家渠道近期连续失败，正处于熔断冷却保护中。", 503), UpstreamClass{Known: true, Failover: true, DisableNow: true}},
-		{"marketplace price raised", marketplaceTestURL, mk("原因：该商家上调了价格，您的固定关系已被暂停", 402), UpstreamClass{Known: true, Failover: true, DisableNow: true}},
-		{"marketplace text on another host is generic", "https://other-upstream.example", mk("原因：您固定的商家当前处于繁忙", 400), UpstreamClass{}},
-		{"horde rate limit", "https://aihorde.net", mk(`{"message":"2 per 1 second"}`, 429), UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}},
-		{"any 429 is a limit", "https://api.example", mk("shard exit at rph limit", 429), UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}},
-		{"5xx counts and cools", "https://api.example", mk("This model is currently experiencing high demand", 503), UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
-		{"empty response cools", "https://api.example", types.NewOpenAIError(errors.New("upstream streamed an empty response"), types.ErrorCodeChannelEmptyResponse, http.StatusBadGateway), UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}},
-		{"unsupported parameter is lane-dead", "https://tokenhub.example", mk("Model kinfra-text-embedding-4b does not support the requested parameter", 400), UpstreamClass{Known: true, Failover: true, Count: CountFailure}},
-		{"audio model on the chat route is the caller's fault", "https://api.groq.com", mk("The model `whisper-large-v3-turbo` does not support chat completions", 400), UpstreamClass{Known: true, Failover: false, Count: CountNone}},
-		{"unknown 504 counts and cools", marketplaceTestURL, mk("bad response status code 504", 504), UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
-		{"unknown 400 stays generic", "https://api.example", mk("invalid model", 400), UpstreamClass{}},
-		{"marketplace context over the merchant cap", marketplaceTestURL, mk("请求内容过大。 原因：本次上下文、附件或输出预算超过了可处理范围。", 413), UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}},
-		{"any 413 teaches the cap", "https://api.example", mk("request entity too large", 413), UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}},
+		{"marketplace pinned busy masked as 400", mk("固定商家当前不可用。 原因：您固定的商家当前处于繁忙、冷却、不可用或能力不匹配状态。", 400), UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
+		{"marketplace platform throttle", mk("平台当前繁忙，请稍后重试。 原因：平台正在进行保护性限流或资源保护。", 503), UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true, Provider: true}},
+		{"marketplace merchant fused", mk("固定商家当前不可用。 原因：该商家渠道近期连续失败，正处于熔断冷却保护中。", 503), UpstreamClass{Known: true, Failover: true, DisableNow: true}},
+		{"marketplace price raised", mk("原因：该商家上调了价格，您的固定关系已被暂停", 402), UpstreamClass{Known: true, Failover: true, DisableNow: true}},
+		{"horde rate limit", mk(`{"message":"2 per 1 second"}`, 429), UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}},
+		{"any 429 is a limit", mk("shard exit at rph limit", 429), UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}},
+		{"5xx counts and cools", mk("This model is currently experiencing high demand", 503), UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
+		{"empty response cools", types.NewOpenAIError(errors.New("upstream streamed an empty response"), types.ErrorCodeChannelEmptyResponse, http.StatusBadGateway), UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}},
+		{"unsupported parameter is lane-dead", mk("Model kinfra-text-embedding-4b does not support the requested parameter", 400), UpstreamClass{Known: true, Failover: true, Count: CountFailure}},
+		{"audio model on the chat route is the caller's fault", mk("The model `whisper-large-v3-turbo` does not support chat completions", 400), UpstreamClass{Known: true, Failover: false, Count: CountNone}},
+		{"unknown 504 counts and cools", mk("bad response status code 504", 504), UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
+		{"unknown 400 stays generic", mk("invalid model", 400), UpstreamClass{}},
+		{"marketplace context over the merchant cap", mk("请求内容过大。 原因：本次上下文、附件或输出预算超过了可处理范围。", 413), UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}},
+		{"any 413 teaches the cap", mk("request entity too large", 413), UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}},
 	}
 	for _, tc := range cases {
-		assert.Equal(t, tc.want, ClassifyUpstreamError(tc.host, tc.err), tc.name)
+		assert.Equal(t, tc.want, ClassifyUpstreamError(tc.err), tc.name)
 	}
 	local := types.NewError(errors.New("原因：平台正在进行保护性限流"), types.ErrorCodeGenRelayInfoFailed)
-	assert.Equal(t, UpstreamClass{}, ClassifyUpstreamError(marketplaceTestURL, local), "local errors are never upstream classes")
+	assert.Equal(t, UpstreamClass{}, ClassifyUpstreamError(local), "local errors are never upstream classes")
 }
