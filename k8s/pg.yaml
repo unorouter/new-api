@@ -108,6 +108,14 @@ spec:
   bootstrap:
     recovery:
       source: newapi-pg-origin
+  # Distributed topology (k3s to Talos migration, 2026-09-12). Both sites are named by their
+  # archive: newapi-pg-origin is the v7 lineage (this cluster), newapi-pg-talos the v8 lineage.
+  # While primary equals self this block is inert; the switchover flips primary on both sites,
+  # and this cluster then follows the v8 archive as a replica (source).
+  replica:
+    self: newapi-pg-origin
+    primary: newapi-pg-origin
+    source: newapi-pg-talos
   externalClusters:
     - name: newapi-pg-origin
       plugin:
@@ -117,6 +125,14 @@ spec:
         parameters:
           barmanObjectName: newapi-pg-hz
           serverName: newapi-pg-v7 # RESTORE-FROM lineage: only read at bootstrap; on a DR create bump ARCHIVE-TO to v8 (the pair must differ)
+    - name: newapi-pg-talos
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        enabled: true
+        isWALArchiver: false
+        parameters:
+          barmanObjectName: newapi-pg-hz
+          serverName: newapi-pg-v8
 
   # The webhook defaults below (enabled, isWALArchiver, and the role's connectionLimit,
   # ensure, inherit) are written out because these are atomic lists: ArgoCD compares the
