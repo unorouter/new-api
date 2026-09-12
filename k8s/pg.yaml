@@ -109,13 +109,13 @@ spec:
     recovery:
       source: newapi-pg-origin
   # Distributed topology (k3s to Talos migration, 2026-09-12). Both sites are named by their
-  # archive: newapi-pg-origin is the v7 lineage (this cluster), newapi-pg-talos the v8 lineage.
+  # archive: newapi-pg-origin is the v7 lineage (the k3s cluster), newapi-pg-talos the v8 lineage (this cluster).
   # While primary equals self this block is inert; the switchover flips primary on both sites,
   # and this cluster then follows the v8 archive as a replica (source).
   replica:
-    self: newapi-pg-origin
-    primary: newapi-pg-origin
-    source: newapi-pg-talos
+    self: newapi-pg-talos
+    primary: newapi-pg-talos
+    source: newapi-pg-origin
   externalClusters:
     - name: newapi-pg-origin
       plugin:
@@ -143,7 +143,7 @@ spec:
       isWALArchiver: true
       parameters:
         barmanObjectName: newapi-pg-hz
-        serverName: newapi-pg-v7 # ARCHIVE-TO lineage: crypt gateway from 2026-09-09; v5 and v6 are SSE-C era, unreadable through it
+        serverName: newapi-pg-v8 # ARCHIVE-TO lineage: crypt gateway from 2026-09-09; v5 and v6 are SSE-C era, unreadable through it
 
   # Teleport-provisioned read role, declared here so CNPG reconciles it on every DR.
   managed:
