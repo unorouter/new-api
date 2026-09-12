@@ -26,8 +26,13 @@ import { resolveLogsViewAccess } from '../components/usage-logs-provider'
 describe('usage log access tier', () => {
   test('keeps users and elevated self views on the self tier', () => {
     assert.equal(resolveLogsViewAccess(ROLE.USER, 'all'), 'self')
+    assert.equal(resolveLogsViewAccess(ROLE.MOD, 'self'), 'self')
     assert.equal(resolveLogsViewAccess(ROLE.ADMIN, 'self'), 'self')
     assert.equal(resolveLogsViewAccess(ROLE.SUPER_ADMIN, 'self'), 'self')
+  })
+
+  test('gives mods the same all-logs tier as admins', () => {
+    assert.equal(resolveLogsViewAccess(ROLE.MOD, 'all'), 'admin')
   })
 
   test('distinguishes admin and root while viewing all logs', () => {

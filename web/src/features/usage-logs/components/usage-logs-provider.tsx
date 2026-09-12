@@ -32,7 +32,8 @@ export function resolveLogsViewAccess(
   role: number,
   viewScope: LogsViewScope
 ): LogsViewAccess {
-  if (viewScope !== 'all' || role < ROLE.ADMIN) return 'self'
+  // MOD matches ModAuth on /api/log; the audit tab beside it is ADMIN on purpose.
+  if (viewScope !== 'all' || role < ROLE.MOD) return 'self'
   return role === ROLE.SUPER_ADMIN ? 'root' : 'admin'
 }
 
