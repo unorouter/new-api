@@ -124,7 +124,7 @@ spec:
         isWALArchiver: false
         parameters:
           barmanObjectName: newapi-pg-hz
-          serverName: newapi-pg-v7 # RESTORE-FROM lineage: only read at bootstrap; on a DR create bump ARCHIVE-TO to v8 (the pair must differ)
+          serverName: newapi-pg-v7 # RESTORE-FROM lineage: only read at bootstrap. Live archive is v8 since the 2026-09-12 switchover; on a DR create set restore-from v8 and archive-to v9 (the pair must differ)
     - name: newapi-pg-talos
       plugin:
         name: barman-cloud.cloudnative-pg.io
