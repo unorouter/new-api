@@ -36,6 +36,7 @@ import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import type { TaskPluginOption } from '../../api'
+import { CHANNEL_TYPE_SGLANG, CHANNEL_TYPE_VLLM } from '../../constants'
 import { channelSchema, type Channel } from '../../types'
 import { ChannelPluginExtensions } from '../channel-plugin-extensions'
 import { ChannelsProvider } from '../channels-provider'
@@ -226,8 +227,20 @@ test.each([
     url: 'https://volcengine.server.example',
     savedUrl: 'https://custom.example',
   },
+  {
+    type: CHANNEL_TYPE_VLLM,
+    label: /^Base URL/,
+    url: 'vLLM server address, without /v1',
+    savedUrl: 'http://localhost:8000',
+  },
+  {
+    type: CHANNEL_TYPE_SGLANG,
+    label: /^Base URL/,
+    url: 'SGLang server address, without /v1',
+    savedUrl: 'http://localhost:30000',
+  },
 ])(
-  'editing type $type keeps the server URL placeholder out of the saved address',
+  'editing type $type keeps the URL placeholder out of the saved address',
   async ({ type, label, url, savedUrl }) => {
     editingChannel.type = type
     const put = vi
