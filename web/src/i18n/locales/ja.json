@@ -4508,7 +4508,6 @@
     "Reset 2FA": "2FAをリセット",
     "Reset 2FA for {{username}}? The user must set up 2FA again to continue using it.": "{{username}} の 2FA をリセットしますか？引き続き使用するには、2FA を再設定する必要があります。",
     "Reset active {{plan}} subscriptions for this user?": "このユーザーの有効な {{plan}} サブスクリプションをリセットしますか？",
-    "Reset all active subscriptions under {{plan}}?": "{{plan}} のすべての有効なサブスクリプションをリセットしますか？",
     "Reset all model prices?": "すべてのモデル価格をリセットしますか？",
     "Reset all model ratios?": "すべてのモデル比率をリセットしますか？",
     "Reset all settings to default values": "すべての設定をデフォルト値にリセット",
@@ -6347,6 +6346,8 @@
     "Network identity exemption (%)": "ネットワークのID連携による除外（%）",
     "A network is left alone when at least this percent of its accounts bound a third-party login (GitHub, Discord, OIDC, Telegram, LinuxDO, WeChat). Protects households, campuses and carrier NAT, which share an address but do bind real identities. A typed email does not count while email verification is off.": "ネットワーク内のアカウントのうちこの割合以上が外部ログイン（GitHub、Discord、OIDC、Telegram、LinuxDO、WeChat）を連携している場合、そのネットワークは制限されません。アドレスを共有しつつ実際に身元を連携する家庭、学校、キャリア NAT を保護します。メール認証が無効の間、入力しただけのメールアドレスは連携とみなしません。",
     "Network reputation window (days)": "ネットワーク評価の集計期間（日）",
-    "How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.": "ネットワークを評価する際にさかのぼって登録を集計する日数。長くすると低速に登録するファームを検出でき、短くすると正常化したネットワークが早く復帰します。"
+    "How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.": "ネットワークを評価する際にさかのぼって登録を集計する日数。長くすると低速に登録するファームを検出でき、短くすると正常化したネットワークが早く復帰します。",
+    "Reset the weekly quota for every active subscription on {{plan}}. This affects all subscribers, not one user. To reset a single user, open Users and use the Subscriptions row action.": "{{plan}} のすべての有効なサブスクリプションの週間クォータをリセットします。この操作は単一のユーザーではなく、このプランのすべての契約者に影響します。単一のユーザーをリセットするには、「ユーザー」画面を開き、その行の「サブスクリプション」操作を使用してください。",
+    "Yes, reset every subscriber on this plan": "はい、このプランのすべての契約者をリセットします"
   }
 }

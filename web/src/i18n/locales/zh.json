@@ -4508,7 +4508,6 @@
     "Reset 2FA": "重置 2FA",
     "Reset 2FA for {{username}}? The user must set up 2FA again to continue using it.": "要重置 {{username}} 的 2FA 吗？该用户必须重新设置 2FA 后才能继续使用。",
     "Reset active {{plan}} subscriptions for this user?": "要重置该用户的有效 {{plan}} 订阅吗？",
-    "Reset all active subscriptions under {{plan}}?": "要重置 {{plan}} 下的所有有效订阅吗？",
     "Reset all model prices?": "重置所有模型价格吗？",
     "Reset all model ratios?": "重置所有模型比例吗？",
     "Reset all settings to default values": "将所有设置重置为默认值",
@@ -6347,6 +6346,8 @@
     "Network identity exemption (%)": "网段身份豁免比例（%）",
     "A network is left alone when at least this percent of its accounts bound a third-party login (GitHub, Discord, OIDC, Telegram, LinuxDO, WeChat). Protects households, campuses and carrier NAT, which share an address but do bind real identities. A typed email does not count while email verification is off.": "当网段内至少该比例的账号绑定了第三方登录（GitHub、Discord、OIDC、Telegram、LinuxDO、微信）时，该网段不受限制。用于保护家庭宽带、校园网和运营商 NAT：它们共用地址，但确实会绑定真实身份。在邮箱验证关闭时，手动填写的邮箱不计入身份。",
     "Network reputation window (days)": "网段信誉统计窗口（天）",
-    "How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.": "评估网段时回溯统计注册记录的天数。设置越长越能识别缓慢注册的农场；越短则让已恢复正常的网段更快解除限制。"
+    "How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.": "评估网段时回溯统计注册记录的天数。设置越长越能识别缓慢注册的农场；越短则让已恢复正常的网段更快解除限制。",
+    "Reset the weekly quota for every active subscription on {{plan}}. This affects all subscribers, not one user. To reset a single user, open Users and use the Subscriptions row action.": "重置 {{plan}} 上所有有效订阅的每周额度。此操作影响该套餐的全部订阅用户，而非单个用户。如需重置单个用户，请打开「用户」页面并使用该行的「订阅」操作。",
+    "Yes, reset every subscriber on this plan": "是，重置该套餐的全部订阅用户"
   }
 }
