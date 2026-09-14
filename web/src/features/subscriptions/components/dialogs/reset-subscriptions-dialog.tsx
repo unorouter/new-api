@@ -31,13 +31,17 @@ export function ResetSubscriptionsDialog() {
   const { t } = useTranslation()
   const { open, setOpen, currentRow, triggerRefresh } = useSubscriptions()
   const [advanceResetTime, setAdvanceResetTime] = useState(true)
+  const [acknowledged, setAcknowledged] = useState(false)
   const [resetting, setResetting] = useState(false)
   const isOpen = open === 'reset-subscriptions'
   const plan = currentRow?.plan
   const planLabel = plan?.title || (plan?.id ? `#${plan.id}` : '-')
 
   useEffect(() => {
-    if (isOpen) setAdvanceResetTime(true)
+    if (isOpen) {
+      setAdvanceResetTime(true)
+      setAcknowledged(false)
+    }
   }, [isOpen])
 
   const handleConfirm = async () => {
@@ -70,12 +74,14 @@ export function ResetSubscriptionsDialog() {
       open={isOpen}
       onOpenChange={(nextOpen) => !nextOpen && setOpen(null)}
       title={t('Reset subscription quota')}
-      desc={t('Reset all active subscriptions under {{plan}}?', {
-        plan: planLabel,
-      })}
+      desc={t(
+        'Reset the weekly quota for every active subscription on {{plan}}. This affects all subscribers, not one user. To reset a single user, open Users and use the Subscriptions row action.',
+        { plan: planLabel }
+      )}
       confirmText={t('Reset quota')}
+      destructive
       handleConfirm={handleConfirm}
-      disabled={!plan?.id}
+      disabled={!plan?.id || !acknowledged}
       isLoading={resetting}
     >
       <label className='flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm'>
@@ -84,6 +90,14 @@ export function ResetSubscriptionsDialog() {
           checked={advanceResetTime}
           onCheckedChange={(checked) => setAdvanceResetTime(!!checked)}
           aria-label={t('Advance next reset time')}
+        />
+      </label>
+      <label className='flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm'>
+        <span>{t('Yes, reset every subscriber on this plan')}</span>
+        <Switch
+          checked={acknowledged}
+          onCheckedChange={(checked) => setAcknowledged(!!checked)}
+          aria-label={t('Yes, reset every subscriber on this plan')}
         />
       </label>
     </ConfirmDialog>
