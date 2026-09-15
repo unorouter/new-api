@@ -87,6 +87,11 @@ var upstreamRules = []upstreamRule{
 	// failed. Same treatment as an unresolvable name: the lane leaves rotation now
 	// and the retest brings it back when the chain verifies again.
 	{markers: []string{"certificate signed by unknown authority", "failed to verify certificate", "certificate has expired", "certificate is not valid for any names"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}},
+	// Any host, the far end aborted the handshake itself (internal error, handshake
+	// failure, unrecognized name): a7 emitted these alongside the bad certificate
+	// while it was down for maintenance. Nothing can be sent over a handshake that
+	// never completed, so the lane leaves rotation and the retest returns it.
+	{markers: []string{"remote error: tls:"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}},
 
 	// Any host, rate limits and capacity: fail over, count nothing. AI Horde alone
 	// produced 190k of these in a week; each one disabled a lane the probe
