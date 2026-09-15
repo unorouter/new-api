@@ -80,6 +80,13 @@ var upstreamRules = []upstreamRule{
 	// minutes on lanes that stayed enabled throughout. Only the lane that saw the
 	// error is pulled, and the disabled-channel retest brings it back on its own.
 	{markers: []string{"no such host", "server misbehaving"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}},
+	// Any host, the TLS handshake could not be trusted: nothing may be sent through
+	// it, and the answer is never to skip verification (an untrusted certificate and
+	// an interception look identical from here). a6api.com began serving a cert from
+	// a private "Cyber Inc." CA at 21:23 UTC on 2026-09-15 and every lane on it
+	// failed. Same treatment as an unresolvable name: the lane leaves rotation now
+	// and the retest brings it back when the chain verifies again.
+	{markers: []string{"certificate signed by unknown authority", "failed to verify certificate", "certificate has expired", "certificate is not valid for any names"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}},
 
 	// Any host, rate limits and capacity: fail over, count nothing. AI Horde alone
 	// produced 190k of these in a week; each one disabled a lane the probe
