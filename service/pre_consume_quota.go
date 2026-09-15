@@ -37,15 +37,15 @@ func requestChargesQuota(c *gin.Context, relayInfo *relaycommon.RelayInfo) bool 
 	return effectiveGroupRatio(c, relayInfo) > 0
 }
 
-// cameFromFreeFailover reports whether an auto-token request has fallen through
-// its free groups and is now sitting on a PAID group. Free groups are ordered
-// first in AutoGroups, so reaching a ratio>0 group on an "auto" token means the
-// free providers for this model were exhausted (429) and failover advanced to a
-// paid one. Used to explain a $0-balance error instead of a bare "insufficient
-// balance".
+// cameFromFreeFailover reports whether this request was admitted on a free group
+// and has since been re-priced onto a paid one mid-chain, which is the only case
+// where "the free providers are busy" explains a $0-balance error. It reads the
+// marker the relay sets at that single re-price site; it deliberately does not
+// infer failover from the group ratio, because AutoGroups is not ordered by
+// ratio and a paid model's first candidate is already paid.
 func cameFromFreeFailover(c *gin.Context, relayInfo *relaycommon.RelayInfo) bool {
 	if relayInfo.TokenGroup != "auto" && !IsCompositeTokenGroup(relayInfo.TokenGroup) {
 		return false
 	}
-	return effectiveGroupRatio(c, relayInfo) > 0
+	return common.GetContextKeyBool(c, constant.ContextKeyFreeFailoverReprice)
 }
