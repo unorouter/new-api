@@ -197,6 +197,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	defer func() {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
+			recordQuotaRejection(c, newAPIError)
 			// Response already streamed to the client. A JSON body would corrupt the
 			// committed stream, so it stays skipped, but returning nothing ends the
 			// SSE with no [DONE] and no error and every client then reports only that
@@ -442,6 +443,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				break
 			}
 			if !repriced.FreeModel {
+				common.SetContextKey(c, constant.ContextKeyFreeFailoverReprice, true)
 				newAPIError = service.PreConsumeBilling(c, repriced.QuotaToPreConsume, relayInfo)
 				if newAPIError != nil {
 					break
@@ -653,10 +655,6 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, types.NewError(fmt.Errorf("failed to get an available channel for model %s in group %s (retry): %s", info.OriginModelName, selectGroup, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	if channel == nil {
-		// An auto token that exhausted EVERY group for this model: the free-first failover
-		// pool is fully down/rate-limited for it (e.g. a model whose only free provider hit
-		// its daily limit). Surface the friendly "model busy, try another" message instead of
-		// a bare no-channel error.
 		// A pinned token whose groups are all down gets a targeted error when the
 		// model is still served elsewhere - the OVERRIDE is the lockout, not the
 		// platform. Pins come in two shapes: a per-model GroupMapping (flag below)
@@ -670,12 +668,11 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			model.HasEnabledChannelForModelOutsideGroups(info.OriginModelName, service.ParseTokenGroups(info.TokenGroup)) {
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("This API key is pinned to a billing group that currently has no available provider for \"%s\" - the model itself is online and served by other groups. This is a problem with the key, not the model: open your token settings and set its group to \"auto\" (or delete the pin), then retry.", info.OriginModelName), types.ErrorCodeGetChannelFailed, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
 		}
-		if info.TokenGroup == "auto" || service.IsCompositeTokenGroup(info.TokenGroup) {
-			return nil, types.NewErrorWithStatusCode(fmt.Errorf("This model is busy right now (free providers hit their rate limit). Please try again in a little while, or switch to another model."), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
-		}
 		// The model exists but every channel serving it is currently disabled
 		// (auto-disabled on rate limit / maintenance). Tell the user it is busy,
-		// not that they mistyped the model name.
+		// not that they mistyped the model name. Auto and composite tokens land
+		// here too: exhausting every group is a capacity condition, and answering
+		// it as a quota error told paying users to top up over a busy provider.
 		if model.ModelHasAnyChannel(info.OriginModelName) {
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("All providers for model \"%s\" are busy right now (they hit their rate limit). This is not a spelling error. Please try again in a little while, or switch to another model.", info.OriginModelName), types.ErrorCodeGetChannelFailed, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
 		}
@@ -827,6 +824,48 @@ func requestRanAtLeast(c *gin.Context, d time.Duration) bool {
 		return false
 	}
 	return time.Since(started) >= d
+}
+
+// recordQuotaRejection writes a refusal-for-money into the user's own log. The
+// error-log path inside processChannelError cannot: it runs only after an
+// upstream attempt, and a request refused for money never makes one, so until
+// now a blocked user appeared nowhere except the edge's 403 counter. Deduped per
+// user and model, because a client that loops on the 403 would otherwise write
+// tens of thousands of identical rows a day.
+func recordQuotaRejection(c *gin.Context, err *types.NewAPIError) {
+	if !constant.ErrorLogEnabled || !types.IsRecordErrorLog(err) {
+		return
+	}
+	if err.GetErrorCode() != types.ErrorCodeInsufficientUserQuota {
+		return
+	}
+	userId := c.GetInt("id")
+	if userId <= 0 {
+		return
+	}
+	modelName := c.GetString("original_model")
+	if common.RedisEnabled {
+		fresh, redisErr := common.RedisSetNX(fmt.Sprintf("quota_reject_log:%d:%s", userId, modelName), "1", time.Minute)
+		if redisErr != nil {
+			common.SysError("quota rejection log dedupe failed: " + redisErr.Error())
+		} else if !fresh {
+			return
+		}
+	}
+	other := model.NewLogOther()
+	if c.Request != nil && c.Request.URL != nil {
+		other.SetPublic("request_path", c.Request.URL.Path)
+	}
+	other.SetPublic("error_type", err.GetErrorType())
+	other.SetPublic("error_code", err.GetErrorCode())
+	other.SetPublic("status_code", err.StatusCode)
+	startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
+	useTimeSeconds := 0
+	if !startTime.IsZero() {
+		useTimeSeconds = int(time.Since(startTime).Seconds())
+	}
+	model.RecordErrorLog(c, userId, 0, modelName, c.GetString("token_name"), err.MaskSensitiveErrorWithStatusCode(),
+		c.GetInt("token_id"), useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), c.GetString("group"), 0, other)
 }
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo, statusOpts ...model.ChannelStatusChangeOpt) {

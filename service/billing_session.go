@@ -221,13 +221,16 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 				userQuota = 0
 			}
 			return types.NewErrorWithStatusCode(
-				fmt.Errorf("insufficient user quota, remaining: %s", logger.FormatQuota(userQuota)),
+				fmt.Errorf("Your balance (%s) is below what this request reserves up front (%s). Add credit, or send a shorter request or a smaller max_tokens.", logger.FormatQuota(userQuota), logger.FormatQuota(effectiveQuota)),
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
-				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+				types.ErrOptionWithSkipRetry())
 		}
 		errMsg := err.Error()
-		if strings.Contains(errMsg, "no active subscription") || strings.Contains(errMsg, "subscription quota insufficient") {
-			return types.NewErrorWithStatusCode(fmt.Errorf("insufficient subscription quota or no subscription configured: %s", errMsg), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		if strings.Contains(errMsg, "subscription quota insufficient") {
+			return types.NewErrorWithStatusCode(fmt.Errorf("Your subscription allowance for this period is used up, and your plan does not allow spending wallet balance on top of it. It renews with your next billing period. Free models still work."), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+		}
+		if strings.Contains(errMsg, "no active subscription") {
+			return types.NewErrorWithStatusCode(fmt.Errorf("Your billing is set to use a subscription, but this account has no active one. Subscribe, or switch billing to your wallet balance in settings."), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 		}
 		return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 	}
@@ -254,12 +257,17 @@ func (s *BillingSession) reserveFunding(delta int) error {
 		return nil
 	case *SubscriptionFunding:
 		if err := model.PostConsumeUserSubscriptionDelta(funding.subscriptionId, int64(delta)); err != nil {
+			// Only the overrun is the user's business; a DB or id fault keeps its own
+			// text so it is not reported to them as an empty allowance.
+			message := err
+			if strings.Contains(err.Error(), "subscription used exceeds total") {
+				message = fmt.Errorf("Your subscription allowance ran out while this request was running, so it could not reserve more. It renews with your next billing period. Free models still work.")
+			}
 			return types.NewErrorWithStatusCode(
-				fmt.Errorf("insufficient subscription quota or no subscription configured: %s", err.Error()),
+				message,
 				types.ErrorCodeInsufficientUserQuota,
 				http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(),
-				types.ErrOptionWithNoRecordErrorLog(),
 			)
 		}
 		return nil
@@ -362,7 +370,9 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
 
 	// 钱包路径需要先检查用户额度
-	tryWallet := func() (*BillingSession, *types.NewAPIError) {
+	// afterSubscription marks the overflow fallback, where the plan allowance is
+	// already spent; the wallet being empty too is the second half of that story.
+	tryWallet := func(afterSubscription bool) (*BillingSession, *types.NewAPIError) {
 		userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
@@ -373,20 +383,26 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if userQuota <= 0 && requestChargesQuota(c, relayInfo) {
 			if cameFromFreeFailover(c, relayInfo) {
 				return nil, types.NewErrorWithStatusCode(
-					fmt.Errorf("This model is busy right now (free providers hit their rate limit). Please try again in a little while, or switch to another model."),
+					fmt.Errorf("This model is busy right now (the free providers hit their rate limit) and your balance is empty (remaining: %s), so no paid provider can take over. Add credit to use the paid providers, or try again in a little while.", logger.FormatQuota(userQuota)),
 					types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
-					types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+					types.ErrOptionWithSkipRetry())
+			}
+			if afterSubscription {
+				return nil, types.NewErrorWithStatusCode(
+					fmt.Errorf("Your subscription allowance for this period is used up and your wallet balance is empty (remaining: %s). Add credit to keep going now, or wait for the plan to renew. Free models still work.", logger.FormatQuota(userQuota)),
+					types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
+					types.ErrOptionWithSkipRetry())
 			}
 			return nil, types.NewErrorWithStatusCode(
-				fmt.Errorf("insufficient user quota, remaining: %s", logger.FormatQuota(userQuota)),
+				fmt.Errorf("Your balance is empty (remaining: %s), so this paid model cannot run. This is a billing problem, not a busy provider: add credit, or switch to a free model. Retrying will not change it.", logger.FormatQuota(userQuota)),
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
-				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+				types.ErrOptionWithSkipRetry())
 		}
 		if userQuota-preConsumedQuota < 0 {
 			return nil, types.NewErrorWithStatusCode(
-				fmt.Errorf("pre-consume quota failed, user remaining: %s, required pre-consume: %s", logger.FormatQuota(userQuota), logger.FormatQuota(preConsumedQuota)),
+				fmt.Errorf("Your balance (%s) is below what this request reserves up front (%s). Add credit, or send a shorter request or a smaller max_tokens.", logger.FormatQuota(userQuota), logger.FormatQuota(preConsumedQuota)),
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
-				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+				types.ErrOptionWithSkipRetry())
 		}
 		relayInfo.UserQuota = userQuota
 
@@ -426,9 +442,9 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 	case "subscription_only":
 		return trySubscription()
 	case "wallet_only":
-		return tryWallet()
+		return tryWallet(false)
 	case "wallet_first":
-		session, err := tryWallet()
+		session, err := tryWallet(false)
 		if err != nil {
 			if err.GetErrorCode() == types.ErrorCodeInsufficientUserQuota {
 				return trySubscription()
@@ -444,7 +460,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 			return nil, types.NewError(subCheckErr, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 		}
 		if !hasSub {
-			return tryWallet()
+			return tryWallet(false)
 		}
 		session, apiErr := trySubscription()
 		if apiErr != nil {
@@ -455,7 +471,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 					return nil, types.NewError(overflowErr, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 				}
 				if allowOverflow {
-					return tryWallet()
+					return tryWallet(true)
 				}
 				return nil, apiErr
 			}
