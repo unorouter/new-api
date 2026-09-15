@@ -190,6 +190,18 @@ spec:
         passwordSecret:
           name: newapi-pg-grafana-reader
         inRoles: ["reader"]
+      # Blanks logs.ip past the 30-day retention (infra/databases/ip-retention.yaml).
+      # Password role, so it takes CNPG's trailing scram rule: no pg_hba line of its own and
+      # nothing to collide with the reader and dbadmin cert rules. Grants are column-scoped in
+      # infra/databases/ip-retention-least-privilege.sql, hand-applied, re-applied after initdb.
+      - name: ip_retention
+        login: true
+        connectionLimit: 1
+        ensure: present
+        inherit: true
+        passwordSecret:
+          name: newapi-pg-ip-retention
+        inRoles: []
       # Teleport-provisioned admin role for named operators: cert-only (no password), so
       # the only way in is a Teleport session under a GitHub identity, with the queries
       # in Teleport's audit. Replaces `kubectl exec ... psql -U postgres` for prod writes.
