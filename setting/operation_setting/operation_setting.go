@@ -74,6 +74,9 @@ var ChannelFaultKeywords = []string{
 	"token plan limit exhausted",
 	"token plan entitlement exhausted",
 	"tokens per day limit exceeded",
+	// A provisioned key that has spent its own daily USD cap: it cannot clear until
+	// the cap resets, so every further request on that lane is a wasted hop.
+	"budget limit exceeded",
 	// Cloudflare Workers AI: the account's daily neuron allowance is spent.
 	"you have used up your daily free allocation",
 	// Resellers whose free tier is a daily counter, not a rate: the first says so,
