@@ -21,55 +21,76 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// validateTokenGroupMapping checks a token's per-model group mapping: valid
-// bounded JSON with every pinned group usable by this user.
-func validateTokenGroupMapping(userId int, mappingJSON string) error {
+// sanitizeTokenGroupMapping checks a token's per-model group mapping: valid
+// bounded JSON with sane price bands. A pinned group this account can no
+// longer use is dropped rather than refused: lanes rotate every sync, so a
+// stale pin is the normal state of an old token, and refusing the save locked
+// the owner out of the very edit that would remove it. An entry left with no
+// groups, no band and no auto flag is dropped with it, which sends that model
+// back to the token's base group.
+func sanitizeTokenGroupMapping(userId int, mappingJSON string) (string, error) {
 	mappingJSON = strings.TrimSpace(mappingJSON)
 	if mappingJSON == "" || mappingJSON == "{}" {
-		return nil
+		return "", nil
 	}
 	if len(mappingJSON) > 65536 {
-		return errors.New("group_mapping too large")
+		return "", errors.New("group_mapping too large")
 	}
 	mapping := service.ParseTokenGroupMapping(mappingJSON)
 	if mapping == nil {
-		return errors.New("invalid group_mapping")
+		return "", errors.New("invalid group_mapping")
 	}
 	userGroup, err := model.GetUserGroup(userId, false)
 	if err != nil {
-		return err
+		return "", err
 	}
 	usable := service.GetUserUsableGroups(userGroup)
 	for m, entry := range mapping {
 		if strings.TrimSpace(m) == "" {
-			return errors.New("group_mapping contains an empty model name")
+			return "", errors.New("group_mapping contains an empty model name")
 		}
 		if entry.Min != nil && *entry.Min < 0 {
-			return fmt.Errorf("model %q has a negative price band minimum", m)
+			return "", fmt.Errorf("model %q has a negative price band minimum", m)
 		}
 		if entry.Max != nil && *entry.Max < 0 {
-			return fmt.Errorf("model %q has a negative price band maximum", m)
+			return "", fmt.Errorf("model %q has a negative price band maximum", m)
 		}
 		if entry.Min != nil && entry.Max != nil && *entry.Min > *entry.Max {
-			return fmt.Errorf("model %q has a price band whose minimum exceeds its maximum", m)
+			return "", fmt.Errorf("model %q has a price band whose minimum exceeds its maximum", m)
 		}
-		if len(entry.Groups) == 0 && !entry.HasBand() && !entry.Auto {
-			return fmt.Errorf("model %q has neither pinned groups nor a price band", m)
-		}
+		kept := make([]string, 0, len(entry.Groups))
 		for _, g := range entry.Groups {
 			g = strings.TrimSpace(g)
-			if g == "" || g == "auto" {
+			if g == "" {
+				continue
+			}
+			if g == "auto" {
+				kept = append(kept, g)
 				continue
 			}
 			if _, ok := usable[g]; !ok {
-				return fmt.Errorf("group %q is not available for this account", g)
+				continue
 			}
 			if !ratio_setting.ContainsGroupRatio(g) {
-				return fmt.Errorf("group %q has been deprecated", g)
+				continue
 			}
+			kept = append(kept, g)
 		}
+		if len(kept) == 0 && !entry.HasBand() && !entry.Auto {
+			delete(mapping, m)
+			continue
+		}
+		entry.Groups = kept
+		mapping[m] = entry
 	}
-	return nil
+	if len(mapping) == 0 {
+		return "", nil
+	}
+	encoded, err := common.Marshal(mapping)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 // TokenResponse is a token with its resolved auto-group order.
@@ -313,7 +334,8 @@ func AddToken(c fuego.ContextWithBody[dto.CreateTokenRequest]) (dto.MessageRespo
 		common.SysLog("failed to generate token key: " + err.Error())
 		return dto.FailMsg("Failed to generate token")
 	}
-	if err := validateTokenGroupMapping(dto.UserID(c), groupMapping); err != nil {
+	groupMapping, err = sanitizeTokenGroupMapping(dto.UserID(c), groupMapping)
+	if err != nil {
 		return dto.FailMsg(err.Error())
 	}
 	cleanToken := model.Token{
@@ -414,9 +436,11 @@ func UpdateToken(c fuego.Context[dto.UpdateTokenRequest, dto.StatusOnlyParams]) 
 		cleanToken.Status = token.Status
 	} else {
 		if token.GroupMapping != nil {
-			if err := validateTokenGroupMapping(dto.UserID(c), *token.GroupMapping); err != nil {
+			cleaned, err := sanitizeTokenGroupMapping(dto.UserID(c), *token.GroupMapping)
+			if err != nil {
 				return dto.Fail[TokenResponse](err.Error())
 			}
+			token.GroupMapping = &cleaned
 		}
 		cleanToken.Name = token.Name
 		cleanToken.ExpiredTime = token.ExpiredTime
