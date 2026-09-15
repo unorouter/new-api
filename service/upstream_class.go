@@ -73,6 +73,16 @@ var upstreamRules = []upstreamRule{
 	// lane sheds the strike on its next success, so only real bursts bite.
 	{markers: []string{"您固定的商家当前处于繁忙", "该商家拒绝了本次请求", "该商家上游返回了错误"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
 
+	// Any host, the name did not resolve: every lane of that host is unreachable
+	// for as long as the record is broken, and no other lane of it can serve the
+	// retry. a6api.com rotates its CNAME between backends and landed on one with
+	// no record on 2026-09-16: 2,000 failures in seven minutes, every retry
+	// walking another lane of the same dead name. Cooling the host takes the whole
+	// provider out of rotation at the first failure, so the retry lands on a
+	// different provider instead; the count still feeds the rate guard, so a name
+	// that stays broken also pulls its lanes.
+	{markers: []string{"no such host", "server misbehaving"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true, Provider: true}},
+
 	// Any host, rate limits and capacity: fail over, count nothing. AI Horde alone
 	// produced 190k of these in a week; each one disabled a lane the probe
 	// re-enabled five minutes later.
