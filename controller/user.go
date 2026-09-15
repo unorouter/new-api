@@ -210,7 +210,10 @@ func backfillRegisterIp(user *model.User, c *gin.Context) {
 	}
 	err := model.DB.Model(&model.User{}).
 		Where("id = ? AND (register_ip = '' OR register_ip IS NULL)", user.Id).
-		Update("register_ip", ip).Error
+		Updates(map[string]any{
+			"register_ip":      ip,
+			"register_ip_hash": common.RegisterIpHash(ip),
+		}).Error
 	if err != nil {
 		common.SysError("failed to backfill register ip: " + err.Error())
 	}
@@ -498,6 +501,9 @@ func Register(c fuego.ContextWithBody[dto.RegisterRequest]) (dto.MessageResponse
 		InviterId:   inviterId,
 		Role:        common.RoleCommonUser,
 		RegisterIp:  registerIp,
+		// Written together, always. The address is cleared after 30 days; the marker is
+		// what the per-IP cap and the Discord reward check compare on from then on.
+		RegisterIpHash: common.RegisterIpHash(registerIp),
 	}
 	if common.EmailVerificationEnabled {
 		cleanUser.Email = req.Email

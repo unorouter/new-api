@@ -632,6 +632,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	user.Role = common.RoleCommonUser
 	user.Status = common.UserStatusEnabled
 	user.RegisterIp = registerIp
+	user.RegisterIpHash = common.RegisterIpHash(registerIp)
 
 	// Handle affiliate code
 	inviterId := 0
