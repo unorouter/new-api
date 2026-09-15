@@ -87,6 +87,9 @@ var ChannelFaultKeywords = []string{
 	// cannot clear on its own and every further request is a wasted failover hop.
 	"you exceeded your current quota",
 	"generate_content_free_tier_requests",
+	// Modal refuses shared-endpoint traffic on plan credits with a 429: an
+	// entitlement the account does not have, so it never clears on its own.
+	"plan credits cannot be applied",
 	// Google returns a suspended/revoked key as 429, which reads as an ordinary
 	// rate limit and keeps the channel in rotation serving nothing.
 	"has been suspended",
