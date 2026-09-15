@@ -116,9 +116,14 @@ type User struct {
 	// pod every 10 minutes, the abuse metrics every 30 seconds) filtered on this
 	// column and got a sequential scan, because it was the only filtered column on
 	// this table without an index.
-	CreatedAt        int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at;index"`
-	LastLoginAt      int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
-	RegisterIp       string                     `json:"register_ip,omitempty" gorm:"type:varchar(64);column:register_ip;index"`
+	CreatedAt   int64  `json:"created_at" gorm:"autoCreateTime;column:created_at;index"`
+	LastLoginAt int64  `json:"last_login_at" gorm:"default:0;column:last_login_at"`
+	RegisterIp  string `json:"register_ip,omitempty" gorm:"type:varchar(64);column:register_ip;index"`
+	// The keyed marker the abuse caps actually compare on, so RegisterIp above can be
+	// cleared after 30 days without losing the history they need. json:"-" on purpose:
+	// RegisterIp is serialized to moderators by GetAllUsers/SearchUsers/GetUser, and the
+	// marker has no reason to travel that path.
+	RegisterIpHash   string                     `json:"-" gorm:"type:varchar(64);column:register_ip_hash;index"`
 	AuthVersion      int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
 	AdminPermissions map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
 }
@@ -349,17 +354,28 @@ func NormalizeEmail(email string) string {
 }
 
 // CountUsersByRegisterIp includes soft-deleted users so register/delete/re-register cycles still count.
+// Matches on the keyed marker, not the address: the address is cleared after 30 days while the
+// marker stays, so the cap still sees the whole history. An empty ip never matches (see
+// common.RegisterIpHash), which is why callers must treat "unknown address" as "no cap".
 func CountUsersByRegisterIp(ip string) (int64, error) {
+	hash := common.RegisterIpHash(ip)
+	if hash == "" {
+		return 0, nil
+	}
 	var count int64
-	err := DB.Unscoped().Model(&User{}).Where("register_ip = ?", ip).Count(&count).Error
+	err := DB.Unscoped().Model(&User{}).Where("register_ip_hash = ?", hash).Count(&count).Error
 	return count, err
 }
 
 // HasEarlierUserWithRegisterIp reports whether an older account (incl. soft-deleted) shares this
 // register IP. The first account per IP stays reward-eligible; later siblings are not.
 func HasEarlierUserWithRegisterIp(ip string, userId int) (bool, error) {
+	hash := common.RegisterIpHash(ip)
+	if hash == "" {
+		return false, nil
+	}
 	var count int64
-	err := DB.Unscoped().Model(&User{}).Where("register_ip = ? AND id < ?", ip, userId).Count(&count).Error
+	err := DB.Unscoped().Model(&User{}).Where("register_ip_hash = ? AND id < ?", hash, userId).Count(&count).Error
 	return count > 0, err
 }
 
@@ -1083,6 +1099,11 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 	}
 	if err = tx.Model(&current).Omit(
 		"access_token",
+		// GetUser hands moderators the whole model.User including register_ip, so a
+		// plain admin save round-trips it back. Without these two an edit can rewrite
+		// the address with a stale value, or blank the marker the abuse caps run on.
+		"register_ip",
+		"register_ip_hash",
 		"quota",
 		"used_quota",
 		"request_count",

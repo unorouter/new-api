@@ -403,7 +403,9 @@ func migrateDB() error {
 	ensureColumn("users", &User{}, "topup_bonus_percent", "decimal(5,2) NULL")
 	ensureColumn("top_ups", &TopUp{}, "paid_amount", "decimal NOT NULL DEFAULT 0")
 	ensureColumn("subscription_orders", &SubscriptionOrder{}, "provider_payment_id", "varchar(64) NOT NULL DEFAULT ''")
+	ensureColumn("users", &User{}, "register_ip_hash", "varchar(64) NULL")
 	backfillModelStatusLastUp()
+	backfillRegisterIpHash()
 	if err := migrateTokenGroupMappingShape(DB); err != nil {
 		return err
 	}
@@ -422,6 +424,71 @@ func backfillModelStatusLastUp() {
 	err := DB.Exec(`UPDATE model_status_components SET last_up_at = COALESCE((SELECT MAX(timestamp) FROM model_status_pings WHERE model_status_pings.model = model_status_components.model_name AND model_status_pings.up_channels > 0), 0) WHERE last_up_at = 0`).Error
 	if err != nil {
 		common.SysLog("model status last_up backfill failed: " + err.Error())
+	}
+}
+
+// backfillRegisterIpHash fills the keyed marker for accounts that registered before
+// the column existed, so the per-IP cap keeps seeing the whole history once the
+// addresses start being cleared at 30 days.
+//
+// In Go, not SQL: the HMAC key has no business being in a query, and Postgres pgcrypto
+// would not help on SQLite or MySQL anyway. Batched inside a transaction because ~63k
+// single-row commits cost one fsync each; grouped this way it is seconds, not minutes.
+// Idempotent, and resumable: it only ever looks at rows that have an address and no
+// marker, so an interrupted run finishes on the next start.
+func backfillRegisterIpHash() {
+	countPending := func() (int64, error) {
+		var cnt int64
+		err := DB.Unscoped().Model(&User{}).
+			Where("register_ip <> '' AND (register_ip_hash = '' OR register_ip_hash IS NULL)").
+			Count(&cnt).Error
+		return cnt, err
+	}
+	pending, err := countPending()
+	if err != nil || pending == 0 {
+		return
+	}
+	common.SysLog(fmt.Sprintf("register ip hash backfill: %d rows pending", pending))
+
+	const batchSize = 5000
+	done := 0
+	for {
+		var rows []struct {
+			Id         int
+			RegisterIp string
+		}
+		err := DB.Unscoped().Model(&User{}).
+			Select("id", "register_ip").
+			Where("register_ip <> '' AND (register_ip_hash = '' OR register_ip_hash IS NULL)").
+			Limit(batchSize).Find(&rows).Error
+		if err != nil {
+			common.SysLog("register ip hash backfill failed: " + err.Error())
+			return
+		}
+		if len(rows) == 0 {
+			break
+		}
+		err = DB.Transaction(func(tx *gorm.DB) error {
+			for _, row := range rows {
+				if err := tx.Unscoped().Model(&User{}).Where("id = ?", row.Id).
+					Update("register_ip_hash", common.RegisterIpHash(row.RegisterIp)).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			common.SysLog("register ip hash backfill failed: " + err.Error())
+			return
+		}
+		done += len(rows)
+		common.SysLog(fmt.Sprintf("register ip hash backfill: %d/%d", done, pending))
+		if len(rows) < batchSize {
+			break
+		}
+	}
+	if left, err := countPending(); err == nil && left > 0 {
+		common.SysLog(fmt.Sprintf("register ip hash backfill: %d rows still pending", left))
 	}
 }
 
