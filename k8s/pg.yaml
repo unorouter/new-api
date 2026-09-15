@@ -44,6 +44,7 @@ metadata:
     # DELETED database. Removing this is a decision, not a cleanup.
     argocd.argoproj.io/sync-options: Prune=false
 spec:
+  priorityClassName: serving
   # Velero must NOT file-copy pgdata. CNPG's base backup + WAL archive (the -v4 prefix in
   # the same bucket) is the real restore path; a file-level copy of a running data
   # directory is only crash-consistent and would never be restored from. It was also 62GB
