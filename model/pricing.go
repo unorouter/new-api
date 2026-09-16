@@ -454,15 +454,30 @@ func buildPricing(enableAbilities []AbilityWithChannel, hasEnabled map[string]bo
 		}
 	}
 
+	// Every model the ability set names gets a row, rather than every model with a
+	// ROUTABLE group. modelGroupsMap holds only the latter, so iterating it dropped
+	// exactly the models the offline-inclusive build exists to surface: one whose
+	// lanes are all disabled has no routable group, so it was never emitted and
+	// online=false was unreachable. The enabled-only build passes enabled abilities
+	// alone, so the two sets are identical there and it is unaffected.
+	modelNames := types.NewSet[string]()
+	for _, ability := range enableAbilities {
+		modelNames.Add(ability.Model)
+	}
+
 	result := make([]Pricing, 0)
 	pluginGeneration := jsplugin.DefaultRegistry.Generation()
-	for model, groups := range modelGroupsMap {
+	for _, model := range modelNames.Items() {
 		if strings.HasSuffix(model, "[1m]") {
 			continue
 		}
+		var enableGroup []string
+		if groups, ok := modelGroupsMap[model]; ok {
+			enableGroup = groups.Items()
+		}
 		pricing := Pricing{
 			ModelName:              model,
-			EnableGroup:            groups.Items(),
+			EnableGroup:            enableGroup,
 			SupportedEndpointTypes: endpointTypesByModel[model],
 			Online:                 hasEnabled[model],
 		}
