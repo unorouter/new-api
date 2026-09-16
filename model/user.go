@@ -367,10 +367,11 @@ func CountUsersByRegisterIp(ip string) (int64, error) {
 	return count, err
 }
 
-// HasEarlierUserWithRegisterIp reports whether an older account (incl. soft-deleted) shares this
-// register IP. The first account per IP stays reward-eligible; later siblings are not.
-func HasEarlierUserWithRegisterIp(ip string, userId int) (bool, error) {
-	hash := common.RegisterIpHash(ip)
+// HasEarlierUserWithRegisterIpHash reports whether an older account (incl. soft-deleted) shares this
+// register IP marker. The first account per IP stays reward-eligible; later siblings are not.
+// Takes the stored marker rather than the address: retention blanks register_ip after 30 days, so
+// deriving the marker from the address would silently stop matching on every older account.
+func HasEarlierUserWithRegisterIpHash(hash string, userId int) (bool, error) {
 	if hash == "" {
 		return false, nil
 	}
