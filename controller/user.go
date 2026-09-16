@@ -1564,8 +1564,8 @@ func GrantDiscordQuota(c fuego.ContextWithBody[dto.GrantDiscordQuotaRequest]) (*
 		return dto.Ok(dto.GrantDiscordQuotaData{Linked: false})
 	}
 
-	if req.CheckIpUnique && user.RegisterIp != "" {
-		duplicate, err := model.HasEarlierUserWithRegisterIp(user.RegisterIp, user.Id)
+	if req.CheckIpUnique && user.RegisterIpHash != "" {
+		duplicate, err := model.HasEarlierUserWithRegisterIpHash(user.RegisterIpHash, user.Id)
 		if err != nil {
 			return dto.Fail[dto.GrantDiscordQuotaData](err.Error())
 		}
