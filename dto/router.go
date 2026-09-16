@@ -302,6 +302,14 @@ func CatalogFullQuery() func(*fuego.BaseRoute) {
 	return fuego.OptionQueryBool("full", "Include description and metadata (browse/compare need them; the model picker does not)")
 }
 
+// CatalogOfflineQuery adds the optional "include_offline" catalog query
+// parameter. Only the sitemap wants it: a model page answers 200 whether or not
+// a lane is up, so leaving dark models out of the catalog quietly unpublishes
+// pages every time a provider flaps.
+func CatalogOfflineQuery() func(*fuego.BaseRoute) {
+	return fuego.OptionQueryBool("include_offline", "Also return models whose every lane is currently down, flagged online=false (the sitemap needs them; the picker does not)")
+}
+
 // CatalogVendorQuery adds the optional "vendor" catalog query parameter.
 func CatalogVendorQuery() func(*fuego.BaseRoute) {
 	return fuego.OptionQuery("vendor", "Only models served by this vendor, newest first (the vendor page)")
