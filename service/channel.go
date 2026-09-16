@@ -315,6 +315,15 @@ func RecordChannelFailure(channelId int, soft bool) bool {
 
 	m := operation_setting.GetMonitorSetting()
 	if soft {
+		// A lane just re-enabled that answers only timeouts is the relapse
+		// probation exists for; the normal floor of 20 let it serve 19 of them.
+		if inChannelProbation(channelId) {
+			total := failures + successes
+			if m.ChannelProbationMinSamples > 0 && m.ChannelProbationRateThreshold > 0 && total >= m.ChannelProbationMinSamples &&
+				float64(failures)/float64(total) >= m.ChannelProbationRateThreshold {
+				return true
+			}
+		}
 		return channelFailureRateExceeded(m, failures, successes)
 	}
 	// An unbroken run of failures is the cheapest strong signal that the upstream is

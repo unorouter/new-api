@@ -176,23 +176,28 @@ func TestGetChannelDiagnosticFilter(t *testing.T) {
 	assert.Equal(t, 8, rows[0].ChannelId)
 }
 
-// The flap hold is capped at one probe cycle: it exists to stop a flapping channel
-// leaking errors every cycle, not to strand a channel that is healthy again.
+// The flap hold is capped at one probe cycle for a free lane, so a channel that
+// is healthy again is never stranded; a paid lane with siblings doubles up to an
+// hour, so a lane that keeps dying under traffic stops coming back every cycle.
 func TestFlapBackoffSeconds(t *testing.T) {
 	cases := []struct {
 		disables int
+		cap      int64
 		want     int64
 	}{
-		{0, 0},
-		{2, 0},
-		{3, 30},
-		{4, 60},
-		{5, 60},
-		{10, 60},
-		{300, 60},
+		{0, flapBackoffCapSeconds, 0},
+		{2, flapBackoffCapSeconds, 0},
+		{3, flapBackoffCapSeconds, 30},
+		{4, flapBackoffCapSeconds, 60},
+		{5, flapBackoffCapSeconds, 60},
+		{300, flapBackoffCapSeconds, 60},
+		{5, flapBackoffPaidCapSeconds, 120},
+		{9, flapBackoffPaidCapSeconds, 1920},
+		{10, flapBackoffPaidCapSeconds, 3600},
+		{300, flapBackoffPaidCapSeconds, 3600},
 	}
 	for _, c := range cases {
-		assert.Equalf(t, c.want, FlapBackoffSeconds(c.disables),
-			"disables=%d", c.disables)
+		assert.Equalf(t, c.want, FlapBackoffSeconds(c.disables, c.cap),
+			"disables=%d cap=%d", c.disables, c.cap)
 	}
 }

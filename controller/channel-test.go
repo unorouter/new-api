@@ -1318,7 +1318,7 @@ func testChannelForCycle(ctx context.Context, channel *model.Channel, testUserID
 		// real traffic; hold it disabled with exponential cooldown instead of
 		// re-enabling it every probe cycle (each flap leaks user-visible errors).
 		monitor := operation_setting.GetMonitorSetting()
-		if wait := model.FlapCooldownRemainingSeconds(channel.Id); wait > 0 {
+		if wait := model.FlapCooldownRemainingSeconds(channel); wait > 0 {
 			common.SysLog(fmt.Sprintf("channel-test: probe passed but channel #%d (%s) is flapping; keeping disabled for %ds more", channel.Id, channel.Name, wait))
 		} else if wait := model.PaidReenableHoldRemainingSeconds(channel, monitor.ChannelPaidReenableHoldSeconds); wait > 0 {
 			common.SysLog(fmt.Sprintf("channel-test: probe passed but paid channel #%d (%s) is inside its re-enable hold; %ds more", channel.Id, channel.Name, wait))
@@ -1337,7 +1337,7 @@ func testChannelForCycle(ctx context.Context, channel *model.Channel, testUserID
 
 	if errors.Is(result.localErr, errPaidTaskProbeSkipped) && !isChannelEnabled && channel.GetAutoBan() {
 		monitor := operation_setting.GetMonitorSetting()
-		if wait := model.FlapCooldownRemainingSeconds(channel.Id); wait > 0 {
+		if wait := model.FlapCooldownRemainingSeconds(channel); wait > 0 {
 			common.SysLog(fmt.Sprintf("channel-test: task channel #%d (%s) cannot be probed; flap cooldown %ds more", channel.Id, channel.Name, wait))
 		} else if wait := model.PaidReenableHoldRemainingSeconds(channel, monitor.ChannelPaidReenableHoldSeconds); wait > 0 {
 			common.SysLog(fmt.Sprintf("channel-test: task channel #%d (%s) cannot be probed; re-enable hold %ds more", channel.Id, channel.Name, wait))

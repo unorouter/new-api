@@ -72,10 +72,25 @@ var upstreamRules = []upstreamRule{
 	// sending it the next request immediately just buys another failure. A healthy
 	// lane sheds the strike on its next success, so only real bursts bite.
 	{markers: []string{"您固定的商家当前处于繁忙", "该商家拒绝了本次请求", "该商家上游返回了错误"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
-	// Reseller, the merchant's own wallet or plan cannot fund the call ("请充值"):
-	// nothing we send lands until they top up, so the lane leaves rotation at once
-	// and the disabled-channel probe decides when it comes back.
-	{markers: []string{"可用额度不足"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}},
+	// Reseller, the merchant's own wallet or plan cannot fund the call ("请充值").
+	// Intermittent in practice: over 24h lane 4591 answered it 43 times spread
+	// across six hours while serving 792 requests, and 4615 17 times against 1,937.
+	// Pulled at once, both flapped through the retest; counted, the guard pulls only
+	// the lanes where it is the majority answer (4569: 91 against 15).
+	{markers: []string{"可用额度不足"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
+	// Reseller, states the platform itself calls durable: the merchant's upstream
+	// balance is gone "and will not recover soon", or our account there is banned.
+	{markers: []string{"上游账户余额不足", "账号处于封禁状态"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}},
+	// Reseller, platform-wide faults every lane on the host answers together (auth
+	// database degraded, CPU admission, no channel found, platform concurrency):
+	// 290 rows across 55 lanes in three minutes on 2026-09-16. Counted per lane
+	// they read as 55 broken merchants.
+	{markers: []string{"认证数据库降级队列已满", "cpu 使用率超过平台准入阈值", "平台当前没有找到满足", "请求过多、并发过高"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true, Provider: true}},
+	// Reseller, this merchant's channel cannot speak the request's protocol, and
+	// the relay layer between us returned a broken reply (arrives as 404, 502, 400
+	// or 520, so no status default covers every form): a sibling serves it and a
+	// lane doing it all day is dead.
+	{markers: []string{"协议能力与本次请求不匹配", "上游服务、网络链路或代理返回异常响应"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
 
 	// Any host, the name did not resolve: nothing this lane serves can be reached
 	// until the record is back, so it leaves rotation at the first failure instead
