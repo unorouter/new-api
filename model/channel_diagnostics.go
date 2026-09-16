@@ -219,6 +219,12 @@ const (
 	// only skips a single immediate re-enable to damp thrash; it never locks a
 	// healthy-again channel out.
 	flapBackoffCapSeconds = 60
+	// A paid lane whose models another enabled channel also serves costs nothing
+	// to hold, and letting it back every cycle is what the cap above did to a7:
+	// 817 auto-disables and 796 re-enables across 114 lanes in one day, median
+	// 144s between the two, one kimi-k3 lane flipping 68 times. Each return fed
+	// the lane a fresh burst of traffic it could not serve.
+	flapBackoffPaidCapSeconds = 60 * 60
 )
 
 // FlapBackoffSeconds returns how long a channel must stay disabled after its
@@ -228,28 +234,23 @@ const (
 // FAIL - a flapping channel passes its recovery probe (the upstream answers tiny
 // probes) but dies again under real traffic, so without this it re-enables every
 // probe cycle and each flap leaks user-visible errors.
-func FlapBackoffSeconds(disables int) int64 {
+func FlapBackoffSeconds(disables int, capSeconds int64) int64 {
 	shift := disables - flapBackoffMinDisables
 	if shift < 0 {
 		return 0
 	}
-	if shift >= 20 { // 300 * 2^20 already far exceeds the cap; avoid overflow
-		return flapBackoffCapSeconds
+	if shift >= 20 { // 30 * 2^20 already far exceeds any cap; avoid overflow
+		return capSeconds
 	}
-	wait := int64(flapBackoffBaseSeconds) << uint(shift)
-	if wait > flapBackoffCapSeconds {
-		return flapBackoffCapSeconds
-	}
-	return wait
+	return min(int64(flapBackoffBaseSeconds)<<uint(shift), capSeconds)
 }
 
-// PaidReenableHoldRemainingSeconds returns how long a paid lane (group ratio > 0)
-// must still stay auto-disabled under the flat hold, 0 when the hold does not
-// apply: free lanes, a hold of 0, or a lane whose models have no other enabled
-// channel (holding it would be an outage, not a failover).
-func PaidReenableHoldRemainingSeconds(channel *Channel, holdSeconds int) int64 {
-	if holdSeconds <= 0 || channel == nil {
-		return 0
+// paidWithSiblings reports whether holding this lane disabled costs nothing:
+// it bills (a group ratio above zero) and every model it serves has another
+// enabled channel.
+func paidWithSiblings(channel *Channel) bool {
+	if channel == nil {
+		return false
 	}
 	paid := false
 	for _, g := range channel.GetGroups() {
@@ -259,18 +260,26 @@ func PaidReenableHoldRemainingSeconds(channel *Channel, holdSeconds int) int64 {
 		}
 	}
 	if !paid {
-		return 0
+		return false
 	}
 	var others int64
 	err := DB.Model(&Ability{}).
 		Where("model IN ? AND enabled = ? AND channel_id <> ?", channel.GetModels(), true, channel.Id).
 		Count(&others).Error
-	if err != nil || others == 0 {
+	return err == nil && others > 0
+}
+
+// PaidReenableHoldRemainingSeconds returns how long a paid lane (group ratio > 0)
+// must still stay auto-disabled under the flat hold, 0 when the hold does not
+// apply: free lanes, a hold of 0, or a lane whose models have no other enabled
+// channel (holding it would be an outage, not a failover).
+func PaidReenableHoldRemainingSeconds(channel *Channel, holdSeconds int) int64 {
+	if holdSeconds <= 0 || !paidWithSiblings(channel) {
 		return 0
 	}
 	now := common.GetTimestamp()
 	var last int64
-	err = DB.Table("channel_diagnostics").
+	err := DB.Table("channel_diagnostics").
 		Select("COALESCE(MAX(created_at), 0)").
 		Where("probe_only = ? AND to_status = ? AND channel_id = ?", false, common.ChannelStatusAutoDisabled, channel.Id).
 		Scan(&last).Error
@@ -288,7 +297,11 @@ func PaidReenableHoldRemainingSeconds(channel *Channel, holdSeconds int) int64 {
 // probe just passed must still stay disabled, based on how often it auto-disabled
 // inside the lookback window. Best-effort: any query error yields 0 so recovery is
 // never blocked by a diagnostics failure.
-func FlapCooldownRemainingSeconds(channelId int) int64 {
+func FlapCooldownRemainingSeconds(channel *Channel) int64 {
+	if channel == nil {
+		return 0
+	}
+	channelId := channel.Id
 	now := common.GetTimestamp()
 	var row struct {
 		DisableCount  int   `gorm:"column:disable_count"`
@@ -303,7 +316,11 @@ func FlapCooldownRemainingSeconds(channelId int) int64 {
 		common.SysLog("failed to load channel flap state: " + err.Error())
 		return 0
 	}
-	wait := FlapBackoffSeconds(row.DisableCount)
+	capSeconds := int64(flapBackoffCapSeconds)
+	if paidWithSiblings(channel) {
+		capSeconds = flapBackoffPaidCapSeconds
+	}
+	wait := FlapBackoffSeconds(row.DisableCount, capSeconds)
 	if wait == 0 {
 		return 0
 	}
