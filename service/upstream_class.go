@@ -72,6 +72,13 @@ var upstreamRules = []upstreamRule{
 	// sending it the next request immediately just buys another failure. A healthy
 	// lane sheds the strike on its next success, so only real bursts bite.
 	{markers: []string{"您固定的商家当前处于繁忙", "该商家拒绝了本次请求", "该商家上游返回了错误"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
+	// Reseller, the merchant's own wallet or plan cannot fund the call ("请充值").
+	// Deliberately NOT an instant disable: the same wording arrives on a lane that
+	// is 99% healthy (4615 on 2026-09-16: 7 of these against 874 successes) as
+	// well as one that is mostly dead (4591: 42 against 31), and the disabled
+	// channel probe is small enough to pass on a nearly empty account, which would
+	// flap the lane in and out. Fail over, cool it, and let the rate guard decide.
+	{markers: []string{"可用额度不足"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}},
 
 	// Any host, the name did not resolve: nothing this lane serves can be reached
 	// until the record is back, so it leaves rotation at the first failure instead
