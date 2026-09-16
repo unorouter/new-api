@@ -471,7 +471,7 @@ func buildPricing(enableAbilities []AbilityWithChannel, hasEnabled map[string]bo
 		if strings.HasSuffix(model, "[1m]") {
 			continue
 		}
-		var enableGroup []string
+		enableGroup := []string{}
 		if groups, ok := modelGroupsMap[model]; ok {
 			enableGroup = groups.Items()
 		}
