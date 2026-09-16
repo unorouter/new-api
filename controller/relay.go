@@ -198,6 +198,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
 			recordQuotaRejection(c, newAPIError)
+			// Say it in our own words. Upstreams write their errors for their own
+			// users: a Chinese content filter answers with the model apologising in
+			// Chinese, and the customer cannot tell a filter fired at all. Applied
+			// after both log writers above, so the upstream's exact text is still what
+			// triage reads.
+			if userMessage, ok := service.UpstreamUserMessage(newAPIError); ok {
+				newAPIError.SetMessage(userMessage)
+			}
 			// Response already streamed to the client. A JSON body would corrupt the
 			// committed stream, so it stays skipped, but returning nothing ends the
 			// SSE with no [DONE] and no error and every client then reports only that
