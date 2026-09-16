@@ -209,10 +209,38 @@ func catalogModality(m model.Pricing, md dto.ModelMetadata) (modelType string, c
 // property of their group, so the filter belongs with the fetch rather than at
 // each call site. Group ratios come back too, since prices need them.
 func visiblePricing(c fuego.ContextNoBody) ([]model.Pricing, map[string]float64) {
+	return visibleCatalogPricing(c, false)
+}
+
+// visibleCatalogPricing adds the models whose every lane is currently down.
+// Their pages exist and answer 200 the whole time, served from the
+// offline-inclusive cache by GetPricingByModelName, but the catalog is built from
+// enabled abilities alone, so they vanish from anything derived from it. The
+// sitemap is derived from it: with 723 of 1,828 channels auto-disabled on
+// 2026-09-16, that silently withheld about 295 models, roughly 5,300 live URLs
+// across the locales, and the set churns with provider health.
+//
+// A model nobody can route to has no enable_groups, so the usable-group filter
+// would drop it on that alone. The group rule still decides every ONLINE model:
+// a lane the caller may not use stays hidden.
+func visibleCatalogPricing(c fuego.ContextNoBody, includeOffline bool) ([]model.Pricing, map[string]float64) {
 	groupRatio := ratio_setting.GetGroupRatioCopy()
 	group := applyUserGroupRatio(c, groupRatio)
 	usableGroup := service.GetUserUsableGroups(group)
-	return filterPricingByUsableGroups(model.GetPricing(), usableGroup), groupRatio
+	if !includeOffline {
+		return filterPricingByUsableGroups(model.GetPricing(), usableGroup), groupRatio
+	}
+	all := model.GetPricingWithOffline()
+	online := make([]model.Pricing, 0, len(all))
+	offline := make([]model.Pricing, 0, len(all))
+	for _, item := range all {
+		if item.Online {
+			online = append(online, item)
+			continue
+		}
+		offline = append(offline, item)
+	}
+	return append(filterPricingByUsableGroups(online, usableGroup), offline...), groupRatio
 }
 
 // A model's vendor name, defaulted: a row with no resolvable vendor still has to
@@ -512,7 +540,11 @@ func imageParamsFor(modelType string, m model.Pricing, md dto.ModelMetadata) *dt
 }
 
 func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
-	pricing, groupRatio := visiblePricing(c)
+	// Opt-in, because the browse page and the model picker want routable models
+	// only. The sitemap is the caller that does not: a page that answers 200 today
+	// belongs in it whether or not a lane happens to be up this minute.
+	includeOffline, _ := strconv.ParseBool(dto.GinCtx(c).Query("include_offline"))
+	pricing, groupRatio := visibleCatalogPricing(c, includeOffline)
 
 	// The picker needs a name, a badge and a price; the browse page also filters
 	// on metadata and renders a blurb. Off by default so the chat path is not
