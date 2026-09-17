@@ -61,6 +61,21 @@ func geminiCapabilitiesFor(model string) geminiCapabilities {
 	}
 }
 
+// GeminiSupportsThoughtVisibility reports whether the model accepts
+// thinkingConfig.includeThoughts. A model with no thinking at all rejects the
+// whole block, so a caller-independent default must ask this first.
+func GeminiSupportsThoughtVisibility(model string) bool {
+	capabilities := geminiCapabilitiesFor(model)
+	switch capabilities.kind {
+	case geminiThinkingBudget, geminiThinkingLevel:
+		return true
+	case geminiThinkingNotConfigurable:
+		return capabilities.supportsIncludeThoughts
+	default:
+		return false
+	}
+}
+
 func RenderGemini(model string, intent Intent, maxOutputTokens *uint, adapterBudgetPercentage float64) (GeminiRender, error) {
 	intent, err := normalizeIntent(intent)
 	if err != nil {

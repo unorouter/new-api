@@ -28,6 +28,7 @@ type GeminiSettings struct {
 	ThinkingAdapterBudgetTokensPercentage float64           `json:"thinking_adapter_budget_tokens_percentage"`
 	FunctionCallThoughtSignatureEnabled   bool              `json:"function_call_thought_signature_enabled"`
 	RemoveFunctionResponseIdEnabled       bool              `json:"remove_function_response_id_enabled"`
+	IncludeThoughtsDefaultEnabled         bool              `json:"include_thoughts_default_enabled"`
 }
 
 // 默认配置
@@ -52,6 +53,7 @@ var defaultGeminiSettings = GeminiSettings{
 	ThinkingAdapterBudgetTokensPercentage: 0.6,
 	FunctionCallThoughtSignatureEnabled:   true,
 	RemoveFunctionResponseIdEnabled:       true,
+	IncludeThoughtsDefaultEnabled:         true,
 }
 
 // 全局实例

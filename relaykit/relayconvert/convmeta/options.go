@@ -67,6 +67,11 @@ type GeminiOptions struct {
 	// FunctionCallThoughtSignatureEnabled attaches thoughtSignature bypass
 	// values to function-call parts.
 	FunctionCallThoughtSignatureEnabled bool
+	// IncludeThoughtsDefaultEnabled asks for the thinking text on a request
+	// that came in through another protocol and said nothing about it. Gemini
+	// withholds thoughts unless asked, while a gemini-3 model thinks either
+	// way, so the caller pays for reasoning it never receives.
+	IncludeThoughtsDefaultEnabled bool
 	// SupportsImagine reports whether the model supports image generation
 	// (switches response modalities). Nil means "never".
 	SupportsImagine func(modelName string) bool
