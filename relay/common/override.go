@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"net/http"
 	"regexp"
 	"slices"
@@ -527,7 +528,7 @@ func buildParamOverrideAuditLine(mode, path, from, to string, value any) string 
 			return ""
 		}
 		return fmt.Sprintf("%s %s with %s", mode, path, formatParamOverrideAuditValue(value))
-	case "trim_space", "to_lower", "to_upper":
+	case "trim_space", "to_lower", "to_upper", "round":
 		if path == "" {
 			return ""
 		}
@@ -1046,6 +1047,31 @@ func applyOperations(jsonData []byte, operations []ParamOperation, conditionCont
 					break
 				}
 				auditRecorder.recordOperation("trim_space", path, "", "", nil)
+			}
+		case "round":
+			// Some upstreams reject a number for its precision, not its range: z.ai
+			// answers 400 to temperature 0.855 (two decimals at most). value is the
+			// number of decimals to keep. An absent or non-numeric path is left alone.
+			decimals, ok := op.Value.(float64)
+			if !ok || decimals < 0 || decimals > 10 {
+				err = fmt.Errorf("round needs value between 0 and 10 decimals")
+				break
+			}
+			scale := math.Pow(10, decimals)
+			for _, path := range opPaths {
+				current := gjson.GetBytes(result, path)
+				if current.Type != gjson.Number {
+					continue
+				}
+				rounded := math.Round(current.Float()*scale) / scale
+				if rounded == current.Float() {
+					continue
+				}
+				result, err = sjson.SetBytes(result, path, rounded)
+				if err != nil {
+					break
+				}
+				auditRecorder.recordOperation("set", path, "", "", rounded)
 			}
 		case "to_lower":
 			for _, path := range opPaths {
@@ -1765,7 +1791,7 @@ func copyValue(data []byte, fromPath, toPath string) ([]byte, error) {
 
 func isPathBasedOperation(mode string) bool {
 	switch mode {
-	case "delete", "set", "prepend", "append", "trim_prefix", "trim_suffix", "ensure_prefix", "ensure_suffix", "trim_space", "to_lower", "to_upper", "replace", "regex_replace", "prune_objects":
+	case "delete", "set", "round", "prepend", "append", "trim_prefix", "trim_suffix", "ensure_prefix", "ensure_suffix", "trim_space", "to_lower", "to_upper", "replace", "regex_replace", "prune_objects":
 		return true
 	default:
 		return false
