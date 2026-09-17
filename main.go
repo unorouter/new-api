@@ -326,6 +326,11 @@ func InitResources() error {
 
 	service.InitTokenEncoders()
 
+	if err = model.InitTokenKeyCrypto(); err != nil {
+		common.FatalLog("failed to initialize token key encryption: " + err.Error())
+		return err
+	}
+
 	// Initialize SQL Database
 	err = model.InitDB()
 	if err != nil {
@@ -352,6 +357,9 @@ func InitResources() error {
 		}
 	}
 	model.InitOptionMap()
+	if common.IsMasterNode {
+		go model.RunTokenKeyBackfill()
+	}
 
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()
