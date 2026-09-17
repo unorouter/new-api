@@ -607,12 +607,20 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		if !autoBan {
 			autoBanInt = 0
 		}
-		return &model.Channel{
+		picked := &model.Channel{
 			Id:      c.GetInt("channel_id"),
 			Type:    c.GetInt("channel_type"),
 			Name:    c.GetString("channel_name"),
 			AutoBan: &autoBanInt,
-		}, nil
+		}
+		// The distributor picks before the prompt is measured, so the first attempt
+		// can land on a lane its own 413 already proved too small, and a paid model
+		// has no retry budget to recover with. Fall through to the selection below,
+		// which passes over capped lanes. A pinned channel was asked for by name.
+		_, pinned, _ := service.GetChannelConstraints(c).ResolvedPin()
+		if pinned || !service.LaneRejectsPrompt(picked.Id, info.GetEstimatePromptTokens()) {
+			return picked, nil
+		}
 	}
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam, skipChannels...)
 	// A lane or provider under cooldown stays enabled but is passed over while a
