@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"sort"
 	"strconv"
@@ -12,7 +14,6 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -21,6 +22,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/go-fuego/fuego"
 )
 
@@ -159,6 +161,50 @@ var syncAllowedOptionKeys = map[string]bool{
 	"billing_setting.billing_mode": true,
 	"billing_setting.billing_expr": true,
 	"global.chat_completions_to_responses_policy": true,
+}
+
+func UpdatePasskeyDomains(c *gin.Context) {
+	var request struct {
+		RPID                *string `json:"rp_id"`
+		LegacyRPIDs         *string `json:"legacy_rp_ids"`
+		Origins             *string `json:"origins"`
+		Preview             bool    `json:"preview"`
+		RemovalConfirmation string  `json:"removal_confirmation"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil || request.RPID == nil || request.LegacyRPIDs == nil || request.Origins == nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	change, err := model.UpdatePasskeyDomainOptions(map[string]string{
+		"passkey.rp_id": *request.RPID, "passkey.legacy_rp_ids": *request.LegacyRPIDs, "passkey.origins": *request.Origins,
+	}, request.Preview, request.RemovalConfirmation)
+	if err != nil {
+		writePasskeyDomainSettingsError(c, err)
+		if !request.Preview {
+			recordPasskeyDomainAudit(c, change, request.RemovalConfirmation != "", err)
+		}
+		return
+	}
+	if !request.Preview {
+		recordPasskeyDomainAudit(c, change, request.RemovalConfirmation != "", nil)
+	}
+	common.ApiSuccess(c, change)
+}
+
+func writePasskeyDomainSettingsError(c *gin.Context, err error) {
+	var removal *model.PasskeyDomainRemovalError
+	if errors.As(err, &removal) {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false, "code": "PASSKEY_RP_ID_REMOVAL_CONFIRMATION_REQUIRED",
+			"message": i18n.T(c, i18n.MsgPasskeyRPIDRemovalConfirmation), "data": removal.Change,
+		})
+		return
+	}
+	if errors.Is(err, system_setting.ErrPasskeyRPIDInvalid) {
+		writeSecurityOperationError(c, err)
+		return
+	}
+	common.ApiError(c, err)
 }
 
 func UpdateOption(c fuego.ContextWithBody[dto.OptionUpdateRequest]) (dto.MessageResponse, error) {
@@ -310,22 +356,36 @@ func UpdateOption(c fuego.ContextWithBody[dto.OptionUpdateRequest]) (dto.Message
 			models = append(models, modelName)
 		}
 		sort.Strings(models)
-		generation := jsplugin.DefaultRegistry.Generation()
+		storedVariants := billing_setting.GetPluginBillingExprCopy()
 		for _, modelName := range models {
-			expression := expressions[modelName]
-			if plugin, ok := generation.GetByModel(modelName); ok {
-				err = billing_setting.SmokeTestTaskExpr(expression, plugin.Meta.UsageSchema)
-			} else if target, resolved := model.ResolveTaskModelAlias(generation, modelName); resolved {
-				if plugin, ok := generation.Get(target.PluginKey); ok {
-					err = billing_setting.SmokeTestTaskExpr(expression, plugin.Meta.UsageSchema)
-				} else {
-					err = billing_setting.SmokeTestExpr(expression)
+			variants := make(map[string]any)
+			for key, expression := range storedVariants {
+				if plugin, name, ok := billing_setting.SplitPluginBillingExprKey(key); ok && name == modelName {
+					variants[plugin] = expression
 				}
-			} else {
-				err = billing_setting.SmokeTestExpr(expression)
 			}
+			err = model.ValidateModelPricing(modelName, model.PricingValues{
+				"billing_setting.billing_expr":          expressions[modelName],
+				billing_setting.PluginBillingExprOption: variants,
+			})
 			if err != nil {
 				return dto.FailMsg(fmt.Sprintf("invalid billing expression for model %s: %v", modelName, err))
+			}
+		}
+	case billing_setting.PluginBillingExprOption:
+		var expressions map[string]string
+		if err = common.UnmarshalJsonStr(option.Value.(string), &expressions); err != nil || expressions == nil {
+			return dto.FailMsg("plugin billing expressions must be a JSON object")
+		}
+		for key, expression := range expressions {
+			plugin, name, valid := billing_setting.SplitPluginBillingExprKey(key)
+			if !valid {
+				return dto.FailMsg("invalid plugin billing expression key: " + key)
+			}
+			if err = model.ValidateModelPricing(name, model.PricingValues{
+				billing_setting.PluginBillingExprOption: map[string]any{plugin: expression},
+			}); err != nil {
+				return dto.FailMsg(err.Error())
 			}
 		}
 	case "console_setting.api_info":
@@ -348,6 +408,16 @@ func UpdateOption(c fuego.ContextWithBody[dto.OptionUpdateRequest]) (dto.Message
 		if err != nil {
 			return dto.FailMsg(err.Error())
 		}
+	}
+	if model.IsPasskeyDomainOption(option.Key) {
+		// The confirmation flow (409 plus the affected credentials) only exists on
+		// PUT /api/option/passkey/domains; a removal that needs it fails here.
+		change, updateErr := model.UpdatePasskeyDomainOptions(map[string]string{option.Key: option.Value.(string)}, false, "")
+		recordPasskeyDomainAudit(ginCtx, change, false, updateErr)
+		if updateErr != nil {
+			return dto.FailMsg(updateErr.Error())
+		}
+		return dto.Msg("")
 	}
 	err = model.UpdateOption(option.Key, option.Value.(string))
 	if err != nil {

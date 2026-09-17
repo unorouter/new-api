@@ -356,7 +356,7 @@ export interface TieredBillingSummary {
     field: string
     shortLabel: string
     price: number
-    unit?: 'request'
+    unit?: 'request' | 'image'
   }>
 }
 
@@ -371,6 +371,7 @@ export function hasAnyCacheTokens(
   if (!other) return false
   return (
     (other.cache_tokens || 0) > 0 ||
+    (other.image_cache_tokens || 0) > 0 ||
     (other.cache_creation_tokens || 0) > 0 ||
     (other.cache_creation_tokens_5m || 0) > 0 ||
     (other.cache_creation_tokens_1h || 0) > 0
@@ -412,9 +413,10 @@ export function getTieredBillingSummary(
       priceEntries: [
         {
           field: 'fixedPrice',
-          shortLabel: 'Per-call',
+          shortLabel:
+            other.image_count !== undefined ? 'Per image' : 'Per-call',
           price: fixedPrice,
-          unit: 'request',
+          unit: other.image_count !== undefined ? 'image' : 'request',
         },
       ],
     }
@@ -427,9 +429,9 @@ export function getTieredBillingSummary(
       priceEntries: [
         {
           field: 'fixedPrice',
-          shortLabel: 'Per-call',
+          shortLabel: tier.imageCount ? 'Per image' : 'Per-call',
           price: tier.fixedPrice,
-          unit: 'request',
+          unit: tier.imageCount ? 'image' : 'request',
         },
       ],
     }
@@ -443,7 +445,7 @@ export function getTieredBillingSummary(
     if (v.group === 'cache' && !cacheTokensPresent) continue
     const raw = tier[v.field as keyof ParsedTier]
     const price = Number(raw)
-    if (Number.isFinite(price) && price > 0) {
+    if (Number.isFinite(price) && price >= 0) {
       priceEntries.push({
         field: v.field,
         shortLabel: v.shortLabel,
@@ -526,6 +528,13 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'read.log_search': "Searched all users' request logs ({{count}} returned)",
   // System settings
   'option.update': 'Updated system setting {{key}}',
+  'option.passkey_domains':
+    'Updated Passkey domains: removed {{domains}}; affected {{known}}; unknown {{unknown}}',
+  'option.passkey_domains_confirmed':
+    'Confirmed removal of Passkey domains: {{domains}}; affected {{known}}; unknown {{unknown}}',
+  'option.passkey_domains_blocked':
+    'Passkey domain change blocked: {{domains}}; affected {{known}}; unknown {{unknown}}',
+  'option.passkey_domains_failed': 'Passkey domain update failed',
   'option.payment_compliance': 'Confirmed payment compliance',
   'option.reset_ratio': 'Reset model ratios',
   'option.clear_affinity_cache': 'Cleared channel affinity cache',

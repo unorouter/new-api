@@ -1,2 +1,6 @@
 # <file> :: <literal that must never come back>
 middleware/auth.go :: strings.Split(key, "-")
+# ResponsesWebSocket bills and retries through relay/request_billing.go, which has none of
+# the prod gates in controller/relay.go (moderation, free tier ban, context window, retry
+# classes). Port those before the route is registered.
+router/relay-router.go :: controller.ResponsesWebSocket

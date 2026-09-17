@@ -1,1 +1,12 @@
 # Upstream route paths prod deliberately does not register, one quoted literal per line.
+# perf metrics, per user quota dates and the token log are not exposed in prod
+"/summary"
+"/users"
+"/tokenlog"
+# path literal only: prod registers the usage routes through a differently spelled group
+"/usage"
+# upstream's manual channel status endpoints; prod changes status through its own typed handlers
+"/:id/status"
+"/status/batch"
+# the Responses WebSocket route, withheld: see forbid.txt
+"/responses"

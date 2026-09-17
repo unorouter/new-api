@@ -35,6 +35,7 @@ import {
   useSystemConfigStore,
 } from '@/stores/system-config-store'
 
+import { CachedPriceCell } from '../components/cached-price-cell'
 import { ModelCard } from '../components/model-card'
 import { ModelCardGrid } from '../components/model-card-grid'
 import type { PricingModel } from '../types'
@@ -87,6 +88,24 @@ afterEach(() => {
 })
 
 describe('model cards', () => {
+  it('shows separate generic and image cache prices including a free image cache', () => {
+    render(
+      <CachedPriceCell
+        model={pricingModel({
+          billing_mode: 'tiered_expr',
+          billing_expr:
+            'tier("standard", p * 5 + cr * 1.25 + img * 8 + img_cr * 0 + c * 30)',
+        })}
+        options={{ tokenUnit: 'M' }}
+      />
+    )
+    expect(screen.getByText('Cache Read').parentElement).toHaveTextContent(
+      '$1.25'
+    )
+    expect(screen.getByText('Image Cache').parentElement).toHaveTextContent(
+      '$0'
+    )
+  })
   it('shows fixed prices per request in both token display units', () => {
     const model = pricingModel({
       billing_mode: 'tiered_expr',
@@ -152,6 +171,15 @@ describe('model cards', () => {
     ).toBeVisible()
     expect(screen.getByText('No description available.')).toBeVisible()
     expect(screen.getByRole('button', { name: 'Details' })).toBeEnabled()
+  })
+
+  it('uses fixed spacing between hourly status bars', () => {
+    render(<ModelCard model={pricingModel()} onClick={vi.fn()} />)
+    const statusStrip = screen.getByRole('img', {
+      name: 'Recent success-rate samples; gray bars indicate missing data.',
+    })
+    expect(statusStrip).toHaveClass('gap-px')
+    expect(statusStrip).not.toHaveClass('justify-between')
   })
 
   it('keeps group, endpoint and tag overflow counts with their own metadata', () => {

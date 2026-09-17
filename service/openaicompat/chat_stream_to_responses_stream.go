@@ -211,7 +211,7 @@ func (s *ChatToResponsesStreamState) FinalEvents(usage *dto.Usage) []dto.Respons
 	resp := &dto.OpenAIResponsesResponse{
 		ID:        s.ResponseID,
 		Object:    "response",
-		CreatedAt: int(s.CreatedAt),
+		CreatedAt: dto.IntValue(s.CreatedAt),
 		Status:    []byte(`"completed"`),
 		Model:     s.Model,
 		Output:    output,
@@ -243,7 +243,7 @@ func (s *ChatToResponsesStreamState) createdEvent() dto.ResponsesStreamResponse 
 	resp := &dto.OpenAIResponsesResponse{
 		ID:        s.ResponseID,
 		Object:    "response",
-		CreatedAt: int(s.CreatedAt),
+		CreatedAt: dto.IntValue(s.CreatedAt),
 		Status:    []byte(`"in_progress"`),
 		Model:     s.Model,
 		Output:    []dto.ResponsesOutput{},
@@ -259,7 +259,7 @@ func (s *ChatToResponsesStreamState) inProgressEvent() dto.ResponsesStreamRespon
 	resp := &dto.OpenAIResponsesResponse{
 		ID:        s.ResponseID,
 		Object:    "response",
-		CreatedAt: int(s.CreatedAt),
+		CreatedAt: dto.IntValue(s.CreatedAt),
 		Status:    []byte(`"in_progress"`),
 		Model:     s.Model,
 		Output:    []dto.ResponsesOutput{},

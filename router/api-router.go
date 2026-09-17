@@ -376,6 +376,9 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// Per-model pricing editor (expression pricing), raw gin like upstream.
 		optionGroup.GET("/model_pricing", controller.GetModelPricingConfig)
 		optionGroup.PATCH("/model_pricing", controller.UpdateModelPricingConfig)
+		optionGroup.POST("/model_pricing/convert", controller.PreviewModelPricingConversion)
+		optionGroup.POST("/model_pricing/preview", controller.PreviewModelPricing)
+		optionGroup.PUT("/passkey/domains", controller.UpdatePasskeyDomains)
 		dto.Get(opt, "/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 		dto.DeleteP(opt, "/channel_affinity_cache", controller.ClearChannelAffinityCache)
 		dto.Post(opt, "/rest_model_ratio", controller.ResetModelRatio)
@@ -442,6 +445,10 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		chOpG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelOperate), middleware.NoPAT())
 		chWriteG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelWrite), middleware.NoPAT())
 		chSensG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelSensitiveWrite), middleware.NoPAT())
+
+		chReadG.GET("/default_base_urls", controller.GetChannelDefaultBaseURLs)
+		chReadG.GET("/:id/vllm/status", controller.GetVLLMChannelStatus)
+		chReadG.GET("/:id/sglang/status", controller.GetSGLangChannelStatus)
 
 		ch := dto.NewRouter(engine, chReadG, "Channel", secDashboard())
 		chOp := dto.NewRouter(engine, chOpG, "Channel", secDashboard())

@@ -3,8 +3,8 @@
 relaykit/dto/channel_settings.go :: ChannelCapabilities
 relaykit/dto/channel_settings.go :: AdvancedCustomConverter
 relaykit/dto/pricing.go :: ContextLength
-constant/channel.go :: ChannelTypeAIHorde
-constant/channel.go :: ChannelTypeRunware
+constant/channel_prod.go :: ChannelTypeAIHorde = 1001
+constant/channel_prod.go :: ChannelTypeRunware = 1002
 common/constants.go :: ThemeAwarePath
 common/str.go :: "regexp"
 model/user_cache.go :: GetUserById(userId, false)
@@ -31,3 +31,5 @@ dto/user.go :: max=72
 relay/channel/claude/relay-claude.go :: ResponsesStreamState
 controller/channel_authz.go :: channelSensitiveFields
 model/ability.go :: sort.Strings(models)
+constant/channel.go :: prodChannelBaseURLs[channelType]
+web/src/features/channels/components/drawers/channel-mutate-drawer.tsx :: maxLength={1024}

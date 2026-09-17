@@ -50,6 +50,68 @@ func clearChannelInfo(channel *model.Channel) {
 	}
 }
 
+func channelIDsFromChannels(channels []*model.Channel) []int {
+	ids := make([]int, 0, len(channels))
+	for _, channel := range channels {
+		if channel != nil && channel.Id > 0 {
+			ids = append(ids, channel.Id)
+		}
+	}
+	return ids
+}
+
+func closeActiveChannelWebSockets(channelIDs []int) {
+	service.CloseActiveWebSocketsForChannels(channelIDs, service.ChannelDisabledCloseReason)
+}
+
+func hasEnabledMultiKey(channel *model.Channel) bool {
+	if channel == nil || !channel.ChannelInfo.IsMultiKey {
+		return true
+	}
+	keys := channel.GetKeys()
+	if len(keys) == 0 {
+		return false
+	}
+	for i := range keys {
+		if channel.ChannelInfo.MultiKeyStatusList == nil {
+			return true
+		}
+		if status, ok := channel.ChannelInfo.MultiKeyStatusList[i]; !ok || status == common.ChannelStatusEnabled {
+			return true
+		}
+	}
+	return false
+}
+
+func disableMultiKeyChannelIfUnavailable(channel *model.Channel) bool {
+	if channel == nil || !channel.ChannelInfo.IsMultiKey || hasEnabledMultiKey(channel) {
+		return false
+	}
+	if channel.Status != common.ChannelStatusEnabled {
+		return true
+	}
+	channel.Status = common.ChannelStatusManuallyDisabled
+	info := channel.GetOtherInfo()
+	info["status_reason"] = model.ChannelStatusReasonAllKeysDisabled
+	info["status_time"] = common.GetTimestamp()
+	channel.SetOtherInfo(info)
+	return true
+}
+
+func restoreMultiKeyChannelIfAvailable(channel *model.Channel) {
+	if channel.Status != common.ChannelStatusManuallyDisabled || !hasEnabledMultiKey(channel) {
+		return
+	}
+	info := channel.GetOtherInfo()
+	if info["status_reason"] != model.ChannelStatusReasonAllKeysDisabled {
+		return
+	}
+	channel.Status = common.ChannelStatusEnabled
+	info["status_reason"] = ""
+	info["status_time"] = common.GetTimestamp()
+	channel.SetOtherInfo(info)
+}
+
 func applyChannelStatusFilter(query *gorm.DB, statusFilter int) *gorm.DB {
 	switch statusFilter {
 	case common.ChannelStatusEnabled, common.ChannelStatusManuallyDisabled, common.ChannelStatusAutoDisabled:
@@ -83,6 +145,16 @@ func GetChannelOps(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{
 		"retry_times": common.RetryTimes,
 	})
+}
+
+func GetChannelDefaultBaseURLs(c *gin.Context) {
+	baseURLs := make(map[int]string)
+	for channelType, baseURL := range constant.ChannelBaseURLs {
+		if baseURL != "" {
+			baseURLs[channelType] = baseURL
+		}
+	}
+	common.ApiSuccess(c, baseURLs)
 }
 
 func GetAllChannels(c fuego.ContextWithParams[dto.GetAllChannelsParams]) (*dto.Response[GetAllChannelsData], error) {
@@ -434,6 +506,12 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	if channel.Type == constant.ChannelTypeNewAPI && strings.TrimSpace(channel.GetBaseURL()) == "" {
 		return fmt.Errorf("New API channel base URL cannot be empty")
 	}
+	if channel.Type == constant.ChannelTypeVLLM && strings.TrimSpace(channel.GetBaseURL()) == "" {
+		return fmt.Errorf("vLLM channel base URL cannot be empty")
+	}
+	if channel.Type == constant.ChannelTypeSGLang && strings.TrimSpace(channel.GetBaseURL()) == "" {
+		return fmt.Errorf("SGLang channel base URL cannot be empty")
+	}
 
 	// 如果是添加操作，检查 channel 和 key 是否为空
 	if isAdd {
@@ -677,10 +755,17 @@ func DeleteChannel(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 		"id":   id,
 		"name": channelName,
 	})
+	closeActiveChannelWebSockets([]int{id})
 	return dto.Msg("")
 }
 
 func DeleteDisabledChannel(c fuego.ContextNoBody) (*dto.Response[int64], error) {
+	var ids []int
+	if err := model.DB.Model(&model.Channel{}).
+		Where("status = ? or status = ?", common.ChannelStatusAutoDisabled, common.ChannelStatusManuallyDisabled).
+		Pluck("id", &ids).Error; err != nil {
+		return dto.Fail[int64](err.Error())
+	}
 	rows, err := model.DeleteDisabledChannel()
 	if err != nil {
 		return dto.Fail[int64](err.Error())
@@ -692,6 +777,7 @@ func DeleteDisabledChannel(c fuego.ContextNoBody) (*dto.Response[int64], error) 
 	recordManageAudit(dto.GinCtx(c), "channel.delete_disabled", map[string]interface{}{
 		"count": rows,
 	})
+	closeActiveChannelWebSockets(ids)
 	return dto.Ok(rows)
 }
 
@@ -712,6 +798,11 @@ func DisableTagChannels(c fuego.ContextWithBody[ChannelTag]) (dto.MessageRespons
 	if err != nil || channelTag.Tag == "" {
 		return dto.FailMsg("Invalid parameters")
 	}
+	channels, err := model.GetChannelsByTag(channelTag.Tag, false, false)
+	if err != nil {
+		return dto.FailMsg(err.Error())
+	}
+	ids := channelIDsFromChannels(channels)
 	err = model.DisableChannelByTag(channelTag.Tag)
 	if err != nil {
 		return dto.FailMsg(err.Error())
@@ -720,6 +811,7 @@ func DisableTagChannels(c fuego.ContextWithBody[ChannelTag]) (dto.MessageRespons
 	recordManageAudit(dto.GinCtx(c), "channel.tag_disable", map[string]interface{}{
 		"tag": channelTag.Tag,
 	})
+	closeActiveChannelWebSockets(ids)
 	return dto.Msg("")
 }
 
@@ -793,6 +885,7 @@ func DeleteChannelBatch(c fuego.ContextWithBody[ChannelBatch]) (*dto.Response[in
 	recordManageAudit(dto.GinCtx(c), "channel.delete_batch", map[string]interface{}{
 		"count": deletedCount,
 	})
+	closeActiveChannelWebSockets(channelBatch.Ids)
 	return dto.Ok(int(deletedCount))
 }
 
@@ -1383,12 +1476,15 @@ func ManageMultiKeys(c fuego.ContextWithBody[MultiKeyManageRequest]) (dto.ApiRes
 
 		channel.ChannelInfo.MultiKeyStatusList[keyIndex] = 2 // disabled
 
+		shouldCloseWebSocket := disableMultiKeyChannelIfUnavailable(channel)
 		err = channel.Update()
 		if err != nil {
 			return dto.FailAny(err.Error())
 		}
-
 		model.InitChannelCache()
+		if shouldCloseWebSocket {
+			closeActiveChannelWebSockets([]int{channel.Id})
+		}
 		return dto.OkMsgAny("Key has been disabled", nil)
 
 	case "enable_key":
@@ -1411,6 +1507,7 @@ func ManageMultiKeys(c fuego.ContextWithBody[MultiKeyManageRequest]) (dto.ApiRes
 		if channel.ChannelInfo.MultiKeyDisabledReason != nil {
 			delete(channel.ChannelInfo.MultiKeyDisabledReason, keyIndex)
 		}
+		restoreMultiKeyChannelIfAvailable(channel)
 
 		err = channel.Update()
 		if err != nil {
@@ -1430,6 +1527,7 @@ func ManageMultiKeys(c fuego.ContextWithBody[MultiKeyManageRequest]) (dto.ApiRes
 		channel.ChannelInfo.MultiKeyStatusList = make(map[int]int)
 		channel.ChannelInfo.MultiKeyDisabledTime = make(map[int]int64)
 		channel.ChannelInfo.MultiKeyDisabledReason = make(map[int]string)
+		restoreMultiKeyChannelIfAvailable(channel)
 
 		err = channel.Update()
 		if err != nil {
@@ -1469,12 +1567,15 @@ func ManageMultiKeys(c fuego.ContextWithBody[MultiKeyManageRequest]) (dto.ApiRes
 			return dto.FailAny("No keys available to disable")
 		}
 
+		shouldCloseWebSocket := disableMultiKeyChannelIfUnavailable(channel)
 		err = channel.Update()
 		if err != nil {
 			return dto.FailAny(err.Error())
 		}
-
 		model.InitChannelCache()
+		if shouldCloseWebSocket {
+			closeActiveChannelWebSockets([]int{channel.Id})
+		}
 		return dto.OkMsgAny(fmt.Sprintf("%d keys have been disabled", disabledCount), nil)
 
 	case "delete_key":
@@ -1532,12 +1633,15 @@ func ManageMultiKeys(c fuego.ContextWithBody[MultiKeyManageRequest]) (dto.ApiRes
 		channel.ChannelInfo.MultiKeyDisabledTime = newDisabledTime
 		channel.ChannelInfo.MultiKeyDisabledReason = newDisabledReason
 
+		shouldCloseWebSocket := disableMultiKeyChannelIfUnavailable(channel)
 		err = channel.Update()
 		if err != nil {
 			return dto.FailAny(err.Error())
 		}
-
 		model.InitChannelCache()
+		if shouldCloseWebSocket {
+			closeActiveChannelWebSockets([]int{channel.Id})
+		}
 		return dto.OkMsgAny("Key has been deleted", nil)
 
 	case "delete_disabled_keys":
@@ -1591,12 +1695,15 @@ func ManageMultiKeys(c fuego.ContextWithBody[MultiKeyManageRequest]) (dto.ApiRes
 		channel.ChannelInfo.MultiKeyDisabledTime = newDisabledTime
 		channel.ChannelInfo.MultiKeyDisabledReason = newDisabledReason
 
+		shouldCloseWebSocket := disableMultiKeyChannelIfUnavailable(channel)
 		err = channel.Update()
 		if err != nil {
 			return dto.FailAny(err.Error())
 		}
-
 		model.InitChannelCache()
+		if shouldCloseWebSocket {
+			closeActiveChannelWebSockets([]int{channel.Id})
+		}
 		return dto.OkMsgAny(fmt.Sprintf("%d auto-disabled keys have been deleted", deletedCount), deletedCount)
 
 	default:

@@ -31,10 +31,10 @@ func TestStatus(c fuego.ContextNoBody) (*dto.Response[dto.TestStatusData], error
 
 func GetStatus(c fuego.ContextNoBody) (*dto.Response[dto.StatusData], error) {
 	cs := console_setting.GetConsoleSetting()
+	passkeySetting := system_setting.PasskeySettingsSnapshot()
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
 
-	passkeySetting := system_setting.GetPasskeySettings()
 	legalSetting := system_setting.GetLegalSettings()
 
 	data := dto.StatusData{
@@ -100,8 +100,8 @@ func GetStatus(c fuego.ContextNoBody) (*dto.Response[dto.StatusData], error) {
 		OidcDisplayName:           system_setting.GetOIDCSettings().GetEffectiveDisplayName(),
 		PasskeyLogin:              passkeySetting.Enabled,
 		PasskeyDisplayName:        passkeySetting.RPDisplayName,
-		PasskeyRpId:               passkeySetting.RPID,
-		PasskeyOrigins:            passkeySetting.Origins,
+		PasskeyRpId:               passkeySetting.EffectiveRPID(),
+		PasskeyRpIds:              passkeySetting.RelyingPartyIDs(),
 		PasskeyAllowInsecure:      passkeySetting.AllowInsecureOrigin,
 		PasskeyUserVerification:   passkeySetting.UserVerification,
 		PasskeyAttachment:         passkeySetting.AttachmentPreference,
