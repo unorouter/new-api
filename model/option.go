@@ -266,6 +266,9 @@ const pricingReloadMinInterval = 5 // seconds
 // would otherwise refuse requests until the next tick. Rate-limited so a
 // genuinely unpriced model cannot turn every request into a database read.
 func ReloadPricingOptionsOnMiss() bool {
+	if DB == nil {
+		return false
+	}
 	now := time.Now().Unix()
 	last := pricingReloadAt.Load()
 	if now-last < pricingReloadMinInterval || !pricingReloadAt.CompareAndSwap(last, now) {

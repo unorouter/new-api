@@ -2395,6 +2395,38 @@ func TestApplyParamOverrideWithRelayInfoEmitsDroppedParamsHeader(t *testing.T) {
 			ParamOverride: map[string]any{
 				"operations": []any{
 					map[string]any{
+						"mode": "delete",
+						"path": "min_p",
+					},
+					map[string]any{
+						"mode": "delete",
+						"path": "top_a",
+					},
+				},
+			},
+		},
+	}
+	h := http.Header{}
+	if _, err := ApplyParamOverrideWithRelayInfo([]byte(`{"model":"gpt-5","min_p":0.05,"top_a":0.2}`), info, h); err != nil {
+		t.Fatalf("ApplyParamOverrideWithRelayInfo returned error: %v", err)
+	}
+	if got := h.Get("x-newapi-dropped-params"); got != "min_p,top_a" {
+		t.Fatalf("expected min_p,top_a in header, got %q", got)
+	}
+}
+
+func TestApplyParamOverrideWithRelayInfoRecordsConversationBodyOperationsWhenDebugDisabled(t *testing.T) {
+	originalDebugEnabled := common2.DebugEnabled
+	common2.DebugEnabled = false
+	t.Cleanup(func() {
+		common2.DebugEnabled = originalDebugEnabled
+	})
+
+	info := &RelayInfo{
+		ChannelMeta: &ChannelMeta{
+			ParamOverride: map[string]any{
+				"operations": []any{
+					map[string]any{
 						"mode": "replace",
 						"path": "messages.0.content",
 						"from": "hello",
@@ -2429,13 +2461,34 @@ func TestApplyParamOverrideWithRelayInfoEmitsDroppedParamsHeader(t *testing.T) {
 			},
 		},
 	}
-	h := http.Header{}
-	if _, err := ApplyParamOverrideWithRelayInfo([]byte(`{"model":"gpt-5","min_p":0.05,"top_a":0.2}`), info, h); err != nil {
-		t.Fatalf("ApplyParamOverrideWithRelayInfo returned error: %v", err)
-	}
-	if got := h.Get("x-newapi-dropped-params"); got != "min_p,top_a" {
-		t.Fatalf("expected min_p,top_a in header, got %q", got)
-	}
+
+	out, err := ApplyParamOverrideWithRelayInfo([]byte(`{
+		"messages":[{"role":"user","content":"hello world"}],
+		"input":[{"role":"user","content":[{"type":"input_text","text":"original response input"}]}],
+		"instructions":"old instruction",
+		"system":"old system",
+		"contents":[{"role":"user","parts":[{"text":"hello gemini"}]}],
+		"temperature":0.7
+	}`), info, http.Header{})
+	require.NoError(t, err)
+	assertJSONEqual(t, `{
+		"messages":[{"role":"user","content":"hi world"}],
+		"input":[{"role":"user","content":[{"type":"input_text","text":"rewritten response input"}]}],
+		"instructions":"new instruction",
+		"system":"old system",
+		"contents":[{"role":"user","parts":[{"text":"hello gemini"},{"text":"new gemini part"}]}],
+		"temperature":0.1,
+		"metadata":{"system_copy":"old system"}
+	}`, string(out))
+
+	require.Equal(t, []string{
+		"replace messages.0.content from hello to hi",
+		"set input.0.content.0.text = rewritten response input",
+		"set instructions = new instruction",
+		"append contents.0.parts with {\"text\":\"new gemini part\"}",
+		"copy system -> metadata.system_copy",
+		"set temperature = 0.1", // prod audits sampler knobs too
+	}, info.ParamOverrideAudit)
 }
 
 func TestShouldAuditParamPathUsesFieldBoundaryPrefixMatching(t *testing.T) {
