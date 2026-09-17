@@ -1,0 +1,71 @@
+name: Sync Gate
+
+# Prod pushes straight to main and never opens a PR, so upstream's ci.yml never
+# runs for us. An upstream sync lands on sync/<date> first: nothing builds or
+# pins from that branch, and main only moves once every job here is green.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['sync/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Go vet, build, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            relaykit/go.sum
+      - name: Frontend embed placeholder
+        run: mkdir -p web/dist && touch web/dist/index.html
+      - run: scripts/sync-audit.sh
+      - run: go vet ./...
+      - run: go vet ./...
+        working-directory: relaykit
+      - run: make test
+
+  frontend:
+    name: Frontend typecheck, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+
+  boot:
+    name: Image builds and master boots
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: new-api:sync-gate
+          # read the deploy cache, never write it: a sync branch must not evict main's layers
+          cache-from: type=gha,scope=new-api-amd64
+      - run: scripts/boot-smoke.sh image new-api:sync-gate

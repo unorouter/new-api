@@ -1,0 +1,2 @@
+# <file> :: <literal that must never come back>
+middleware/auth.go :: strings.Split(key, "-")
