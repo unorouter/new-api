@@ -170,6 +170,24 @@ func ExtractPromptText(c *gin.Context) string {
 				})
 			case content.Exists():
 				appendText(content)
+			case m.IsObject():
+				// A Responses item with no content: a tool call, its result, or a
+				// reasoning step. Only its text counts. The raw item would drag in
+				// encrypted_content, a base64 blob the model never reads, which put a
+				// 300k Codex session in the log as 42M tokens.
+				appendText(m.Get("arguments"))
+				if output := m.Get("output"); output.IsArray() {
+					output.ForEach(func(_, p gjson.Result) bool {
+						appendText(p.Get("text"))
+						return true
+					})
+				} else {
+					appendText(output)
+				}
+				m.Get("summary").ForEach(func(_, p gjson.Result) bool {
+					appendText(p.Get("text"))
+					return true
+				})
 			default:
 				appendText(m)
 			}
