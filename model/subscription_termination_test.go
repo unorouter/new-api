@@ -171,3 +171,120 @@ func TestTerminateUserSubscriptionByCreemReportsUnmappableEvent(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, ErrSubscriptionOrderNotFound)
 }
+
+// A stale Creem event must end the subscription it names, not the newest one the
+// user happens to hold. On 2026-09-16 an expiry event for a customer's finished
+// August card subscription ended the September one he had bought from his wallet,
+// because the handler took his newest active row.
+func TestTerminateUserSubscriptionByCreemEndsTheNamedSubscription(t *testing.T) {
+	now := time.Now().Unix()
+	userId, oldSubId := seedTerminationFixture(t, "default", &UserSubscription{
+		PlanId:                 1,
+		Status:                 "active",
+		Source:                 "order",
+		AmountTotal:            5000000,
+		StartTime:              now - 40*86400,
+		EndTime:                now + 86400,
+		ProviderSubscriptionId: "sub_card_august",
+	})
+
+	newer := UserSubscription{
+		UserId:      userId,
+		PlanId:      1,
+		Status:      "active",
+		Source:      PaymentMethodBalance,
+		AmountTotal: 5000000,
+		StartTime:   now - 3600,
+		EndTime:     now + 30*86400,
+	}
+	require.NoError(t, DB.Create(&newer).Error)
+
+	gotUser, gotSub, err := TerminateUserSubscriptionByCreem(CreemTerminationInput{
+		ReferenceId:            "sub_ref_termination",
+		CreemCustomerId:        "cus_termination",
+		ProviderSubscriptionId: "sub_card_august",
+		Reason:                 "subscription.expired",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, userId, gotUser)
+	assert.Equal(t, oldSubId, gotSub, "the subscription named by the event must be the one that ends")
+
+	var survivor UserSubscription
+	require.NoError(t, DB.Where("id = ?", newer.Id).First(&survivor).Error)
+	assert.Equal(t, "active", survivor.Status, "the wallet-paid subscription must be untouched")
+	assert.Equal(t, int64(0), survivor.AmountUsed, "its quota pool must be untouched")
+}
+
+// Creem may only end what Creem billed. An event that resolves to a user whose
+// only live subscription came from the wallet ends nothing.
+func TestTerminateUserSubscriptionByCreemLeavesWalletPaidSubscription(t *testing.T) {
+	now := time.Now().Unix()
+	userId, subId := seedTerminationFixture(t, "default", &UserSubscription{
+		PlanId:      1,
+		Status:      "active",
+		Source:      PaymentMethodBalance,
+		AmountTotal: 5000000,
+		StartTime:   now - 3600,
+		EndTime:     now + 30*86400,
+	})
+
+	gotUser, gotSub, err := TerminateUserSubscriptionByCreem(CreemTerminationInput{
+		ReferenceId:     "sub_ref_termination",
+		CreemCustomerId: "cus_termination",
+		Reason:          "subscription.expired",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, userId, gotUser)
+	assert.Zero(t, gotSub, "nothing Creem paid for, so nothing to end")
+
+	var sub UserSubscription
+	require.NoError(t, DB.Where("id = ?", subId).First(&sub).Error)
+	assert.Equal(t, "active", sub.Status)
+}
+
+// An admin grant is not a Creem purchase either.
+func TestTerminateUserSubscriptionByCreemLeavesAdminGrantedSubscription(t *testing.T) {
+	now := time.Now().Unix()
+	_, subId := seedTerminationFixture(t, "default", &UserSubscription{
+		PlanId:      1,
+		Status:      "active",
+		Source:      "admin",
+		AmountTotal: 5000000,
+		StartTime:   now - 3600,
+		EndTime:     now + 30*86400,
+	})
+
+	_, gotSub, err := TerminateUserSubscriptionByCreem(CreemTerminationInput{
+		ReferenceId:     "sub_ref_termination",
+		CreemCustomerId: "cus_termination",
+		Reason:          "subscription.expired",
+	})
+	require.NoError(t, err)
+	assert.Zero(t, gotSub)
+
+	var sub UserSubscription
+	require.NoError(t, DB.Where("id = ?", subId).First(&sub).Error)
+	assert.Equal(t, "active", sub.Status)
+}
+
+// The Creem subscription id settles the match on its own, with no reference id
+// and no customer to fall back on.
+func TestTerminateUserSubscriptionByCreemMatchesOnProviderIdAlone(t *testing.T) {
+	now := time.Now().Unix()
+	_, subId := seedTerminationFixture(t, "default", &UserSubscription{
+		PlanId:                 1,
+		Status:                 "active",
+		Source:                 "creem_renewal",
+		AmountTotal:            5000000,
+		StartTime:              now - 3600,
+		EndTime:                now + 30*86400,
+		ProviderSubscriptionId: "sub_only_handle",
+	})
+
+	_, gotSub, err := TerminateUserSubscriptionByCreem(CreemTerminationInput{
+		ProviderSubscriptionId: "sub_only_handle",
+		Reason:                 "subscription.expired",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, subId, gotSub)
+}
