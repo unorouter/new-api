@@ -94,6 +94,12 @@ func responseHeaderTimeout() time.Duration {
 // time.Duration without overflowing (~292 years).
 const maxTimeoutSeconds = int(math.MaxInt64 / int64(time.Second))
 
+// ResponseHeaderCeiling is the transport's hard first byte limit, for callers
+// that arm a tighter per request one beneath it.
+func ResponseHeaderCeiling() time.Duration {
+	return responseHeaderTimeout()
+}
+
 func newRelayHTTPTransport() *http.Transport {
 	var transport *http.Transport
 	if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok && defaultTransport != nil {
