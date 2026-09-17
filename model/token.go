@@ -228,7 +228,15 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		if err != nil {
 			return nil, 0, err
 		}
-		baseQuery = baseQuery.Where(commonKeyCol+" LIKE ? ESCAPE '!'", tokenPattern)
+		// The key is only stored sealed: a complete key matches by hash, a fragment can
+		// only match the first or last four characters kept in key_hint.
+		if !tokenKeyCryptoReady() {
+			baseQuery = baseQuery.Where(commonKeyCol+" LIKE ? ESCAPE '!'", tokenPattern)
+		} else if strings.Contains(tokenPattern, "%") {
+			baseQuery = baseQuery.Where("key_hint LIKE ? ESCAPE '!'", tokenPattern)
+		} else {
+			baseQuery = baseQuery.Where("key_hash = ?", hashTokenKey(token))
+		}
 	}
 
 	// 先查匹配总数（用于分页，受 maxTokens 上限保护，避免全表 COUNT）
@@ -321,9 +329,21 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		// Don't return error - fall through to DB
 	}
 	token = &Token{}
-	if err = DB.Where(commonKeyCol+" = ?", key).First(token).Error; err != nil {
+	err = gorm.ErrRecordNotFound
+	if tokenKeyCryptoReady() {
+		err = DB.Where("key_hash = ?", hashTokenKey(key)).First(token).Error
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// A row an older pod wrote without a hash. The backfill sweep seals it; until then it
+		// must keep authenticating. This line has to stay silent before `key` is dropped.
+		if err = DB.Where(commonKeyCol+" = ?", key).First(token).Error; err == nil && tokenKeyCryptoReady() {
+			common.SysError(fmt.Sprintf("token key lookup: token %d found by plaintext only", token.Id))
+		}
+	}
+	if err != nil {
 		return nil, err
 	}
+	token.Key = key
 	if common.RedisEnabled {
 		// 冷缓存时用数据库快照初始化；已存在的哈希只刷新 TTL，
 		// 避免快照覆盖 Redis 中已被原子预扣的余额。初始化失败不影响本次读取。
@@ -519,7 +539,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
-	err := DB.Select("id", commonKeyCol).
+	err := DB.Select("id", commonKeyCol, "key_hash", "key_enc").
 		Where("user_id = ? AND id IN (?)", userId, ids).
 		Find(&tokens).Error
 	return tokens, err
@@ -537,7 +557,7 @@ func InvalidateUserTokensCache(userId int) error {
 	}
 	var tokens []Token
 	if err := DB.Unscoped().
-		Select("id", commonKeyCol).
+		Select("id", commonKeyCol, "key_hash", "key_enc").
 		Where("user_id = ?", userId).
 		Find(&tokens).Error; err != nil {
 		return err
