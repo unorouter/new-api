@@ -5043,6 +5043,7 @@
     "Scheduled full test probes non-manually-disabled channels; passive recovery only checks auto-disabled channels after real request failures.": "Kiểm tra toàn bộ theo lịch sẽ dò các kênh không bị vô hiệu hóa thủ công; khôi phục thụ động chỉ kiểm tra các kênh bị tự động vô hiệu hóa sau lỗi từ yêu cầu thực tế.",
     "Scheduled or bulk health checks can disable a channel when this duration is exceeded, if both global and channel auto-disable are enabled.": "Nếu bật tự động vô hiệu hóa cả ở cấp chung và cấp kênh, kiểm tra định kỳ hoặc hàng loạt vượt thời gian này có thể vô hiệu hóa kênh.",
     "Scheduled recovery is off. Bulk channel tests can still re-enable automatically disabled channels.": "Khôi phục định kỳ đang tắt. Kiểm tra hàng loạt vẫn có thể bật lại các kênh bị tự động vô hiệu hóa.",
+    "Scheduled test options": "Tùy chọn kiểm tra định kỳ",
     "scheduling controls": "điều khiển điều phối",
     "Science": "Khoa học",
     "Scope": "Phạm vi",

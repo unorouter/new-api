@@ -5043,6 +5043,7 @@
     "Scheduled full test probes non-manually-disabled channels; passive recovery only checks auto-disabled channels after real request failures.": "Scheduled full test probes non-manually-disabled channels; passive recovery only checks auto-disabled channels after real request failures.",
     "Scheduled or bulk health checks can disable a channel when this duration is exceeded, if both global and channel auto-disable are enabled.": "Scheduled or bulk health checks can disable a channel when this duration is exceeded, if both global and channel auto-disable are enabled.",
     "Scheduled recovery is off. Bulk channel tests can still re-enable automatically disabled channels.": "Scheduled recovery is off. Bulk channel tests can still re-enable automatically disabled channels.",
+    "Scheduled test options": "Scheduled test options",
     "scheduling controls": "scheduling controls",
     "Science": "Science",
     "Scope": "Scope",

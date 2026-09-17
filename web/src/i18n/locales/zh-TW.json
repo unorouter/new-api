@@ -5043,6 +5043,7 @@
     "Scheduled full test probes non-manually-disabled channels; passive recovery only checks auto-disabled channels after real request failures.": "定時全量測試會探測非手動停用的渠道；僅被動恢復只會在真實請求失敗導致渠道自動停用後檢查這些渠道是否可恢復。",
     "Scheduled or bulk health checks can disable a channel when this duration is exceeded, if both global and channel auto-disable are enabled.": "全域與渠道自動停用均開啟時，定時或批次健康檢查耗時超過此門檻可觸發停用。",
     "Scheduled recovery is off. Bulk channel tests can still re-enable automatically disabled channels.": "定時恢復未執行，批次測試仍可恢復被自動停用的渠道。",
+    "Scheduled test options": "定期測試子選項",
     "scheduling controls": "調度控制能力",
     "Science": "科研",
     "Scope": "作用域",

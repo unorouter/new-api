@@ -5043,6 +5043,7 @@
     "Scheduled full test probes non-manually-disabled channels; passive recovery only checks auto-disabled channels after real request failures.": "Полная проверка по расписанию проверяет каналы, не отключенные вручную; пассивное восстановление проверяет только автоматически отключенные каналы после сбоев реальных запросов.",
     "Scheduled or bulk health checks can disable a channel when this duration is exceeded, if both global and channel auto-disable are enabled.": "Если автоотключение включено глобально и для канала, превышение этой длительности при периодической или массовой проверке может отключить канал.",
     "Scheduled recovery is off. Bulk channel tests can still re-enable automatically disabled channels.": "Периодическое восстановление отключено. Массовые проверки могут восстановить автоматически отключённые каналы.",
+    "Scheduled test options": "Параметры плановых проверок",
     "scheduling controls": "механизмов управления маршрутизацией",
     "Science": "Наука",
     "Scope": "Область",

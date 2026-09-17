@@ -5043,6 +5043,7 @@
     "Scheduled full test probes non-manually-disabled channels; passive recovery only checks auto-disabled channels after real request failures.": "Le test complet planifié sonde les canaux non désactivés manuellement ; la récupération passive vérifie uniquement les canaux désactivés automatiquement après des échecs de requêtes réelles.",
     "Scheduled or bulk health checks can disable a channel when this duration is exceeded, if both global and channel auto-disable are enabled.": "Si la désactivation automatique est active globalement et pour le canal, un contrôle périodique ou groupé dépassant cette durée peut le désactiver.",
     "Scheduled recovery is off. Bulk channel tests can still re-enable automatically disabled channels.": "Le rétablissement périodique est inactif. Les tests groupés peuvent toujours réactiver les canaux désactivés automatiquement.",
+    "Scheduled test options": "Options des tests planifiés",
     "scheduling controls": "contrôles d'ordonnancement",
     "Science": "Science",
     "Scope": "Portée",
