@@ -3,6 +3,8 @@
 #
 #   scripts/upstream-sync.sh start     fetch, branch sync/<date>, merge, resolve the mechanical conflicts
 #   scripts/upstream-sync.sh check     every local gate, in the order that fails fastest
+#   scripts/upstream-sync.sh lost      prod-only lines the merge removed: read every one
+#   scripts/upstream-sync.sh rehearse  boot on the real prod schema and config, print the schema delta (needs PROD_PG)
 #   scripts/upstream-sync.sh push      record the upstream ref, push the branch, CI runs Sync Gate
 #   scripts/upstream-sync.sh land      CI green? fast-forward main and push (this deploys)
 #   scripts/upstream-sync.sh summary   what upstream shipped in this sync
@@ -118,9 +120,59 @@ cmd_check() {
   say "boot"
   go build -o "$bin" .
   scripts/boot-smoke.sh binary "$bin"
-  rm -f "$bin"
+  say "relay: same requests through main and through this branch"
+  local wt main_bin; wt=$(mktemp -d); main_bin=$(mktemp)
+  git worktree add -q --detach "$wt" main
+  mkdir -p "$wt/web/dist"; cp -r web/dist/. "$wt/web/dist/"
+  (cd "$wt"; go build -o "$main_bin" .)
+  git worktree remove --force "$wt"
+  scripts/relay-smoke.sh compare "$main_bin" "$bin"
+  rm -f "$main_bin" "$bin"
   [ -z "$(git status --porcelain)" ] || { git status --short; die "checks changed files (tidy?): review, commit, run check again"; }
   say "all local gates green: scripts/upstream-sync.sh push"
+}
+
+cmd_lost() {
+  on_sync_branch
+  local old_up; old_up=$(twin_of "$(git show "main:$REF_FILE")")
+  scripts/sync-audit/lost.py "$old_up" "$(git merge-base main HEAD)" "$UP" HEAD
+}
+
+# Boots the merged code as master on a throwaway Postgres loaded with prod's real
+# schema, options, channels and abilities, then prints what its migration changed.
+# Channel keys are blanked and every base URL points at a dead port before boot,
+# so nothing real is called. Data is piped, never written to disk.
+#   PROD_PG='host=127.0.0.1 port=15440 user=dbadmin dbname=newapi'   (tsh proxy db --tunnel)
+cmd_rehearse() {
+  on_sync_branch
+  : "${PROD_PG:?set PROD_PG to a libpq connection string for a read only prod connection}"
+  local tmp; tmp=$(mktemp -d)
+  local cols="select table_name||'.'||column_name||' '||data_type||coalesce('('||character_maximum_length||')','')||' null='||is_nullable||' def='||coalesce(column_default,'') from information_schema.columns where table_schema='public' order by 1"
+  local idx="select indexdef from pg_indexes where schemaname='public' order by 1"
+  cat > "$tmp/seed.sh" <<SEED
+#!/usr/bin/env bash
+set -euo pipefail
+pg_dump "$PROD_PG" --schema-only --no-owner --no-privileges | docker exec -i "\$1" psql -q -U postgres -d newapi >/dev/null 2>&1 || true
+pg_dump "$PROD_PG" --data-only --no-owner -t options -t channels -t abilities | docker exec -i "\$1" psql -q -U postgres -d newapi >/dev/null
+docker exec -i "\$1" psql -q -U postgres -d newapi -c "UPDATE channels SET key='rehearsal', base_url='http://127.0.0.1:9'" \
+  -c "DELETE FROM options WHERE key ~* '(webhook|secret|token|api_?key|password)'"
+SEED
+  chmod +x "$tmp/seed.sh"
+  local bin="$tmp/new-api"
+  go build -o "$bin" .
+  SMOKE_KEEP=1 SMOKE_SEED="$tmp/seed.sh" SMOKE_LOG_OUT="$tmp/boot.log" scripts/boot-smoke.sh binary "$bin"
+  docker exec newapi-smoke-pg psql -At -U postgres -d newapi -c "$cols" > "$tmp/after.cols"
+  docker exec newapi-smoke-pg psql -At -U postgres -d newapi -c "$idx" > "$tmp/after.idx"
+  docker rm -f newapi-smoke-pg >/dev/null; docker network rm newapi-smoke-net >/dev/null 2>&1 || true
+  psql "$PROD_PG" -At -c "$cols" > "$tmp/before.cols"
+  psql "$PROD_PG" -At -c "$idx" > "$tmp/before.idx"
+  say "what this deploy's migration does to the prod schema ( < gone or changed, > new )"
+  local delta
+  delta=$(diff "$tmp/before.cols" "$tmp/after.cols" | grep '^[<>]' || true); echo "${delta:-no column change}"
+  delta=$(diff "$tmp/before.idx" "$tmp/after.idx" | grep '^[<>]' || true); echo "${delta:-no index change}"
+  say "boot log lines worth reading"
+  sed 's/\x1b\[[0-9;]*m//g' "$tmp/boot.log" | grep -iE 'error|fail|panic|fatal|SQLSTATE' | grep -viE 'record not found|127\.0\.0\.1:9|connection refused' | sort | uniq -c | sort -rn | head -20 || true
+  rm -rf "$tmp"
 }
 
 cmd_push() {
@@ -155,6 +207,6 @@ cmd_summary() {
 }
 
 case "${1:-}" in
-  start|check|push|land|summary) "cmd_$1" ;;
+  start|check|lost|rehearse|push|land|summary) "cmd_$1" ;;
   *) sed -n '2,9p' "$0"; exit 1 ;;
 esac
