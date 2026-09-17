@@ -330,8 +330,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.SetEstimatePromptTokens(tokens)
 
 	// A prompt past the model's window fails on every lane, and each lane it visits
-	// waits out a first-byte timeout and takes a failure for it (one customer sent
-	// 140 of these in a day, up to 42M tokens). The margin covers estimator error.
+	// waits out a first-byte timeout and takes a failure for it. The margin covers
+	// estimator error.
 	// Generation only: an embedding or rerank batch is many inputs, each under the
 	// window, and its total says nothing about any of them.
 	generation := relayInfo.RelayMode == relayconstant.RelayModeChatCompletions || relayInfo.RelayMode == relayconstant.RelayModeCompletions ||
@@ -1078,7 +1078,14 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		// Only the INPUT: a failed request produced no completion, and quota stays
 		// zero, so nothing here reaches billing or the tokens-served total (both
 		// are scoped to consume logs).
-		promptTokens := service.CountTextToken(relaycommon.ExtractPromptText(c), modelName)
+		// The estimate the relay routed and guarded on, when there is one: a second
+		// count from the raw body disagreed with it by an order of magnitude on
+		// Responses traffic, and a log that contradicts the guard sends whoever reads
+		// it after the wrong cause.
+		promptTokens := common.GetContextKeyInt(c, constant.ContextKeyPromptTokens)
+		if promptTokens <= 0 {
+			promptTokens = service.CountTextToken(relaycommon.ExtractPromptText(c), modelName)
+		}
 		model.RecordErrorLog(c, userId, channelError.ChannelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, promptTokens, other)
 	}
 
