@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/go-redis/redis/v8"
 )
 
 func formatNotifyType(channelId int, status int) string {
@@ -74,8 +76,87 @@ func channelProbePassKey(channelId int) string {
 	return fmt.Sprintf("channel_probe_pass:%d", channelId)
 }
 
+func channelProbeFailKey(channelId int) string {
+	return fmt.Sprintf("channel_probe_fail:%d", channelId)
+}
+
 var channelProbationUntil sync.Map // channelId -> time.Time, fallback when Redis is unavailable
 var channelProbePasses sync.Map    // channelId -> emptyResponseWindow, fallback when Redis is unavailable
+var channelProbeFails sync.Map     // channelId -> int, fallback when Redis is unavailable
+
+// A probe streak outlives the gaps the backoff itself introduces, so its TTL has
+// to exceed the longest wait by a wide margin; a week also forgets a channel that
+// has been deleted or left alone.
+const channelProbeFailTTL = 7 * 24 * time.Hour
+
+// RecordProbeFailure counts one more consecutive scheduled-probe failure for a
+// channel and returns the streak. Unlike the fixed-window counters the TTL is
+// refreshed on every failure: the streak measures a run of failures, and the
+// backoff it feeds can put hours between two probes.
+func RecordProbeFailure(channelId int) int {
+	if common.RedisEnabled {
+		ctx := context.Background()
+		n, err := common.RDB.Incr(ctx, channelProbeFailKey(channelId)).Result()
+		if err == nil {
+			common.RDB.Expire(ctx, channelProbeFailKey(channelId), channelProbeFailTTL)
+			return int(n)
+		}
+		common.SysError("probe failure streak Redis incr failed: " + err.Error())
+	}
+	streak := 1
+	if v, ok := channelProbeFails.Load(channelId); ok {
+		streak = v.(int) + 1
+	}
+	channelProbeFails.Store(channelId, streak)
+	return streak
+}
+
+// ResetProbeFailures clears the streak after a probe passes, so a channel that
+// comes back is asked at the normal cadence again.
+func ResetProbeFailures(channelId int) {
+	if common.RedisEnabled {
+		common.RDB.Del(context.Background(), channelProbeFailKey(channelId))
+	}
+	channelProbeFails.Delete(channelId)
+}
+
+func probeFailureStreak(channelId int) int {
+	if common.RedisEnabled {
+		v, err := common.RDB.Get(context.Background(), channelProbeFailKey(channelId)).Int()
+		if err == nil {
+			return v
+		}
+		if errors.Is(err, redis.Nil) {
+			return 0
+		}
+	}
+	if v, ok := channelProbeFails.Load(channelId); ok {
+		return v.(int)
+	}
+	return 0
+}
+
+// ProbeBackoffSeconds is how long a channel should be left alone before its next
+// scheduled probe, from its failure streak. Below the floor a channel is probed at
+// the normal cadence, so a transient fault still recovers in minutes.
+func ProbeBackoffSeconds(channelId int) int64 {
+	m := operation_setting.GetMonitorSetting()
+	if m.ChannelProbeBackoffBaseSeconds <= 0 || m.ChannelProbeBackoffMaxSeconds <= 0 {
+		return 0
+	}
+	floor := m.ChannelProbeBackoffFloor
+	if floor <= 0 {
+		floor = 3
+	}
+	shift := probeFailureStreak(channelId) - floor
+	if shift < 0 {
+		return 0
+	}
+	if shift >= 20 {
+		return int64(m.ChannelProbeBackoffMaxSeconds)
+	}
+	return min(int64(m.ChannelProbeBackoffBaseSeconds)<<uint(shift), int64(m.ChannelProbeBackoffMaxSeconds))
+}
 
 // StartChannelProbation arms the probation window for a channel that was just
 // re-enabled automatically and clears its failure window, so the tighter probation

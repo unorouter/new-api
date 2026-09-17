@@ -66,6 +66,15 @@ type MonitorSetting struct {
 	ChannelProbationMinSamples    int     `json:"channel_probation_min_samples"`
 	// Consecutive clean recovery probes before an auto-disabled channel comes back.
 	ChannelReenableProbePasses int `json:"channel_reenable_probe_passes"`
+	// A channel failing its scheduled probe over and over is asked less often:
+	// after ChannelProbeBackoffFloor consecutive failures the wait doubles from
+	// ChannelProbeBackoffBaseSeconds up to ChannelProbeBackoffMaxSeconds. Most
+	// of these never recover (a model archived upstream, a revoked key), and at
+	// full cadence they spend real upstream quota: one lane had logged 19,198
+	// identical 410s. 0 on base or max disables the backoff.
+	ChannelProbeBackoffFloor       int `json:"channel_probe_backoff_floor"`
+	ChannelProbeBackoffBaseSeconds int `json:"channel_probe_backoff_base_seconds"`
+	ChannelProbeBackoffMaxSeconds  int `json:"channel_probe_backoff_max_seconds"`
 	// Minimum seconds a paid lane (group ratio > 0) stays auto-disabled, 0 = none.
 	// Skipped when none of the lane's models has another enabled channel.
 	ChannelPaidReenableHoldSeconds int `json:"channel_paid_reenable_hold_seconds"`
@@ -119,6 +128,9 @@ var monitorSetting = MonitorSetting{
 	ChannelProbationRateThreshold:    0.2,
 	ChannelProbationMinSamples:       5,
 	ChannelReenableProbePasses:       1,
+	ChannelProbeBackoffFloor:         3,
+	ChannelProbeBackoffBaseSeconds:   600,
+	ChannelProbeBackoffMaxSeconds:    3600,
 	ChannelPaidReenableHoldSeconds:   0,
 	ChannelCooldownBaseSeconds:       30,
 	ChannelCooldownMaxSeconds:        600,
