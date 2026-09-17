@@ -319,7 +319,12 @@ type UserSubscription struct {
 	EndTime   int64  `json:"end_time" gorm:"bigint;index;index:idx_user_sub_active,priority:3"`
 	Status    string `json:"status" gorm:"type:varchar(32);index;index:idx_user_sub_active,priority:2"` // active/expired/cancelled
 
-	Source string `json:"source" gorm:"type:varchar(32);default:'order'"` // order/admin
+	Source string `json:"source" gorm:"type:varchar(32);default:'order'"` // order/admin/balance/creem_renewal
+
+	// Creem's own subscription id (sub_XXXX). Empty on wallet, admin and legacy
+	// rows: only a subscription Creem bills carries one, and it is what ties a
+	// Creem lifecycle event to the row it is actually about.
+	ProviderSubscriptionId string `json:"-" gorm:"type:varchar(64);default:'';index"`
 
 	LastResetTime int64 `json:"last_reset_time" gorm:"type:bigint;default:0"`
 	NextResetTime int64 `json:"next_reset_time" gorm:"type:bigint;default:0;index"`
@@ -1120,13 +1125,14 @@ func resetUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription, plan *Subscript
 // trade_no (from event metadata); CreemCustomerId / CreemProductId are fallbacks
 // when the metadata is absent on a renewal charge.
 type CreemRenewalInput struct {
-	ReferenceId       string
-	CreemCustomerId   string
-	CreemProductId    string
-	LastTransactionId string
-	CreemOrderId      string
-	ProviderPayload   string
-	Money             float64
+	ReferenceId            string
+	CreemCustomerId        string
+	CreemProductId         string
+	ProviderSubscriptionId string
+	LastTransactionId      string
+	CreemOrderId           string
+	ProviderPayload        string
+	Money                  float64
 }
 
 // creemRenewalDedupKey guards against Creem's webhook retries (30s/1m/5m/1h)
@@ -1211,9 +1217,20 @@ func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
 		// 2) Find the user's subscription for this plan (newest), or create one
 		//    if none exists (edge case: sub row was pruned but user re-subscribed).
 		var sub UserSubscription
-		findErr := lockForUpdate(tx).
-			Where("user_id = ? AND plan_id = ?", userId, planId).
-			Order("id DESC").First(&sub).Error
+		findErr := gorm.ErrRecordNotFound
+		if in.ProviderSubscriptionId != "" {
+			findErr = lockForUpdate(tx).
+				Where("provider_subscription_id = ?", in.ProviderSubscriptionId).
+				Order("id DESC").First(&sub).Error
+		}
+		if findErr != nil {
+			// No id yet (first renewal after the column shipped, or a legacy row).
+			// A row already claimed by a different Creem subscription is never
+			// rolled forward here.
+			findErr = lockForUpdate(tx).
+				Where("user_id = ? AND plan_id = ? AND coalesce(provider_subscription_id, '') = ?", userId, planId, "").
+				Order("id DESC").First(&sub).Error
+		}
 		if findErr != nil {
 			// Creem sends subscription.paid for the INITIAL charge as well, and it
 			// races checkout.completed (different webhooks, different lock keys). A
@@ -1231,6 +1248,12 @@ func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
 			created, cErr := CreateUserSubscriptionFromPlanTx(tx, userId, plan, "creem_renewal")
 			if cErr != nil {
 				return cErr
+			}
+			if in.ProviderSubscriptionId != "" {
+				if err := tx.Model(&UserSubscription{}).Where("id = ?", created.Id).
+					Update("provider_subscription_id", in.ProviderSubscriptionId).Error; err != nil {
+					return err
+				}
 			}
 			if err := recordCreemRenewalOrderTx(tx, userId, planId, in); err != nil {
 				return err
@@ -1262,6 +1285,11 @@ func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
 		sub.AmountTotal = plan.TotalAmount
 		sub.AmountUsed = 0
 		sub.EndTime = endUnix
+		if in.ProviderSubscriptionId != "" {
+			// Creem fires subscription.paid on the first charge too, so this
+			// backfills rows created before the column existed.
+			sub.ProviderSubscriptionId = in.ProviderSubscriptionId
+		}
 		sub.NextResetTime = nextReset
 		sub.LastResetTime = lastReset
 		sub.UpdatedAt = common.GetTimestamp()
@@ -1936,10 +1964,11 @@ func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error
 // CreemTerminationInput identifies the subscription a Creem lifecycle event
 // (refund.created / subscription.canceled / subscription.expired) refers to.
 type CreemTerminationInput struct {
-	ReferenceId     string
-	CreemCustomerId string
-	CreemProductId  string
-	Reason          string
+	ReferenceId            string
+	CreemCustomerId        string
+	CreemProductId         string
+	ProviderSubscriptionId string
+	Reason                 string
 }
 
 // TerminateUserSubscriptionByCreem ends a user's subscription when Creem reports
@@ -1964,22 +1993,17 @@ func TerminateUserSubscriptionByCreem(in CreemTerminationInput) (int, int, error
 	var resolvedUserId, resolvedSubId int
 	var groupChanged bool
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		userId, err := resolveCreemSubscriptionUser(tx, in)
+		userId, target, err := resolveCreemTerminationTarget(tx, in)
 		if err != nil {
 			return err
 		}
-
-		var sub UserSubscription
-		q := tx.Where("user_id = ? AND status = ?", userId, "active").
-			Order("end_time desc, id desc").Limit(1).Find(&sub)
-		if q.Error != nil {
-			return q.Error
-		}
-		if q.RowsAffected == 0 {
-			// Already terminated, or never active. Nothing to undo.
-			resolvedUserId = userId
+		resolvedUserId = userId
+		if target == nil {
+			// Already terminated, never active, or nothing that Creem paid for
+			// could be tied to this event. Leave it alone.
 			return nil
 		}
+		sub := *target
 
 		if err := tx.Model(&UserSubscription{}).Where("id = ?", sub.Id).
 			Updates(map[string]interface{}{
@@ -2026,10 +2050,12 @@ func TerminateUserSubscriptionByCreem(in CreemTerminationInput) (int, int, error
 	return resolvedUserId, resolvedSubId, nil
 }
 
-// resolveCreemSubscriptionUser maps a Creem lifecycle event to a local user the
-// same way renewals do: the original order is authoritative, creem_customer is
-// the fallback for events that carry no reference id.
-func resolveCreemSubscriptionUser(tx *gorm.DB, in CreemTerminationInput) (int, error) {
+// resolveCreemSubscriptionUser maps a Creem lifecycle event to a local user and,
+// when the reference names one, the plan that order was for: the original order
+// is authoritative, creem_customer / creem_product_id are the fallbacks for
+// events that carry no reference id.
+func resolveCreemSubscriptionUser(tx *gorm.DB, in CreemTerminationInput) (int, int, error) {
+	userId, planId := 0, 0
 	if in.ReferenceId != "" {
 		var order SubscriptionOrder
 		refCol := "`trade_no`"
@@ -2037,16 +2063,109 @@ func resolveCreemSubscriptionUser(tx *gorm.DB, in CreemTerminationInput) (int, e
 			refCol = `"trade_no"`
 		}
 		if err := tx.Where(refCol+" = ?", in.ReferenceId).First(&order).Error; err == nil {
-			return order.UserId, nil
+			userId, planId = order.UserId, order.PlanId
 		}
 	}
-	if in.CreemCustomerId != "" {
+	if userId == 0 && in.CreemCustomerId != "" {
 		var user User
 		if err := tx.Where("creem_customer = ?", in.CreemCustomerId).First(&user).Error; err == nil {
-			return user.Id, nil
+			userId = user.Id
 		}
 	}
-	return 0, ErrSubscriptionOrderNotFound
+	if planId == 0 && in.CreemProductId != "" {
+		var plan SubscriptionPlan
+		if err := tx.Where("creem_product_id = ?", in.CreemProductId).First(&plan).Error; err == nil {
+			planId = plan.Id
+		}
+	}
+	if userId == 0 {
+		return 0, 0, ErrSubscriptionOrderNotFound
+	}
+	return userId, planId, nil
+}
+
+// creemPaidSubscriptionTx reports whether Creem is what paid for this
+// subscription. A wallet purchase and an admin grant are recorded with their own
+// source, and an "order" row can belong to any payment provider, so a Creem
+// order for the same user and plan is what makes it Creem's.
+func creemPaidSubscriptionTx(tx *gorm.DB, sub *UserSubscription) (bool, error) {
+	switch sub.Source {
+	case "creem_renewal":
+		return true, nil
+	case "order":
+	default:
+		// admin grants, wallet purchases and anything else Creem never billed.
+		return false, nil
+	}
+	var count int64
+	err := tx.Model(&SubscriptionOrder{}).
+		Where("user_id = ? AND plan_id = ? AND payment_provider = ? AND status = ?",
+			sub.UserId, sub.PlanId, PaymentProviderCreem, common.TopUpStatusSuccess).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// resolveCreemTerminationTarget finds the subscription a Creem lifecycle event is
+// actually about. The Creem subscription id is exact and settles it outright.
+// Without one (rows predating the column) the event is matched by user and plan,
+// and only ever to a subscription Creem paid for: on 2026-09-16 a stale expiry
+// event for a customer's finished August card subscription ended the September
+// one he had bought from his wallet, because the handler simply took his newest
+// active row. An ambiguous match ends nothing. Terminating the wrong row destroys
+// a month somebody paid for, while skipping one leaves access until end_time,
+// which ExpireDueSubscriptions closes anyway.
+func resolveCreemTerminationTarget(tx *gorm.DB, in CreemTerminationInput) (int, *UserSubscription, error) {
+	if in.ProviderSubscriptionId != "" {
+		var sub UserSubscription
+		q := tx.Where("provider_subscription_id = ?", in.ProviderSubscriptionId).
+			Order("id desc").Limit(1).Find(&sub)
+		if q.Error != nil {
+			return 0, nil, q.Error
+		}
+		if q.RowsAffected > 0 {
+			if sub.Status != "active" {
+				return sub.UserId, nil, nil
+			}
+			return sub.UserId, &sub, nil
+		}
+	}
+
+	userId, planId, err := resolveCreemSubscriptionUser(tx, in)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	// A row carrying a different Creem id belongs to another subscription; the
+	// exact match above would have found it.
+	q := tx.Where("user_id = ? AND status = ? AND coalesce(provider_subscription_id, '') = ?",
+		userId, "active", "")
+	if planId > 0 {
+		q = q.Where("plan_id = ?", planId)
+	}
+	var candidates []UserSubscription
+	if err := q.Order("end_time desc, id desc").Find(&candidates).Error; err != nil {
+		return userId, nil, err
+	}
+	var matched *UserSubscription
+	for i := range candidates {
+		paid, err := creemPaidSubscriptionTx(tx, &candidates[i])
+		if err != nil {
+			return userId, nil, err
+		}
+		if !paid {
+			continue
+		}
+		if matched != nil {
+			// Two subscriptions Creem could have paid for and no id to tell them
+			// apart: end neither.
+			return userId, nil, nil
+		}
+		matched = &candidates[i]
+	}
+	return userId, matched, nil
 }
 
 // revertSubscriptionGroupTx mirrors the group handling in ExpireDueSubscriptions:

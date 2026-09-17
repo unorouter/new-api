@@ -403,6 +403,7 @@ func migrateDB() error {
 	ensureColumn("users", &User{}, "topup_bonus_percent", "decimal(5,2) NULL")
 	ensureColumn("top_ups", &TopUp{}, "paid_amount", "decimal NOT NULL DEFAULT 0")
 	ensureColumn("subscription_orders", &SubscriptionOrder{}, "provider_payment_id", "varchar(64) NOT NULL DEFAULT ''")
+	ensureColumn("user_subscriptions", &UserSubscription{}, "provider_subscription_id", "varchar(64) NOT NULL DEFAULT ''")
 	ensureColumn("users", &User{}, "register_ip_hash", "varchar(64) NULL")
 	backfillModelStatusLastUp()
 	backfillRegisterIpHash()

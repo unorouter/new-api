@@ -377,10 +377,11 @@ func handleSubscriptionTerminated(c *gin.Context, event *dto.CreemWebhookEvent, 
 	}
 
 	userId, subId, err := model.TerminateUserSubscriptionByCreem(model.CreemTerminationInput{
-		ReferenceId:     referenceId,
-		CreemCustomerId: event.Object.Customer.Id,
-		CreemProductId:  event.Object.Product.Id,
-		Reason:          event.EventType,
+		ReferenceId:            referenceId,
+		CreemCustomerId:        event.Object.Customer.Id,
+		CreemProductId:         event.Object.Product.Id,
+		ProviderSubscriptionId: event.Object.Id,
+		Reason:                 event.EventType,
 	})
 	if err != nil {
 		if errors.Is(err, model.ErrSubscriptionOrderNotFound) {
@@ -396,7 +397,7 @@ func handleSubscriptionTerminated(c *gin.Context, event *dto.CreemWebhookEvent, 
 	}
 
 	if subId == 0 {
-		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem %s no active subscription to end event_id=%s user_id=%d", event.EventType, event.Id, userId))
+		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem %s ended no subscription, nothing active matched this Creem subscription event_id=%s sub_id=%s user_id=%d", event.EventType, event.Id, event.Object.Id, userId))
 	} else {
 		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem %s subscription ended event_id=%s user_id=%d subscription_id=%d", event.EventType, event.Id, userId, subId))
 	}
@@ -465,10 +466,11 @@ func handleTopUpReversal(c *gin.Context, event *dto.CreemWebhookEvent, rawBody s
 
 	if dispute && event.Object.Order.Type != "onetime" {
 		_, subId, terr := model.TerminateUserSubscriptionByCreem(model.CreemTerminationInput{
-			ReferenceId:     in.Reference,
-			CreemCustomerId: customerId,
-			CreemProductId:  event.Object.Order.Product,
-			Reason:          event.EventType,
+			ReferenceId:            in.Reference,
+			CreemCustomerId:        customerId,
+			CreemProductId:         event.Object.Order.Product,
+			ProviderSubscriptionId: event.Object.Transaction.Subscription,
+			Reason:                 event.EventType,
 		})
 		if terr != nil && !errors.Is(terr, model.ErrSubscriptionOrderNotFound) {
 			logger.LogError(ctx, fmt.Sprintf("Creem dispute subscription termination failed event_id=%s error=%q", event.Id, terr.Error()))
@@ -523,13 +525,14 @@ func handleSubscriptionPaid(c *gin.Context, event *dto.CreemWebhookEvent, rawBod
 		money = float64(event.Object.Product.Price) / 100
 	}
 	userId, subId, err := model.RenewUserSubscriptionByCreem(model.CreemRenewalInput{
-		ReferenceId:       referenceId,
-		CreemCustomerId:   event.Object.Customer.Id,
-		CreemProductId:    event.Object.Product.Id,
-		LastTransactionId: txId,
-		CreemOrderId:      event.Object.LastTransaction.Order,
-		ProviderPayload:   common.GetJsonString(event),
-		Money:             money,
+		ReferenceId:            referenceId,
+		CreemCustomerId:        event.Object.Customer.Id,
+		CreemProductId:         event.Object.Product.Id,
+		ProviderSubscriptionId: event.Object.Id,
+		LastTransactionId:      txId,
+		CreemOrderId:           event.Object.LastTransaction.Order,
+		ProviderPayload:        common.GetJsonString(event),
+		Money:                  money,
 	})
 	if err != nil {
 		if errors.Is(err, model.ErrSubscriptionOrderNotFound) {
