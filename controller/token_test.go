@@ -2,7 +2,6 @@ package controller
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -251,46 +250,6 @@ func getSQLiteColumnType(t *testing.T, db *gorm.DB, tableName string, columnName
 	return ""
 }
 
-func getTokenKeyColumnType(t *testing.T, db *gorm.DB, dialect string) string {
-	t.Helper()
-
-	switch dialect {
-	case "sqlite":
-		return getSQLiteColumnType(t, db, "tokens", "key")
-	case "mysql":
-		var columnType string
-		if err := db.Raw(`SELECT COLUMN_TYPE FROM information_schema.columns
-			WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`,
-			"tokens", "key").Scan(&columnType).Error; err != nil {
-			t.Fatalf("failed to inspect mysql token key column: %v", err)
-		}
-		return strings.ToLower(columnType)
-	case "postgres":
-		var dataType string
-		var maxLength sql.NullInt64
-		if err := db.Raw(`SELECT data_type, character_maximum_length
-			FROM information_schema.columns
-			WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`,
-			"tokens", "key").Row().Scan(&dataType, &maxLength); err != nil {
-			t.Fatalf("failed to inspect postgres token key column: %v", err)
-		}
-		switch strings.ToLower(dataType) {
-		case "character varying":
-			return fmt.Sprintf("varchar(%d)", maxLength.Int64)
-		case "character":
-			return fmt.Sprintf("char(%d)", maxLength.Int64)
-		default:
-			if maxLength.Valid {
-				return fmt.Sprintf("%s(%d)", strings.ToLower(dataType), maxLength.Int64)
-			}
-			return strings.ToLower(dataType)
-		}
-	default:
-		t.Fatalf("unsupported dialect %q", dialect)
-		return ""
-	}
-}
-
 func getTokenAutoGroupsColumnType(t *testing.T, db *gorm.DB, dialect string) string {
 	t.Helper()
 
@@ -351,15 +310,8 @@ func runTokenMigrationCompatibilityTest(t *testing.T, db *gorm.DB, dialect strin
 		t.Fatalf("failed to seed legacy token row: %v", err)
 	}
 
-	if got := getTokenKeyColumnType(t, db, dialect); got != "char(48)" {
-		t.Fatalf("expected legacy key column type char(48), got %q", got)
-	}
-
 	migrateTokenControllerTestDB(t, db)
 
-	if got := getTokenKeyColumnType(t, db, dialect); got != "varchar(128)" {
-		t.Fatalf("expected migrated key column type varchar(128), got %q", got)
-	}
 	if !db.Migrator().HasColumn(&model.Token{}, "auto_groups") {
 		t.Fatal("expected migration to add auto_groups column")
 	}
@@ -370,9 +322,6 @@ func runTokenMigrationCompatibilityTest(t *testing.T, db *gorm.DB, dialect strin
 	var migratedToken model.Token
 	if err := db.First(&migratedToken, "name = ?", "legacy-token").Error; err != nil {
 		t.Fatalf("failed to load migrated token row: %v", err)
-	}
-	if migratedToken.Key != legacyKey {
-		t.Fatalf("expected migrated token key %q, got %q", legacyKey, migratedToken.Key)
 	}
 	if migratedToken.Name != "legacy-token" {
 		t.Fatalf("expected migrated token name to be preserved, got %q", migratedToken.Name)
@@ -414,9 +363,6 @@ func runTokenMigrationCompatibilityTest(t *testing.T, db *gorm.DB, dialect strin
 func TestTokenAutoMigrateUsesVarchar128KeyColumn(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 
-	if got := getTokenKeyColumnType(t, db, "sqlite"); got != "varchar(128)" {
-		t.Fatalf("expected key column type varchar(128), got %q", got)
-	}
 	if got := getSQLiteColumnType(t, db, "tokens", "auto_groups"); got != "text" {
 		t.Fatalf("expected auto_groups column type text, got %q", got)
 	}

@@ -4,13 +4,12 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
-	"time"
+	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
@@ -21,15 +20,14 @@ import (
 //
 //	key_hash  HMAC-SHA256(pepper, key), unique: the lookup column
 //	key_enc   "v1:" + base64(nonce + AES-256-GCM(key)), AAD = key_hash: the reveal and the BFF
-//	key_hint  first 4 + last 4 characters: the masked list view, no decrypt needed
+//	key_hint  first 4 + last 4 characters: what a fragment search can match
+//
+// The plaintext `key` column of upstream is no longer mapped: it is never written or read.
 //
 // Both secrets come from the environment and never touch the database. They are separate
 // from CRYPTO_SECRET on purpose: that one also signs sessions and rotates on its own.
 // Lose the pepper and no key authenticates; lose the enc key and no key can be revealed.
-const (
-	tokenKeyEncVersion  = "v1:"
-	tokenKeyBackfillMax = 500
-)
+const tokenKeyEncVersion = "v1:"
 
 var (
 	tokenKeyPepper []byte
@@ -75,11 +73,19 @@ func InitTokenKeyCrypto() error {
 	return nil
 }
 
+// tokenKeyCryptoReady is always true in a running server (main refuses to start otherwise).
+// Under `go test` it installs fixed secrets so every suite runs on the sealed path.
 func tokenKeyCryptoReady() bool {
+	if tokenKeyAEAD == nil && testing.Testing() {
+		block, _ := aes.NewCipher([]byte("new-api-test-only-enc-key-32byte"))
+		tokenKeyAEAD, _ = cipher.NewGCM(block)
+		tokenKeyPepper = []byte("new-api-test-only-pepper-32bytes")
+	}
 	return tokenKeyAEAD != nil && len(tokenKeyPepper) == 32
 }
 
 func hashTokenKey(key string) string {
+	tokenKeyCryptoReady()
 	return common.GenerateHMACWithKey(tokenKeyPepper, key)
 }
 
@@ -119,8 +125,7 @@ func tokenKeyHint(key string) string {
 	return key[:4] + key[len(key)-4:]
 }
 
-// sealKey fills the three derived columns from the plaintext key. Without the secrets
-// (unit tests on sqlite) it leaves them empty; main refuses to start in that state.
+// sealKey fills the three stored columns from the in-memory key.
 func (token *Token) sealKey() error {
 	if token.Key == "" || !tokenKeyCryptoReady() {
 		return nil
@@ -140,112 +145,17 @@ func (token *Token) BeforeCreate(tx *gorm.DB) error {
 	return token.sealKey()
 }
 
-// AfterFind makes the ciphertext the source of the in-memory key wherever a row is loaded
-// with its sealed columns. While `key` is still written, a disagreement keeps the stored
-// plaintext and is logged: that log has to stay silent before `key` is dropped.
+// AfterFind opens the key wherever a row is loaded with its sealed columns. A partial select
+// without them leaves Key empty, which is what every caller that does not need the key wants.
 func (token *Token) AfterFind(tx *gorm.DB) error {
 	if token.KeyEnc == "" || token.KeyHash == nil || !tokenKeyCryptoReady() {
 		return nil
 	}
 	plain, err := decryptTokenKey(token.KeyEnc, *token.KeyHash)
-	if err != nil || (token.Key != "" && plain != token.Key) {
-		common.SysError(fmt.Sprintf("token key open: token %d ciphertext does not match the stored key", token.Id))
+	if err != nil {
+		common.SysError(fmt.Sprintf("token key open: token %d ciphertext does not open: %s", token.Id, err.Error()))
 		return nil
 	}
 	token.Key = plain
 	return nil
-}
-
-type tokenKeyRow struct {
-	Id      int
-	Key     string
-	KeyHash *string
-	KeyEnc  string
-}
-
-// backfillTokenKeysOnce seals up to tokenKeyBackfillMax rows that still lack a hash (rows
-// from before the columns existed, or written by an older pod during a rolling deploy).
-func backfillTokenKeysOnce() (int, error) {
-	var rows []tokenKeyRow
-	if err := DB.Model(&Token{}).Unscoped().
-		Select("id", commonKeyCol).
-		Where("key_hash IS NULL AND " + commonKeyCol + " <> ''").
-		Order("id").Limit(tokenKeyBackfillMax).
-		Find(&rows).Error; err != nil {
-		return 0, err
-	}
-	sealed := 0
-	for _, row := range rows {
-		token := Token{Key: row.Key}
-		if err := token.sealKey(); err != nil {
-			return sealed, err
-		}
-		result := DB.Model(&Token{}).Unscoped().
-			Where("id = ? AND key_hash IS NULL", row.Id).
-			Updates(map[string]any{"key_hash": *token.KeyHash, "key_enc": token.KeyEnc, "key_hint": token.KeyHint})
-		if result.Error != nil {
-			return sealed, result.Error
-		}
-		sealed += int(result.RowsAffected)
-	}
-	return sealed, nil
-}
-
-// verifyTokenKeys re-reads every sealed row and checks that the ciphertext opens to the
-// stored plaintext and that the hash matches. It only exists while `key` is still written.
-func verifyTokenKeys() (checked int, mismatched int, err error) {
-	lastId := 0
-	for {
-		var rows []tokenKeyRow
-		if err = DB.Model(&Token{}).Unscoped().
-			Select("id", commonKeyCol, "key_hash", "key_enc").
-			Where("id > ? AND key_hash IS NOT NULL", lastId).
-			Order("id").Limit(tokenKeyBackfillMax).
-			Find(&rows).Error; err != nil {
-			return checked, mismatched, err
-		}
-		if len(rows) == 0 {
-			return checked, mismatched, nil
-		}
-		for _, row := range rows {
-			lastId = row.Id
-			checked++
-			plain, decryptErr := decryptTokenKey(row.KeyEnc, *row.KeyHash)
-			hashOk := subtle.ConstantTimeCompare([]byte(hashTokenKey(row.Key)), []byte(*row.KeyHash)) == 1
-			if decryptErr != nil || plain != row.Key || !hashOk {
-				mismatched++
-				common.SysError(fmt.Sprintf("token key verify: row %d does not round trip", row.Id))
-			}
-		}
-	}
-}
-
-// RunTokenKeyBackfill runs on the master only. It drains the backlog in small batches, then
-// keeps sweeping for stragglers and logs one verification pass after the first drain.
-func RunTokenKeyBackfill() {
-	verified := false
-	for {
-		sealed, err := backfillTokenKeysOnce()
-		if err != nil {
-			common.SysError("token key backfill: " + err.Error())
-			time.Sleep(time.Minute)
-			continue
-		}
-		if sealed > 0 {
-			common.SysLog(fmt.Sprintf("token key backfill: sealed %d rows", sealed))
-			verified = false
-			time.Sleep(200 * time.Millisecond)
-			continue
-		}
-		if !verified {
-			checked, mismatched, verifyErr := verifyTokenKeys()
-			if verifyErr != nil {
-				common.SysError("token key verify: " + verifyErr.Error())
-			} else {
-				common.SysLog(fmt.Sprintf("token key verify: checked=%d mismatched=%d", checked, mismatched))
-				verified = true
-			}
-		}
-		time.Sleep(5 * time.Minute)
-	}
 }
