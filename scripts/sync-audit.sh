@@ -6,6 +6,7 @@
 #   scripts/sync-audit.sh --accept   after reviewing new snapshot lines, record them
 #   scripts/sync-audit.sh --routes <upstream-ref>   upstream route paths prod does not register
 set -uo pipefail
+export LC_ALL=C   # sort and comm must agree between a laptop and the CI runner
 cd "$(dirname "$0")/.."
 D=scripts/sync-audit
 bad=0
