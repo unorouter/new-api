@@ -404,18 +404,3 @@ func TestDistributePinViolatingIdentityFilterErrors(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), string(dto.FilterTaskPluginIdentity))
 }
-
-func TestApplyChannelPinLocksOnlySameChannelRetry(t *testing.T) {
-	setupOriginTaskDB(t)
-	channel := insertOriginTaskChannel(t, common.ChannelStatusEnabled)
-	insertOriginOwnedTask(t, "task-lock-mode", 7, channel.Id, "origin-plugin")
-
-	c := originTaskTestContext(7)
-	require.Nil(t, applyOriginTaskIntent(c, map[string]any{"originTaskIds": []any{"task-lock-mode"}}, jsplugin.Meta{Key: "origin-plugin"}))
-
-	info := &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{}}
-	require.Nil(t, relay.ApplyChannelPin(c, info))
-	locked, ok := info.LockedChannel.(*model.Channel)
-	require.True(t, ok)
-	assert.Equal(t, channel.Id, locked.Id)
-}

@@ -9,7 +9,7 @@ export const meta = {
   },
   version: "1.0.0",
   author: { name: "unorouter" },
-  channelTypes: [62],
+  channelTypes: [1001],
   // The published ids this channel serves; each maps to a real Horde checkpoint
   // through the channel's workflow_templates (horde_model).
   models: [

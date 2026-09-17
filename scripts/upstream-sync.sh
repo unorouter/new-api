@@ -97,15 +97,27 @@ cmd_check() {
   on_sync_branch
   [ -z "$(conflicts)" ] || die "unresolved conflicts: $(conflicts | tr '\n' ' ')"
   mkdir -p web/dist && [ -e web/dist/index.html ] || touch web/dist/index.html
-  say "build";    go build ./... && (cd relaykit && go build ./...)
+  # one command per line: a failing left side of "a && b" does not trip set -e
+  say "build"
+  go build ./...
+  (cd relaykit; go build ./...)
   # tidy only once the tree compiles: on a broken tree it drops the relaykit require
-  say "tidy";     go mod tidy && (cd relaykit && go mod tidy)
-  say "audit";    scripts/sync-audit.sh
-  say "vet";      go vet ./... && (cd relaykit && go vet ./...)
-  say "go test";  make test
-  say "frontend"; (cd web && bun install --frozen-lockfile >/dev/null && bun run typecheck && bun run test)
+  say "tidy"
+  go mod tidy
+  (cd relaykit; go mod tidy)
+  say "audit"
+  scripts/sync-audit.sh
+  say "vet"
+  go vet ./...
+  (cd relaykit; go vet ./...)
+  say "go test"
+  make test
+  say "frontend"
+  (cd web; bun install --frozen-lockfile >/dev/null; bun run typecheck; bun run test)
   local bin; bin=$(mktemp)
-  say "boot";     go build -o "$bin" . && scripts/boot-smoke.sh binary "$bin"
+  say "boot"
+  go build -o "$bin" .
+  scripts/boot-smoke.sh binary "$bin"
   rm -f "$bin"
   [ -z "$(git status --porcelain)" ] || { git status --short; die "checks changed files (tidy?): review, commit, run check again"; }
   say "all local gates green: scripts/upstream-sync.sh push"

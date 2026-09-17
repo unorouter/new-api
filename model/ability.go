@@ -138,6 +138,9 @@ func GetEnabledModels() []string {
 // pinned-token user whether their override (rather than the whole platform)
 // is what locked them out.
 func HasEnabledChannelForModelOutsideGroups(model string, excludeGroups []string) bool {
+	if DB == nil {
+		return false
+	}
 	var count int64
 	query := DB.Table("abilities").Where("model = ? and enabled = ?", model, true)
 	if len(excludeGroups) > 0 {
