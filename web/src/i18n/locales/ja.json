@@ -6665,6 +6665,8 @@
     "Network reputation window (days)": "ネットワーク評価の集計期間（日）",
     "How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.": "ネットワークを評価する際にさかのぼって登録を集計する日数。長くすると低速に登録するファームを検出でき、短くすると正常化したネットワークが早く復帰します。",
     "Reset the weekly quota for every active subscription on {{plan}}. This affects all subscribers, not one user. To reset a single user, open Users and use the Subscriptions row action.": "{{plan}} のすべての有効なサブスクリプションの週間クォータをリセットします。この操作は単一のユーザーではなく、このプランのすべての契約者に影響します。単一のユーザーをリセットするには、「ユーザー」画面を開き、その行の「サブスクリプション」操作を使用してください。",
-    "Yes, reset every subscriber on this plan": "はい、このプランのすべての契約者をリセットします"
+    "Yes, reset every subscriber on this plan": "はい、このプランのすべての契約者をリセットします",
+    "Generate images through the AI Horde volunteer network": "AI Horde のボランティアネットワークで画像を生成",
+    "Generate images with Runware, including Civitai checkpoints": "Runware で画像を生成（Civitai のチェックポイントにも対応）"
   }
 }

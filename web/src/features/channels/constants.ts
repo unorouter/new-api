@@ -175,6 +175,12 @@ export const CHANNEL_PROVIDER_PRESENTATION: Partial<
   },
   62: { descriptionKey: 'Connect to self-hosted models served by vLLM' },
   63: { descriptionKey: 'Connect to self-hosted models served by SGLang' },
+  1001: {
+    descriptionKey: 'Generate images through the AI Horde volunteer network',
+  },
+  1002: {
+    descriptionKey: 'Generate images with Runware, including Civitai checkpoints',
+  },
 } satisfies Record<
   Exclude<keyof typeof CHANNEL_TYPES, 0 | typeof CHANNEL_TYPE_TASK_PLUGIN>,
   ChannelProviderPresentation

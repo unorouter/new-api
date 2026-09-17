@@ -164,7 +164,6 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     id: 1002,
     name: CHANNEL_TYPES[1002],
     icon: 'openai',
-    defaultBaseUrl: 'https://api.runware.ai',
     hints: {
       key: 'Runware API Key',
       models: 'Model AIR identifiers, e.g. civitai:257749@290640',
