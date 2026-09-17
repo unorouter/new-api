@@ -69,3 +69,28 @@ jobs:
           # read the deploy cache, never write it: a sync branch must not evict main's layers
           cache-from: type=gha,scope=new-api-amd64
       - run: scripts/boot-smoke.sh image new-api:sync-gate
+
+  relay:
+    name: Same requests, main versus this branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - name: Build both binaries
+        run: |
+          mkdir -p web/dist && touch web/dist/index.html
+          go build -o /tmp/new-api-branch .
+          git worktree add --detach /tmp/main-tree origin/main
+          mkdir -p /tmp/main-tree/web/dist && touch /tmp/main-tree/web/dist/index.html
+          (cd /tmp/main-tree && go build -o /tmp/new-api-main .)
+      - run: scripts/relay-smoke.sh compare /tmp/new-api-main /tmp/new-api-branch
