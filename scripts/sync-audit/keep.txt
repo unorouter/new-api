@@ -19,3 +19,15 @@ middleware/distributor.go :: tokenModelAllowed
 go.mod :: replace github.com/QuantumNous/new-api/relaykit => ./relaykit
 go.mod :: github.com/gin-contrib/sessions v0.0.5
 web/src/features/usage-logs/components/usage-logs-provider.tsx :: role < ROLE.MOD
+service/pre_consume_quota.go :: requestChargesQuota(
+service/billing_session.go :: requestChargesQuota(
+controller/channel-test.go :: func pickAutoTestModel
+controller/channel-test.go :: pickAutoTestModel(channel)
+controller/channel-test.go :: AutoTestDisabledChannelsOnly
+controller/channel-test.go :: "-i2v"
+main.go :: controller.AutomaticallySnapshotModelStatus()
+service/auth_token.go :: 30 * 24 * time.Hour
+dto/user.go :: max=72
+relay/channel/claude/relay-claude.go :: ResponsesStreamState
+controller/channel_authz.go :: channelSensitiveFields
+model/ability.go :: sort.Strings(models)
