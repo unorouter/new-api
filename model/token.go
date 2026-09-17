@@ -33,6 +33,11 @@ type Token struct {
 	GroupMapping string         `json:"group_mapping" gorm:"type:text"`
 	AutoGroups   string         `json:"-" gorm:"type:text"`
 	DeletedAt    gorm.DeletedAt `gorm:"index"`
+	// Derived from Key, see token_crypto.go. A pointer so unsealed rows are NULL: the
+	// unique index would collide on empty strings.
+	KeyHash *string `json:"-" gorm:"type:char(64);uniqueIndex"`
+	KeyEnc  string  `json:"-" gorm:"type:varchar(255)"`
+	KeyHint string  `json:"-" gorm:"type:varchar(16)"`
 }
 
 func (token *Token) GetAutoGroups() ([]string, error) {
