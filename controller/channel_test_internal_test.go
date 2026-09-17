@@ -363,7 +363,7 @@ func TestSelectChannelsForAutomaticTestHonorsPerChannelInterval(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, channelDueForScheduledTest(tc.channel))
 
-			selected := selectChannelsForAutomaticTest([]*model.Channel{tc.channel}, "")
+			selected := selectChannelsForAutomaticTest([]*model.Channel{tc.channel}, "", false)
 			assert.Equal(t, tc.want, len(selected) == 1)
 		})
 	}
@@ -376,7 +376,7 @@ func TestSelectChannelsForAutomaticTestPassiveRecoveryOnlyUsesAutoDisabled(t *te
 		{Id: 3, Status: common.ChannelStatusManuallyDisabled},
 	}
 
-	selected := selectChannelsForAutomaticTest(channels, operation_setting.ChannelTestModePassiveRecovery)
+	selected := selectChannelsForAutomaticTest(channels, operation_setting.ChannelTestModePassiveRecovery, false)
 
 	require.Len(t, selected, 1)
 	require.Equal(t, 2, selected[0].Id)
@@ -389,7 +389,7 @@ func TestSelectChannelsForAutomaticTestScheduledSkipsManualDisabled(t *testing.T
 		{Id: 3, Status: common.ChannelStatusManuallyDisabled},
 	}
 
-	selected := selectChannelsForAutomaticTest(channels, operation_setting.ChannelTestModeScheduledAll)
+	selected := selectChannelsForAutomaticTest(channels, operation_setting.ChannelTestModeScheduledAll, false)
 
 	require.Len(t, selected, 2)
 	require.Equal(t, 1, selected[0].Id)
@@ -407,7 +407,7 @@ func TestSelectChannelsForAutomaticTestAutoBanOnlyUsesEligibleChannels(t *testin
 		{Id: 5, Status: common.ChannelStatusEnabled},
 	}
 
-	selected := selectChannelsForAutomaticTest(channels, operation_setting.ChannelTestModeAutoBanOnly)
+	selected := selectChannelsForAutomaticTest(channels, operation_setting.ChannelTestModeAutoBanOnly, false)
 
 	require.Len(t, selected, 2)
 	require.Equal(t, 1, selected[0].Id)
