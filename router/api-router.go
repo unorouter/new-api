@@ -501,6 +501,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		chDiagMod := dto.NewRouter(engine, apiRouter.Group("/channel", middleware.ModAuth()), "Channel", secDashboard())
 		dto.GetP(chDiagMod, "/diagnostics", controller.GetChannelDiagnostics, dto.PageParams())
 		dto.GetP(chDiagMod, "/diagnostics/stats", controller.GetChannelDiagnosticStats)
+		dto.GetP(chDiagMod, "/diagnostics/prompt_capacity", controller.GetLanePromptCapacity)
 
 		// ---- Model status routes (admin) ----
 		// components, buckets and page_compact are registered public above; only

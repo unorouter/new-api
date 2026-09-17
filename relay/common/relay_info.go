@@ -171,9 +171,12 @@ type RelayInfo struct {
 	IsChannelTest                         bool // channel test request
 	RetryIndex                            int
 	LastError                             *types.NewAPIError
-	RuntimeHeadersOverride                map[string]any
-	UseRuntimeHeadersOverride             bool
-	ParamOverrideAudit                    []string
+	// Lanes that never answered this request's long prompt: after the first, only a
+	// lane proven at this size may take the next attempt.
+	LongPromptStalls          int
+	RuntimeHeadersOverride    map[string]any
+	UseRuntimeHeadersOverride bool
+	ParamOverrideAudit        []string
 
 	PriceData hosttypes.PriceData
 

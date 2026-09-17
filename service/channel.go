@@ -269,7 +269,7 @@ var transientCapacityCodes = map[types.ErrorCode]struct{}{
 	"channel:stream_timeout_no_response":       {},
 }
 
-func isTransientCapacityCode(err *types.NewAPIError) bool {
+func IsTransientCapacityCode(err *types.NewAPIError) bool {
 	if err == nil {
 		return false
 	}
@@ -291,7 +291,7 @@ func IsCredentialFault(err *types.NewAPIError) bool {
 	// A 429 is normally capacity and must stay rate-gated, but a drained wallet or
 	// spent free quota is reclassified to a channel:* code upstream of here and
 	// cannot clear on its own, so it parks immediately like any dead credential.
-	if isTransientCapacityCode(err) {
+	if IsTransientCapacityCode(err) {
 		return false
 	}
 	return (err.StatusCode == http.StatusForbidden || err.StatusCode == http.StatusTooManyRequests) &&

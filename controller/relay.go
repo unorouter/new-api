@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"strings"
 	"time"
@@ -328,6 +329,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	relayInfo.SetEstimatePromptTokens(tokens)
 
+	// A prompt past the model's window fails on every lane, and each lane it visits
+	// waits out a first-byte timeout and takes a failure for it (one customer sent
+	// 140 of these in a day, up to 42M tokens). The margin covers estimator error.
+	if window := model.GetCachedModelLimits(relayInfo.OriginModelName).ContextLength; window > 0 && tokens > window+window/10 {
+		newAPIError = types.NewErrorWithStatusCode(
+			fmt.Errorf("This request is about %d tokens and %s accepts at most %d. Shorten the conversation or start a new session, then retry.", tokens, relayInfo.OriginModelName, window),
+			"context_length_exceeded", http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		return
+	}
+
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
@@ -495,6 +506,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			// Denominator for every rate-based disable gate, so it must be recorded
 			// regardless of which of those gates happens to be enabled.
 			service.RecordChannelSuccess(relayInfo.ChannelId)
+			if cleared := service.RecordLanePromptServed(relayInfo.ChannelId, relayInfo.GetEstimatePromptTokens()); cleared > 0 {
+				logger.LogInfo(c, fmt.Sprintf("channel-guard: lane #%d (%s) served %d tokens, cleared %d long-prompt stall(s)", channel.Id, channel.Name, relayInfo.GetEstimatePromptTokens(), cleared))
+			}
 			// A long request that finished is the denominator the truncation gate
 			// measures against: only requests old enough to meet whatever cuts long
 			// streams belong in that window.
@@ -617,11 +631,36 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		// can land on a lane its own 413 already proved too small, and a paid model
 		// has no retry budget to recover with. Fall through to the selection below,
 		// which passes over capped lanes. A pinned channel was asked for by name.
-		_, pinned, _ := service.GetChannelConstraints(c).ResolvedPin()
-		if pinned || !service.LaneRejectsPrompt(picked.Id, info.GetEstimatePromptTokens()) {
+		// A long prompt also leaves an unproven first pick: the hunt below finds a
+		// lane that has served this size, and comes back to an unproven one if none has.
+		if _, pinned, _ := service.GetChannelConstraints(c).ResolvedPin(); pinned {
+			return picked, nil
+		}
+		fit := service.LanePromptFit(picked.Id, info.GetEstimatePromptTokens())
+		if fit == service.LaneFitProven || (fit == service.LaneFitUnknown && info.GetEstimatePromptTokens() < service.LongPromptFloor) {
 			return picked, nil
 		}
 	}
+	// Most lanes stall on a long prompt, so it goes to one that has completed this
+	// size. An unproven lane is held as the second choice, and one request in ten
+	// takes it outright so new lanes can earn the mark. After a stall the second
+	// choice is gone wherever a proven lane exists: another blind 90 s wait is worse
+	// for the caller than the error. A model with no proven lane yet keeps hunting,
+	// bounded at three stalls.
+	promptTokens := info.GetEstimatePromptTokens()
+	longPrompt := promptTokens >= service.LongPromptFloor
+	if longPrompt && info.LongPromptStalls >= 3 {
+		return nil, types.NewError(fmt.Errorf("%d lanes stalled on %d prompt tokens for model %s", info.LongPromptStalls, promptTokens, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	}
+	stalled := longPrompt && info.LongPromptStalls > 0
+	explore := longPrompt && !stalled && rand.Intn(10) == 0
+	sawProven := false
+	maxHops := 8
+	if longPrompt {
+		maxHops = 32
+	}
+	var unproven *model.Channel
+	unprovenGroup := ""
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam, skipChannels...)
 	// A lane or provider under cooldown stays enabled but is passed over while a
 	// sibling can serve; when nothing else can, the cooled lane still beats no lane.
@@ -636,21 +675,44 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	// A saturated lane (its own concurrency or rate cap) is skipped the same way,
 	// but never used as the fallback: the cap is what keeps the upstream from
 	// answering 429 to everyone.
-	acquired := false
-	for hops := 0; hops < 8 && err == nil && channel != nil; hops++ {
-		if service.LaneCooled(channel.Id) || service.HostCooled(service.UpstreamHostOf(channel.GetBaseURL())) || service.LaneRejectsPrompt(channel.Id, info.GetEstimatePromptTokens()) {
+	acquired, acquiredProven := false, false
+	for hops := 0; hops < maxHops && err == nil && channel != nil; hops++ {
+		fit := service.LanePromptFit(channel.Id, promptTokens)
+		sawProven = sawProven || fit == service.LaneFitProven
+		if service.LaneCooled(channel.Id) || service.HostCooled(service.UpstreamHostOf(channel.GetBaseURL())) || fit == service.LaneFitRejected {
 			if cooled == nil {
 				cooled, cooledGroup = channel, selectGroup
 			}
+		} else if longPrompt && !explore && fit != service.LaneFitProven {
+			if unproven == nil {
+				unproven, unprovenGroup = channel, selectGroup
+			}
 		} else if service.TryAcquireLane(channel) {
-			acquired = true
+			acquired, acquiredProven = true, fit == service.LaneFitProven
 			break
 		}
 		skipCooled[channel.Id] = true
 		channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam, skipCooled)
 	}
+	if stalled && sawProven && (!acquired || info.LongPromptStalls >= 2) {
+		if acquired {
+			service.ReleaseLane(channel)
+		}
+		return nil, types.NewError(fmt.Errorf("no lane proven at %d prompt tokens answered for model %s after %d stall(s)", promptTokens, info.OriginModelName, info.LongPromptStalls), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	}
+	if !acquired && unproven != nil && service.TryAcquireLane(unproven) {
+		channel, selectGroup, err, acquired = unproven, unprovenGroup, nil, true
+	}
+	if longPrompt && acquired {
+		logger.LogInfo(c, fmt.Sprintf("long-prompt: %d tokens to lane #%d (%s), proven=%t, proven lane seen=%t, stalls so far=%d", promptTokens, channel.Id, channel.Name, acquiredProven, sawProven, info.LongPromptStalls))
+	}
 	if !acquired && cooled != nil && service.TryAcquireLane(cooled) {
 		channel, selectGroup, err, acquired = cooled, cooledGroup, nil, true
+	}
+	// The hunt leaves the auto group of its LAST draw in the context, and billing
+	// reads the ratio from there: a held lane is charged at its own group.
+	if acquired && common.GetContextKeyString(c, constant.ContextKeyAutoGroup) != "" {
+		common.SetContextKey(c, constant.ContextKeyAutoGroup, selectGroup)
 	}
 	// Excluding the tried channels can empty the candidate set when the model has no
 	// untried sibling left; retrying the same channel still beats failing outright.
@@ -904,6 +966,12 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// it to the rate gate alone is what setting/operation_setting/operation_setting.go
 	// promises when it says a bare capacity 429 "stays rate-gated" - without this the
 	// guard never even counts the failure, and a lane failing 100% stays enabled.
+	if relayInfo != nil && service.IsTransientCapacityCode(err) && relayInfo.GetEstimatePromptTokens() >= service.LongPromptFloor {
+		relayInfo.LongPromptStalls++
+		if stalls := service.RecordLaneStall(channelError.ChannelId, relayInfo.GetEstimatePromptTokens(), c.GetString(common.RequestIdKey)); stalls > 0 {
+			logger.LogInfo(c, fmt.Sprintf("channel-guard: lane #%d (%s) stalled on %d tokens, %d long-prompt stall(s) above its proven size", channelError.ChannelId, channelError.ChannelName, relayInfo.GetEstimatePromptTokens(), stalls))
+		}
+	}
 	softFailure := false
 	if class.Known {
 		switch {
