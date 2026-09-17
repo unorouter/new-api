@@ -31,5 +31,5 @@ dto/user.go :: max=72
 relay/channel/claude/relay-claude.go :: ResponsesStreamState
 controller/channel_authz.go :: channelSensitiveFields
 model/ability.go :: sort.Strings(models)
-constant/channel.go :: prodChannelBaseURLs[channelType]
+constant/channel.go :: ProdChannelBaseURLs[channelType]
 web/src/features/channels/components/drawers/channel-mutate-drawer.tsx :: maxLength={1024}

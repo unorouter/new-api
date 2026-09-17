@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -154,6 +155,7 @@ func GetChannelDefaultBaseURLs(c *gin.Context) {
 			baseURLs[channelType] = baseURL
 		}
 	}
+	maps.Copy(baseURLs, constant.ProdChannelBaseURLs)
 	common.ApiSuccess(c, baseURLs)
 }
 

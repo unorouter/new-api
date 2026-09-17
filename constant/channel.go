@@ -135,7 +135,7 @@ var ChannelBaseURLs = []string{
 }
 
 func GetChannelBaseURL(channelType int) string {
-	if baseURL, ok := prodChannelBaseURLs[channelType]; ok {
+	if baseURL, ok := ProdChannelBaseURLs[channelType]; ok {
 		return baseURL
 	}
 	if channelType < 0 || channelType >= len(ChannelBaseURLs) {
