@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	common2 "github.com/QuantumNous/new-api/common"
@@ -507,6 +508,44 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 //
 // Only the first byte is bounded. The returned deadline must be released the
 // moment headers arrive, or it would abort a generation already streaming.
+// Prefill time grows with the prompt, and a flat first byte limit sized for a
+// chat turn cuts a long one just before it answers: one customer's Codex sessions
+// reached first byte in a median 46s at 300k tokens with a p90 of 171s, and each
+// cut restarted the same prefill cold on another lane.
+const (
+	longPromptFirstByteFloor = 100_000
+	longPromptFirstByteStep  = 40 * time.Second
+	longPromptFirstByteCap   = 300 * time.Second
+)
+
+// longPromptFirstByteAllowance is the extra first byte wait a streamed long
+// prompt earns on top of the platform limit, or 0. Streams only: their SSE pings
+// hold the client and the edge open, while a buffered reply still has to land
+// inside the edge's 100 seconds however long the prompt is.
+func longPromptFirstByteAllowance(info *common.RelayInfo, platform time.Duration) time.Duration {
+	if info == nil || !info.IsStream || info.ForceUpstreamStream {
+		return 0
+	}
+	over := info.GetEstimatePromptTokens() - longPromptFirstByteFloor
+	if over <= 0 {
+		return 0
+	}
+	extra := time.Duration(over/longPromptFirstByteFloor+1) * longPromptFirstByteStep
+	return min(extra, max(longPromptFirstByteCap-platform, 0))
+}
+
+// platformFirstByteDeadline is the platform's own first byte limit for this
+// attempt, or 0 to leave it to the transport. It only exists where the transport
+// ceiling sits above the ordinary limit: there it holds ordinary traffic to that
+// limit and lets a streamed long prompt wait longer.
+func platformFirstByteDeadline(info *common.RelayInfo) time.Duration {
+	platform := time.Duration(common2.FirstByteTimeout) * time.Second
+	if platform <= 0 || platform >= service.ResponseHeaderCeiling() {
+		return 0
+	}
+	return platform + longPromptFirstByteAllowance(info, platform)
+}
+
 func firstTokenDeadline(c *gin.Context, info *common.RelayInfo) time.Duration {
 	if info == nil {
 		return 0
@@ -589,9 +628,23 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	// NOT cancelled on success: cancelling it would close the very body being
 	// returned. It is cancelled only on the error path, where there is no body.
 	var stopFirstTokenTimer func()
-	if wait := firstTokenDeadline(c, info); wait > 0 {
+	// The platform limit expiring is an upstream stall and must read as one. The
+	// cancel it fires looks like a client hangup to net/http, so it is flagged. A
+	// limit the user set tighter is their choice, not the lane's fault, and stays
+	// unflagged as before.
+	var platformLimitHit atomic.Bool
+	wait := firstTokenDeadline(c, info)
+	platformWait := platformFirstByteDeadline(info)
+	platformOwned := platformWait > 0 && (wait == 0 || platformWait <= wait)
+	if platformOwned {
+		wait = platformWait
+	}
+	if wait > 0 {
 		headerCtx, cancelHeader := context.WithCancel(req.Context())
-		timer := time.AfterFunc(wait, cancelHeader)
+		timer := time.AfterFunc(wait, func() {
+			platformLimitHit.Store(platformOwned)
+			cancelHeader()
+		})
 		stopFirstTokenTimer = func() {
 			timer.Stop()
 		}
@@ -629,7 +682,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		// AutomaticDisableStatusCodes by design: the failure-rate guard in
 		// RecordChannelFailure still gates whether a channel is actually pulled, and
 		// the scheduled probe re-enables it once the upstream recovers.
-		if types.IsUpstreamTimeoutError(err) && !errors.Is(c.Request.Context().Err(), context.Canceled) {
+		if (types.IsUpstreamTimeoutError(err) || platformLimitHit.Load()) && !errors.Is(c.Request.Context().Err(), context.Canceled) {
 			return nil, types.NewOpenAIError(
 				errors.New("the upstream provider is saturated and did not respond in time. Please retry: the request has already been failed over to any other provider serving this model"),
 				types.ErrorCodeChannelResponseTimeExceeded, http.StatusTooManyRequests)

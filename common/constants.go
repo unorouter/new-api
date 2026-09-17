@@ -222,6 +222,13 @@ var RelayTimeout int // unit is second
 // AWS relay context and the whole-response client timeout.
 var ResponseHeaderTimeout int // unit is second
 
+// FirstByteTimeout is how long an ordinary attempt may wait for the upstream's
+// first byte. ResponseHeaderTimeout is the transport's hard ceiling above it: a
+// streamed long prompt is allowed past this limit, up to that ceiling, and
+// nothing else is. With the ceiling at or under this value the limit is simply
+// the ceiling, as before.
+var FirstByteTimeout int // unit is second
+
 var RelayIdleConnTimeout int // unit is second
 
 // RelayResponseHeaderTimeout limits how long the relay transport waits for the
