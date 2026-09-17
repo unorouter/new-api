@@ -5500,6 +5500,7 @@
     "succeeded": "thành công",
     "Success": "Thành công",
     "Success rate": "Tỷ lệ thành công",
+    "Success rate excludes business rejections and includes the current partial hour.": "Tỷ lệ thành công loại trừ các yêu cầu bị từ chối do quy tắc nghiệp vụ và bao gồm giờ hiện tại chưa kết thúc.",
     "Successful scheduled or bulk checks can restore automatically disabled channels. Manually disabled channels stay disabled.": "Kiểm tra định kỳ hoặc hàng loạt thành công có thể khôi phục kênh bị tự động vô hiệu hóa. Kênh tắt thủ công vẫn bị tắt.",
     "Successfully created {{count}} API Key(s)": "Đã tạo thành công {{count}} khóa API",
     "Successfully created {{count}} redemption codes": "Đã tạo thành công {{count}} mã đổi thưởng",

@@ -5500,6 +5500,7 @@
     "succeeded": "succeeded",
     "Success": "Success",
     "Success rate": "Success rate",
+    "Success rate excludes business rejections and includes the current partial hour.": "Success rate excludes business rejections and includes the current partial hour.",
     "Successful scheduled or bulk checks can restore automatically disabled channels. Manually disabled channels stay disabled.": "Successful scheduled or bulk checks can restore automatically disabled channels. Manually disabled channels stay disabled.",
     "Successfully created {{count}} API Key(s)": "Successfully created {{count}} API Key(s)",
     "Successfully created {{count}} redemption codes": "Successfully created {{count}} redemption codes",

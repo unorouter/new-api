@@ -5500,6 +5500,7 @@
     "succeeded": "réussi",
     "Success": "Succès",
     "Success rate": "Taux de réussite",
+    "Success rate excludes business rejections and includes the current partial hour.": "Le taux de réussite exclut les rejets métier et inclut l’heure en cours.",
     "Successful scheduled or bulk checks can restore automatically disabled channels. Manually disabled channels stay disabled.": "Les contrôles périodiques ou groupés réussis peuvent rétablir les canaux désactivés automatiquement. Ceux désactivés manuellement le restent.",
     "Successfully created {{count}} API Key(s)": "{{count}} clé(s) API créée(s) avec succès",
     "Successfully created {{count}} redemption codes": "{{count}} codes de réduction créés avec succès",

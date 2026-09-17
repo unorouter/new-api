@@ -5500,6 +5500,7 @@
     "succeeded": "успешно",
     "Success": "Успешно",
     "Success rate": "Доля успешных запросов",
+    "Success rate excludes business rejections and includes the current partial hour.": "Доля успешных запросов не учитывает отказы по бизнес-правилам и включает текущий неполный час.",
     "Successful scheduled or bulk checks can restore automatically disabled channels. Manually disabled channels stay disabled.": "Успешные периодические или массовые проверки могут восстановить автоматически отключённые каналы. Отключённые вручную остаются отключёнными.",
     "Successfully created {{count}} API Key(s)": "Успешно создано {{count}} API-ключ(а/ей)",
     "Successfully created {{count}} redemption codes": "Успешно создано {{count}} кодов активации",
