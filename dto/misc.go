@@ -65,7 +65,7 @@ type StatusData struct {
 	PasskeyLogin               bool        `json:"passkey_login"`
 	PasskeyDisplayName         string      `json:"passkey_display_name"`
 	PasskeyRpId                string      `json:"passkey_rp_id"`
-	PasskeyOrigins             string      `json:"passkey_origins"`
+	PasskeyRpIds               []string    `json:"passkey_rp_ids"`
 	PasskeyAllowInsecure       bool        `json:"passkey_allow_insecure"`
 	PasskeyUserVerification    string      `json:"passkey_user_verification"`
 	PasskeyAttachment          string      `json:"passkey_attachment"`
