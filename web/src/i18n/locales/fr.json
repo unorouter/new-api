@@ -6665,6 +6665,8 @@
     "Network reputation window (days)": "Fenêtre de réputation du réseau (jours)",
     "How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.": "Profondeur d'historique des inscriptions prise en compte pour évaluer un réseau. Plus longue, elle détecte les fermes qui s'inscrivent lentement ; plus courte, elle laisse un réseau assaini récupérer plus vite.",
     "Reset the weekly quota for every active subscription on {{plan}}. This affects all subscribers, not one user. To reset a single user, open Users and use the Subscriptions row action.": "Réinitialiser le quota hebdomadaire de tous les abonnements actifs du forfait {{plan}}. Cette action affecte tous les abonnés, pas un seul utilisateur. Pour réinitialiser un seul utilisateur, ouvrez Utilisateurs et utilisez l'action Abonnements sur sa ligne.",
-    "Yes, reset every subscriber on this plan": "Oui, réinitialiser tous les abonnés de ce forfait"
+    "Yes, reset every subscriber on this plan": "Oui, réinitialiser tous les abonnés de ce forfait",
+    "Generate images through the AI Horde volunteer network": "Générer des images via le réseau de bénévoles AI Horde",
+    "Generate images with Runware, including Civitai checkpoints": "Générer des images avec Runware, y compris les checkpoints Civitai"
   }
 }

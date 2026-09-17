@@ -8,7 +8,7 @@ const (
 	ChannelTypeRunware = 1002 // sync image-gen adaptor, addresses Civitai checkpoints by AIR
 )
 
-var prodChannelBaseURLs = map[int]string{
+var ProdChannelBaseURLs = map[int]string{
 	ChannelTypeAIHorde: "https://aihorde.net",
 	ChannelTypeRunware: "https://api.runware.ai",
 }
