@@ -227,6 +227,17 @@ func (e TokenPinEntry) HasBand() bool {
 	return e.Min != nil || e.Max != nil
 }
 
+// TokenPinsModel reports whether the token holds this model to named groups or a
+// price band. An entry that names neither leaves the model on the normal chain,
+// so clearing every box is not a pin and must not fail a request.
+func TokenPinsModel(mapping map[string]TokenPinEntry, model string) bool {
+	entry, ok := mapping[model]
+	if !ok || entry.Auto {
+		return false
+	}
+	return len(entry.Groups) > 0 || entry.HasBand()
+}
+
 // ParseTokenGroupMapping parses a token's per-model group mapping JSON
 // ({"model":{"groups":["group",...],"min":0.02,"max":0.05}}). Returns nil on
 // empty or invalid input; callers rely on nil meaning "invalid" (validation)
