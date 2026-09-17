@@ -54,6 +54,17 @@ spec:
       backup.velero.io/backup-volumes-excludes: pgdata,scratch-data,shm
   imageName: ghcr.io/cloudnative-pg/postgresql:15-standard-bookworm
   instances: 3
+  # required, not the default preferred: a replacement replica landed next to another
+  # instance twice during the node rolls (2026-09-17). Pending until its node is back beats
+  # two instances on one node.
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    podAntiAffinityType: required
+  # A primary restart or switchover costs about ten seconds of failed connects in new-api
+  # (2026-09-17). Spec changes roll the replicas on their own; the primary waits for
+  # `kubectl cnpg promote newapi-pg <replica> -n databases` at a quiet moment.
+  primaryUpdateStrategy: supervised
   # 2026-09-02: five primary moves in 40 minutes. Four were manual promotes, but
   # the reason they were being made is that node1 (4 cores, also etcd leader,
   # Prometheus, ArgoCD) saturates within 90s of hosting the primary, and with no
