@@ -399,6 +399,7 @@ func handleSubscriptionTerminated(c *gin.Context, event *dto.CreemWebhookEvent, 
 	if subId == 0 {
 		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem %s ended no subscription, nothing active matched this Creem subscription event_id=%s sub_id=%s user_id=%d", event.EventType, event.Id, event.Object.Id, userId))
 	} else {
+		service.ClearTerminatedSubscriptionPerks(userId, event.EventType == "refund.created")
 		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem %s subscription ended event_id=%s user_id=%d subscription_id=%d", event.EventType, event.Id, userId, subId))
 	}
 	c.Status(http.StatusOK)
@@ -475,6 +476,7 @@ func handleTopUpReversal(c *gin.Context, event *dto.CreemWebhookEvent, rawBody s
 		if terr != nil && !errors.Is(terr, model.ErrSubscriptionOrderNotFound) {
 			logger.LogError(ctx, fmt.Sprintf("Creem dispute subscription termination failed event_id=%s error=%q", event.Id, terr.Error()))
 		} else if subId != 0 {
+			service.ClearTerminatedSubscriptionPerks(res.UserId, true)
 			logger.LogInfo(ctx, fmt.Sprintf("Creem dispute subscription ended event_id=%s user_id=%d subscription_id=%d", event.Id, res.UserId, subId))
 		}
 	}

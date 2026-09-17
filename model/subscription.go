@@ -1517,8 +1517,10 @@ func ActiveSubscribersForPerk(limit int, startedSince int64) []ActiveSubscriberP
 }
 
 // UsersWithLapsedSubscriptionPerk lists users holding a free-model rate limit
-// discount whose subscription lapsed inside the last `since` seconds and who
-// have no active one left. The discount lives on the user, not the subscription
+// discount whose subscription ended inside the last `since` seconds and who
+// have no active one left. Both endings count: a refund writes "cancelled" and
+// only a run to term writes "expired", so matching expiry alone left every
+// refunded subscriber holding the discount their money bought. The discount lives on the user, not the subscription
 // row, so expiring the row does not revoke it.
 //
 // Scoped to RECENT expiries on purpose. Selecting every user who holds a
@@ -1540,7 +1542,7 @@ func UsersWithLapsedSubscriptionPerk(limit int, since int64) []int {
 			DB.Model(&UserSubscription{}).
 				Select("1").
 				Where("user_subscriptions.user_id = users.id").
-				Where("status = ? AND updated_at >= ?", "expired", now-since),
+				Where("status IN ? AND updated_at >= ?", []string{"expired", "cancelled"}, now-since),
 		).
 		Where("NOT EXISTS (?)",
 			DB.Model(&UserSubscription{}).
