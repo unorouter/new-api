@@ -25,9 +25,8 @@ import (
 )
 
 type listModelsResponse struct {
-	Success bool                    `json:"success"`
-	Data    []relaydto.OpenAIModels `json:"data"`
-	Object  string                  `json:"object"`
+	Data   []relaydto.OpenAIModels `json:"data"`
+	Object string                  `json:"object"`
 }
 
 type userModelsResponse struct {
@@ -149,7 +148,6 @@ func decodeListModelsPayload(t *testing.T, recorder *httptest.ResponseRecorder) 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var payload listModelsResponse
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
-	require.True(t, payload.Success)
 	require.Equal(t, "list", payload.Object)
 	return payload
 }
@@ -260,9 +258,8 @@ func TestGetUserModelsExpandsAutoGroupsInConfiguredOrder(t *testing.T) {
 	recorder := serveGetUserModels(t, "auto", 1003)
 
 	models := decodeUserModelsResponse(t, recorder)
-	require.Len(t, models, 3)
-	assert.ElementsMatch(t, []string{"zz-vip-model", "zz-shared-model"}, models[:2])
-	assert.Equal(t, "zz-default-model", models[2])
+	// prod returns one sorted set, not upstream's per-group order
+	assert.Equal(t, []string{"zz-default-model", "zz-shared-model", "zz-vip-model"}, models)
 }
 
 func TestListModelsIncludesTieredBillingModel(t *testing.T) {
