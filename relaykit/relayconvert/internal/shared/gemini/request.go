@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
+	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 )
 
@@ -163,9 +164,19 @@ func ApplyThinkingConfig(geminiRequest *dto.GeminiChatRequest, info convmeta.Met
 	}
 	requested = reasoning.ResolveGeminiEnabledDefault(baseModel, requested, geminiRequest.GenerationConfig.MaxOutputTokens)
 
+	// A client speaking another protocol has no portable field for the thinking
+	// text, so it never arrives and the caller still pays for the thoughts a
+	// gemini-3 model produces regardless. Ask for them when nothing in the
+	// request has an opinion.
+	showThoughtsByDefault := crossProtocol &&
+		opts.Gemini.IncludeThoughtsDefaultEnabled &&
+		reasoning.GeminiSupportsThoughtVisibility(baseModel)
+
 	if native.HasStrength() && !suffix.HasStrength() {
 		if explicit.IncludeThoughts != nil {
 			geminiRequest.GenerationConfig.ThinkingConfig.IncludeThoughts = explicit.IncludeThoughts
+		} else if showThoughtsByDefault {
+			geminiRequest.GenerationConfig.ThinkingConfig.IncludeThoughts = kitutil.GetPointer(true)
 		}
 		effort, err := reasoning.ValidateGeminiThinkingConfig(baseModel, geminiRequest.GenerationConfig.ThinkingConfig)
 		if err != nil {
@@ -175,6 +186,9 @@ func ApplyThinkingConfig(geminiRequest *dto.GeminiChatRequest, info convmeta.Met
 			info.SetReasoningEffort(string(effort))
 		}
 		return nil
+	}
+	if requested.IncludeThoughts == nil && showThoughtsByDefault {
+		requested.IncludeThoughts = kitutil.GetPointer(true)
 	}
 	if requested.IsEmpty() {
 		return nil
