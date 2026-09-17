@@ -1869,6 +1869,8 @@
     "Downgrade to this group after the subscription expires": "サブスクリプションの有効期限が切れた後、このグループにダウングレードします",
     "Download": "ダウンロード",
     "Drag {{group}} to reorder": "{{group}} をドラッグして並べ替え",
+    "Drag to move": "ドラッグして移動",
+    "Drag to resize": "ドラッグしてサイズ変更",
     "Draw": "描画",
     "Drawing": "画像生成",
     "Drawing logs": "描画ログ",

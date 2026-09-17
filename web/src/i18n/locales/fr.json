@@ -1869,6 +1869,8 @@
     "Downgrade to this group after the subscription expires": "Rétrograder vers ce groupe après l'expiration de l'abonnement",
     "Download": "Télécharger",
     "Drag {{group}} to reorder": "Faites glisser {{group}} pour réorganiser",
+    "Drag to move": "Glisser pour déplacer",
+    "Drag to resize": "Glisser pour redimensionner",
     "Draw": "Dessin",
     "Drawing": "Dessin",
     "Drawing logs": "Journaux de dessin",

@@ -1869,6 +1869,8 @@
     "Downgrade to this group after the subscription expires": "Понизить до этой группы после истечения подписки",
     "Download": "Скачать",
     "Drag {{group}} to reorder": "Перетащите {{group}}, чтобы изменить порядок",
+    "Drag to move": "Перетащите, чтобы переместить",
+    "Drag to resize": "Перетащите, чтобы изменить размер",
     "Draw": "Рисование",
     "Drawing": "Рисование",
     "Drawing logs": "Журналы рисования",

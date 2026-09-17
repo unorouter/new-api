@@ -1869,6 +1869,8 @@
     "Downgrade to this group after the subscription expires": "订阅过期后降级到该分组",
     "Download": "下载",
     "Drag {{group}} to reorder": "拖动 {{group}} 以重新排序",
+    "Drag to move": "拖动以移动",
+    "Drag to resize": "拖动以调整大小",
     "Draw": "绘图",
     "Drawing": "绘图",
     "Drawing logs": "绘制日志",
