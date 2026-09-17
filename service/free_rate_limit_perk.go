@@ -126,3 +126,43 @@ func ClearSubscriptionRateLimitPerk(userId int) {
 	}
 	logger.LogInfo(ctx, fmt.Sprintf("subscription expired for user %d, rate-limit discount now %d", userId, next))
 }
+
+// ClearTerminatedSubscriptionPerks takes back what the purchase paid for once a
+// subscription ends. The plan's rate-limit discount always goes; the
+// unlimited-free-models grant goes only when the money went back, because that
+// one is handed out by hand with a sale and a plain expiry is not a reason to
+// withdraw it. A user still holding another live subscription keeps both.
+//
+// The webhook calls this directly so access stops with the money. The sweep in
+// the reset task is the net behind it for anything that never reached here.
+func ClearTerminatedSubscriptionPerks(userId int, moneyReturned bool) {
+	if userId <= 0 {
+		return
+	}
+	// A lookup that failed leaves the perks alone: keeping a discount too long is
+	// cheaper than stripping a paying subscriber on a database hiccup.
+	active, err := model.HasActiveUserSubscription(userId)
+	if err != nil || active {
+		return
+	}
+	ClearSubscriptionRateLimitPerk(userId)
+	if !moneyReturned {
+		return
+	}
+	ctx := context.Background()
+	user, err := model.GetUserById(userId, false)
+	if err != nil || user == nil {
+		return
+	}
+	userSetting := user.GetSetting()
+	if !userSetting.UnlimitedFreeModels {
+		return
+	}
+	userSetting.UnlimitedFreeModels = false
+	if err := model.UpdateUserSetting(userId, userSetting); err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("failed to revoke unlimited-free-models for user %d: %v", userId, err))
+		return
+	}
+	model.RecordLog(userId, model.LogTypeManage, "unlimited free models revoked, the subscription it came with was refunded")
+	logger.LogInfo(ctx, fmt.Sprintf("subscription refunded for user %d, unlimited-free-models revoked", userId))
+}
