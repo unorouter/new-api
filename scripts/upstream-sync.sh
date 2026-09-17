@@ -25,7 +25,7 @@ conflicts() { git diff --name-only --diff-filter=U; }
 # The rewritten history still holds a commit with the identical tree: anchor on it.
 twin_of() {
   git merge-base --is-ancestor "$1" "$UP" && { echo "$1"; return; }
-  git log --format='%H %T' "$UP" | awk -v t="$(git rev-parse "$1^{tree}")" '$2==t{print $1; exit}'
+  git log --format='%H %T' "$UP" | awk -v t="$(git rev-parse "$1^{tree}")" '$2==t && !f{print $1; f=1}'
 }
 
 reanchor() {
