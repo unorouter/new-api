@@ -30,6 +30,10 @@ type GetChannelDiagnosticStatsParams struct {
 	Limit          int    `query:"limit"           description:"Max channels returned (0 = all)"`
 }
 
+type GetLanePromptCapacityParams struct {
+	ModelName string `query:"model_name" description:"Model whose lanes to report (required)"`
+}
+
 type PruneChannelDiagnosticsParams struct {
 	BeforeTimestamp int64 `query:"before_timestamp" description:"Delete rows older than this unix-second cutoff"`
 }
