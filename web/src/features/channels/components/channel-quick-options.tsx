@@ -24,6 +24,7 @@ import { FieldGroup } from '@/components/ui/field'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { SettingsSwitchField } from '@/features/system-settings/components/settings-form-layout'
+import { ChannelHealthSource } from '@/features/system-settings/request-policies/related-policy-link'
 import { cn } from '@/lib/utils'
 
 import { CHANNEL_TYPE_TASK_PLUGIN, MODEL_FETCHABLE_TYPES } from '../constants'
@@ -89,7 +90,7 @@ export function ChannelQuickOptions(props: ChannelQuickOptionsProps) {
   options.push({
     key: 'auto-ban',
     label: t('Auto-disable channel'),
-    description: t('Disable channels on repeated failures'),
+    description: <ChannelHealthSource autoBan={(autoBan ?? 1) === 1} />,
     checked: (autoBan ?? 1) === 1,
     onCheckedChange: (value) =>
       form.setValue('auto_ban', value ? 1 : 0, {

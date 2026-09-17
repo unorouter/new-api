@@ -18,6 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
+  createRouter,
+  createRootRoute,
+  createMemoryHistory,
+  RouterContextProvider,
+} from '@tanstack/react-router'
+import {
   act,
   cleanup,
   fireEvent,
@@ -95,18 +101,28 @@ function ConfigurationHarness(props: {
   clearRowOnClose?: boolean
 }) {
   const [open, setOpen] = useState(props.initialOpen ?? true)
+  const [router] = useState(() =>
+    createRouter({
+      routeTree: createRootRoute(),
+      history: createMemoryHistory({ initialEntries: ['/'] }),
+    })
+  )
   return (
     <QueryClientProvider client={client}>
-      <ChannelsProvider>
-        <button type='button' onClick={() => setOpen(true)}>
-          Open channel
-        </button>
-        <ChannelMutateDrawer
-          open={open}
-          onOpenChange={setOpen}
-          currentRow={open || !props.clearRowOnClose ? props.currentRow : null}
-        />
-      </ChannelsProvider>
+      <RouterContextProvider router={router}>
+        <ChannelsProvider>
+          <button type='button' onClick={() => setOpen(true)}>
+            Open channel
+          </button>
+          <ChannelMutateDrawer
+            open={open}
+            onOpenChange={setOpen}
+            currentRow={
+              open || !props.clearRowOnClose ? props.currentRow : null
+            }
+          />
+        </ChannelsProvider>
+      </RouterContextProvider>
     </QueryClientProvider>
   )
 }
