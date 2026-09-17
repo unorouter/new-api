@@ -126,9 +126,9 @@ func Distribute() func(c *gin.Context) {
 							return candidates
 						}
 					}
+					matchName := ratio_setting.FormatMatchingModelName(modelRequest.Model)
 					mappedGroup := service.ResolveTokenGroupForModel(mapping, accountGroup, modelRequest.Model, "", candidatesFor(modelRequest.Model))
 					if mappedGroup == "" {
-						matchName := ratio_setting.FormatMatchingModelName(modelRequest.Model)
 						mappedGroup = service.ResolveTokenGroupForModel(mapping, accountGroup, matchName, "", candidatesFor(matchName))
 					}
 					if mappedGroup != "" {
@@ -136,6 +136,15 @@ func Distribute() func(c *gin.Context) {
 						common.SetContextKey(c, constant.ContextKeyUsingGroup, mappedGroup)
 						common.SetContextKey(c, constant.ContextKeyTokenGroup, mappedGroup)
 						common.SetContextKey(c, constant.ContextKeyTokenGroupMappingApplied, true)
+					} else if service.TokenPinsModel(mapping, modelRequest.Model) ||
+						service.TokenPinsModel(mapping, matchName) {
+						// Nothing the pin allows is enabled right now. Falling through here
+						// dropped the pin and billed the caller on the open chain, so a price
+						// ceiling stopped existing exactly when every lane under it went down.
+						abortWithOpenAiMessage(c, http.StatusServiceUnavailable,
+							fmt.Sprintf("No provider for \"%s\" is available within the limits pinned on this API key right now. The model is served by other providers outside those limits. Widen or clear the pin in your key settings, or wait for the pinned providers to come back.", modelRequest.Model),
+							types.ErrorCodeGetChannelFailed)
+						return
 					}
 				}
 				// per-request group override via header (any relay path).
