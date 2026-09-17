@@ -1,27 +1,27 @@
+middleware/auth.go: // Role is RoleAdminUser, NOT root: the option route is the only thing that ever
 middleware/auth.go: authHelper(c, common.RoleAdminUser)
 middleware/auth.go: authHelper(c, common.RoleRootUser)
 middleware/auth.go: c.Set("role", common.RoleAdminUser)
 middleware/auth.go: if !AuthenticatedViaPAT(c) || c.GetInt("role") < common.RoleAdminUser {
 middleware/auth.go: if minRole >= common.RoleAdminUser {
 middleware/auth.go: if user.Role >= common.RoleAdminUser {
-middleware/auth.go: // Role is RoleAdminUser, NOT root: the option route is the only thing that ever
 model/audit_log.go: case common.RoleCommonUser, common.RoleAdminUser, common.RoleRootUser:
-model/audit_log.go: } else if !filter.SelfView && viewerRole >= common.RoleAdminUser {
 model/audit_log.go: if !filter.SelfView && viewerRole >= common.RoleRootUser {
 model/audit_log.go: if user.Role < common.RoleRootUser {
 model/audit_log.go: if viewerRole < common.RoleRootUser {
 model/audit_log.go: query = query.Where("actor_role IN ?", []int{common.RoleCommonUser, common.RoleAdminUser})
+model/audit_log.go: } else if !filter.SelfView && viewerRole >= common.RoleAdminUser {
 model/main.go: Role: common.RoleRootUser,
 model/usedata_flow.go: case role >= common.RoleRootUser:
 model/user.go: // DB.Model(&User{}).Where("role = ?", common.RoleRootUser).Select("email").Find(&email)
 model/user.go: DB.Where("role = ?", common.RoleRootUser).First(&user)
-model/user.go: } else if userRole == common.RoleAdminUser {
-model/user.go: } else if userRole == common.RoleRootUser {
 model/user.go: err := DB.Where("role = ?", common.RoleRootUser).First(&user).Error
 model/user.go: func IsAdmin(userId int) bool {
 model/user.go: if err := tx.Model(&User{}).Where("id = ? AND role <> ?", userId, common.RoleRootUser).Update("status", common.UserStatusDisabled).Error; err != nil {
 model/user.go: if role == common.RoleRootUser {
 model/user.go: return user.Role >= common.RoleAdminUser
+model/user.go: } else if userRole == common.RoleAdminUser {
+model/user.go: } else if userRole == common.RoleRootUser {
 model/user_quota_adjustment.go: if operatorRole != common.RoleRootUser && operatorRole <= user.Role {
 relay/helper/price.go: if model.IsAdmin(userId) {
 service/authz/assignment.go: case systemRole >= common.RoleAdminUser:
