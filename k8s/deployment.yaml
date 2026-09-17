@@ -58,6 +58,15 @@ spec:
                   - key: kubernetes.io/hostname
                     operator: NotIn
                     values: [unorouter-node1]
+        # Spread master and slaves over the nodes: after the 2026-09-17 rolls all three
+        # sat on two nodes and the third served no gateway traffic.
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels: { app: new-api }
+                topologyKey: kubernetes.io/hostname
       priorityClassName: serving
       imagePullSecrets:
         - name: ghcr-pull
@@ -182,6 +191,12 @@ spec:
               podAffinityTerm:
                 labelSelector:
                   matchLabels: { app: new-api, tier: slave }
+                topologyKey: kubernetes.io/hostname
+            # and, weaker, away from the master, so three pods take three nodes
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels: { app: new-api }
                 topologyKey: kubernetes.io/hostname
       priorityClassName: serving
       imagePullSecrets:
