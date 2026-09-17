@@ -17,12 +17,14 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	passkeysvc "github.com/QuantumNous/new-api/service/passkey"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/stretchr/testify/assert"
@@ -65,21 +67,23 @@ func TestGetStatusDoesNotExposePasskeyOrigins(t *testing.T) {
 	for _, origins := range []string{"https://www.example.com,https://private.example.com", "", "[]"} {
 		t.Run("origins="+origins, func(t *testing.T) {
 			settings.Origins = origins
-			response := httptest.NewRecorder()
-			context, _ := gin.CreateTestContext(response)
-			context.Request = httptest.NewRequest(http.MethodGet, "/api/status", nil)
+			ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ginCtx.Request = httptest.NewRequest(http.MethodGet, "/api/status", nil)
+			ctx := fuego.NewMockContext[any, any](nil, nil)
+			ctx.CommonCtx = ginCtx
 
-			GetStatus(context)
-
-			require.Equal(t, http.StatusOK, response.Code)
+			status, err := GetStatus(ctx)
+			require.NoError(t, err)
+			body, err := common.Marshal(status)
+			require.NoError(t, err)
 			var payload struct {
 				Success bool           `json:"success"`
 				Data    map[string]any `json:"data"`
 			}
-			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &payload))
+			require.NoError(t, common.Unmarshal(body, &payload))
 			require.True(t, payload.Success)
 			assert.NotContains(t, payload.Data, "passkey_origins")
-			assert.NotContains(t, response.Body.String(), "private.example.com")
+			assert.NotContains(t, string(body), "private.example.com")
 			assert.Equal(t, true, payload.Data["passkey_login"])
 			assert.Equal(t, origins, settings.Origins)
 		})
@@ -382,9 +386,17 @@ func TestPasskeyDomainPreviewConfirmationAndAudit(t *testing.T) {
 	assert.Empty(t, options, "preview must not materialize default rows")
 	assert.Equal(t, "www.example.com,WWW.example.com", settings.LegacyRPIDs)
 	assert.ErrorIs(t, model.UpdateOptionsBulk(map[string]string{"passkey.legacy_rp_ids": upper, "Notice": "must roll back"}), model.ErrPasskeyDomainRemovalConfirmation)
-	blocked := passkeyDomainRequest(t, "/api/option/", map[string]string{"key": "passkey.legacy_rp_ids", "value": upper}, identity, "https://example.com", UpdateOption)
-	assert.Equal(t, http.StatusConflict, blocked.Code)
-	assert.Contains(t, blocked.Body.String(), "PASSKEY_RP_ID_REMOVAL_CONFIRMATION_REQUIRED")
+	// prod's UpdateOption is fuego: a removal that needs confirmation fails in the
+	// envelope, the 409 flow only exists on the dedicated endpoint below.
+	blockedGin, _ := gin.CreateTestContext(httptest.NewRecorder())
+	blockedGin.Request = httptest.NewRequest(http.MethodPut, "/api/option/", nil)
+	blockedGin.Set("role", common.RoleRootUser)
+	blockedCtx := fuego.NewMockContext[dto.OptionUpdateRequest, any](dto.OptionUpdateRequest{Key: "passkey.legacy_rp_ids", Value: upper}, nil)
+	blockedCtx.CommonCtx = blockedGin
+	blocked, blockedErr := UpdateOption(blockedCtx)
+	require.NoError(t, blockedErr)
+	assert.False(t, blocked.Success)
+	assert.Equal(t, "www.example.com,WWW.example.com", settings.LegacyRPIDs)
 	request["preview"] = false
 	request["removal_confirmation"] = preview.RemovalConfirmation
 	// A new unknown credential makes the reviewed impact stale.
@@ -407,7 +419,8 @@ func TestPasskeyDomainPreviewConfirmationAndAudit(t *testing.T) {
 	for _, audit := range audits {
 		if audit.Action == "option.passkey_domains_blocked" {
 			assert.False(t, audit.Success)
-			assert.Equal(t, http.StatusConflict, audit.Status)
+			// 200 is the generic fuego UpdateOption attempt above: it fails in the envelope
+			assert.Contains(t, []int{http.StatusOK, http.StatusConflict}, audit.Status)
 		}
 		if audit.Action == "option.passkey_domains_confirmed" {
 			assert.True(t, audit.Success)
@@ -678,15 +691,17 @@ func TestPasskeyDomainErrorsRespectRequestLanguage(t *testing.T) {
 				path, body, code, message string
 				handler                   gin.HandlerFunc
 			}{
-				{"/api/option/", `{"key":"passkey.rp_id","value":"localhost:3000"}`, "PASSKEY_RP_ID_INVALID", locale.invalid, UpdateOption},
-				{"/api/option/", `{"key":"passkey.legacy_rp_ids","value":"localhost:3001"}`, "PASSKEY_RP_ID_INVALID", locale.invalid, UpdateOption},
-				{"/api/option/", `{"key":"passkey.legacy_rp_ids","value":""}`, "PASSKEY_RP_ID_REMOVAL_CONFIRMATION_REQUIRED", locale.removal, UpdateOption},
+				// prod's generic UpdateOption is fuego and has no coded errors, so the
+				// same three faults go through the dedicated endpoint.
+				{"/api/option/passkey/domains", `{"rp_id":"localhost:3000","legacy_rp_ids":"www.example.com","origins":""}`, "PASSKEY_RP_ID_INVALID", locale.invalid, UpdatePasskeyDomains},
+				{"/api/option/passkey/domains", `{"rp_id":"","legacy_rp_ids":"localhost:3001","origins":""}`, "PASSKEY_RP_ID_INVALID", locale.invalid, UpdatePasskeyDomains},
+				{"/api/option/passkey/domains", `{"rp_id":"","legacy_rp_ids":"","origins":""}`, "PASSKEY_RP_ID_REMOVAL_CONFIRMATION_REQUIRED", locale.removal, UpdatePasskeyDomains},
 				{"/api/user/passkey/login/begin", `{"rp_id":"unconfigured.example.com"}`, "PASSKEY_RP_ID_UNAVAILABLE", locale.unavailable, PasskeyLoginBegin},
 			} {
 				response := httptest.NewRecorder()
 				c, _ := gin.CreateTestContext(response)
 				method := http.MethodPost
-				if request.path == "/api/option/" {
+				if request.path == "/api/option/passkey/domains" {
 					method = http.MethodPut
 				}
 				c.Request = httptest.NewRequest(method, request.path, strings.NewReader(request.body))
