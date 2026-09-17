@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils'
 
 import { CHANNEL_TYPE_TASK_PLUGIN, MODEL_FETCHABLE_TYPES } from '../constants'
 import type { ChannelFormValues } from '../lib/channel-form'
+import { supportsResponsesWebSocket } from '../lib/responses-websocket'
 
 type ChannelQuickOptionsProps = {
   channelType: number
@@ -110,7 +111,7 @@ export function ChannelQuickOptions(props: ChannelQuickOptionsProps) {
       disabled: sensitiveDisabled,
     })
   }
-  if (props.channelType === 1 || props.channelType === 57) {
+  if (supportsResponsesWebSocket(props.channelType)) {
     options.push({
       key: 'websocket',
       label: t('Responses WebSocket'),

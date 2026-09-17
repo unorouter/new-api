@@ -1494,7 +1494,7 @@ test('request processing configuration does not mark the network category as con
   ).not.toHaveAccessibleName(/Configured/)
 })
 
-test.each([1, 57])(
+test.each([1, 57, 58, 59, 60])(
   'provider %s marks a saved Responses WebSocket setting in Request & Response and clears the mark when disabled',
   async (type) => {
     editingChannel = {
@@ -1518,6 +1518,31 @@ test.each([1, 57])(
     await user.click(toggle)
     expect(toggle).not.toBeChecked()
     expect(requestTab).not.toHaveAccessibleName(/Configured/)
+  }
+)
+
+test.each([
+  [58, true],
+  [1, false],
+])(
+  'provider %s explains the native-route limit under the Responses WebSocket toggle: %s',
+  async (type, shown) => {
+    editingChannel = { ...editingChannel, type }
+    const user = userEvent.setup()
+    render(<ConfigurationHarness currentRow={editingChannel} />)
+    await screen.findByDisplayValue('Existing channel')
+    await user.click(screen.getByRole('tab', { name: /Request & Response/ }))
+    expect(
+      screen.getByRole('switch', { name: 'Enable Responses WebSocket' })
+    ).toBeVisible()
+    const note = screen.queryByText(
+      /applies only to \/v1\/responses routes without protocol conversion/
+    )
+    if (shown) {
+      expect(note).toBeVisible()
+    } else {
+      expect(note).not.toBeInTheDocument()
+    }
   }
 )
 
