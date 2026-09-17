@@ -332,7 +332,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// A prompt past the model's window fails on every lane, and each lane it visits
 	// waits out a first-byte timeout and takes a failure for it (one customer sent
 	// 140 of these in a day, up to 42M tokens). The margin covers estimator error.
-	if window := model.GetCachedModelLimits(relayInfo.OriginModelName).ContextLength; window > 0 && tokens > window+window/10 {
+	// Generation only: an embedding or rerank batch is many inputs, each under the
+	// window, and its total says nothing about any of them.
+	generation := relayInfo.RelayMode == relayconstant.RelayModeChatCompletions || relayInfo.RelayMode == relayconstant.RelayModeCompletions ||
+		relayInfo.RelayMode == relayconstant.RelayModeResponses || relayInfo.RelayFormat == types.RelayFormatClaude || relayInfo.RelayFormat == types.RelayFormatGemini
+	if window := model.GetCachedModelLimits(relayInfo.OriginModelName).ContextLength; generation && window > 0 && tokens > window+window/10 {
 		newAPIError = types.NewErrorWithStatusCode(
 			fmt.Errorf("This request is about %d tokens and %s accepts at most %d. Shorten the conversation or start a new session, then retry.", tokens, relayInfo.OriginModelName, window),
 			"context_length_exceeded", http.StatusBadRequest, types.ErrOptionWithSkipRetry())

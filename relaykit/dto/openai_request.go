@@ -1072,6 +1072,8 @@ func (r *OpenAIResponsesRequest) GetTokenCountMeta() *types.TokenCountMeta {
 		}
 	}
 
+	texts = append(texts, r.inputItemTexts()...)
+
 	if len(r.Instructions) > 0 {
 		texts = append(texts, string(r.Instructions))
 	}
@@ -1101,6 +1103,67 @@ func (r *OpenAIResponsesRequest) GetTokenCountMeta() *types.TokenCountMeta {
 		Files:       fileMeta,
 		MaxTokens:   int(lo.FromPtrOr(r.MaxOutputTokens, uint(0))),
 	}
+}
+
+// inputItemTexts is the prompt text ParseInput does not see: an agent
+// conversation is mostly tool calls, tool outputs and the assistant's own earlier
+// turns, none of which are input_text. Counting only user text measured a 200k
+// token Codex request at a few thousand, so long-prompt routing and the context
+// window check never saw it. Encrypted reasoning is skipped: its size is not tokens.
+func (r *OpenAIResponsesRequest) inputItemTexts() []string {
+	if kitutil.GetJsonType(r.Input) != "array" {
+		return nil
+	}
+	var items []struct {
+		Type      string          `json:"type"`
+		Name      string          `json:"name"`
+		Arguments string          `json:"arguments"`
+		Input     string          `json:"input"`
+		Output    json.RawMessage `json:"output"`
+		Content   json.RawMessage `json:"content"`
+		Summary   []struct {
+			Text string `json:"text"`
+		} `json:"summary"`
+	}
+	if err := kitutil.Unmarshal(r.Input, &items); err != nil {
+		return nil
+	}
+	var texts []string
+	for _, item := range items {
+		switch item.Type {
+		case "function_call", "custom_tool_call":
+			texts = append(texts, item.Name, item.Arguments, item.Input)
+		case "function_call_output", "custom_tool_call_output":
+			var output string
+			if kitutil.GetJsonType(item.Output) == "string" {
+				_ = kitutil.Unmarshal(item.Output, &output)
+			} else {
+				output = string(item.Output)
+			}
+			texts = append(texts, output)
+		case "reasoning":
+			for _, part := range item.Summary {
+				texts = append(texts, part.Text)
+			}
+		}
+		if kitutil.GetJsonType(item.Content) != "array" {
+			continue
+		}
+		var parts []struct {
+			Type    string `json:"type"`
+			Text    string `json:"text"`
+			Refusal string `json:"refusal"`
+		}
+		if err := kitutil.Unmarshal(item.Content, &parts); err != nil {
+			continue
+		}
+		for _, part := range parts {
+			if part.Type == "output_text" || part.Type == "refusal" {
+				texts = append(texts, part.Text, part.Refusal)
+			}
+		}
+	}
+	return texts
 }
 
 func (r *OpenAIResponsesRequest) IsStream(c *http.Request) bool {
