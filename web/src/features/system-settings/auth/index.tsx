@@ -69,6 +69,7 @@ const defaultAuthSettings: AuthSettings = {
   'passkey.enabled': false,
   'passkey.rp_display_name': '',
   'passkey.rp_id': '',
+  'passkey.legacy_rp_ids': '',
   'passkey.origins': '',
   'passkey.allow_insecure_origin': false,
   'passkey.user_verification': 'preferred',

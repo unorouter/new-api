@@ -434,6 +434,15 @@ func ChannelFailureWindow(channelId int) (failures int, successes int) {
 		readWindowCounter(channelSuccessCounterKey(channelId), &channelSuccessCounts, channelId)
 }
 
+func shouldCloseActiveWebSocketsAfterDisable(channelId int) bool {
+	channel, err := model.GetChannelById(channelId, true)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to check channel status before closing active websockets: channel_id=%d, error=%v", channelId, err))
+		return true
+	}
+	return channel.Status != common.ChannelStatusEnabled
+}
+
 // disable & notify
 func DisableChannel(channelError types.ChannelError, reason string, opts ...model.ChannelStatusChangeOpt) {
 	fails, oks := ChannelFailureWindow(channelError.ChannelId)
@@ -446,6 +455,9 @@ func DisableChannel(channelError types.ChannelError, reason string, opts ...mode
 	}
 
 	success := model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, reason, opts...)
+	if success && shouldCloseActiveWebSocketsAfterDisable(channelError.ChannelId) {
+		CloseActiveWebSocketsForChannel(channelError.ChannelId, ChannelDisabledCloseReason)
+	}
 	if success && operation_setting.GetMonitorSetting().ChannelStatusNotifyEnabled {
 		subject := fmt.Sprintf("Channel \"%s\" (#%d) has been disabled", channelError.ChannelName, channelError.ChannelId)
 		content := fmt.Sprintf("Channel \"%s\" (#%d) has been disabled. Reason: %s", channelError.ChannelName, channelError.ChannelId, reason)

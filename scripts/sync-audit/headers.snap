@@ -10,6 +10,7 @@
 "content-type"
 "location"
 "mj-api-secret"
+"origin"
 "originator"
 "sec-websocket-extensions"
 "sec-websocket-key"
