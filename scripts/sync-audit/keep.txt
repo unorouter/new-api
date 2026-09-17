@@ -1,0 +1,21 @@
+# <file> :: <literal that must still be there>
+# Prod-only blocks an upstream merge has silently dropped before, with no conflict.
+relaykit/dto/channel_settings.go :: ChannelCapabilities
+relaykit/dto/channel_settings.go :: AdvancedCustomConverter
+relaykit/dto/pricing.go :: ContextLength
+constant/channel.go :: ChannelTypeAIHorde
+constant/channel.go :: ChannelTypeRunware
+common/constants.go :: ThemeAwarePath
+common/str.go :: "regexp"
+model/user_cache.go :: GetUserById(userId, false)
+model/channel_cache.go :: newGroup2model2channels[group] == nil
+model/option.go :: func ReloadPricingOptionsOnMiss
+router/authz-router.go :: ModAuth
+router/api-router.go :: modReadGroup
+router/api-router.go :: logGroup.Group("", middleware.ModAuth())
+middleware/auth.go :: IsTrustedNetwork
+middleware/bff_resolve.go :: IsTrustedNetwork
+middleware/distributor.go :: tokenModelAllowed
+go.mod :: replace github.com/QuantumNous/new-api/relaykit => ./relaykit
+go.mod :: github.com/gin-contrib/sessions v0.0.5
+web/src/features/usage-logs/components/usage-logs-provider.tsx :: role < ROLE.MOD
