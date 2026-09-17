@@ -357,9 +357,6 @@ func InitResources() error {
 		}
 	}
 	model.InitOptionMap()
-	if common.IsMasterNode {
-		go model.RunTokenKeyBackfill()
-	}
 
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()

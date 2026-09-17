@@ -14,7 +14,7 @@ import (
 type Token struct {
 	Id                 int     `json:"id"`
 	UserId             int     `json:"user_id" gorm:"index"`
-	Key                string  `json:"key" gorm:"type:varchar(128);uniqueIndex"`
+	Key                string  `json:"key" gorm:"-"` // never stored: opened from KeyEnc on load, see token_crypto.go
 	Status             int     `json:"status" gorm:"default:1"`
 	Name               string  `json:"name" gorm:"index" `
 	CreatedTime        int64   `json:"created_time" gorm:"bigint"`
@@ -230,9 +230,7 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		}
 		// The key is only stored sealed: a complete key matches by hash, a fragment can
 		// only match the first or last four characters kept in key_hint.
-		if !tokenKeyCryptoReady() {
-			baseQuery = baseQuery.Where(commonKeyCol+" LIKE ? ESCAPE '!'", tokenPattern)
-		} else if strings.Contains(tokenPattern, "%") {
+		if strings.Contains(tokenPattern, "%") {
 			baseQuery = baseQuery.Where("key_hint LIKE ? ESCAPE '!'", tokenPattern)
 		} else {
 			baseQuery = baseQuery.Where("key_hash = ?", hashTokenKey(token))
@@ -329,18 +327,7 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		// Don't return error - fall through to DB
 	}
 	token = &Token{}
-	err = gorm.ErrRecordNotFound
-	if tokenKeyCryptoReady() {
-		err = DB.Where("key_hash = ?", hashTokenKey(key)).First(token).Error
-	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		// A row an older pod wrote without a hash. The backfill sweep seals it; until then it
-		// must keep authenticating. This line has to stay silent before `key` is dropped.
-		if err = DB.Where(commonKeyCol+" = ?", key).First(token).Error; err == nil && tokenKeyCryptoReady() {
-			common.SysError(fmt.Sprintf("token key lookup: token %d found by plaintext only", token.Id))
-		}
-	}
-	if err != nil {
+	if err = DB.Where("key_hash = ?", hashTokenKey(key)).First(token).Error; err != nil {
 		return nil, err
 	}
 	token.Key = key
@@ -539,7 +526,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
-	err := DB.Select("id", commonKeyCol, "key_hash", "key_enc").
+	err := DB.Select("id", "key_hash", "key_enc").
 		Where("user_id = ? AND id IN (?)", userId, ids).
 		Find(&tokens).Error
 	return tokens, err
@@ -557,7 +544,7 @@ func InvalidateUserTokensCache(userId int) error {
 	}
 	var tokens []Token
 	if err := DB.Unscoped().
-		Select("id", commonKeyCol, "key_hash", "key_enc").
+		Select("id", "key_hash", "key_enc").
 		Where("user_id = ?", userId).
 		Find(&tokens).Error; err != nil {
 		return err
