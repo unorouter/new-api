@@ -140,6 +140,22 @@ func (token *Token) BeforeCreate(tx *gorm.DB) error {
 	return token.sealKey()
 }
 
+// AfterFind makes the ciphertext the source of the in-memory key wherever a row is loaded
+// with its sealed columns. While `key` is still written, a disagreement keeps the stored
+// plaintext and is logged: that log has to stay silent before `key` is dropped.
+func (token *Token) AfterFind(tx *gorm.DB) error {
+	if token.KeyEnc == "" || token.KeyHash == nil || !tokenKeyCryptoReady() {
+		return nil
+	}
+	plain, err := decryptTokenKey(token.KeyEnc, *token.KeyHash)
+	if err != nil || (token.Key != "" && plain != token.Key) {
+		common.SysError(fmt.Sprintf("token key open: token %d ciphertext does not match the stored key", token.Id))
+		return nil
+	}
+	token.Key = plain
+	return nil
+}
+
 type tokenKeyRow struct {
 	Id      int
 	Key     string
