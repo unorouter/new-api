@@ -13,9 +13,9 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
-	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -35,7 +35,7 @@ func TestShouldRetryRelayErrorHonorsChannelPinOnChannelError(t *testing.T) {
 		{
 			name: "single attempt pin suppresses channel error retry",
 			pin: &dto.ChannelPin{
-				ChannelId: 1, Source: dto.PinSourceToken, Rank: dto.PinRankToken, RetryMode: dto.PinRetrySingleAttempt,
+				ChannelId: 1, Source: dto.PinSourceOriginTask, Rank: dto.PinRankOriginTask + 1, RetryMode: dto.PinRetrySingleAttempt,
 			},
 			wantRetry: false,
 		},
@@ -97,7 +97,7 @@ func TestProcessChannelErrorMasksDisableReasonAndNotification(t *testing.T) {
 	t.Cleanup(server.Close)
 	httpClient, system_setting.WorkerUrl = server.Client(), ""
 	fetch.EnableSSRFProtection = false
-	settings, err := common.Marshal(kitdto.UserSetting{NotifyType: kitdto.NotifyTypeWebhook, WebhookUrl: server.URL})
+	settings, err := common.Marshal(hosttypes.UserSetting{NotifyType: hosttypes.NotifyTypeWebhook, WebhookUrl: server.URL})
 	require.NoError(t, err)
 	root := &model.User{Username: "notification-test-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled, Setting: string(settings)}
 	require.NoError(t, database.Create(root).Error)

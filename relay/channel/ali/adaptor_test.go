@@ -54,7 +54,7 @@ func TestAliMultipartEditsUseValidatedProviderQuantity(t *testing.T) {
 			common.SetContextKey(c, rootconstant.ContextKeyChannelType, rootconstant.ChannelTypeAli)
 			request, err := relayhelper.GetAndValidOpenAIImageRequest(c, constant.RelayModeImagesEdits)
 			require.NoError(t, err)
-			info := &relaycommon.RelayInfo{Request: request}
+			info := &relaycommon.RelayInfo{Request: request, ChannelMeta: &relaycommon.ChannelMeta{}}
 			converted, err := tc.convert(c, info, *request)
 			require.NoError(t, err)
 			require.NotNil(t, converted.Parameters.N)

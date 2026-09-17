@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"bytes"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -80,20 +80,15 @@ func TestMultiKeyEnableRestoresOnlyExhaustedChannels(t *testing.T) {
 								require.NoError(t, model.DisableChannelByTag(tag))
 							}
 						}
-						payload, err := common.Marshal(MultiKeyManageRequest{ChannelId: channel.Id, Action: operation, KeyIndex: common.GetPointer(0)})
+						ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+						ginCtx.Set("id", root.Id)
+						ginCtx.Set("role", common.RoleRootUser)
+						ginCtx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/multi_key", nil)
+						ctx := fuego.NewMockContext[MultiKeyManageRequest, any](MultiKeyManageRequest{ChannelId: channel.Id, Action: operation, KeyIndex: common.GetPointer(0)}, nil)
+						ctx.CommonCtx = ginCtx
+						result, err := ManageMultiKeys(ctx)
 						require.NoError(t, err)
-						recorder := httptest.NewRecorder()
-						c, _ := gin.CreateTestContext(recorder)
-						c.Set("id", root.Id)
-						c.Set("role", common.RoleRootUser)
-						c.Request = httptest.NewRequest(http.MethodPost, "/api/channel/multi_key", bytes.NewReader(payload))
-						c.Request.Header.Set("Content-Type", "application/json")
-						ManageMultiKeys(c)
-						var result struct {
-							Success bool `json:"success"`
-						}
-						require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &result))
-						require.True(t, result.Success, recorder.Body.String())
+						require.True(t, result.Success, result.Message)
 					}
 					loaded, err := model.GetChannelById(channel.Id, true)
 					require.NoError(t, err)

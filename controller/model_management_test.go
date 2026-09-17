@@ -15,6 +15,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	hostdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -25,6 +26,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -106,6 +108,24 @@ func modelManagementRequest(t *testing.T, handler gin.HandlerFunc, method, path 
 	if output != nil {
 		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), output), recorder.Body.String())
 	}
+	return recorder
+}
+
+// updateOptionRequest drives prod's fuego UpdateOption and renders its payload the
+// way the router would, so upstream's body assertions keep working.
+func updateOptionRequest(t *testing.T, key, value string) *httptest.ResponseRecorder {
+	t.Helper()
+	ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ginCtx.Request = httptest.NewRequest(http.MethodPut, "/api/option/", nil)
+	ginCtx.Set("role", common.RoleRootUser)
+	ctx := fuego.NewMockContext[hostdto.OptionUpdateRequest, any](hostdto.OptionUpdateRequest{Key: key, Value: value}, nil)
+	ctx.CommonCtx = ginCtx
+	payload, err := UpdateOption(ctx)
+	require.NoError(t, err)
+	encoded, err := common.Marshal(payload)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	_, _ = recorder.Write(encoded)
 	return recorder
 }
 
@@ -1587,19 +1607,19 @@ func TestSharedModelPluginPricingDatabaseMatrix(t *testing.T) {
 			assert.NotEqual(t, loaded.Entries[0].Version, updated.Entries[0].Version)
 			assert.ErrorIs(t, model.UpdateModelPricing([]model.ModelPricingChange{change}), model.ErrModelPricingConflict)
 			// The legacy option API validates the full draft and cannot drop a required override.
-			response := modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: billing_setting.PluginBillingExprOption, Value: `{}`}, nil)
+			response := updateOptionRequest(t, billing_setting.PluginBillingExprOption, `{}`)
 			assert.Contains(t, response.Body.String(), `"success":false`)
 			assert.Contains(t, response.Body.String(), "matrix-beta")
 			afterFailure, err := model.GetModelPricingSnapshot([]string{name})
 			require.NoError(t, err)
 			assert.Equal(t, updated.Entries[0].Version, afterFailure.Entries[0].Version)
 			// Model-level legacy saves also skip providers with a stored override.
-			response = modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: "billing_setting.billing_expr", Value: string(baseJSON)}, nil)
+			response = updateOptionRequest(t, "billing_setting.billing_expr", string(baseJSON))
 			assert.Contains(t, response.Body.String(), `"success":true`)
 			flat["matrix-beta::"+name] = variant
 			raw, err := common.Marshal(flat)
 			require.NoError(t, err)
-			response = modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: billing_setting.PluginBillingExprOption, Value: string(raw)}, nil)
+			response = updateOptionRequest(t, billing_setting.PluginBillingExprOption, string(raw))
 			assert.Contains(t, response.Body.String(), `"success":true`)
 			final, err := model.GetModelPricingSnapshot([]string{name})
 			require.NoError(t, err)
@@ -1616,9 +1636,9 @@ func TestSharedModelPluginPricingDatabaseMatrix(t *testing.T) {
 			require.NoError(t, err)
 			ratioJSON, err := common.Marshal(map[string]float64{name: 2})
 			require.NoError(t, err)
-			response = modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: "ModelRatio", Value: string(ratioJSON)}, nil)
+			response = updateOptionRequest(t, "ModelRatio", string(ratioJSON))
 			assert.Contains(t, response.Body.String(), `"success":true`)
-			response = modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: "billing_setting.billing_expr", Value: string(baseJSON)}, nil)
+			response = updateOptionRequest(t, "billing_setting.billing_expr", string(baseJSON))
 			assert.Contains(t, response.Body.String(), `"success":true`)
 			final, err = model.GetModelPricingSnapshot([]string{name})
 			require.NoError(t, err)
@@ -1652,7 +1672,7 @@ export function parseTaskResult(){return {};}
 			assert.Equal(t, "Beta updated", stale.Entries[0].PluginVariants[0].PluginName)
 			require.NoError(t, model.UpdateModelPricingOptions(map[string]string{"ModelRatio": string(ratioJSON)}))
 			// Removing just the stale override succeeds and leaves other prices.
-			response = modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: billing_setting.PluginBillingExprOption, Value: `{}`}, nil)
+			response = updateOptionRequest(t, billing_setting.PluginBillingExprOption, `{}`)
 			assert.Contains(t, response.Body.String(), `"success":true`)
 			final, err = model.GetModelPricingSnapshot([]string{name})
 			require.NoError(t, err)

@@ -59,6 +59,7 @@ func TestNormalizeResponsesWSMaxOutputTokens(t *testing.T) {
 }
 
 func TestSelectResponsesWSChannelHonorsPinsAndFilters(t *testing.T) {
+	t.Skip("the Responses WebSocket route is not served in prod, see scripts/sync-audit/forbid.txt")
 	database := setupRelayChannelDB(t)
 	enabled := &model.Channel{Name: "enabled", Key: "sk-test", Status: common.ChannelStatusEnabled, Type: constant.ChannelTypeOpenAI}
 	enabled.SetSetting(dto.ChannelSettings{ResponsesWebSocketEnabled: true})
@@ -84,7 +85,7 @@ func TestSelectResponsesWSChannelHonorsPinsAndFilters(t *testing.T) {
 			c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
 			constraints := service.GetChannelConstraints(c)
 			constraints.AddPin(appdto.ChannelPin{ChannelId: disabled.Id, Source: appdto.PinSourceOriginTask, Rank: appdto.PinRankOriginTask, RetryMode: appdto.PinRetrySameChannel})
-			constraints.AddPin(appdto.ChannelPin{ChannelId: tc.channelID, Source: appdto.PinSourceToken, Rank: appdto.PinRankToken, RetryMode: appdto.PinRetrySingleAttempt})
+			constraints.AddPin(appdto.ChannelPin{ChannelId: tc.channelID, Source: appdto.PinSourceOriginTask, Rank: appdto.PinRankOriginTask + 1, RetryMode: appdto.PinRetrySingleAttempt})
 			constraints.AddFilter(appdto.ChannelFilter{Kind: appdto.FilterRequestPath, RequestPath: c.Request.URL.Path})
 			channel, apiErr := selectResponsesWSChannel(c, "gpt-5.1", &service.RetryParam{Ctx: c, ModelName: "gpt-5.1", TokenGroup: "default"})
 			if tc.status != 0 {
