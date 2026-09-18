@@ -6607,7 +6607,7 @@
     "Weighted by request count": "Có trọng số theo số yêu cầu",
     "Welcome back!": "Chào mừng trở lại!",
     "Welcome to our New API...": "Chào mừng bạn đến với API mới của chúng tôi...",
-    "Well-Known URL": "URL đã biết",
+    "Well-Known URL": "URL Well-Known",
     "Well-Known URL must start with http:// or https://": "URL Well-Known phải bắt đầu bằng http:// hoặc https://",
     "What would you like to know?": "Bạn muốn biết gì?",
     "When a token uses the auto group, the system tries groups from top to bottom until it finds an available group.": "Khi token dùng nhóm auto, hệ thống thử các nhóm từ trên xuống dưới cho đến khi tìm được nhóm khả dụng.",

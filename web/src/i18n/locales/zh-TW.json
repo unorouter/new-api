@@ -6608,7 +6608,7 @@
     "Welcome back!": "歡迎回來！",
     "Welcome to our New API...": "歡迎使用我們的 New API...",
     "Well-Known URL": "Well-Known URL",
-    "Well-Known URL must start with http:// or https://": "知名 URL 必須以 http:// 或 https:// 開頭",
+    "Well-Known URL must start with http:// or https://": "Well-Known URL 必須以 http:// 或 https:// 開頭",
     "What would you like to know?": "您想了解什麼？",
     "When a token uses the auto group, the system tries groups from top to bottom until it finds an available group.": "當令牌使用 auto 分組時，系統會按從上到下的順序嘗試，直到找到可用分組。",
     "When billed as {{group}}": "按 {{group}} 收費時",

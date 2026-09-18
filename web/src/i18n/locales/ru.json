@@ -6607,7 +6607,7 @@
     "Weighted by request count": "Взвешено по количеству запросов",
     "Welcome back!": "Добро пожаловать обратно!",
     "Welcome to our New API...": "Добро пожаловать в наш New API...",
-    "Well-Known URL": "Известный эксперт",
+    "Well-Known URL": "Well-Known URL",
     "Well-Known URL must start with http:// or https://": "Well-Known URL должен начинаться с http:// или https://",
     "What would you like to know?": "Что вы хотели бы узнать?",
     "When a token uses the auto group, the system tries groups from top to bottom until it finds an available group.": "Когда токен использует группу auto, система перебирает группы сверху вниз, пока не найдёт доступную.",

@@ -6607,7 +6607,7 @@
     "Weighted by request count": "リクエスト数で加重",
     "Welcome back!": "おかえりなさい！",
     "Welcome to our New API...": "New API へようこそ...",
-    "Well-Known URL": "よく知られたURL",
+    "Well-Known URL": "Well-Known URL",
     "Well-Known URL must start with http:// or https://": "Well-Known URL は http:// または https:// で始まる必要があります",
     "What would you like to know?": "何を知りたいですか？",
     "When a token uses the auto group, the system tries groups from top to bottom until it finds an available group.": "トークンが auto グループを使用すると、システムは上から順に利用可能なグループを探します。",
