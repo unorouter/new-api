@@ -14,21 +14,31 @@ import (
 // group-ratio map and returns the group they belong to. Anonymous callers get the
 // public ratios and an empty group, which is what every pricing surface then
 // filters by.
-func applyUserGroupRatio(c fuego.ContextNoBody, groupRatio map[string]float64) string {
+// pricingCallerGroup is the only thing about a caller that shapes a pricing answer: the
+// group decides which lanes are visible and at which ratio. Anonymous callers have none.
+func pricingCallerGroup(c fuego.ContextNoBody) (string, bool) {
 	userId, exists := dto.GinCtx(c).Get("id")
 	if !exists {
-		return ""
+		return "", false
 	}
 	user, err := model.GetUserCache(userId.(int))
 	if err != nil {
+		return "", false
+	}
+	return user.Group, true
+}
+
+func applyUserGroupRatio(c fuego.ContextNoBody, groupRatio map[string]float64) string {
+	group, known := pricingCallerGroup(c)
+	if !known {
 		return ""
 	}
 	for g := range groupRatio {
-		if ratio, ok := ratio_setting.GetGroupGroupRatio(user.Group, g); ok {
+		if ratio, ok := ratio_setting.GetGroupGroupRatio(group, g); ok {
 			groupRatio[g] = ratio
 		}
 	}
-	return user.Group
+	return group
 }
 
 func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string]string) []model.Pricing {
