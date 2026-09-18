@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -539,7 +540,51 @@ func imageParamsFor(modelType string, m model.Pricing, md dto.ModelMetadata) *dt
 	return &p
 }
 
+// The catalog is public, costs about 25 ms and a few megabytes of garbage to build, and
+// depends on nothing but the caller's group and the query. Uncached, a crawler walking the
+// model pages at 50 requests a second took a slave from 370 MB to its 2 Gi limit in seven
+// minutes (2026-09-18). Per pod and short lived on purpose: prices may lag by this much.
+const pricingCatalogTTL = 30 * time.Second
+
+// pricingCached builds key at most once per TTL on this pod; concurrent callers of a cold
+// key wait for the one build. Keys must come from a bounded set, never from raw user input.
+func pricingCached[T any](c fuego.ContextNoBody, key string, build func() (T, error)) (T, error) {
+	group, known := pricingCallerGroup(c)
+	key = fmt.Sprintf("pricing:%s:%t:%s", group, known, key)
+	if cached, ok := statusPageCacheGet(key); ok {
+		if hit, ok := cached.(T); ok {
+			return hit, nil
+		}
+	}
+	built, err, _ := statusPageGroup.Do(key, func() (any, error) {
+		fresh, err := build()
+		if err != nil {
+			return nil, err
+		}
+		statusPageCacheSetTTL(key, fresh, pricingCatalogTTL)
+		return fresh, nil
+	})
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	return built.(T), nil
+}
+
 func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
+	query := dto.GinCtx(c).Request.URL.Query()
+	// Free text filters would let a caller mint cache keys, so only the shapes the site
+	// itself requests are cached (97% of the traffic); the rest is built per request.
+	if query.Get("vendor") != "" || query.Get("endpoint") != "" || (query.Get("type") != "" && query.Get("type") != "image") {
+		return buildPricingCatalog(c)
+	}
+	includeOffline, _ := strconv.ParseBool(query.Get("include_offline"))
+	full, _ := strconv.ParseBool(query.Get("full"))
+	key := fmt.Sprintf("catalog:%t:%t:%s", includeOffline, full, query.Get("type"))
+	return pricingCached(c, key, func() (dto.PricingCatalogData, error) { return buildPricingCatalog(c) })
+}
+
+func buildPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
 	// Opt-in, because the browse page and the model picker want routable models
 	// only. The sitemap is the caller that does not: a page that answers 200 today
 	// belongs in it whether or not a lane happens to be up this minute.
@@ -752,7 +797,13 @@ func GetPricingCatalogModel(c fuego.ContextNoBody) (dto.PricingCatalogDetail, er
 	if !ok {
 		return dto.PricingCatalogDetail{}, fuego.NotFoundError{Title: "model not found"}
 	}
+	// Keyed by the resolved name, so only models that exist can occupy the cache.
+	return pricingCached(c, "model:"+pricing.ModelName, func() (dto.PricingCatalogDetail, error) {
+		return buildPricingCatalogModel(c, pricing), nil
+	})
+}
 
+func buildPricingCatalogModel(c fuego.ContextNoBody, pricing model.Pricing) dto.PricingCatalogDetail {
 	groups, groupRatio, chain := modelGroups(c, pricing)
 	ctx := newCatalogCtx(groupRatio)
 	d := ctx.derive(pricing)
@@ -781,7 +832,7 @@ func GetPricingCatalogModel(c fuego.ContextNoBody) (dto.PricingCatalogDetail, er
 		CreatedTime:         pricing.CreatedTime,
 		BillingExpr:         pricing.BillingExpr,
 		Description:         pricing.Description,
-	}, nil
+	}
 }
 
 // Vendors counts only vendors that actually serve a model, not every configured
