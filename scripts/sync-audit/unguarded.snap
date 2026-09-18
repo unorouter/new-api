@@ -1,5 +1,4 @@
 adminGroup := userGroup.Group("", middleware.AdminAuth())
-apiRouter.GET("/audit", middleware.DisableCache(), middleware.AdminAuth(), middleware.RequirePermission(authz.AuditRead), controller.GetAuditLogs)
 apiRouter.GET("/task_plugin_options", middleware.AdminAuth(), middleware.RequirePermission(authz.TaskPluginBind), controller.GetTaskPluginOptions)
 channelGroup := apiRouter.Group("/channel", middleware.SyncAuth(common.RoleAdminUser))
 chKey := dto.NewRouter(engine, channelGroup.Group("", middleware.RootAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.SecureVerificationRequired()), "Channel", secDashboard())
