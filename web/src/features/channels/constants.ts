@@ -171,7 +171,8 @@ export const CHANNEL_PROVIDER_PRESENTATION: Partial<
   },
   59: { descriptionKey: 'Connect to model services through a Sub2API gateway' },
   60: {
-    descriptionKey: 'Connect to model services from another New API instance',
+    descriptionKey:
+      'Connect to New API model services with support for multiple task plugins',
   },
   62: { descriptionKey: 'Connect to self-hosted models served by vLLM' },
   63: { descriptionKey: 'Connect to self-hosted models served by SGLang' },
