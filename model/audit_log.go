@@ -100,7 +100,7 @@ func RecordAuditLog(c *gin.Context, entry AuditLog) {
 		entry.EventId = common.NewRequestId()
 	}
 	switch entry.ActorRole {
-	case common.RoleCommonUser, common.RoleAdminUser, common.RoleRootUser:
+	case common.RoleCommonUser, common.RoleModUser, common.RoleAdminUser, common.RoleRootUser:
 	default:
 		logger.LogError(ctx, fmt.Sprintf("audit actor role unavailable (request_id=%s, actor_role=%d)", entry.RequestId, entry.ActorRole))
 		entry.ActorRole = 0 // Unknown actors remain visible to root only.
@@ -147,7 +147,7 @@ func GetAuditLogs(filter AuditLogFilter, start, limit, viewerRole int) ([]*Audit
 		})))
 	}
 	if viewerRole < common.RoleRootUser {
-		query = query.Where("actor_role IN ?", []int{common.RoleCommonUser, common.RoleAdminUser})
+		query = query.Where("actor_role IN ?", []int{common.RoleCommonUser, common.RoleModUser, common.RoleAdminUser})
 	}
 	if filter.UserId > 0 {
 		query = query.Where("user_id = ?", filter.UserId)
@@ -187,7 +187,7 @@ func GetAuditLogs(filter AuditLogFilter, start, limit, viewerRole int) ([]*Audit
 	visibility := logOtherVisibilityUser
 	if !filter.SelfView && viewerRole >= common.RoleRootUser {
 		visibility = logOtherVisibilityRoot
-	} else if !filter.SelfView && viewerRole >= common.RoleAdminUser {
+	} else if !filter.SelfView && viewerRole >= common.RoleModUser {
 		visibility = logOtherVisibilityAdmin
 	}
 	for _, entry := range logs {

@@ -31,3 +31,10 @@ dto/user.go :: max=72
 relay/channel/claude/relay-claude.go :: ResponsesStreamState
 controller/channel_authz.go :: channelSensitiveFields
 model/ability.go :: sort.Strings(models)
+# the mod role in the audit log: recorded as itself, readable by mods and admins
+service/authz/role_prod.go :: const BuiltInRoleMod = "mod"
+model/audit_log.go :: case common.RoleCommonUser, common.RoleModUser, common.RoleAdminUser, common.RoleRootUser:
+model/audit_log.go :: []int{common.RoleCommonUser, common.RoleModUser, common.RoleAdminUser}
+model/audit_log.go :: !filter.SelfView && viewerRole >= common.RoleModUser
+router/api-router.go :: middleware.ModAuth(), middleware.RequirePermission(authz.AuditRead)
+web/src/features/usage-logs/audit/index.tsx :: user.role >= ROLE.MOD &&
