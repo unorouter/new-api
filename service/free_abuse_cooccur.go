@@ -91,15 +91,18 @@ func TrackFreeCooccurrence(c *gin.Context, userId int) {
 	banTTL := time.Duration(banDays) * 24 * time.Hour
 	bucket := time.Now().Unix() / int64(window)
 	if ip := c.ClientIP(); ip != "" && setting.FreeAbuseCooccurIpMinAccounts > 0 {
-		trackCooccurrence("ip", ip, ip, userId, bucket, window, setting.FreeAbuseCooccurIpMinAccounts, mode, banTTL)
+		trackCooccurrence("ip", ip, ip, userId, bucket, window, setting.FreeAbuseCooccurIpMinAccounts, mode, banTTL, true)
 	}
 	if fp := ClientFingerprint(c); fp != "" && setting.FreeAbuseCooccurFpMinAccounts > 0 {
 		label := fp + " " + truncateAttribution(c.Request.UserAgent())
-		trackCooccurrence("fp", fp, label, userId, bucket, window, setting.FreeAbuseCooccurFpMinAccounts, mode, banTTL)
+		// Generic library fingerprints (Go-http-client, python-requests) are shared
+		// with real people, so a flagged fingerprint never bans late joiners: only
+		// the accounts that actually co-occurred in the window.
+		trackCooccurrence("fp", fp, label, userId, bucket, window, setting.FreeAbuseCooccurFpMinAccounts, mode, banTTL, false)
 	}
 }
 
-func trackCooccurrence(kind, key, label string, userId int, bucket int64, window, min, mode int, banTTL time.Duration) {
+func trackCooccurrence(kind, key, label string, userId int, bucket int64, window, min, mode int, banTTL time.Duration, banLateJoiners bool) {
 	ctx := context.Background()
 	setKey := fmt.Sprintf("freeAbuseCo:%s:%s:%d", kind, key, bucket)
 	flagKey := fmt.Sprintf("freeAbuseCoFlag:%s:%s", kind, key)
@@ -113,13 +116,13 @@ func trackCooccurrence(kind, key, label string, userId int, bucket int64, window
 	if _, err := pipe.Exec(ctx); err != nil {
 		return
 	}
+	n := int(card.Val())
 	if flagged.Val() > 0 {
-		if enforce {
+		if enforce && (banLateJoiners || n >= min) {
 			common.RDB.Set(ctx, cooccurBanKey(userId), "1", banTTL)
 		}
 		return
 	}
-	n := int(card.Val())
 	if n < min {
 		return
 	}
