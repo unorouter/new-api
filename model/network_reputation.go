@@ -9,7 +9,9 @@ import (
 // paid. An account farm produces neither.
 type RegistrationProvenance struct {
 	Id         int    `gorm:"column:id"`
+	CreatedAt  int64  `gorm:"column:created_at"`
 	RegisterIp string `gorm:"column:register_ip"`
+	Email      string `gorm:"column:email"`
 	GitHubId   string `gorm:"column:github_id"`
 	DiscordId  string `gorm:"column:discord_id"`
 	OidcId     string `gorm:"column:oidc_id"`
@@ -34,7 +36,7 @@ func (p *RegistrationProvenance) HasIdentity() bool {
 func RegistrationProvenanceSince(since int64) ([]RegistrationProvenance, error) {
 	var rows []RegistrationProvenance
 	err := DB.Unscoped().Model(&User{}).
-		Select("id", "register_ip", "github_id", "discord_id", "oidc_id",
+		Select("id", "created_at", "register_ip", "email", "github_id", "discord_id", "oidc_id",
 			"telegram_id", "linux_do_id", "wechat_id", "google_id", "used_quota").
 		Where("created_at > ?", since).
 		Where("register_ip <> ?", "").

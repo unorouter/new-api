@@ -91,6 +91,10 @@ const BILLING_SECTIONS = [
               settings['quota_setting.free_abuse_network_max_identity_pct'],
             free_abuse_network_window_days:
               settings['quota_setting.free_abuse_network_window_days'],
+            free_abuse_burst_min_accounts:
+              settings['quota_setting.free_abuse_burst_min_accounts'],
+            free_abuse_burst_window_days:
+              settings['quota_setting.free_abuse_burst_window_days'],
             charge_on_error: settings['quota_setting.charge_on_error'],
           },
         }}

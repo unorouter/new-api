@@ -210,6 +210,25 @@ func discountedDuration(duration int64, pct int) int64 {
 // configured `:free` models. Returns false when the request was blocked (already
 // aborted). Paid/small models (not in the map) return true unchanged. On allow it
 // stashes the key/max so the post-handler records the request only on success.
+// FreeModelLimitFor reports the per-account limit the limiter enforces on this
+// model for this user (count per window, window in seconds), so a reply that
+// must read exactly like the limiter's own can quote the same numbers. Models
+// without a rule report the 1 per minute the free tier defaults to.
+func FreeModelLimitFor(c *gin.Context, modelName string) (int, int64) {
+	_, successMaxCount, windowMinutes, found := setting.GetModelRateLimit(modelName)
+	if !found || successMaxCount <= 0 {
+		return 1, 60
+	}
+	if windowMinutes <= 0 {
+		windowMinutes = setting.ModelRequestRateLimitDurationMinutes
+	}
+	duration := int64(windowMinutes * 60)
+	if userSetting, ok := common.GetContextKeyType[types.UserSetting](c, constant.ContextKeyUserSetting); ok {
+		duration = discountedDuration(duration, userSetting.FreeRateLimitWindowPct)
+	}
+	return successMaxCount, duration
+}
+
 func perModelRateLimit(c *gin.Context) bool {
 	if !setting.HasModelRateLimits() {
 		return true
