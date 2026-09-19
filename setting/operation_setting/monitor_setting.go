@@ -36,6 +36,15 @@ type MonitorSetting struct {
 	ChannelFailureRateThreshold float64 `json:"channel_failure_rate_threshold"`
 	ChannelFailureMinSamples    int     `json:"channel_failure_min_samples"`
 	ChannelFailureAbsoluteFloor int     `json:"channel_failure_absolute_floor"`
+	// A lane that fails half its requests at a few requests an hour never puts
+	// enough failures into one ten minute window, so the fast gate above is blind
+	// to it by construction (no1 gemini-2.5-pro: 64 failures a day, 3 an hour).
+	// The slow window sums hourly buckets over ChannelSlowWindowHours and disables
+	// on the same rate once ChannelSlowFailureAbsoluteFloor failures are in it.
+	// Threshold 0 falls back to ChannelFailureRateThreshold; hours 0 disables it.
+	ChannelSlowWindowHours          int     `json:"channel_slow_window_hours"`
+	ChannelSlowFailureAbsoluteFloor int     `json:"channel_slow_failure_absolute_floor"`
+	ChannelSlowFailureRateThreshold float64 `json:"channel_slow_failure_rate_threshold"`
 	// A truncation is an upstream failure that arrived after the client had already
 	// received content: the answer is cut off and no retry can hide it. Measured on
 	// a7 lane 4056, the failure rate is a function of how long the request runs:
@@ -121,6 +130,9 @@ var monitorSetting = MonitorSetting{
 	ChannelTruncationMinSamples:      200,
 	ChannelTruncationMinDurationSec:  60,
 	ChannelFailureAbsoluteFloor:      20,
+	ChannelSlowWindowHours:           6,
+	ChannelSlowFailureAbsoluteFloor:  20,
+	ChannelSlowFailureRateThreshold:  0,
 	ChannelFailureDeadFloor:          5,
 	ChannelFailureStreakFloor:        3,
 	ChannelProbationSeconds:          1800,
