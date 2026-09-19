@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 )
 
 const (
@@ -90,40 +91,68 @@ func TrackFreeCooccurrence(c *gin.Context, userId int) {
 	}
 	banTTL := time.Duration(banDays) * 24 * time.Hour
 	bucket := time.Now().Unix() / int64(window)
-	if ip := c.ClientIP(); ip != "" && setting.FreeAbuseCooccurIpMinAccounts > 0 {
-		trackCooccurrence("ip", ip, ip, userId, bucket, window, setting.FreeAbuseCooccurIpMinAccounts, mode, banTTL, true)
+	ip := c.ClientIP()
+	if ip != "" && setting.FreeAbuseCooccurIpMinAccounts > 0 {
+		trackCooccurrence("ip", ip, ip, userId, "", bucket, window, setting.FreeAbuseCooccurIpMinAccounts, mode, banTTL, true)
 	}
-	if fp := ClientFingerprint(c); fp != "" && setting.FreeAbuseCooccurFpMinAccounts > 0 {
+	fp := ClientFingerprint(c)
+	if fp == "" {
+		return
+	}
+	network := registrationNetworkKey(ip)
+	// A fingerprint is shared by everyone on the same library or app, and a /24
+	// by everyone behind the same carrier, so each is only trusted when its
+	// accounts are concentrated on the other axis: one farm host or one farm
+	// client. An Android app's users hit thirty accounts on thirty networks and
+	// never flag. Neither bans late joiners; only accounts inside a dense window.
+	if setting.FreeAbuseCooccurFpMinAccounts > 0 {
 		label := fp + " " + truncateAttribution(c.Request.UserAgent())
-		// Generic library fingerprints (Go-http-client, python-requests) are shared
-		// with real people, so a flagged fingerprint never bans late joiners: only
-		// the accounts that actually co-occurred in the window.
-		trackCooccurrence("fp", fp, label, userId, bucket, window, setting.FreeAbuseCooccurFpMinAccounts, mode, banTTL, false)
+		trackCooccurrence("fp", fp, label, userId, network, bucket, window, setting.FreeAbuseCooccurFpMinAccounts, mode, banTTL, false)
+	}
+	if network != "" && setting.FreeAbuseCooccurNetMinAccounts > 0 {
+		trackCooccurrence("net", network, network, userId, fp, bucket, window, setting.FreeAbuseCooccurNetMinAccounts, mode, banTTL, false)
 	}
 }
 
-func trackCooccurrence(kind, key, label string, userId int, bucket int64, window, min, mode int, banTTL time.Duration, banLateJoiners bool) {
+// cooccurSpreadFactor is how many accounts per distinct value on the other axis a
+// window needs before it counts as concentrated.
+const cooccurSpreadFactor = 5
+
+func trackCooccurrence(kind, key, label string, userId int, spread string, bucket int64, window, min, mode int, banTTL time.Duration, banLateJoiners bool) {
 	ctx := context.Background()
 	setKey := fmt.Sprintf("freeAbuseCo:%s:%s:%d", kind, key, bucket)
+	spreadKey := fmt.Sprintf("freeAbuseCoSpread:%s:%s:%d", kind, key, bucket)
 	flagKey := fmt.Sprintf("freeAbuseCoFlag:%s:%s", kind, key)
 	enforce := mode == cooccurModeEnforce
+	ttl := time.Duration(2*window) * time.Second
 
 	pipe := common.RDB.TxPipeline()
 	pipe.SAdd(ctx, setKey, userId)
-	pipe.Expire(ctx, setKey, time.Duration(2*window)*time.Second)
+	pipe.Expire(ctx, setKey, ttl)
 	card := pipe.SCard(ctx, setKey)
 	flagged := pipe.Exists(ctx, flagKey)
+	var spreadCard *redis.IntCmd
+	if spread != "" {
+		pipe.SAdd(ctx, spreadKey, spread)
+		pipe.Expire(ctx, spreadKey, ttl)
+		spreadCard = pipe.SCard(ctx, spreadKey)
+	}
 	if _, err := pipe.Exec(ctx); err != nil {
 		return
 	}
 	n := int(card.Val())
+	spreadN := 1
+	if spreadCard != nil {
+		spreadN = int(spreadCard.Val())
+	}
+	dense := n >= min && spreadN*cooccurSpreadFactor <= n
 	if flagged.Val() > 0 {
-		if enforce && (banLateJoiners || n >= min) {
+		if enforce && (banLateJoiners || dense) {
 			common.RDB.Set(ctx, cooccurBanKey(userId), "1", banTTL)
 		}
 		return
 	}
-	if n < min {
+	if !dense {
 		return
 	}
 
@@ -147,8 +176,18 @@ func trackCooccurrence(kind, key, label string, userId int, bucket int64, window
 	if !enforce {
 		prefix = "observe: "
 	}
-	common.SysLog(fmt.Sprintf("%sfree abuse: %s %s flagged, %d anonymous accounts in %ds, %d shadow banned",
-		prefix, kind, label, n, window, banned))
+	common.SysLog(fmt.Sprintf("%sfree abuse: %s %s flagged, %d anonymous accounts on %d %s in %ds, %d shadow banned",
+		prefix, kind, label, n, spreadN, spreadNoun(kind), window, banned))
+}
+
+func spreadNoun(kind string) string {
+	switch kind {
+	case "fp":
+		return "networks"
+	case "net":
+		return "clients"
+	}
+	return "addresses"
 }
 
 // cooccurrenceShadowBanned is the request-time half of the verdict, kept in Redis

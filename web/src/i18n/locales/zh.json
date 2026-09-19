@@ -6355,6 +6355,8 @@
     "Co-occurrence detection mode": "同现检测模式",
     "Co-occurrence threshold per client IP": "单客户端 IP 同现阈值",
     "Co-occurrence threshold per client fingerprint": "单客户端指纹同现阈值",
+    "Co-occurrence threshold per client network": "单客户端网段同现阈值",
+    "Same rule keyed on the /24 (IPv6 /48) the requests come from, for farms that spread over the addresses of one rented block. Counted for non-browser clients only and, like the fingerprint rule, only when the accounts share few client fingerprints. 0 disables.": "同一规则改为按请求来源的 /24（IPv6 /48）统计，用于在同一租用地址段内分散地址的农场。仅统计非浏览器客户端，且与指纹规则一样，仅在账号共用少数客户端指纹时生效。0 为关闭。",
     "Co-occurrence window (seconds)": "同现统计窗口（秒）",
     "Co-occurrence ban duration (days)": "同现封禁时长（天）",
     "Username domain cohort threshold": "用户名域名簇阈值",
