@@ -1011,10 +1011,26 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// to be a sustained share of the channel's recent traffic before pulling it, so a
 	// capacity blip on a busy lane fails over instead of removing it for everyone.
 	// Credential faults are exempt: those cannot recover on their own.
-	if shouldDisable && !class.DisableNow && !service.IsCredentialFault(err) && !service.RecordChannelFailure(channelError.ChannelId, softFailure) {
+	rateGated := shouldDisable && !class.DisableNow && !service.IsCredentialFault(err)
+	if rateGated && !service.RecordChannelFailure(channelError.ChannelId, softFailure) {
 		fails, oks := service.ChannelFailureWindow(channelError.ChannelId)
-		logger.LogInfo(c, fmt.Sprintf("channel-guard: kept channel #%d (%s) enabled, fault below threshold: fail=%d ok=%d status=%d code=%s",
-			channelError.ChannelId, channelError.ChannelName, fails, oks, err.StatusCode, err.GetErrorCode()))
+		// A lane failing half its requests at a few an hour never fills the fast
+		// window; the slow one catches it.
+		if sfails, soks, over := service.SlowWindowExceeded(channelError.ChannelId); over {
+			logger.LogInfo(c, fmt.Sprintf("channel-guard: slow window on channel #%d (%s): fail=%d ok=%d over %dh, disabling status=%d code=%s",
+				channelError.ChannelId, channelError.ChannelName, sfails, soks, operation_setting.GetMonitorSetting().ChannelSlowWindowHours, err.StatusCode, err.GetErrorCode()))
+		} else {
+			logger.LogInfo(c, fmt.Sprintf("channel-guard: kept channel #%d (%s) enabled, fault below threshold: fail=%d ok=%d slow fail=%d ok=%d status=%d code=%s",
+				channelError.ChannelId, channelError.ChannelName, fails, oks, sfails, soks, err.StatusCode, err.GetErrorCode()))
+			shouldDisable = false
+		}
+	}
+	// Never pull the last upstream serving a model on a rate verdict: with it
+	// gone the model errors just the same, and enabled it serves again the
+	// moment the upstream recovers. Credential and instant faults still disable.
+	if shouldDisable && rateGated && !service.HasEnabledSiblingUpstream(c.GetString("original_model"), channelError.ChannelId, c.GetString(string(constant.ContextKeyChannelBaseUrl))) {
+		logger.LogInfo(c, fmt.Sprintf("channel-guard: kept channel #%d (%s) enabled, last upstream serving %s status=%d code=%s",
+			channelError.ChannelId, channelError.ChannelName, c.GetString("original_model"), err.StatusCode, err.GetErrorCode()))
 		shouldDisable = false
 	}
 	// A truncation cannot fail over: the client is already reading the answer when
