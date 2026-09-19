@@ -68,7 +68,7 @@ func runCodexCredentialAutoRefreshOnce() {
 	for {
 		var channels []*model.Channel
 		err := model.DB.
-			Select("id", "name", "key", "status", "channel_info").
+			Select("id", "name", "key_enc", "status", "channel_info").
 			Where("type = ? AND (status = ? OR status = ?)",
 				constant.ChannelTypeCodex,
 				common.ChannelStatusEnabled,

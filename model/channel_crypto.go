@@ -10,14 +10,13 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
 )
 
 // Provider keys at rest. channels.key_enc holds "v1:" + base64(nonce + AES-256-GCM(key)),
-// where key is the same text the `key` column held: a single secret, a newline separated
+// where key is the same text the retired `key` column held: a single secret, a newline separated
 // list for multi-key channels, or a JSON credential blob. The plaintext is only ever in
 // memory: opened in AfterFind, sealed in BeforeSave.
 //
@@ -107,8 +106,8 @@ func (channel *Channel) BeforeSave(tx *gorm.DB) error {
 	return nil
 }
 
-// AfterFind opens the key wherever a row is loaded with its ciphertext. Listings omit both
-// columns, so they never carry a key.
+// AfterFind opens the key wherever a row is loaded with its ciphertext. Listings omit the
+// column, so they never carry a key.
 func (channel *Channel) AfterFind(tx *gorm.DB) error {
 	if channel.KeyEnc == "" || !channelKeyCryptoReady() {
 		return nil
@@ -123,108 +122,12 @@ func (channel *Channel) AfterFind(tx *gorm.DB) error {
 }
 
 // UpdateChannelKey is the one write path for a key set outside a struct save (OAuth
-// completion, credential refresh). It writes both columns while `key` is still stored.
+// completion, credential refresh).
 func UpdateChannelKey(id int, key string) error {
-	values := map[string]any{"key": key}
-	if channelKeyCryptoReady() {
-		keyEnc, err := encryptChannelKey(key)
-		if err != nil {
-			return err
-		}
-		values["key_enc"] = keyEnc
+	channelKeyCryptoReady()
+	keyEnc, err := encryptChannelKey(key)
+	if err != nil {
+		return err
 	}
-	return DB.Model(&Channel{}).Where("id = ?", id).Updates(values).Error
-}
-
-const channelKeyBackfillMax = 200
-
-type channelKeyRow struct {
-	Id     int
-	Key    string
-	KeyEnc string
-}
-
-func backfillChannelKeysOnce() (int, error) {
-	var rows []channelKeyRow
-	if err := DB.Model(&Channel{}).
-		Select("id", commonKeyCol).
-		Where("(key_enc IS NULL OR key_enc = '') AND " + commonKeyCol + " <> ''").
-		Order("id").Limit(channelKeyBackfillMax).
-		Find(&rows).Error; err != nil {
-		return 0, err
-	}
-	sealed := 0
-	for _, row := range rows {
-		keyEnc, err := encryptChannelKey(row.Key)
-		if err != nil {
-			return sealed, err
-		}
-		result := DB.Model(&Channel{}).
-			Where("id = ? AND (key_enc IS NULL OR key_enc = '')", row.Id).
-			Update("key_enc", keyEnc)
-		if result.Error != nil {
-			return sealed, result.Error
-		}
-		sealed += int(result.RowsAffected)
-	}
-	return sealed, nil
-}
-
-// verifyChannelKeys re-reads every sealed row and checks that the ciphertext opens to the
-// stored plaintext. It only exists while `key` is still written.
-func verifyChannelKeys() (checked int, mismatched int, err error) {
-	lastId := 0
-	for {
-		var rows []channelKeyRow
-		if err = DB.Model(&Channel{}).
-			Select("id", commonKeyCol, "key_enc").
-			Where("id > ? AND key_enc <> ''", lastId).
-			Order("id").Limit(channelKeyBackfillMax).
-			Find(&rows).Error; err != nil {
-			return checked, mismatched, err
-		}
-		if len(rows) == 0 {
-			return checked, mismatched, nil
-		}
-		for _, row := range rows {
-			lastId = row.Id
-			checked++
-			plain, decryptErr := decryptChannelKey(row.KeyEnc)
-			if decryptErr != nil || plain != row.Key {
-				mismatched++
-				common.SysError(fmt.Sprintf("channel key verify: row %d does not round trip", row.Id))
-			}
-		}
-	}
-}
-
-// RunChannelKeyBackfill runs on the master only. It drains the backlog in small batches,
-// keeps sweeping for rows written by older pods during the roll, and logs one
-// verification pass after each drain.
-func RunChannelKeyBackfill() {
-	verified := false
-	for {
-		sealed, err := backfillChannelKeysOnce()
-		if err != nil {
-			common.SysError("channel key backfill: " + err.Error())
-			time.Sleep(time.Minute)
-			continue
-		}
-		if sealed > 0 {
-			common.SysLog(fmt.Sprintf("channel key backfill: sealed %d rows", sealed))
-			verified = false
-			time.Sleep(200 * time.Millisecond)
-			continue
-		}
-		if !verified {
-			checked, mismatched, verifyErr := verifyChannelKeys()
-			if verifyErr != nil {
-				common.SysError("channel key verify: " + verifyErr.Error())
-			} else {
-				common.SysLog(fmt.Sprintf("channel key verify: %d rows checked, %d mismatched", checked, mismatched))
-				verified = true
-			}
-		}
-		time.Sleep(time.Minute)
-	}
+	return DB.Model(&Channel{}).Where("id = ?", id).Update("key_enc", keyEnc).Error
 }
