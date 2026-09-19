@@ -44,6 +44,7 @@ const defaultBillingSettings: BillingSettings = {
   'quota_setting.free_abuse_network_window_days': 14,
   'quota_setting.free_abuse_burst_min_accounts': 0,
   'quota_setting.free_abuse_burst_window_days': 90,
+  'quota_setting.free_abuse_unverified_pct': 100,
   'quota_setting.charge_on_error': false,
   QuotaPerUnit: 500000,
   USDExchangeRate: 7,
