@@ -120,7 +120,7 @@ func GetAllChannels(c fuego.ContextWithParams[dto.GetAllChannelsParams]) (*dto.R
 			}
 			var tagChannels []*model.Channel
 			err := sortOptions.Apply(buildChannelListQuery(groupFilter, statusFilter, typeFilter).Where("tag = ?", *tag)).
-				Omit("key", "key_enc").
+				Omit("key_enc").
 				Find(&tagChannels).Error
 			if err != nil {
 				common.SysError("failed to get channels by tag: " + err.Error())
@@ -137,7 +137,7 @@ func GetAllChannels(c fuego.ContextWithParams[dto.GetAllChannelsParams]) (*dto.R
 		err := sortOptions.Apply(buildChannelListQuery(groupFilter, statusFilter, typeFilter)).
 			Limit(pageInfo.GetPageSize()).
 			Offset(pageInfo.GetStartIdx()).
-			Omit("key", "key_enc").
+			Omit("key_enc").
 			Find(&channelData).Error
 		if err != nil {
 			common.SysError("failed to get channels: " + err.Error())
@@ -270,7 +270,7 @@ func SearchChannels(c fuego.ContextWithParams[dto.SearchChannelsParams]) (*dto.R
 			if tag != nil && *tag != "" {
 				var tagChannels []*model.Channel
 				err := sortOptions.Apply(buildChannelListQuery(group, -1, -1).Where("tag = ?", *tag)).
-					Omit("key", "key_enc").
+					Omit("key_enc").
 					Find(&tagChannels).Error
 				if err != nil {
 					return dto.Fail[SearchChannelsData](err.Error())
