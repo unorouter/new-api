@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"net"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -55,7 +56,8 @@ func refreshNetworkReputation() {
 	setting := operation_setting.GetQuotaSetting()
 	minAccounts := setting.FreeAbuseNetworkMinAccounts
 	burstMin := setting.FreeAbuseBurstMinAccounts
-	if minAccounts <= 0 && burstMin <= 0 {
+	domainMin := setting.FreeAbuseUsernameDomainMinAccounts
+	if minAccounts <= 0 && burstMin <= 0 && domainMin <= 0 {
 		currentNetworkReputation.Store(&networkReputation{})
 		return
 	}
@@ -70,7 +72,7 @@ func refreshNetworkReputation() {
 	now := time.Now()
 	networkSince := now.AddDate(0, 0, -windowDays).Unix()
 	fetchSince := networkSince
-	if burstMin > 0 && burstDays > windowDays {
+	if (burstMin > 0 || domainMin > 0) && burstDays > windowDays {
 		fetchSince = now.AddDate(0, 0, -burstDays).Unix()
 	}
 	rows, err := model.RegistrationProvenanceSince(fetchSince)
@@ -89,9 +91,24 @@ func refreshNetworkReputation() {
 	// minutes from 279 different /16s on 2026-09-16, against a baseline that never
 	// reached eight password-only signups in a minute outside farm days.
 	burstMinutes := make(map[int64]int)
+	// Accounts whose username is an address at a domain nobody real uses: the
+	// farms mint <random>@<their domain> and leave the email field empty. Public
+	// mail providers are excluded because thousands of people type their real
+	// address as a username.
+	domainAllow := usernameDomainAllowlist(setting.FreeAbuseUsernameDomainAllowlist)
+	domainAccounts := make(map[string]int)
+	domainIdentities := make(map[string]int)
 	for i := range rows {
 		if !rows[i].HasIdentity() && burstMin > 0 {
 			burstMinutes[rows[i].CreatedAt/60]++
+		}
+		if domainMin > 0 {
+			if domain := usernameDomain(rows[i].Username, rows[i].Email, domainAllow); domain != "" {
+				domainAccounts[domain]++
+				if rows[i].HasIdentity() {
+					domainIdentities[domain]++
+				}
+			}
 		}
 		if minAccounts <= 0 || rows[i].CreatedAt <= networkSince {
 			continue
@@ -119,11 +136,30 @@ func refreshNetworkReputation() {
 		flaggedNetworks[key] = struct{}{}
 	}
 
+	flaggedDomains := make(map[string]struct{})
+	for domain, total := range domainAccounts {
+		if total < domainMin {
+			continue
+		}
+		if domainIdentities[domain]*100 >= total*setting.FreeAbuseNetworkMaxIdentityPct {
+			continue
+		}
+		flaggedDomains[domain] = struct{}{}
+	}
+
 	shadowBanned := make(map[int]struct{})
 	burstBanned := 0
+	domainBanned := 0
 	for i := range rows {
 		if rows[i].HasIdentity() || rows[i].UsedQuota > 0 {
 			continue
+		}
+		if len(flaggedDomains) > 0 {
+			if _, ok := flaggedDomains[usernameDomain(rows[i].Username, rows[i].Email, domainAllow)]; ok {
+				shadowBanned[rows[i].Id] = struct{}{}
+				domainBanned++
+				continue
+			}
 		}
 		// A typed email is not identity, but the farms never bother with one (1% of
 		// farm-minute accounts against 40% of ordinary signups), so it separates
@@ -143,13 +179,44 @@ func refreshNetworkReputation() {
 
 	prev := currentNetworkReputation.Load()
 	if prev == nil || len(prev.shadowBanned) != len(shadowBanned) {
-		common.SysLog(fmt.Sprintf("network reputation: %d flagged networks, %d shadow-banned accounts (%d from registration bursts)",
-			len(flaggedNetworks), len(shadowBanned), burstBanned))
+		common.SysLog(fmt.Sprintf("network reputation: %d flagged networks, %d flagged username domains, %d shadow-banned accounts (%d from registration bursts, %d from username domains)",
+			len(flaggedNetworks), len(flaggedDomains), len(shadowBanned), burstBanned, domainBanned))
 	}
 	currentNetworkReputation.Store(&networkReputation{
 		flaggedNetworks: flaggedNetworks,
 		shadowBanned:    shadowBanned,
 	})
+}
+
+func usernameDomainAllowlist(raw string) map[string]struct{} {
+	allow := make(map[string]struct{})
+	for _, item := range strings.Split(raw, ",") {
+		if item = strings.ToLower(strings.TrimSpace(item)); item != "" {
+			allow[item] = struct{}{}
+		}
+	}
+	return allow
+}
+
+// usernameDomain returns the domain of an address-shaped username on an account
+// that typed no email, or "" when the username is not an address or the domain is
+// a public mail provider.
+func usernameDomain(username, email string, allow map[string]struct{}) string {
+	if email != "" {
+		return ""
+	}
+	at := strings.LastIndex(username, "@")
+	if at <= 0 || at == len(username)-1 {
+		return ""
+	}
+	domain := strings.ToLower(username[at+1:])
+	if !strings.Contains(domain, ".") || strings.ContainsAny(domain, " \t/\\") {
+		return ""
+	}
+	if _, ok := allow[domain]; ok {
+		return ""
+	}
+	return domain
 }
 
 // RegistrationNetworkFlagged reports whether new accounts from this address would
@@ -176,10 +243,10 @@ func FreeModelsShadowBanned(userId int) bool {
 	if userId <= 0 {
 		return false
 	}
-	verdict := currentNetworkReputation.Load()
-	if verdict == nil {
-		return false
+	if verdict := currentNetworkReputation.Load(); verdict != nil {
+		if _, ok := verdict.shadowBanned[userId]; ok {
+			return true
+		}
 	}
-	_, ok := verdict.shadowBanned[userId]
-	return ok
+	return cooccurrenceShadowBanned(userId)
 }

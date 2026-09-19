@@ -9,6 +9,7 @@ import (
 // paid. An account farm produces neither.
 type RegistrationProvenance struct {
 	Id         int    `gorm:"column:id"`
+	Username   string `gorm:"column:username"`
 	CreatedAt  int64  `gorm:"column:created_at"`
 	RegisterIp string `gorm:"column:register_ip"`
 	Email      string `gorm:"column:email"`
@@ -31,15 +32,16 @@ func (p *RegistrationProvenance) HasIdentity() bool {
 }
 
 // RegistrationProvenanceSince returns every ordinary account registered after the
-// given unix second that recorded a register IP. Soft-deleted rows are included so
-// a register/delete/re-register cycle cannot launder a network's reputation.
+// given unix second. Rows without a register IP stay in: the network rule skips
+// them, but the burst and username rules can still see them. Soft-deleted rows are
+// included so a register/delete/re-register cycle cannot launder a network's
+// reputation.
 func RegistrationProvenanceSince(since int64) ([]RegistrationProvenance, error) {
 	var rows []RegistrationProvenance
 	err := DB.Unscoped().Model(&User{}).
-		Select("id", "created_at", "register_ip", "email", "github_id", "discord_id", "oidc_id",
+		Select("id", "username", "created_at", "register_ip", "email", "github_id", "discord_id", "oidc_id",
 			"telegram_id", "linux_do_id", "wechat_id", "google_id", "used_quota").
 		Where("created_at > ?", since).
-		Where("register_ip <> ?", "").
 		Where("role = ?", common.RoleCommonUser).
 		Find(&rows).Error
 	return rows, err

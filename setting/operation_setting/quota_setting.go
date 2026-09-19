@@ -25,6 +25,16 @@ type QuotaSetting struct {
 	FreeAbuseBurstWindowDays  int `json:"free_abuse_burst_window_days"`  // 注册突发的统计回溯天数
 	// 未验证账号（无第三方登录、无已验证邮箱、零余额）的滥用阈值按此百分比缩放；100=与其他账号相同。
 	FreeAbuseUnverifiedPct int `json:"free_abuse_unverified_pct"`
+	// 请求时同现检测：同一客户端 IP 或同一客户端指纹在一个窗口内轮换的零余额、无身份账号数达到阈值，则整簇账号影子封禁。
+	// 0=关闭，1=仅记录，2=执行。
+	FreeAbuseCooccurMode          int `json:"free_abuse_cooccur_mode"`
+	FreeAbuseCooccurIpMinAccounts int `json:"free_abuse_cooccur_ip_min_accounts"` // 同一 IP 窗口内账号数阈值；0=关闭
+	FreeAbuseCooccurFpMinAccounts int `json:"free_abuse_cooccur_fp_min_accounts"` // 同一非浏览器客户端指纹窗口内账号数阈值；0=关闭
+	FreeAbuseCooccurWindowSeconds int `json:"free_abuse_cooccur_window_seconds"`  // 同现统计窗口（秒）
+	FreeAbuseCooccurBanDays       int `json:"free_abuse_cooccur_ban_days"`        // 同现封禁保留天数，簇持续活跃则续期
+	// 用户名域名簇：用户名形如邮箱、未填写邮箱，且同一稀有域名下账号数达到阈值、几乎无人绑定身份，则视为农场。
+	FreeAbuseUsernameDomainMinAccounts int    `json:"free_abuse_username_domain_min_accounts"` // 0=关闭
+	FreeAbuseUsernameDomainAllowlist   string `json:"free_abuse_username_domain_allowlist"`    // 逗号分隔的公共邮箱域名，不参与统计
 }
 
 // 默认配置
@@ -45,6 +55,14 @@ var quotaSetting = QuotaSetting{
 	FreeAbuseBurstMinAccounts:      0,
 	FreeAbuseBurstWindowDays:       90,
 	FreeAbuseUnverifiedPct:         100,
+
+	FreeAbuseCooccurMode:               0,
+	FreeAbuseCooccurIpMinAccounts:      0,
+	FreeAbuseCooccurFpMinAccounts:      0,
+	FreeAbuseCooccurWindowSeconds:      600,
+	FreeAbuseCooccurBanDays:            7,
+	FreeAbuseUsernameDomainMinAccounts: 0,
+	FreeAbuseUsernameDomainAllowlist:   "gmail.com,googlemail.com,qq.com,outlook.com,hotmail.com,live.com,163.com,126.com,foxmail.com,yahoo.com,icloud.com,proton.me,protonmail.com,mail.ru,yandex.ru,duck.com,mozmail.com",
 }
 
 func init() {
