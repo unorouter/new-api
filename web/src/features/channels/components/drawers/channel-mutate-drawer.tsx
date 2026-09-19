@@ -177,11 +177,7 @@ import {
   parseModelsString,
   formatModelsArray,
   mergeModelMappingPairs,
-  deriveModelMappingPairs,
-  detectModelNamingPatterns,
-  findVerifiedAlias,
   type ModelMappingPair,
-  type ModelNamingSuggestion,
   extractRedirectModels,
   extractMappingSourceModels,
   hasModelConfigChanged,
@@ -483,7 +479,6 @@ export function ChannelMutateDrawer({
   const mappingDraftTokenRef = useRef(0)
   const [batchMapping, setBatchMapping] = useState<{
     source: ModelMappingBatchSource
-    selected: string[]
   } | null>(null)
   const [redirectPanelOpen, setRedirectPanelOpen] = useState(false)
   const [redirectSyncModels, setRedirectSyncModels] = useState(true)
@@ -1246,10 +1241,6 @@ export function ChannelMutateDrawer({
     upstreamModelList.length > 0 ? 'upstream' : 'channel'
   const canBatchMap =
     currentModelsArray.length > 0 || upstreamModelList.length > 0
-  const namingSuggestions = useMemo(
-    () => detectModelNamingPatterns(upstreamModelList, allModelsList),
-    [upstreamModelList, allModelsList]
-  )
   const fetchDiscoveredModels = discovery.fetch
   const handleFetchModels = useCallback(async () => {
     const type = form.getValues('type')
@@ -1495,9 +1486,7 @@ export function ChannelMutateDrawer({
     setRedirectPanelOpen(false)
   }, [])
 
-  // Redirect one fetched upstream model. On wide screens the floating panel
-  // stays beside the list; a name the platform already knows is applied at
-  // once, anything else becomes a draft row awaiting the request name.
+  // Open a draft without guessing or publishing a request name.
   const handleFetchedRedirect = useCallback(
     (model: string) => {
       if (window.innerWidth < REDIRECT_PANEL_MIN_VIEWPORT) {
@@ -1505,35 +1494,9 @@ export function ChannelMutateDrawer({
         return
       }
       openRedirectPanel()
-      const alias = findVerifiedAlias(model, namingSuggestions, allModelsList)
-      if (alias) {
-        applyMappingPairs([alias], redirectSyncModels)
-        raiseMappingDraft(alias.from, alias.to, 'from')
-        return
-      }
       raiseMappingDraft('', model, 'from')
     },
-    [
-      requestMappingDraft,
-      openRedirectPanel,
-      namingSuggestions,
-      allModelsList,
-      applyMappingPairs,
-      redirectSyncModels,
-      raiseMappingDraft,
-    ]
-  )
-
-  const handleApplySuggestion = useCallback(
-    (suggestion: ModelNamingSuggestion) => {
-      const derivation = deriveModelMappingPairs(
-        suggestion.models,
-        'upstream',
-        suggestion.rule
-      )
-      applyMappingPairs(derivation.pairs, redirectSyncModels)
-    },
-    [applyMappingPairs, redirectSyncModels]
+    [requestMappingDraft, openRedirectPanel, raiseMappingDraft]
   )
 
   // Handle successful submission
@@ -2509,7 +2472,6 @@ export function ChannelMutateDrawer({
                     ? () =>
                         setBatchMapping({
                           source: batchMappingSource,
-                          selected: [],
                         })
                     : undefined
                 }
@@ -3408,9 +3370,6 @@ export function ChannelMutateDrawer({
                             onClick={() =>
                               setBatchMapping({
                                 source: 'upstream',
-                                selected: discovery.models.filter((model) =>
-                                  currentModelsArray.includes(model)
-                                ),
                               })
                             }
                           >
@@ -4997,14 +4956,9 @@ export function ChannelMutateDrawer({
               mappingValue={formValues.model_mapping || ''}
               onMappingChange={handlePanelMappingChange}
               onMappingCommit={handlePanelMappingCommit}
-              suggestions={namingSuggestions}
-              onApplySuggestion={handleApplySuggestion}
-              onOpenRules={() =>
+              onBatchAdd={() =>
                 setBatchMapping({
-                  source: 'upstream',
-                  selected: upstreamModelList.filter((model) =>
-                    currentModelsArray.includes(model)
-                  ),
+                  source: batchMappingSource,
                 })
               }
               syncModels={redirectSyncModels}
@@ -5044,7 +4998,6 @@ export function ChannelMutateDrawer({
           upstreamModels={upstreamModelList}
           channelModels={currentModelsArray}
           initialSource={batchMapping.source}
-          initialSelected={batchMapping.selected}
           onOpenChange={(nextOpen) => {
             if (!nextOpen) setBatchMapping(null)
           }}
