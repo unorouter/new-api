@@ -59,6 +59,9 @@ type Channel struct {
 
 	// cache info
 	Keys []string `json:"-" gorm:"-"`
+
+	// AES-GCM ciphertext of Key, see channel_crypto.go
+	KeyEnc string `json:"-" gorm:"type:text"`
 }
 
 type ChannelInfo struct {
@@ -377,7 +380,7 @@ func GetAllChannels(startIdx int, num int, selectAll bool, idSort bool, sortOpti
 	if selectAll {
 		err = order.Apply(DB).Find(&channels).Error
 	} else {
-		err = order.Apply(DB).Limit(num).Offset(startIdx).Omit("key").Find(&channels).Error
+		err = order.Apply(DB).Limit(num).Offset(startIdx).Omit("key", "key_enc").Find(&channels).Error
 	}
 	return channels, err
 }
@@ -387,7 +390,7 @@ func GetChannelsByTag(tag string, idSort bool, selectAll bool, sortOptions ...Ch
 	order := resolveChannelSortOptions(idSort, sortOptions)
 	query := order.Apply(DB.Where("tag = ?", tag))
 	if !selectAll {
-		query = query.Omit("key")
+		query = query.Omit("key", "key_enc")
 	}
 	err := query.Find(&channels).Error
 	return channels, err
@@ -411,7 +414,7 @@ func SearchChannels(keyword string, group string, model string, idSort bool, sor
 	order := resolveChannelSortOptions(idSort, sortOptions)
 
 	// 构造基础查询
-	baseQuery := DB.Model(&Channel{}).Omit("key")
+	baseQuery := DB.Model(&Channel{}).Omit("key", "key_enc")
 
 	// 构造WHERE子句
 	whereClause := "(id = ? OR name LIKE ? OR " + commonKeyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"
@@ -441,7 +444,7 @@ func GetChannelById(id int, selectAll bool) (*Channel, error) {
 	if selectAll {
 		err = DB.First(channel, "id = ?", id).Error
 	} else {
-		err = DB.Omit("key").First(channel, "id = ?", id).Error
+		err = DB.Omit("key", "key_enc").First(channel, "id = ?", id).Error
 	}
 	if err != nil {
 		return nil, err
@@ -1031,7 +1034,7 @@ func SearchTags(keyword string, group string, model string, idSort bool) ([]*str
 	}
 
 	// 构造基础查询
-	baseQuery := DB.Model(&Channel{}).Omit("key")
+	baseQuery := DB.Model(&Channel{}).Omit("key", "key_enc")
 
 	// 构造WHERE子句
 	whereClause := "(id = ? OR name LIKE ? OR " + commonKeyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"
@@ -1244,7 +1247,7 @@ func GetChannelsByType(startIdx int, num int, idSort bool, channelType int) ([]*
 	if idSort {
 		order = "id desc"
 	}
-	err := DB.Where("type = ?", channelType).Order(order).Limit(num).Offset(startIdx).Omit("key").Find(&channels).Error
+	err := DB.Where("type = ?", channelType).Order(order).Limit(num).Offset(startIdx).Omit("key", "key_enc").Find(&channels).Error
 	return channels, err
 }
 
