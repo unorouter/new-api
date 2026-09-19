@@ -49,30 +49,31 @@ const freeAbuseDayModelTTL = 26 * time.Hour
 // (the same scraping shape, paced slowly enough to stay under the minute windows).
 // No-op when the global auto-block setting is disabled. The flag clears
 // automatically on the next quota top-up (see model.IncreaseUserQuota).
-func TrackFreeModelUsage(userId int, userQuota int, modelName string) {
+func TrackFreeModelUsage(userId int, userQuota int, modelName string, verified bool) {
 	setting := operation_setting.GetQuotaSetting()
 	if !setting.EnableFreeAbuseAutoBlock {
 		return
 	}
-	maxPerMin := setting.FreeAbuseMaxPerMinute
+	scale := freeAbuseScale(setting, verified)
+	maxPerMin := scale(setting.FreeAbuseMaxPerMinute)
 
 	over := maxPerMin > 0 && recordFreeUsage(userId, maxPerMin)
 
-	maxDistinct := setting.FreeAbuseMaxDistinctModels
+	maxDistinct := scale(setting.FreeAbuseMaxDistinctModels)
 	tooManyModels := maxDistinct > 0 && modelName != "" &&
 		recordDistinctFreeModel(userId, modelName) > maxDistinct
 
 	// Slow-but-relentless scraper: paces under the per-minute limits but racks up
 	// thousands of free requests per DAY. Per-minute windows never catch it; the
 	// daily counter does.
-	maxPerDay := setting.FreeAbuseMaxPerDay
+	maxPerDay := scale(setting.FreeAbuseMaxPerDay)
 	overDaily := maxPerDay > 0 &&
 		recordWindowedUsage("freeAbuseDay", &freeAbuseDayLimiter, userId, maxPerDay, freeAbuseDaySeconds)
 
 	// Catalog sweep paced under every per-minute limit. Unlike the signals above
 	// this one checks the balance BEFORE recording: its keys live for a day, and a
 	// day of keys for a user who can never be blocked is pure waste.
-	maxDistinctDay := setting.FreeAbuseMaxDistinctModelsPerDay
+	maxDistinctDay := scale(setting.FreeAbuseMaxDistinctModelsPerDay)
 	tooManyModelsDaily := maxDistinctDay > 0 && modelName != "" && userQuota <= 0 &&
 		recordDistinctFreeModelDay(userId, modelName) > maxDistinctDay
 
@@ -100,7 +101,7 @@ func TrackFreeModelUsage(userId int, userQuota int, modelName string) {
 // the per-minute/per-day/hourly-error counts a paced scraper stays beneath.
 // Text models are exempt (users legitimately try several chat models). No-op when
 // disabled or quota > 0.
-func TrackFreeModelError(userId int, userQuota int, modelName string, isMedia bool) {
+func TrackFreeModelError(userId int, userQuota int, modelName string, isMedia bool, verified bool) {
 	if userId <= 0 || userQuota > 0 {
 		return
 	}
@@ -108,15 +109,16 @@ func TrackFreeModelError(userId int, userQuota int, modelName string, isMedia bo
 	if !setting.EnableFreeAbuseAutoBlock {
 		return
 	}
+	scale := freeAbuseScale(setting, verified)
 
 	block := false
 
-	maxErr := setting.FreeAbuseMaxErrorsPerHour
+	maxErr := scale(setting.FreeAbuseMaxErrorsPerHour)
 	if maxErr > 0 && recordWindowedUsage("freeAbuseErr", &freeAbuseErrLimiter, userId, maxErr, freeAbuseErrWindowSeconds) {
 		block = true
 	}
 
-	maxMediaErr := setting.FreeAbuseMaxMediaErrModels
+	maxMediaErr := scale(setting.FreeAbuseMaxMediaErrModels)
 	if isMedia && maxMediaErr > 0 && modelName != "" &&
 		recordDistinctMediaErrModel(userId, modelName) > maxMediaErr {
 		block = true
@@ -128,6 +130,31 @@ func TrackFreeModelError(userId int, userQuota int, modelName string, isMedia bo
 	gopool.Go(func() {
 		autoBlockUser(userId)
 	})
+}
+
+// FreeUserVerified reports whether anything beyond a password stands behind the
+// account: a third-party login, or an email while email verification is on (so
+// the address was proven, not typed). Every account farm seen so far had neither,
+// while 61% of ordinary signups bind a login, so the unverified thresholds below
+// can sit well under the ordinary ones without touching most real users.
+func FreeUserVerified(hasIdentity bool, email string) bool {
+	return hasIdentity || (email != "" && common.EmailVerificationEnabled)
+}
+
+// freeAbuseScale returns the threshold scaler for this account: identity at 100%,
+// an unverified zero-balance account at FreeAbuseUnverifiedPct. A threshold of 0
+// stays 0 (disabled), and a scaled one never drops below 1.
+func freeAbuseScale(setting *operation_setting.QuotaSetting, verified bool) func(int) int {
+	pct := setting.FreeAbuseUnverifiedPct
+	if verified || pct <= 0 || pct >= 100 {
+		return func(v int) int { return v }
+	}
+	return func(v int) int {
+		if v <= 0 {
+			return v
+		}
+		return max(v*pct/100, 1)
+	}
 }
 
 // recordWindowedUsage increments a per-user counter under keyPrefix for the given

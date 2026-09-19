@@ -6351,6 +6351,8 @@
     "Password-only signups per wall-clock minute, across all networks, above which every account from that minute that never bound a third-party login, typed no email and never paid is shadow banned on free models. Farms renting one residential exit per account escape the network rule but still register in bursts. 0 disables.": "同一分钟内（跨所有网段）仅密码注册的账号数超过该值时，该分钟内所有未绑定第三方登录、未填写邮箱且从未付费的账号在免费模型上被静默封禁。每个账号租用一个住宅出口的农场能绕过网段规则，但仍需批量注册。0 表示关闭。",
     "Registration burst window (days)": "注册突发统计窗口（天）",
     "How far back registration minutes are scanned for bursts. Longer keeps older farms banned; nothing beyond it is checked.": "回溯扫描注册分钟以查找突发的天数。越长则较早的农场保持封禁；超出范围的不再检查。",
+    "Unverified account threshold (%)": "未验证账号阈值（%）",
+    "Every free abuse threshold above is scaled to this percent for an account with no third-party login, no verified email and zero balance. Account farms have none of the three, most real users have at least one. 100 means no difference.": "对于没有第三方登录、没有已验证邮箱且余额为零的账号，上述所有免费滥用阈值按此百分比缩放。账号农场三者皆无，大多数真实用户至少具备其一。100 表示无差别。",
     "Reset the weekly quota for every active subscription on {{plan}}. This affects all subscribers, not one user. To reset a single user, open Users and use the Subscriptions row action.": "重置 {{plan}} 上所有有效订阅的每周额度。此操作影响该套餐的全部订阅用户，而非单个用户。如需重置单个用户，请打开「用户」页面并使用该行的「订阅」操作。",
     "Yes, reset every subscriber on this plan": "是，重置该套餐的全部订阅用户"
   }

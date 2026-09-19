@@ -140,10 +140,18 @@ func (user *User) ToBaseUser() *UserBase {
 		Email:       user.Email,
 		CreatedAt:   user.CreatedAt,
 		UsedQuota:   user.UsedQuota,
+		HasIdentity: user.HasIdentity(),
 		AuthVersion: user.AuthVersion,
 		CacheSchema: userCacheSchemaVersion,
 	}
 	return cache
+}
+
+// HasIdentity reports whether an external provider vouched for this account.
+// Same rule as RegistrationProvenance.HasIdentity.
+func (user *User) HasIdentity() bool {
+	return user.GitHubId != "" || user.DiscordId != "" || user.OidcId != "" ||
+		user.TelegramId != "" || user.LinuxDOId != "" || user.WeChatId != "" || user.GoogleId != ""
 }
 
 func (user *User) GetAccessToken() string {

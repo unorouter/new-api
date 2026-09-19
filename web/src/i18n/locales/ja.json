@@ -6351,6 +6351,8 @@
     "Password-only signups per wall-clock minute, across all networks, above which every account from that minute that never bound a third-party login, typed no email and never paid is shadow banned on free models. Farms renting one residential exit per account escape the network rule but still register in bursts. 0 disables.": "全ネットワークを通じて、同じ1分間にパスワードのみで登録されたアカウント数がこの値を超えると、その1分間に登録され、外部ログインを連携せず、メールも入力せず、一度も支払っていないアカウントは無料モデルでシャドウバンされます。アカウントごとに住宅用出口を借りるファームはネットワーク規則を回避できますが、登録はやはり一斉に行われます。0 で無効。",
     "Registration burst window (days)": "登録バースト集計期間（日）",
     "How far back registration minutes are scanned for bursts. Longer keeps older farms banned; nothing beyond it is checked.": "バーストを探して登録の分単位をさかのぼる日数。長くすると古いファームもバンされたままになり、期間外は確認されません。",
+    "Unverified account threshold (%)": "未確認アカウントの閾値（%）",
+    "Every free abuse threshold above is scaled to this percent for an account with no third-party login, no verified email and zero balance. Account farms have none of the three, most real users have at least one. 100 means no difference.": "外部ログインも確認済みメールもなく残高がゼロのアカウントには、上記の無料モデル悪用閾値をすべてこの割合に縮小して適用します。アカウントファームは三つとも持たず、ほとんどの実ユーザーは少なくとも一つを持っています。100 で差なし。",
     "Reset the weekly quota for every active subscription on {{plan}}. This affects all subscribers, not one user. To reset a single user, open Users and use the Subscriptions row action.": "{{plan}} のすべての有効なサブスクリプションの週間クォータをリセットします。この操作は単一のユーザーではなく、このプランのすべての契約者に影響します。単一のユーザーをリセットするには、「ユーザー」画面を開き、その行の「サブスクリプション」操作を使用してください。",
     "Yes, reset every subscriber on this plan": "はい、このプランのすべての契約者をリセットします"
   }

@@ -73,6 +73,7 @@ const quotaSchema = z.object({
     free_abuse_network_window_days: z.coerce.number().min(1),
     free_abuse_burst_min_accounts: z.coerce.number().min(0),
     free_abuse_burst_window_days: z.coerce.number().min(1),
+    free_abuse_unverified_pct: z.coerce.number().min(1).max(100),
     charge_on_error: z.boolean(),
   }),
 })
@@ -621,6 +622,32 @@ export function QuotaSettingsSection({
                   <FormDescription>
                     {t(
                       "How far back registration minutes are scanned for bursts. Longer keeps older farms banned; nothing beyond it is checked."
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_unverified_pct'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Unverified account threshold (%)")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "Every free abuse threshold above is scaled to this percent for an account with no third-party login, no verified email and zero balance. Account farms have none of the three, most real users have at least one. 100 means no difference."
                     )}
                   </FormDescription>
                   <FormMessage />
