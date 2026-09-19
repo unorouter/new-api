@@ -6355,6 +6355,8 @@
     "Co-occurrence detection mode": "共起検出モード",
     "Co-occurrence threshold per client IP": "クライアント IP ごとの共起閾値",
     "Co-occurrence threshold per client fingerprint": "クライアント指紋ごとの共起閾値",
+    "Co-occurrence threshold per client network": "クライアントネットワークごとの共起閾値",
+    "Same rule keyed on the /24 (IPv6 /48) the requests come from, for farms that spread over the addresses of one rented block. Counted for non-browser clients only and, like the fingerprint rule, only when the accounts share few client fingerprints. 0 disables.": "同じルールをリクエスト元の /24（IPv6 は /48）で集計します。借りた一つのアドレス帯の中でアドレスを分散させる農場向けです。ブラウザ以外のクライアントのみを数え、指紋ルールと同様、アカウントが少数のクライアント指紋を共有する場合にのみ働きます。0 で無効。",
     "Co-occurrence window (seconds)": "共起集計ウィンドウ（秒）",
     "Co-occurrence ban duration (days)": "共起によるバン期間（日）",
     "Username domain cohort threshold": "ユーザー名ドメイン群の閾値",

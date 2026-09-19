@@ -6375,6 +6375,8 @@
     "Co-occurrence detection mode": "同現偵測模式",
     "Co-occurrence threshold per client IP": "單一用戶端 IP 同現閾值",
     "Co-occurrence threshold per client fingerprint": "單一用戶端指紋同現閾值",
+    "Co-occurrence threshold per client network": "單一用戶端網段同現閾值",
+    "Same rule keyed on the /24 (IPv6 /48) the requests come from, for farms that spread over the addresses of one rented block. Counted for non-browser clients only and, like the fingerprint rule, only when the accounts share few client fingerprints. 0 disables.": "同一規則改為按請求來源的 /24（IPv6 /48）統計，用於在同一租用位址段內分散位址的農場。僅統計非瀏覽器用戶端，且與指紋規則相同，僅在帳號共用少數用戶端指紋時生效。0 為關閉。",
     "Co-occurrence window (seconds)": "同現統計視窗（秒）",
     "Co-occurrence ban duration (days)": "同現封鎖時長（天）",
     "Username domain cohort threshold": "使用者名稱網域群組閾值",
