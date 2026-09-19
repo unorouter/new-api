@@ -357,6 +357,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// and an account farm identified by the network the account registered from.
 		// The farm verdict is held in memory rather than written to the account, so
 		// a stockpile dies one request at a time instead of at a single timestamp.
+		// Tracked before the ban check on purpose: a banned account must keep
+		// counting toward its host's window, otherwise a farm shrinks to just under
+		// the threshold and its last accounts leak forever.
+		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels && relayInfo.UserQuota <= 0 &&
+			!service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail) {
+			service.TrackFreeCooccurrence(c, relayInfo.UserId)
+		}
 		if relayInfo.UserQuota <= 0 &&
 			(relayInfo.UserSetting.BlockFreeWhenNoQuota || service.FreeModelsShadowBanned(relayInfo.UserId)) {
 			// Shadow ban: return the same 429 rate-limit response a throttled free
@@ -368,11 +375,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			return
 		}
 		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels {
-			verified := service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail)
-			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName, verified)
-			if !verified && relayInfo.UserQuota <= 0 {
-				service.TrackFreeCooccurrence(c, relayInfo.UserId)
-			}
+			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName,
+				service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail))
 		}
 		logger.LogInfo(c, fmt.Sprintf("model %s is free, skipping pre-consume billing", relayInfo.OriginModelName))
 	} else {
@@ -1322,6 +1326,13 @@ func executeTaskSubmissionWith(
 	// PriceData.FreeModel: the tiered branch in relay/relay_task.go builds
 	// PriceData by hand and never sets that flag.
 	if notify.IsFreeModel(relayInfo.OriginModelName) {
+		// Tracked before the ban check on purpose: a banned account must keep
+		// counting toward its host's window, otherwise a farm shrinks to just under
+		// the threshold and its last accounts leak forever.
+		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels && relayInfo.UserQuota <= 0 &&
+			!service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail) {
+			service.TrackFreeCooccurrence(c, relayInfo.UserId)
+		}
 		if relayInfo.UserQuota <= 0 &&
 			(relayInfo.UserSetting.BlockFreeWhenNoQuota || service.FreeModelsShadowBanned(relayInfo.UserId)) {
 			return nil, service.TaskErrorWrapperLocal(
@@ -1329,11 +1340,8 @@ func executeTaskSubmissionWith(
 				string(types.ErrorCodeRateLimitExceeded), http.StatusTooManyRequests)
 		}
 		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels {
-			verified := service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail)
-			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName, verified)
-			if !verified && relayInfo.UserQuota <= 0 {
-				service.TrackFreeCooccurrence(c, relayInfo.UserId)
-			}
+			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName,
+				service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail))
 		}
 	}
 
