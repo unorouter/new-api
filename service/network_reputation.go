@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"net"
 	"sync/atomic"
 	"time"
@@ -53,7 +54,8 @@ func registrationNetworkKey(ip string) string {
 func refreshNetworkReputation() {
 	setting := operation_setting.GetQuotaSetting()
 	minAccounts := setting.FreeAbuseNetworkMinAccounts
-	if minAccounts <= 0 {
+	burstMin := setting.FreeAbuseBurstMinAccounts
+	if minAccounts <= 0 && burstMin <= 0 {
 		currentNetworkReputation.Store(&networkReputation{})
 		return
 	}
@@ -61,7 +63,17 @@ func refreshNetworkReputation() {
 	if windowDays <= 0 {
 		windowDays = 14
 	}
-	rows, err := model.RegistrationProvenanceSince(time.Now().AddDate(0, 0, -windowDays).Unix())
+	burstDays := setting.FreeAbuseBurstWindowDays
+	if burstDays <= 0 {
+		burstDays = 90
+	}
+	now := time.Now()
+	networkSince := now.AddDate(0, 0, -windowDays).Unix()
+	fetchSince := networkSince
+	if burstMin > 0 && burstDays > windowDays {
+		fetchSince = now.AddDate(0, 0, -burstDays).Unix()
+	}
+	rows, err := model.RegistrationProvenanceSince(fetchSince)
 	if err != nil {
 		// Keep the previous verdict: dropping it would silently un-ban every farm
 		// account until the next tick succeeds.
@@ -71,7 +83,19 @@ func refreshNetworkReputation() {
 
 	accounts := make(map[string]int)
 	identities := make(map[string]int)
+	// Identity-free registrations per wall-clock minute, across every network. A
+	// farm that rents one residential exit per account never puts ten accounts in
+	// one /24, but it still has to create them in a burst: 347 accounts in 25
+	// minutes from 279 different /16s on 2026-09-16, against a baseline that never
+	// reached eight password-only signups in a minute outside farm days.
+	burstMinutes := make(map[int64]int)
 	for i := range rows {
+		if !rows[i].HasIdentity() && burstMin > 0 {
+			burstMinutes[rows[i].CreatedAt/60]++
+		}
+		if minAccounts <= 0 || rows[i].CreatedAt <= networkSince {
+			continue
+		}
 		key := registrationNetworkKey(rows[i].RegisterIp)
 		if key == "" {
 			continue
@@ -96,8 +120,20 @@ func refreshNetworkReputation() {
 	}
 
 	shadowBanned := make(map[int]struct{})
+	burstBanned := 0
 	for i := range rows {
 		if rows[i].HasIdentity() || rows[i].UsedQuota > 0 {
+			continue
+		}
+		// A typed email is not identity, but the farms never bother with one (1% of
+		// farm-minute accounts against 40% of ordinary signups), so it separates
+		// the person who happened to register in a farm minute from the farm.
+		if burstMin > 0 && rows[i].Email == "" && burstMinutes[rows[i].CreatedAt/60] >= burstMin {
+			shadowBanned[rows[i].Id] = struct{}{}
+			burstBanned++
+			continue
+		}
+		if rows[i].CreatedAt <= networkSince {
 			continue
 		}
 		if _, ok := flaggedNetworks[registrationNetworkKey(rows[i].RegisterIp)]; ok {
@@ -105,6 +141,11 @@ func refreshNetworkReputation() {
 		}
 	}
 
+	prev := currentNetworkReputation.Load()
+	if prev == nil || len(prev.shadowBanned) != len(shadowBanned) {
+		common.SysLog(fmt.Sprintf("network reputation: %d flagged networks, %d shadow-banned accounts (%d from registration bursts)",
+			len(flaggedNetworks), len(shadowBanned), burstBanned))
+	}
 	currentNetworkReputation.Store(&networkReputation{
 		flaggedNetworks: flaggedNetworks,
 		shadowBanned:    shadowBanned,

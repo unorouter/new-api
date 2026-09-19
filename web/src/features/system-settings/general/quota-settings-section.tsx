@@ -71,6 +71,8 @@ const quotaSchema = z.object({
     free_abuse_network_min_accounts: z.coerce.number().min(0),
     free_abuse_network_max_identity_pct: z.coerce.number().min(0).max(100),
     free_abuse_network_window_days: z.coerce.number().min(1),
+    free_abuse_burst_min_accounts: z.coerce.number().min(0),
+    free_abuse_burst_window_days: z.coerce.number().min(1),
     charge_on_error: z.boolean(),
   }),
 })
@@ -567,6 +569,58 @@ export function QuotaSettingsSection({
                   <FormDescription>
                     {t(
                       'How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_burst_min_accounts'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Registration burst threshold (per minute)")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "Password-only signups per wall-clock minute, across all networks, above which every account from that minute that never bound a third-party login, typed no email and never paid is shadow banned on free models. Farms renting one residential exit per account escape the network rule but still register in bursts. 0 disables."
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_burst_window_days'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Registration burst window (days)")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "How far back registration minutes are scanned for bursts. Longer keeps older farms banned; nothing beyond it is checked."
                     )}
                   </FormDescription>
                   <FormMessage />

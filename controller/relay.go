@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -360,10 +361,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			(relayInfo.UserSetting.BlockFreeWhenNoQuota || service.FreeModelsShadowBanned(relayInfo.UserId)) {
 			// Shadow ban: return the same 429 rate-limit response a throttled free
 			// user gets, so an abuser cannot tell they are specifically blocked.
-			paidName := strings.TrimSuffix(relayInfo.OriginModelName, ":free")
 			newAPIError = types.NewErrorWithStatusCode(
-				fmt.Errorf("Too many requests. The free tier allows %d request(s) every %d min per account on %s - nothing is used up, retry in %ds. The paid %s has no per-minute limit.",
-					1, 1, relayInfo.OriginModelName, 60, paidName),
+				errors.New(shadowBanRateLimitMessage(c, relayInfo.UserId, relayInfo.OriginModelName)),
 				types.ErrorCodeRateLimitExceeded, http.StatusTooManyRequests,
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 			return
@@ -769,6 +768,24 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, newAPIError
 	}
 	return channel, nil
+}
+
+// shadowBanRateLimitMessage is the limiter's own rejection, byte for byte, with
+// the model's real limit, the headers the limiter sets, and a countdown that
+// behaves like a sliding window. See service.ShadowBanRetryAfter.
+func shadowBanRateLimitMessage(c *gin.Context, userId int, modelName string) string {
+	count, window := middleware.FreeModelLimitFor(c, modelName)
+	retryAfter := service.ShadowBanRetryAfter(userId, modelName, window)
+	c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
+	c.Header("X-RateLimit-Limit", strconv.Itoa(count))
+	c.Header("X-RateLimit-Remaining", "0")
+	c.Header("X-RateLimit-Reset", strconv.FormatInt(time.Now().Unix()+retryAfter, 10))
+	windowLabel := fmt.Sprintf("%v min", window/60)
+	if window%60 != 0 {
+		windowLabel = fmt.Sprintf("%vs", window)
+	}
+	return fmt.Sprintf("Too many requests. The free tier allows %v request(s) every %v per account on %v - nothing is used up, retry in %vs. The paid %v has no per-minute limit.",
+		count, windowLabel, modelName, retryAfter, strings.TrimSuffix(modelName, ":free"))
 }
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
@@ -1302,10 +1319,8 @@ func executeTaskSubmissionWith(
 	if notify.IsFreeModel(relayInfo.OriginModelName) {
 		if relayInfo.UserQuota <= 0 &&
 			(relayInfo.UserSetting.BlockFreeWhenNoQuota || service.FreeModelsShadowBanned(relayInfo.UserId)) {
-			paidName := strings.TrimSuffix(relayInfo.OriginModelName, ":free")
 			return nil, service.TaskErrorWrapperLocal(
-				fmt.Errorf("Too many requests. The free tier allows %d request(s) every %d min per account on %s - nothing is used up, retry in %ds. The paid %s has no per-minute limit.",
-					1, 1, relayInfo.OriginModelName, 60, paidName),
+				errors.New(shadowBanRateLimitMessage(c, relayInfo.UserId, relayInfo.OriginModelName)),
 				string(types.ErrorCodeRateLimitExceeded), http.StatusTooManyRequests)
 		}
 		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels {

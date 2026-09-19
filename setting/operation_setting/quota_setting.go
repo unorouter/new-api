@@ -19,6 +19,10 @@ type QuotaSetting struct {
 	FreeAbuseNetworkMinAccounts    int `json:"free_abuse_network_min_accounts"`     // 判定网段为批量注册所需的账号数；0=关闭
 	FreeAbuseNetworkMaxIdentityPct int `json:"free_abuse_network_max_identity_pct"` // 网段内绑定第三方身份的账号占比上限，超过则视为真实共享网络并豁免
 	FreeAbuseNetworkWindowDays     int `json:"free_abuse_network_window_days"`      // 网段信誉的统计回溯天数
+	// 注册突发：同一分钟内未绑定第三方身份的注册数达到阈值，则该分钟内所有未绑定身份、无消费的账号视为农场。
+	// 每个账号一个住宅代理出口的农场绕过网段聚合，但仍需批量创建。
+	FreeAbuseBurstMinAccounts int `json:"free_abuse_burst_min_accounts"` // 同一分钟内无身份注册数阈值；0=关闭
+	FreeAbuseBurstWindowDays  int `json:"free_abuse_burst_window_days"`  // 注册突发的统计回溯天数
 }
 
 // 默认配置
@@ -36,6 +40,8 @@ var quotaSetting = QuotaSetting{
 	FreeAbuseNetworkMinAccounts:    0,
 	FreeAbuseNetworkMaxIdentityPct: 10,
 	FreeAbuseNetworkWindowDays:     14,
+	FreeAbuseBurstMinAccounts:      0,
+	FreeAbuseBurstWindowDays:       90,
 }
 
 func init() {

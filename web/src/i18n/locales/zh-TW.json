@@ -6367,6 +6367,10 @@
     "A network is left alone when at least this percent of its accounts bound a third-party login (GitHub, Discord, OIDC, Telegram, LinuxDO, WeChat). Protects households, campuses and carrier NAT, which share an address but do bind real identities. A typed email does not count while email verification is off.": "當網段內至少該比例的帳號綁定了第三方登入（GitHub、Discord、OIDC、Telegram、LinuxDO、微信）時，該網段不受限制。用於保護家庭寬頻、校園網路和電信業者 NAT：它們共用位址，但確實會綁定真實身分。在信箱驗證關閉時，手動填寫的信箱不計入身分。",
     "Network reputation window (days)": "網段信譽統計視窗（天）",
     "How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.": "評估網段時回溯統計註冊記錄的天數。設定越長越能識別緩慢註冊的農場；越短則讓已恢復正常的網段更快解除限制。",
+    "Registration burst threshold (per minute)": "註冊突發閾值（每分鐘）",
+    "Password-only signups per wall-clock minute, across all networks, above which every account from that minute that never bound a third-party login, typed no email and never paid is shadow banned on free models. Farms renting one residential exit per account escape the network rule but still register in bursts. 0 disables.": "同一分鐘內（跨所有網段）僅密碼註冊的帳號數超過該值時，該分鐘內所有未綁定第三方登入、未填寫電子郵件且從未付費的帳號在免費模型上被靜默封鎖。每個帳號租用一個住宅出口的農場能繞過網段規則，但仍需批量註冊。0 表示關閉。",
+    "Registration burst window (days)": "註冊突發統計視窗（天）",
+    "How far back registration minutes are scanned for bursts. Longer keeps older farms banned; nothing beyond it is checked.": "回溯掃描註冊分鐘以尋找突發的天數。越長則較早的農場保持封鎖；超出範圍的不再檢查。",
     "Reset the weekly quota for every active subscription on {{plan}}. This affects all subscribers, not one user. To reset a single user, open Users and use the Subscriptions row action.": "重置 {{plan}} 上所有有效訂閱的每週額度。此操作影響該方案的全部訂閱使用者，而非單一使用者。如需重置單一使用者，請開啟「使用者」頁面並使用該列的「訂閱」操作。",
     "Yes, reset every subscriber on this plan": "是，重置該方案的全部訂閱使用者"
   }
