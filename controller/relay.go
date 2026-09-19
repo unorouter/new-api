@@ -369,7 +369,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels {
 			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName,
-				service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserEmail))
+				service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail))
 		}
 		logger.LogInfo(c, fmt.Sprintf("model %s is free, skipping pre-consume billing", relayInfo.OriginModelName))
 	} else {
@@ -399,7 +399,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				!isModerationRejection(newAPIError) {
 				service.TrackFreeModelError(relayInfo.UserId, relayInfo.UserQuota,
 					relayInfo.OriginModelName, isMediaRelayMode(relayInfo.RelayMode),
-					service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserEmail))
+					service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail))
 			}
 		}
 	}()
@@ -1327,7 +1327,7 @@ func executeTaskSubmissionWith(
 		}
 		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels {
 			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName,
-				service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserEmail))
+				service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail))
 		}
 	}
 
