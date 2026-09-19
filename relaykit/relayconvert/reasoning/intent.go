@@ -122,7 +122,8 @@ func StateFromIntent(intent Intent) *dto.ReasoningConversionState {
 
 func ParseEffort(value string) (Effort, error) {
 	effort := Effort(strings.ToLower(strings.TrimSpace(value)))
-	if effort == "" {
+	// "auto" is the caller leaving the choice to the model: unset, not an error.
+	if effort == "" || effort == "auto" {
 		return "", nil
 	}
 	switch effort {
