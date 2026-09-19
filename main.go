@@ -330,6 +330,10 @@ func InitResources() error {
 		common.FatalLog("failed to initialize token key encryption: " + err.Error())
 		return err
 	}
+	if err = model.InitChannelKeyCrypto(); err != nil {
+		common.FatalLog("failed to initialize channel key encryption: " + err.Error())
+		return err
+	}
 
 	// Initialize SQL Database
 	err = model.InitDB()
@@ -355,6 +359,7 @@ func InitResources() error {
 		if err := model.MigrateRetiredFrontendOptions(); err != nil {
 			common.SysError("failed to migrate retired frontend options: " + err.Error())
 		}
+		go model.RunChannelKeyBackfill()
 	}
 	model.InitOptionMap()
 
