@@ -368,8 +368,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			return
 		}
 		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels {
-			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName,
-				service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail))
+			verified := service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail)
+			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName, verified)
+			if !verified && relayInfo.UserQuota <= 0 {
+				service.TrackFreeCooccurrence(c, relayInfo.UserId)
+			}
 		}
 		logger.LogInfo(c, fmt.Sprintf("model %s is free, skipping pre-consume billing", relayInfo.OriginModelName))
 	} else {
@@ -1326,8 +1329,11 @@ func executeTaskSubmissionWith(
 				string(types.ErrorCodeRateLimitExceeded), http.StatusTooManyRequests)
 		}
 		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels {
-			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName,
-				service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail))
+			verified := service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail)
+			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName, verified)
+			if !verified && relayInfo.UserQuota <= 0 {
+				service.TrackFreeCooccurrence(c, relayInfo.UserId)
+			}
 		}
 	}
 
