@@ -281,6 +281,7 @@ export type BillingSettings = {
   'quota_setting.free_abuse_cooccur_mode': number
   'quota_setting.free_abuse_cooccur_ip_min_accounts': number
   'quota_setting.free_abuse_cooccur_fp_min_accounts': number
+  'quota_setting.free_abuse_cooccur_net_min_accounts': number
   'quota_setting.free_abuse_cooccur_window_seconds': number
   'quota_setting.free_abuse_cooccur_ban_days': number
   'quota_setting.free_abuse_username_domain_min_accounts': number

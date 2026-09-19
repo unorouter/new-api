@@ -48,6 +48,7 @@ const defaultBillingSettings: BillingSettings = {
   'quota_setting.free_abuse_cooccur_mode': 0,
   'quota_setting.free_abuse_cooccur_ip_min_accounts': 0,
   'quota_setting.free_abuse_cooccur_fp_min_accounts': 0,
+  'quota_setting.free_abuse_cooccur_net_min_accounts': 0,
   'quota_setting.free_abuse_cooccur_window_seconds': 600,
   'quota_setting.free_abuse_cooccur_ban_days': 7,
   'quota_setting.free_abuse_username_domain_min_accounts': 0,

@@ -6355,6 +6355,8 @@
     "Co-occurrence detection mode": "Chế độ phát hiện đồng xuất hiện",
     "Co-occurrence threshold per client IP": "Ngưỡng đồng xuất hiện theo IP máy khách",
     "Co-occurrence threshold per client fingerprint": "Ngưỡng đồng xuất hiện theo dấu vân tay máy khách",
+    "Co-occurrence threshold per client network": "Ngưỡng đồng xuất hiện theo mạng máy khách",
+    "Same rule keyed on the /24 (IPv6 /48) the requests come from, for farms that spread over the addresses of one rented block. Counted for non-browser clients only and, like the fingerprint rule, only when the accounts share few client fingerprints. 0 disables.": "Cùng quy tắc nhưng tính theo /24 (IPv6 /48) nơi yêu cầu xuất phát, dành cho trang trại rải địa chỉ trong cùng một khối thuê. Chỉ đếm máy khách không phải trình duyệt và, giống quy tắc dấu vân tay, chỉ khi các tài khoản dùng chung ít dấu vân tay máy khách. 0 tắt.",
     "Co-occurrence window (seconds)": "Cửa sổ đồng xuất hiện (giây)",
     "Co-occurrence ban duration (days)": "Thời hạn cấm do đồng xuất hiện (ngày)",
     "Username domain cohort threshold": "Ngưỡng nhóm theo tên miền trong tên người dùng",

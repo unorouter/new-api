@@ -6355,6 +6355,8 @@
     "Co-occurrence detection mode": "Mode de détection par cooccurrence",
     "Co-occurrence threshold per client IP": "Seuil de cooccurrence par IP cliente",
     "Co-occurrence threshold per client fingerprint": "Seuil de cooccurrence par empreinte cliente",
+    "Co-occurrence threshold per client network": "Seuil de cooccurrence par réseau client",
+    "Same rule keyed on the /24 (IPv6 /48) the requests come from, for farms that spread over the addresses of one rented block. Counted for non-browser clients only and, like the fingerprint rule, only when the accounts share few client fingerprints. 0 disables.": "Même règle indexée sur le /24 (IPv6 /48) d'origine des requêtes, pour les fermes qui se répartissent sur les adresses d'un même bloc loué. Comptée pour les clients hors navigateur seulement et, comme la règle d'empreinte, uniquement quand les comptes partagent peu d'empreintes clientes. 0 désactive.",
     "Co-occurrence window (seconds)": "Fenêtre de cooccurrence (secondes)",
     "Co-occurrence ban duration (days)": "Durée du bannissement par cooccurrence (jours)",
     "Username domain cohort threshold": "Seuil de cohorte par domaine du nom d'utilisateur",

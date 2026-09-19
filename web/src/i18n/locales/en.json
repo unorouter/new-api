@@ -6345,6 +6345,8 @@
     "Co-occurrence detection mode": "Co-occurrence detection mode",
     "Co-occurrence threshold per client IP": "Co-occurrence threshold per client IP",
     "Co-occurrence threshold per client fingerprint": "Co-occurrence threshold per client fingerprint",
+    "Co-occurrence threshold per client network": "Co-occurrence threshold per client network",
+    "Same rule keyed on the /24 (IPv6 /48) the requests come from, for farms that spread over the addresses of one rented block. Counted for non-browser clients only and, like the fingerprint rule, only when the accounts share few client fingerprints. 0 disables.": "Same rule keyed on the /24 (IPv6 /48) the requests come from, for farms that spread over the addresses of one rented block. Counted for non-browser clients only and, like the fingerprint rule, only when the accounts share few client fingerprints. 0 disables.",
     "Co-occurrence window (seconds)": "Co-occurrence window (seconds)",
     "Co-occurrence ban duration (days)": "Co-occurrence ban duration (days)",
     "Username domain cohort threshold": "Username domain cohort threshold",

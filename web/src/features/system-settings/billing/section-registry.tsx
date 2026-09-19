@@ -103,6 +103,8 @@ const BILLING_SECTIONS = [
               settings['quota_setting.free_abuse_cooccur_ip_min_accounts'],
             free_abuse_cooccur_fp_min_accounts:
               settings['quota_setting.free_abuse_cooccur_fp_min_accounts'],
+            free_abuse_cooccur_net_min_accounts:
+              settings['quota_setting.free_abuse_cooccur_net_min_accounts'],
             free_abuse_cooccur_window_seconds:
               settings['quota_setting.free_abuse_cooccur_window_seconds'],
             free_abuse_cooccur_ban_days:

@@ -6355,6 +6355,8 @@
     "Co-occurrence detection mode": "Режим обнаружения совместной активности",
     "Co-occurrence threshold per client IP": "Порог совместной активности на клиентский IP",
     "Co-occurrence threshold per client fingerprint": "Порог совместной активности на отпечаток клиента",
+    "Co-occurrence threshold per client network": "Порог совместной активности на клиентскую сеть",
+    "Same rule keyed on the /24 (IPv6 /48) the requests come from, for farms that spread over the addresses of one rented block. Counted for non-browser clients only and, like the fingerprint rule, only when the accounts share few client fingerprints. 0 disables.": "То же правило по /24 (IPv6 /48), откуда приходят запросы, для ферм, распределённых по адресам одного арендованного блока. Считается только для клиентов вне браузера и, как правило по отпечатку, только когда аккаунты делят немного клиентских отпечатков. 0 отключает.",
     "Co-occurrence window (seconds)": "Окно совместной активности (секунды)",
     "Co-occurrence ban duration (days)": "Длительность бана за совместную активность (дни)",
     "Username domain cohort threshold": "Порог группы по домену в имени пользователя",

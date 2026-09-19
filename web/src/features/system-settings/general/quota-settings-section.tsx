@@ -77,6 +77,7 @@ const quotaSchema = z.object({
     free_abuse_cooccur_mode: z.coerce.number().min(0).max(2),
     free_abuse_cooccur_ip_min_accounts: z.coerce.number().min(0),
     free_abuse_cooccur_fp_min_accounts: z.coerce.number().min(0),
+    free_abuse_cooccur_net_min_accounts: z.coerce.number().min(0),
     free_abuse_cooccur_window_seconds: z.coerce.number().min(60),
     free_abuse_cooccur_ban_days: z.coerce.number().min(1),
     free_abuse_username_domain_min_accounts: z.coerce.number().min(0),
@@ -733,6 +734,32 @@ export function QuotaSettingsSection({
                   <FormDescription>
                     {t(
                       "Same rule keyed on the client software (exact User-Agent plus which headers it sends) instead of the IP, for farms that rotate proxies. Browser requests are never fingerprinted. 0 disables."
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_cooccur_net_min_accounts'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Co-occurrence threshold per client network")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "Same rule keyed on the /24 (IPv6 /48) the requests come from, for farms that spread over the addresses of one rented block. Counted for non-browser clients only and, like the fingerprint rule, only when the accounts share few client fingerprints. 0 disables."
                     )}
                   </FormDescription>
                   <FormMessage />
