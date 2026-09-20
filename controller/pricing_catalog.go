@@ -198,6 +198,13 @@ func catalogModality(m model.Pricing, md dto.ModelMetadata) (modelType string, c
 			}
 		}
 	}
+	// A speech model is an audio model whichever way the sound flows: a
+	// transcriber emits text, a voice emits audio, and the catalogue files
+	// both under audio. `mode` is the source's own class (audio_transcription,
+	// audio_speech, audio); it never names a chat model that merely hears.
+	if strings.HasPrefix(md.Mode, "audio") {
+		return "audio", false
+	}
 	for _, ep := range m.SupportedEndpointTypes {
 		if nonChatEndpoints[string(ep)] {
 			return "text", false
