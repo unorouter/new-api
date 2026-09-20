@@ -83,6 +83,10 @@ var ChannelFaultKeywords = []string{
 	// the second names the reset ("the counter resets at 00:00 UTC").
 	"reached the limit of the free model quota",
 	"free-model daily limit reached",
+	// A reseller running this fork's own daily free-token budget: the message
+	// names today's quota and the daily reset. Read as a bare 429 it only cooled
+	// the lane ten minutes, so six xk1 lanes failed 3,800 user requests in a day.
+	"free-model token quota",
 	// OpenRouter's daily free-model allowance, both the plain and high-balance
 	// variants ("Rate limit exceeded: free-models-per-day[-high-balance]").
 	"free-models-per-day",
