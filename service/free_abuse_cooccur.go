@@ -62,7 +62,7 @@ func ClientNetwork(c *gin.Context) string {
 }
 
 func cooccurBanKey(userId int) string {
-	return fmt.Sprintf("shadowBan:user:%d", userId)
+	return common.ShadowBanUserKey(userId)
 }
 
 // TrackFreeCooccurrence records that this zero-balance, identity-free account
