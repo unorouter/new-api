@@ -74,7 +74,7 @@ export const STATIC_I18N_KEYS = [
   'Connect to Jimeng image and video generation services',
   'Connect to Vidu video generation services',
   'Connect to Submodel model services',
-  'Generate Doubao Seedance videos through Volcengine Ark',
+  'Connect to Doubao Seedance video and Seedream image generation through Volcengine Ark',
   'Connect to OpenAI Sora video generation services',
   'Access hosted model predictions through Replicate',
   'Access Codex using ChatGPT subscription credentials',
@@ -99,7 +99,6 @@ export const STATIC_I18N_KEYS = [
   'Realtime pricing must be converted manually.',
   'This OpenRouter Claude price derives cache-write usage from upstream cost and must be converted manually.',
   'Gemini and OpenAI audio prices differ for this model. Use separate billing model names to convert them.',
-  'This model has different image request multipliers across channels. Use separate billing model names to convert them.',
   // Image cache billing and legacy price conversion.
   'Image cache input price',
   'Image Cache',

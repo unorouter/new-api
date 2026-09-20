@@ -1323,7 +1323,7 @@ test('editing legacy channels retains the full provider list and saves the origi
     soraPlugin,
     {
       key: 'doubao',
-      name: 'Doubao Video',
+      name: 'Doubao',
       icon: 'text',
       models: ['doubao-video'],
     },
@@ -1339,7 +1339,7 @@ test('editing legacy channels retains the full provider list and saves the origi
     await screen.findByRole('option', { name: 'Sora Plugin sora' })
   ).toBeVisible()
   expect(
-    screen.getByRole('option', { name: 'DoubaoVideo Built-in #54' })
+    screen.getByRole('option', { name: 'Doubao Built-in #54' })
   ).toBeVisible()
   const legacy = screen.getByRole('option', { name: 'Sora Built-in #55' })
   expect(legacy).toHaveAttribute('aria-current', 'true')
