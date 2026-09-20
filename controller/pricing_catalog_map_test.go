@@ -53,6 +53,20 @@ func TestParseCatalogMetadata(t *testing.T) {
 	assert.Empty(t, parseCatalogMetadata("not json").OutputModalities)
 }
 
+// A transcriber emits text, so by output alone it would be a chat model; its
+// mode says speech, and the catalogue files speech under audio both ways.
+func TestCatalogModalitySpeechModeIsAudio(t *testing.T) {
+	for _, mode := range []string{"audio_transcription", "audio_speech", "audio"} {
+		gotType, gotChat := catalogModality(model.Pricing{}, dto.ModelMetadata{OutputModalities: []string{"text"}, Mode: mode})
+		assert.Equal(t, "audio", gotType, mode)
+		assert.False(t, gotChat, mode)
+	}
+	// A chat model that accepts audio input stays text.
+	gotType, gotChat := catalogModality(model.Pricing{}, dto.ModelMetadata{OutputModalities: []string{"text"}, InputModalities: []string{"text", "audio"}, Mode: "chat"})
+	assert.Equal(t, "text", gotType)
+	assert.True(t, gotChat)
+}
+
 // An embedding routed to /embeddings must never be chat-eligible, even while a
 // source still publishes outputModalities ["text"] for it.
 func TestCatalogModalityEndpointOverridesTextClaim(t *testing.T) {
