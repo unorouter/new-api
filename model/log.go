@@ -318,6 +318,7 @@ func RecordOperationAuditLog(logUserId, actorRole int, content string, ip string
 }
 
 func RecordTopupLog(userId int, content string, callerIp string, paymentMethod string, callbackPaymentMethod string) {
+	LiftShadowBan(userId, "top-up")
 	username, _ := GetUsernameById(userId, false)
 	other := NewLogOther()
 	other.MergeAdmin(map[string]any{
