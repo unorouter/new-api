@@ -5,13 +5,13 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
 )
 
 const (
@@ -66,12 +66,18 @@ func cooccurBanKey(userId int) string {
 }
 
 // TrackFreeCooccurrence records that this zero-balance, identity-free account
-// just used a free model from this client IP and this client fingerprint. A farm
-// keeps each account under the per-account limit by rotating hundreds of them
-// through one host, so the number of distinct accounts on one constraint inside
-// one window is the thing it cannot hide: browsers top out at five, the farms run
-// sixty to a hundred. Crossing the threshold shadow bans every account in the
-// window, and any account that later shows up on the flagged constraint.
+// just used a free model from this client IP, this client fingerprint and this
+// network. A farm keeps each account under the per-account limit by rotating
+// hundreds of them through one host, so the number of distinct accounts on one
+// constraint inside one window is the thing it cannot hide: browsers top out at
+// five, the farms run sixty to a hundred.
+//
+// Every constraint is paired with a second axis (IP with the client fingerprint,
+// fingerprint with the network, network with the fingerprint). A window only
+// counts when its accounts are concentrated on that axis, and only the accounts
+// in a concentrated group are banned: the farm's accounts all share the host's
+// fingerprint or network, while a real person who happens to use the same
+// library or the same VPN exit sits alone in his own group and is left alone.
 func TrackFreeCooccurrence(c *gin.Context, userId int) {
 	if userId <= 0 || c == nil || c.Request == nil || !common.RedisEnabled {
 		return
@@ -92,84 +98,80 @@ func TrackFreeCooccurrence(c *gin.Context, userId int) {
 	banTTL := time.Duration(banDays) * 24 * time.Hour
 	bucket := time.Now().Unix() / int64(window)
 	ip := c.ClientIP()
-	if ip != "" && setting.FreeAbuseCooccurIpMinAccounts > 0 {
-		trackCooccurrence("ip", ip, ip, userId, "", bucket, window, setting.FreeAbuseCooccurIpMinAccounts, mode, banTTL, true)
-	}
 	fp := ClientFingerprint(c)
+	network := registrationNetworkKey(ip)
+	if ip != "" && setting.FreeAbuseCooccurIpMinAccounts > 0 {
+		spread := fp
+		if spread == "" {
+			spread = "web"
+		}
+		trackCooccurrence("ip", ip, ip, userId, spread, bucket, window, setting.FreeAbuseCooccurIpMinAccounts, mode, banTTL)
+	}
 	if fp == "" {
 		return
 	}
-	network := registrationNetworkKey(ip)
-	// A fingerprint is shared by everyone on the same library or app, and a /24
-	// by everyone behind the same carrier, so each is only trusted when its
-	// accounts are concentrated on the other axis: one farm host or one farm
-	// client. An Android app's users hit thirty accounts on thirty networks and
-	// never flag. Neither bans late joiners; only accounts inside a dense window.
 	if setting.FreeAbuseCooccurFpMinAccounts > 0 {
 		label := fp + " " + truncateAttribution(c.Request.UserAgent())
-		trackCooccurrence("fp", fp, label, userId, network, bucket, window, setting.FreeAbuseCooccurFpMinAccounts, mode, banTTL, false)
+		trackCooccurrence("fp", fp, label, userId, network, bucket, window, setting.FreeAbuseCooccurFpMinAccounts, mode, banTTL)
 	}
 	if network != "" && setting.FreeAbuseCooccurNetMinAccounts > 0 {
-		trackCooccurrence("net", network, network, userId, fp, bucket, window, setting.FreeAbuseCooccurNetMinAccounts, mode, banTTL, false)
+		trackCooccurrence("net", network, network, userId, fp, bucket, window, setting.FreeAbuseCooccurNetMinAccounts, mode, banTTL)
 	}
 }
 
-// cooccurSpreadFactor is how many accounts per distinct value on the other axis a
-// window needs before it counts as concentrated.
+// cooccurSpreadFactor is how many accounts a group on the paired axis needs
+// before the window counts as concentrated and the group's members are banned.
 const cooccurSpreadFactor = 5
 
-func trackCooccurrence(kind, key, label string, userId int, spread string, bucket int64, window, min, mode int, banTTL time.Duration, banLateJoiners bool) {
+func trackCooccurrence(kind, key, label string, userId int, spread string, bucket int64, window, min, mode int, banTTL time.Duration) {
 	ctx := context.Background()
-	setKey := fmt.Sprintf("freeAbuseCo:%s:%s:%d", kind, key, bucket)
-	spreadKey := fmt.Sprintf("freeAbuseCoSpread:%s:%s:%d", kind, key, bucket)
+	hashKey := fmt.Sprintf("freeAbuseCo:%s:%s:%d", kind, key, bucket)
 	flagKey := fmt.Sprintf("freeAbuseCoFlag:%s:%s", kind, key)
 	enforce := mode == cooccurModeEnforce
-	ttl := time.Duration(2*window) * time.Second
+	if spread == "" {
+		spread = "-"
+	}
 
 	pipe := common.RDB.TxPipeline()
-	pipe.SAdd(ctx, setKey, userId)
-	pipe.Expire(ctx, setKey, ttl)
-	card := pipe.SCard(ctx, setKey)
-	flagged := pipe.Exists(ctx, flagKey)
-	var spreadCard *redis.IntCmd
-	if spread != "" {
-		pipe.SAdd(ctx, spreadKey, spread)
-		pipe.Expire(ctx, spreadKey, ttl)
-		spreadCard = pipe.SCard(ctx, spreadKey)
-	}
+	pipe.HSet(ctx, hashKey, strconv.Itoa(userId), spread)
+	pipe.Expire(ctx, hashKey, time.Duration(2*window)*time.Second)
+	size := pipe.HLen(ctx, hashKey)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return
 	}
-	n := int(card.Val())
-	spreadN := 1
-	if spreadCard != nil {
-		spreadN = int(spreadCard.Val())
-	}
-	dense := n >= min && spreadN*cooccurSpreadFactor <= n
-	if flagged.Val() > 0 {
-		if enforce && (banLateJoiners || dense) {
-			common.RDB.Set(ctx, cooccurBanKey(userId), "1", banTTL)
-		}
+	n := int(size.Val())
+	if n < min {
 		return
 	}
-	if !dense {
+	members, err := common.RDB.HGetAll(ctx, hashKey).Result()
+	if err != nil {
 		return
 	}
-
-	pipe = common.RDB.TxPipeline()
-	pipe.Set(ctx, flagKey, "1", cooccurFlagTTL)
-	members := pipe.SMembers(ctx, setKey)
-	if _, err := pipe.Exec(ctx); err != nil {
+	groups := make(map[string]int)
+	for _, g := range members {
+		groups[g]++
+	}
+	if len(groups)*cooccurSpreadFactor > n {
+		return
+	}
+	if enforce && groups[spread] >= cooccurSpreadFactor {
+		common.RDB.Set(ctx, cooccurBanKey(userId), "1", banTTL)
+	}
+	set, err := common.RDB.SetNX(ctx, flagKey, "1", cooccurFlagTTL).Result()
+	if err != nil || !set {
 		return
 	}
 	banned := 0
 	if enforce {
 		pipe = common.RDB.TxPipeline()
-		for _, member := range members.Val() {
-			pipe.Set(ctx, "shadowBan:user:"+member, "1", banTTL)
+		for member, g := range members {
+			if groups[g] >= cooccurSpreadFactor {
+				pipe.Set(ctx, "shadowBan:user:"+member, "1", banTTL)
+				banned++
+			}
 		}
-		if _, err := pipe.Exec(ctx); err == nil {
-			banned = len(members.Val())
+		if _, err := pipe.Exec(ctx); err != nil {
+			banned = 0
 		}
 	}
 	prefix := ""
@@ -177,17 +179,14 @@ func trackCooccurrence(kind, key, label string, userId int, spread string, bucke
 		prefix = "observe: "
 	}
 	common.SysLog(fmt.Sprintf("%sfree abuse: %s %s flagged, %d anonymous accounts on %d %s in %ds, %d shadow banned",
-		prefix, kind, label, n, spreadN, spreadNoun(kind), window, banned))
+		prefix, kind, label, n, len(groups), spreadNoun(kind), window, banned))
 }
 
 func spreadNoun(kind string) string {
-	switch kind {
-	case "fp":
+	if kind == "fp" {
 		return "networks"
-	case "net":
-		return "clients"
 	}
-	return "addresses"
+	return "clients"
 }
 
 // cooccurrenceShadowBanned is the request-time half of the verdict, kept in Redis
