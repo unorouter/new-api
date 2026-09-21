@@ -54,6 +54,24 @@ func CoolLane(channelId int) time.Duration {
 	return d
 }
 
+// CoolLaneFor skips the channel for d without adding a strike, and never shortens
+// a longer cooldown the lane is already serving.
+func CoolLaneFor(channelId int, d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	until := time.Now().Add(d)
+	strikes := 0
+	if v, ok := laneCooldowns.Load(channelId); ok {
+		cur := v.(laneCooldown)
+		strikes = cur.strikes
+		if cur.until.After(until) {
+			until = cur.until
+		}
+	}
+	laneCooldowns.Store(channelId, laneCooldown{until: until, strikes: strikes})
+}
+
 // ClearLaneCooldown ends the current cooldown and sheds ONE strike, rather than
 // forgetting the run outright. Deleting the entry let a lane that alternates
 // pass/fail reset the ladder forever: a7-3304 answered every ~22s, inside its own
