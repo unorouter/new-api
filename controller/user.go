@@ -611,7 +611,7 @@ const botAllowedManageAction = "set_free_rate_limit_window_pct"
 // $4000 in one request on 2026-09-08.
 const maxDiscordGrantQuota = 10 * 500 * 1000
 
-// GetUserBotView returns the two fields the Discord bot reads, instead of the
+// GetUserBotView returns only the fields the Discord bot reads, instead of the
 // whole user record. GetUser serves email, Discord id, register IP and referral
 // data, none of which the bot uses, so pointing a service credential at it
 // would let a compromised bot enumerate that for any user id.
@@ -624,7 +624,7 @@ func GetUserBotView(c fuego.ContextNoBody) (*dto.Response[dto.UserBotViewData], 
 	if err != nil {
 		return dto.Fail[dto.UserBotViewData](err.Error())
 	}
-	return dto.Ok(dto.UserBotViewData{Quota: user.Quota, Setting: user.Setting})
+	return dto.Ok(dto.UserBotViewData{Username: user.Username, Quota: user.Quota, Setting: user.Setting})
 }
 
 func GetUser(c fuego.ContextNoBody) (*dto.Response[model.User], error) {
