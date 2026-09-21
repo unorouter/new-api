@@ -3,8 +3,18 @@
 relaykit/dto/channel_settings.go :: ChannelCapabilities
 relaykit/dto/channel_settings.go :: AdvancedCustomConverter
 relaykit/dto/pricing.go :: ContextLength
-constant/channel_prod.go :: ChannelTypeAIHorde = 1001
-constant/channel_prod.go :: ChannelTypeRunware = 1002
+constant/channel_prod.go :: ChannelTypeAIHorde  = 1001
+constant/channel_prod.go :: ChannelTypeRunware  = 1002
+# TypeSafe Jev decisions relay, ported from upstream PRs 7443 and 7462 while they are unmerged
+constant/channel_prod.go :: ChannelTypeTypeSafe = 1003
+router/relay-router.go :: types.RelayFormatDecisions
+controller/relay.go :: relay.DecisionsHelper
+controller/relay.go :: relayconstant.RelayModeDecisions:
+relay/decisions_handler.go :: func DecisionsHelper
+relay/helper/valid_request.go :: types.RelayFormatDecisions
+relay/common/relay_info.go :: types.RelayFormatDecisions
+relay/common/request_shape.go :: "questions"
+relaykit/dto/channel_settings.go :: DecisionsUpstreamPath
 common/constants.go :: ThemeAwarePath
 common/str.go :: "regexp"
 model/user_cache.go :: GetUserById(userId, false)
