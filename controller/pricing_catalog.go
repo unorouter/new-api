@@ -63,6 +63,7 @@ var nonChatEndpoints = map[string]bool{
 	string(constant.EndpointTypeEmbeddings):  true,
 	string(constant.EndpointTypeJinaRerank):  true,
 	string(constant.EndpointTypeModerations): true,
+	string(constant.EndpointTypeDecisions):   true,
 	"embedding":                              true,
 }
 
