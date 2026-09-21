@@ -24,7 +24,12 @@ if ss -ltn | grep -qE ":($PORT|$MOCK_PORT) "; then echo "port $PORT or $MOCK_POR
 trap 'kill "${pids[@]}" 2>/dev/null || true; wait 2>/dev/null || true; rm -rf "$WORK" || true' EXIT
 
 MOCK_PORT=$MOCK_PORT exec bun scripts/relay-smoke/mock.ts >"$WORK/mock.log" 2>&1 & pids+=($!)
+# Token and channel keys are sealed: the pepper below signs the smoke token's
+# key_hash, the channels carry no key at all (the mock checks none).
+SMOKE_SECRET=$(head -c 32 /dev/zero | tr '\0' 'a' | base64)
+KEY_HASH=$(printf %s "$KEY" | openssl dgst -sha256 -mac HMAC -macopt hexkey:$(printf %s "$SMOKE_SECRET" | base64 -d | xxd -p -c 64) | sed 's/^.*= //')
 (cd "$WORK" && exec env -u SQL_DSN -u REDIS_CONN_STRING SQLITE_PATH="$DB" SESSION_SECRET=smoke-session CRYPTO_SECRET=smoke-crypto \
+  TOKEN_KEY_PEPPER="$SMOKE_SECRET" TOKEN_KEY_ENC_KEY="$SMOKE_SECRET" CHANNEL_KEY_ENC_KEY="$SMOKE_SECRET" \
   NODE_TYPE=master PORT=$PORT ERROR_LOG_ENABLED=true "$BIN" --log-dir "$WORK/logs" >"$WORK/app.log" 2>&1) & pids+=($!)
 up=0
 for _ in $(seq 1 60); do [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/status" || true)" = 200 ] && { up=1; break; }; sleep 1; done
@@ -33,9 +38,9 @@ for _ in $(seq 1 60); do [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127
 models='gpt-4o-mini,gpt-4o,gpt-4,text-embedding-3-small,dall-e-3'
 sqlite3 -cmd ".timeout 30000" "$DB" <<SQL
 INSERT INTO users (id, username, password, display_name, role, status, quota, "group", aff_code) VALUES (1, 'smoke', 'x', 'smoke', 100, 1, 500000000, 'default', 'smk1');
-INSERT INTO tokens (id, user_id, key, status, name, created_time, accessed_time, expired_time, remain_quota, unlimited_quota, "group") VALUES (1, 1, '$KEY', 1, 'smoke', 1, 1, -1, 500000000, 1, '');
-INSERT INTO channels (id, type, key, status, name, base_url, models, "group", priority, weight, auto_ban) VALUES (1, 1, 'mock', 1, 'mock-openai', 'http://127.0.0.1:$MOCK_PORT', '$models', 'default', 0, 0, 0);
-INSERT INTO channels (id, type, key, status, name, base_url, models, "group", priority, weight, auto_ban) VALUES (2, 14, 'mock', 1, 'mock-claude', 'http://127.0.0.1:$MOCK_PORT', 'claude-3-5-haiku-20241022', 'default', 0, 0, 0);
+INSERT INTO tokens (id, user_id, key_hash, key_enc, status, name, created_time, accessed_time, expired_time, remain_quota, unlimited_quota, "group") VALUES (1, 1, '$KEY_HASH', '', 1, 'smoke', 1, 1, -1, 500000000, 1, '');
+INSERT INTO channels (id, type, key_enc, status, name, base_url, models, "group", priority, weight, auto_ban) VALUES (1, 1, '', 1, 'mock-openai', 'http://127.0.0.1:$MOCK_PORT', '$models', 'default', 0, 0, 0);
+INSERT INTO channels (id, type, key_enc, status, name, base_url, models, "group", priority, weight, auto_ban) VALUES (2, 14, '', 1, 'mock-claude', 'http://127.0.0.1:$MOCK_PORT', 'claude-3-5-haiku-20241022', 'default', 0, 0, 0);
 SQL
 for m in ${models//,/ }; do sqlite3 -cmd ".timeout 30000" "$DB" "INSERT INTO abilities (\"group\", model, channel_id, enabled, priority, weight) VALUES ('default', '$m', 1, 1, 0, 0);"; done
 sqlite3 -cmd ".timeout 30000" "$DB" "INSERT INTO abilities (\"group\", model, channel_id, enabled, priority, weight) VALUES ('default', 'claude-3-5-haiku-20241022', 2, 1, 0, 0);"
