@@ -121,6 +121,11 @@ var upstreamRules = []upstreamRule{
 	// the customer's long chat is refused, the lane is fine. Its 502 read as a
 	// lane failure disabled ten cfp lanes on 2026-09-21 at half their traffic.
 	{markers: []string{"demo is limited to"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone}, userMessage: "This provider caps the number of messages in one conversation. Start a new conversation, or retry and another provider will take it."},
+	// The same demo caps the LAST user message at 6000 characters (the system
+	// prompt and earlier turns are not counted), so it is not a context ceiling:
+	// learning one from the whole prompt would route every long chat past a lane
+	// that serves them. Arrives as 400, which alone never fails over.
+	{markers: []string{"prompt too long (max "}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone}, userMessage: "This provider limits the length of a single message. Shorten your last message, or retry and another provider will take it."},
 	// A free lane whose upstream keeps answering that free capacity is limited
 	// and paid credits lift it: a 429 in words, but one lane (oc2 hy3) failed 583
 	// requests against 15 successes all day, so it counts toward the guard.
