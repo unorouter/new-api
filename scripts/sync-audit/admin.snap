@@ -6,10 +6,12 @@ middleware/auth.go: if !AuthenticatedViaPAT(c) || c.GetInt("role") < common.Role
 middleware/auth.go: if minRole >= common.RoleAdminUser {
 middleware/auth.go: if user.Role >= common.RoleAdminUser {
 model/audit_log.go: case common.RoleCommonUser, common.RoleAdminUser, common.RoleRootUser:
+model/audit_log.go: case common.RoleCommonUser, common.RoleModUser, common.RoleAdminUser, common.RoleRootUser:
 model/audit_log.go: if !filter.SelfView && viewerRole >= common.RoleRootUser {
 model/audit_log.go: if user.Role < common.RoleRootUser {
 model/audit_log.go: if viewerRole < common.RoleRootUser {
 model/audit_log.go: query = query.Where("actor_role IN ?", []int{common.RoleCommonUser, common.RoleAdminUser})
+model/audit_log.go: query = query.Where("actor_role IN ?", []int{common.RoleCommonUser, common.RoleModUser, common.RoleAdminUser})
 model/audit_log.go: } else if !filter.SelfView && viewerRole >= common.RoleAdminUser {
 model/main.go: Role: common.RoleRootUser,
 model/usedata_flow.go: case role >= common.RoleRootUser:
@@ -27,6 +29,7 @@ relay/helper/price.go: if model.IsAdmin(userId) {
 service/authz/assignment.go: case systemRole >= common.RoleAdminUser:
 service/authz/assignment.go: case systemRole >= common.RoleRootUser:
 service/authz/override.go: return Capabilities(userID, common.RoleAdminUser)
+service/authz/role_prod.go: if systemRole >= common.RoleModUser && systemRole < common.RoleAdminUser {
 service/security_verification.go: if scope == VerificationScopeAccountDelete && state.Role == common.RoleRootUser {
 service/security_verification.go: if scope == VerificationScopeChannelKeyRead && state.Role != common.RoleRootUser {
 service/user_notify.go: Where("status = ? AND role >= ?", common.UserStatusEnabled, common.RoleAdminUser).

@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/go-redis/redis/v8"
 )
 
 func formatNotifyType(channelId int, status int) string {
@@ -74,8 +77,87 @@ func channelProbePassKey(channelId int) string {
 	return fmt.Sprintf("channel_probe_pass:%d", channelId)
 }
 
+func channelProbeFailKey(channelId int) string {
+	return fmt.Sprintf("channel_probe_fail:%d", channelId)
+}
+
 var channelProbationUntil sync.Map // channelId -> time.Time, fallback when Redis is unavailable
 var channelProbePasses sync.Map    // channelId -> emptyResponseWindow, fallback when Redis is unavailable
+var channelProbeFails sync.Map     // channelId -> int, fallback when Redis is unavailable
+
+// A probe streak outlives the gaps the backoff itself introduces, so its TTL has
+// to exceed the longest wait by a wide margin; a week also forgets a channel that
+// has been deleted or left alone.
+const channelProbeFailTTL = 7 * 24 * time.Hour
+
+// RecordProbeFailure counts one more consecutive scheduled-probe failure for a
+// channel and returns the streak. Unlike the fixed-window counters the TTL is
+// refreshed on every failure: the streak measures a run of failures, and the
+// backoff it feeds can put hours between two probes.
+func RecordProbeFailure(channelId int) int {
+	if common.RedisEnabled {
+		ctx := context.Background()
+		n, err := common.RDB.Incr(ctx, channelProbeFailKey(channelId)).Result()
+		if err == nil {
+			common.RDB.Expire(ctx, channelProbeFailKey(channelId), channelProbeFailTTL)
+			return int(n)
+		}
+		common.SysError("probe failure streak Redis incr failed: " + err.Error())
+	}
+	streak := 1
+	if v, ok := channelProbeFails.Load(channelId); ok {
+		streak = v.(int) + 1
+	}
+	channelProbeFails.Store(channelId, streak)
+	return streak
+}
+
+// ResetProbeFailures clears the streak after a probe passes, so a channel that
+// comes back is asked at the normal cadence again.
+func ResetProbeFailures(channelId int) {
+	if common.RedisEnabled {
+		common.RDB.Del(context.Background(), channelProbeFailKey(channelId))
+	}
+	channelProbeFails.Delete(channelId)
+}
+
+func probeFailureStreak(channelId int) int {
+	if common.RedisEnabled {
+		v, err := common.RDB.Get(context.Background(), channelProbeFailKey(channelId)).Int()
+		if err == nil {
+			return v
+		}
+		if errors.Is(err, redis.Nil) {
+			return 0
+		}
+	}
+	if v, ok := channelProbeFails.Load(channelId); ok {
+		return v.(int)
+	}
+	return 0
+}
+
+// ProbeBackoffSeconds is how long a channel should be left alone before its next
+// scheduled probe, from its failure streak. Below the floor a channel is probed at
+// the normal cadence, so a transient fault still recovers in minutes.
+func ProbeBackoffSeconds(channelId int) int64 {
+	m := operation_setting.GetMonitorSetting()
+	if m.ChannelProbeBackoffBaseSeconds <= 0 || m.ChannelProbeBackoffMaxSeconds <= 0 {
+		return 0
+	}
+	floor := m.ChannelProbeBackoffFloor
+	if floor <= 0 {
+		floor = 3
+	}
+	shift := probeFailureStreak(channelId) - floor
+	if shift < 0 {
+		return 0
+	}
+	if shift >= 20 {
+		return int64(m.ChannelProbeBackoffMaxSeconds)
+	}
+	return min(int64(m.ChannelProbeBackoffBaseSeconds)<<uint(shift), int64(m.ChannelProbeBackoffMaxSeconds))
+}
 
 // StartChannelProbation arms the probation window for a channel that was just
 // re-enabled automatically and clears its failure window, so the tighter probation
@@ -115,6 +197,155 @@ func resetChannelWindow(channelId int) {
 	channelFailureCounts.Delete(channelId)
 	channelSuccessCounts.Delete(channelId)
 	resetFailureStreak(channelId)
+	resetSlowWindow(channelId)
+}
+
+// Slow window: one counter per channel per hour, read as the sum of the last
+// ChannelSlowWindowHours buckets, so the window slides instead of resetting at
+// a cliff. Keys live in Redis for the swarm with the same in-process fallback.
+const slowSlotSeconds = 3600
+
+var channelSlowFailSlots sync.Map // channelId -> map[int64]int, fallback when Redis is unavailable
+var channelSlowOkSlots sync.Map   // channelId -> map[int64]int, fallback when Redis is unavailable
+
+func slowSlotKey(kind string, channelId int, slot int64) string {
+	return fmt.Sprintf("channel_slow_%s:%d:%d", kind, channelId, slot)
+}
+
+func slowWindowHours() int {
+	h := operation_setting.GetMonitorSetting().ChannelSlowWindowHours
+	if h < 0 {
+		return 0
+	}
+	return h
+}
+
+func bumpSlowSlot(kind string, fallback *sync.Map, channelId int) {
+	hours := slowWindowHours()
+	if hours == 0 {
+		return
+	}
+	slot := time.Now().Unix() / slowSlotSeconds
+	if common.RedisEnabled {
+		ctx := context.Background()
+		key := slowSlotKey(kind, channelId, slot)
+		if n, err := common.RDB.Incr(ctx, key).Result(); err == nil {
+			if n == 1 {
+				common.RDB.Expire(ctx, key, time.Duration(hours+1)*time.Hour)
+			}
+			return
+		} else {
+			common.SysError("slow window Redis incr failed: " + err.Error())
+		}
+	}
+	v, _ := fallback.LoadOrStore(channelId, map[int64]int{})
+	slots := v.(map[int64]int)
+	slots[slot]++
+	for s := range slots {
+		if s < slot-int64(hours) {
+			delete(slots, s)
+		}
+	}
+}
+
+func readSlowSlots(kind string, fallback *sync.Map, channelId int) int {
+	hours := slowWindowHours()
+	if hours == 0 {
+		return 0
+	}
+	now := time.Now().Unix() / slowSlotSeconds
+	if common.RedisEnabled {
+		keys := make([]string, 0, hours)
+		for i := 0; i < hours; i++ {
+			keys = append(keys, slowSlotKey(kind, channelId, now-int64(i)))
+		}
+		vals, err := common.RDB.MGet(context.Background(), keys...).Result()
+		if err == nil {
+			total := 0
+			for _, v := range vals {
+				if s, ok := v.(string); ok {
+					n, _ := strconv.Atoi(s)
+					total += n
+				}
+			}
+			return total
+		}
+		common.SysError("slow window Redis mget failed: " + err.Error())
+	}
+	v, ok := fallback.Load(channelId)
+	if !ok {
+		return 0
+	}
+	total := 0
+	for s, n := range v.(map[int64]int) {
+		if s > now-int64(hours) {
+			total += n
+		}
+	}
+	return total
+}
+
+func resetSlowWindow(channelId int) {
+	hours := slowWindowHours()
+	if common.RedisEnabled && hours > 0 {
+		now := time.Now().Unix() / slowSlotSeconds
+		keys := make([]string, 0, 2*(hours+1))
+		for i := 0; i <= hours; i++ {
+			keys = append(keys, slowSlotKey("fail", channelId, now-int64(i)), slowSlotKey("ok", channelId, now-int64(i)))
+		}
+		common.RDB.Del(context.Background(), keys...)
+	}
+	channelSlowFailSlots.Delete(channelId)
+	channelSlowOkSlots.Delete(channelId)
+}
+
+// SlowWindowExceeded is the second gate behind the ten minute one: the failure
+// share over the slow window, floored so a quiet lane needs a sustained fault
+// and not a bad afternoon. It reports the counts it judged for the log line.
+func SlowWindowExceeded(channelId int) (failures int, successes int, exceeded bool) {
+	m := operation_setting.GetMonitorSetting()
+	hours := slowWindowHours()
+	if hours == 0 {
+		return 0, 0, false
+	}
+	failures = readSlowSlots("fail", &channelSlowFailSlots, channelId)
+	successes = readSlowSlots("ok", &channelSlowOkSlots, channelId)
+	floor := m.ChannelSlowFailureAbsoluteFloor
+	if floor <= 0 {
+		floor = 20
+	}
+	if failures < floor {
+		return failures, successes, false
+	}
+	threshold := m.ChannelSlowFailureRateThreshold
+	if threshold <= 0 {
+		threshold = m.ChannelFailureRateThreshold
+	}
+	if threshold <= 0 {
+		return failures, successes, false
+	}
+	return failures, successes, float64(failures)/float64(failures+successes) >= threshold
+}
+
+// SoleLaneDead reports whether the last lane serving a model has stopped
+// serving in any useful sense over the slow window: at least soleLaneDeadFloor
+// failures and no more than one success in ten. Such a lane is kept enabled by
+// the last upstream rule only to hang every request on a deadline and then fail
+// it; disabled, the same requests fail at once and the disabled channel retest
+// brings the lane back the moment it answers again.
+const soleLaneDeadFloor = 100
+const soleLaneDeadRate = 0.9
+
+func SoleLaneDead(channelId int) (failures int, successes int, dead bool) {
+	if slowWindowHours() == 0 {
+		return 0, 0, false
+	}
+	failures = readSlowSlots("fail", &channelSlowFailSlots, channelId)
+	successes = readSlowSlots("ok", &channelSlowOkSlots, channelId)
+	if failures < soleLaneDeadFloor {
+		return failures, successes, false
+	}
+	return failures, successes, float64(failures)/float64(failures+successes) >= soleLaneDeadRate
 }
 
 // RecordRecoveryProbePass counts consecutive clean recovery probes on a disabled
@@ -219,6 +450,7 @@ func resetFailureStreak(channelId int) {
 
 func RecordChannelSuccess(channelId int) {
 	bumpWindowCounter(channelSuccessCounterKey(channelId), &channelSuccessCounts, channelId)
+	bumpSlowSlot("ok", &channelSlowOkSlots, channelId)
 	ClearLaneCooldown(channelId)
 	// Any success breaks the run, so the streak must not survive it.
 	resetFailureStreak(channelId)
@@ -311,6 +543,7 @@ func IsCredentialFault(err *types.NewAPIError) bool {
 // needs a sustained share of the window and does not.
 func RecordChannelFailure(channelId int, soft bool) bool {
 	failures := bumpWindowCounter(channelFailureCounterKey(channelId), &channelFailureCounts, channelId)
+	bumpSlowSlot("fail", &channelSlowFailSlots, channelId)
 	successes := readWindowCounter(channelSuccessCounterKey(channelId), &channelSuccessCounts, channelId)
 
 	m := operation_setting.GetMonitorSetting()

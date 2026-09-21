@@ -30,7 +30,12 @@ func runGeminiChat(t *testing.T, payload dto.GeminiChatResponse) (*httptest.Resp
 	ms := operation_setting.GetMonitorSetting()
 	oldFlag := ms.DisableOnEmptyResponse
 	ms.DisableOnEmptyResponse = true
-	t.Cleanup(func() { ms.DisableOnEmptyResponse = oldFlag })
+	oldRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() {
+		ms.DisableOnEmptyResponse = oldFlag
+		common.RedisEnabled = oldRedis
+	})
 	body, err := common.Marshal(payload)
 	require.NoError(t, err)
 	_, apiErr := GeminiChatHandler(c, info, &http.Response{Body: io.NopCloser(bytes.NewReader(body))})
@@ -40,7 +45,8 @@ func runGeminiChat(t *testing.T, payload dto.GeminiChatResponse) (*httptest.Resp
 // A Gemini candidate whose only parts are thoughts (thinking ate max_tokens,
 // finishReason MAX_TOKENS) converts to an OpenAI message with empty content and
 // used to reach the client as a billable 200. It must fail over like any other
-// empty reply, without counting toward disabling the lane.
+// empty reply; it counts toward the lane's empty-response rate, and one empty
+// on a fresh window is still below the floor, so the lane is not disabled.
 func TestGeminiChatHandlerThoughtOnlyCandidateIsEmptyReply(t *testing.T) {
 	recorder, apiErr := runGeminiChat(t, dto.GeminiChatResponse{
 		Candidates: []dto.GeminiChatCandidate{{

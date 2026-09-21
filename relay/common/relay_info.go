@@ -134,6 +134,8 @@ type RelayInfo struct {
 	UserSetting         hosttypes.UserSetting
 	UserEmail           string
 	UserQuota           int
+	UserHasIdentity     bool
+	UserUsedQuota       int
 	RelayFormat         types.RelayFormat
 	SendResponseCount   int
 	// ClaudeToChatStreamState / ChatToGeminiStreamState hold per-attempt
@@ -619,6 +621,9 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		UserGroup:  common.GetContextKeyString(c, constant.ContextKeyUserGroup),
 		UserQuota:  common.GetContextKeyInt(c, constant.ContextKeyUserQuota),
 		UserEmail:  common.GetContextKeyString(c, constant.ContextKeyUserEmail),
+
+		UserHasIdentity: common.GetContextKeyBool(c, constant.ContextKeyUserHasIdentity),
+		UserUsedQuota:   common.GetContextKeyInt(c, constant.ContextKeyUserUsedQuota),
 
 		OriginModelName: originModelName,
 

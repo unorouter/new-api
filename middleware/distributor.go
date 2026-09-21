@@ -194,7 +194,12 @@ func Distribute() func(c *gin.Context) {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					affinitySatisfied := false
-					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled {
+					// A session sticks to a lane for its prompt cache, not through a fault:
+					// a lane that is cooling down just failed someone, and holding the
+					// session there costs a first byte timeout every turn until it recovers.
+					// Letting go re-sticks the session to whichever lane answers next.
+					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
+						!service.LaneCooled(preferred.Id) && !service.HostCooled(service.UpstreamHostOf(preferred.GetBaseURL())) {
 						affinitySatisfied, _ = model.ChannelSatisfiesFilters(preferred, modelRequest.Model, constraints.Filters)
 					}
 					if affinitySatisfied {

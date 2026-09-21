@@ -504,6 +504,7 @@ func handleOAuthBind(c *gin.Context, providerName string, provider oauth.Provide
 		writeSecurityOperationError(c, err)
 		return false, false
 	}
+	model.LiftShadowBan(userId, "linked "+provider.GetName())
 	user, err := model.GetUserById(userId, false)
 	if err != nil {
 		writeSecurityOperationError(c, err)

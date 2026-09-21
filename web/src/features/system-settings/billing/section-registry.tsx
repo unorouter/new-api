@@ -92,6 +92,28 @@ const BILLING_SECTIONS = [
               settings['quota_setting.free_abuse_network_max_identity_pct'],
             free_abuse_network_window_days:
               settings['quota_setting.free_abuse_network_window_days'],
+            free_abuse_burst_min_accounts:
+              settings['quota_setting.free_abuse_burst_min_accounts'],
+            free_abuse_burst_window_days:
+              settings['quota_setting.free_abuse_burst_window_days'],
+            free_abuse_unverified_pct:
+              settings['quota_setting.free_abuse_unverified_pct'],
+            free_abuse_cooccur_mode:
+              settings['quota_setting.free_abuse_cooccur_mode'],
+            free_abuse_cooccur_ip_min_accounts:
+              settings['quota_setting.free_abuse_cooccur_ip_min_accounts'],
+            free_abuse_cooccur_fp_min_accounts:
+              settings['quota_setting.free_abuse_cooccur_fp_min_accounts'],
+            free_abuse_cooccur_net_min_accounts:
+              settings['quota_setting.free_abuse_cooccur_net_min_accounts'],
+            free_abuse_cooccur_window_seconds:
+              settings['quota_setting.free_abuse_cooccur_window_seconds'],
+            free_abuse_cooccur_ban_days:
+              settings['quota_setting.free_abuse_cooccur_ban_days'],
+            free_abuse_username_domain_min_accounts:
+              settings['quota_setting.free_abuse_username_domain_min_accounts'],
+            free_abuse_username_domain_allowlist:
+              settings['quota_setting.free_abuse_username_domain_allowlist'],
             charge_on_error: settings['quota_setting.charge_on_error'],
           },
         }}

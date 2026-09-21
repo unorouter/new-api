@@ -640,9 +640,9 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		}
 		apiRouter.GET("/task_plugin_options", middleware.AdminAuth(), middleware.RequirePermission(authz.TaskPluginBind), controller.GetTaskPluginOptions)
 		taskPluginRoute.GET("/:key/icon", controller.GetTaskPluginIcon)
-		// Audit log reads: admins with the audit permission see everything, a user
-		// sees their own rows.
-		apiRouter.GET("/audit", middleware.DisableCache(), middleware.AdminAuth(), middleware.RequirePermission(authz.AuditRead), controller.GetAuditLogs)
+		// Audit log reads: moderators and admins holding the audit permission see
+		// everything but root, a user sees their own rows.
+		apiRouter.GET("/audit", middleware.DisableCache(), middleware.ModAuth(), middleware.RequirePermission(authz.AuditRead), controller.GetAuditLogs)
 		apiRouter.GET("/audit/self", middleware.DisableCache(), middleware.UserAuth(), controller.GetAuditLogs)
 
 		// ---- Vendor routes (admin) ----

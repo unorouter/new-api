@@ -185,6 +185,7 @@ func WeChatBind(c *gin.Context) {
 		return
 	}
 	succeeded = true
+	model.LiftShadowBan(identity.UserID, "linked wechat")
 	user, err := model.GetUserById(identity.UserID, false)
 	if err != nil {
 		writeSecurityOperationError(c, err)

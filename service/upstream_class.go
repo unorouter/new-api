@@ -32,6 +32,11 @@ type UpstreamClass struct {
 	// ContextCap marks a prompt the lane cannot take: its size becomes the lane's
 	// learned ceiling and bigger prompts route past it.
 	ContextCap bool
+	// Shared marks a state every lane of the upstream is in at once (a guest
+	// throttle metered across all exits): pulling the lane that answered changes
+	// nothing except shrinking the pool the retry walks, so it is never disabled
+	// for it.
+	Shared bool
 }
 
 type upstreamRule struct {
@@ -100,6 +105,31 @@ var upstreamRules = []upstreamRule{
 	// lane doing it all day is dead.
 	{markers: []string{"协议能力与本次请求不匹配", "上游服务、网络链路或代理返回异常响应"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "The provider could not handle this request. Retry and it will go to a different one."},
 
+	// Any host, the route or model is simply not there: a Go mux "404 page not
+	// found" from a relay whose handler is gone, or a gateway naming the model as
+	// nonexistent. Deterministic for this lane, and the failure-RATE guard never
+	// trips on it while the lane still serves other requests: kl2 answered it 106
+	// times against 700 successes on 2026-09-21 and stayed enabled all day. The
+	// disabled-channel retest brings the lane back once the route answers again.
+	{markers: []string{"404 page not found", "please use an exact model id"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider no longer serves that model. It has left rotation, so please retry."},
+	// A retired model: NVIDIA answers 410 "has reached its end of life on <date>
+	// and is no longer available". Nothing about it clears, and read as an
+	// unknown error it counted nothing: three lanes failed 18,600 requests in ten
+	// hours on 2026-09-21 and stayed enabled.
+	{markers: []string{"reached its end of life", "has been retired", "has been deprecated and is no longer"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider has retired that model. It has left rotation, so please retry."},
+	// A demo site fronted by our cfp shards caps the messages per conversation:
+	// the customer's long chat is refused, the lane is fine. Its 502 read as a
+	// lane failure disabled ten cfp lanes on 2026-09-21 at half their traffic.
+	{markers: []string{"demo is limited to"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone}, userMessage: "This provider caps the number of messages in one conversation. Start a new conversation, or retry and another provider will take it."},
+	// The same demo caps the LAST user message at 6000 characters (the system
+	// prompt and earlier turns are not counted), so it is not a context ceiling:
+	// learning one from the whole prompt would route every long chat past a lane
+	// that serves them. Arrives as 400, which alone never fails over.
+	{markers: []string{"prompt too long (max "}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone}, userMessage: "This provider limits the length of a single message. Shorten your last message, or retry and another provider will take it."},
+	// A free lane whose upstream keeps answering that free capacity is limited
+	// and paid credits lift it: a 429 in words, but one lane (oc2 hy3) failed 583
+	// requests against 15 successes all day, so it counts toward the guard.
+	{markers: []string{"add credits for higher, more stable limits"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "This model is at capacity right now. Nothing is used up on your side. Try again in a few moments."},
 	// Any host, the name did not resolve: nothing this lane serves can be reached
 	// until the record is back, so it leaves rotation at the first failure instead
 	// of waiting for the rate guard. a6api.com rotates its CNAME between backends
@@ -120,9 +150,20 @@ var upstreamRules = []upstreamRule{
 	// never completed, so the lane leaves rotation and the retest returns it.
 	{markers: []string{"remote error: tls:"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "The provider dropped the connection before it was established. It has left rotation, please retry."},
 
+	// Our own lane proxies (chatglm, gemini, kl): the shard's slots are full or the
+	// upstream handed back empty frames, which is what chatglm.cn's guest throttle
+	// looks like from inside the tunnel. A capacity state of the shard, not a
+	// broken lane: 108 of these reached users in five minutes on 2026-09-21 while
+	// the generic 503 default counted every one and pulled the lane.
+	{markers: []string{"shard busy, retry on another shard", "upstream returned an empty answer"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}, userMessage: "This model is at capacity right now. Nothing is used up on your side. Try again in a few moments."},
 	// Any host, rate limits and capacity: fail over, count nothing. AI Horde alone
 	// produced 190k of these in a week; each one disabled a lane the probe
 	// re-enabled five minutes later.
+	// chatglm.cn guest throttle, metered across every exit at once: on 2026-09-21
+	// it ran at 25% pass fleet-wide, the rate gate pulled 33 of 37 glm-5.3-flash
+	// lanes within minutes of re-enabling them, and 414 of 689 failed requests then
+	// had a single lane left to try. Cool the lane, never count it.
+	{markers: []string{"请求过于频繁"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true, Shared: true}, userMessage: "This model is rate limited right now. Nothing is used up on your side. Try again in a few moments."},
 	{markers: []string{"per 1 second", "parallel requests (", "rate limit reached", "rate limit exceeded", "resource has been exhausted", "temporarily overloaded", "this model is busy right now", "rate_limit_exceeded", "并发上限", "总请求数限制"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}, userMessage: "This model is rate limited right now. Nothing is used up on your side. Try again in a few moments."},
 	// Any host, the lane cannot serve this model's requests at all (unsupported
 	// parameter, wrong model id, audio model behind a chat route): deterministic
@@ -216,6 +257,13 @@ func ClassifyUpstreamError(err *types.NewAPIError) UpstreamClass {
 	// A 5xx is capacity or a real fault; the rate guard tells them apart over the
 	// window, the cooldown keeps the lane out of rotation while it decides.
 	switch {
+	case err.StatusCode == 402:
+		// An upstream's 402 is its own wallet or pin, never the customer's balance,
+		// which this gateway settles itself before any upstream call.
+		return UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}
+	case err.StatusCode == 410:
+		// Gone is permanent by definition: the route or model will not return.
+		return UpstreamClass{Known: true, Failover: true, DisableNow: true}
 	case err.StatusCode == 413:
 		return UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}
 	case err.StatusCode == 429:
