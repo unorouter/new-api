@@ -117,6 +117,14 @@ var upstreamRules = []upstreamRule{
 	// unknown error it counted nothing: three lanes failed 18,600 requests in ten
 	// hours on 2026-09-21 and stayed enabled.
 	{markers: []string{"reached its end of life", "has been retired", "has been deprecated and is no longer"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider has retired that model. It has left rotation, so please retry."},
+	// A demo site fronted by our cfp shards caps the messages per conversation:
+	// the customer's long chat is refused, the lane is fine. Its 502 read as a
+	// lane failure disabled ten cfp lanes on 2026-09-21 at half their traffic.
+	{markers: []string{"demo is limited to"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone}, userMessage: "This provider caps the number of messages in one conversation. Start a new conversation, or retry and another provider will take it."},
+	// A free lane whose upstream keeps answering that free capacity is limited
+	// and paid credits lift it: a 429 in words, but one lane (oc2 hy3) failed 583
+	// requests against 15 successes all day, so it counts toward the guard.
+	{markers: []string{"add credits for higher, more stable limits"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "This model is at capacity right now. Nothing is used up on your side. Try again in a few moments."},
 	// Any host, the name did not resolve: nothing this lane serves can be reached
 	// until the record is back, so it leaves rotation at the first failure instead
 	// of waiting for the rate guard. a6api.com rotates its CNAME between backends
