@@ -1062,10 +1062,17 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// Never pull the last upstream serving a model on a rate verdict: with it
 	// gone the model errors just the same, and enabled it serves again the
 	// moment the upstream recovers. Credential and instant faults still disable.
+	// Unless the lane is dead in all but name: a sole 3 rpm lane served 9 of 300
+	// requests an hour on 2026-09-21 and hung the rest on the deadline first.
 	if shouldDisable && rateGated && !service.HasEnabledSiblingUpstream(c.GetString("original_model"), channelError.ChannelId, c.GetString(string(constant.ContextKeyChannelBaseUrl))) {
-		logger.LogInfo(c, fmt.Sprintf("channel-guard: kept channel #%d (%s) enabled, last upstream serving %s status=%d code=%s",
-			channelError.ChannelId, channelError.ChannelName, c.GetString("original_model"), err.StatusCode, err.GetErrorCode()))
-		shouldDisable = false
+		if dfails, doks, dead := service.SoleLaneDead(channelError.ChannelId); dead {
+			logger.LogInfo(c, fmt.Sprintf("channel-guard: last upstream serving %s but dead over the slow window: fail=%d ok=%d, disabling channel #%d (%s) status=%d code=%s",
+				c.GetString("original_model"), dfails, doks, channelError.ChannelId, channelError.ChannelName, err.StatusCode, err.GetErrorCode()))
+		} else {
+			logger.LogInfo(c, fmt.Sprintf("channel-guard: kept channel #%d (%s) enabled, last upstream serving %s status=%d code=%s",
+				channelError.ChannelId, channelError.ChannelName, c.GetString("original_model"), err.StatusCode, err.GetErrorCode()))
+			shouldDisable = false
+		}
 	}
 	// A truncation cannot fail over: the client is already reading the answer when
 	// the upstream cuts it. It is therefore counted on its own, far tighter window
