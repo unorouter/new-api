@@ -193,6 +193,11 @@ func (e *NewAPIError) ToOpenAIError() OpenAIError {
 	case ErrorTypeOpenAIError:
 		if openAIError, ok := e.RelayError.(OpenAIError); ok {
 			result = openAIError
+			// Err is what SetMessage rewrites (user wording, request id); the
+			// upstream's own text stays in RelayError for the logs only.
+			if e.Err != nil {
+				result.Message = e.Err.Error()
+			}
 		}
 	case ErrorTypeClaudeError:
 		if claudeError, ok := e.RelayError.(ClaudeError); ok {

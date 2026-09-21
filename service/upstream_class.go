@@ -216,6 +216,10 @@ func ClassifyUpstreamError(err *types.NewAPIError) UpstreamClass {
 	// A 5xx is capacity or a real fault; the rate guard tells them apart over the
 	// window, the cooldown keeps the lane out of rotation while it decides.
 	switch {
+	case err.StatusCode == 402:
+		// An upstream's 402 is its own wallet or pin, never the customer's balance,
+		// which this gateway settles itself before any upstream call.
+		return UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}
 	case err.StatusCode == 413:
 		return UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}
 	case err.StatusCode == 429:
