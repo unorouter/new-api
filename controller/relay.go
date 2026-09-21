@@ -1049,6 +1049,10 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		if class.ContextCap && relayInfo != nil {
 			service.RecordLanePromptCap(channelError.ChannelId, relayInfo.GetEstimatePromptTokens())
 		}
+		if class.Window > 0 {
+			service.CoolLaneFor(channelError.ChannelId, class.Window)
+			logger.LogInfo(c, fmt.Sprintf("channel-guard: lane #%d (%s) sits out %s: %s", channelError.ChannelId, channelError.ChannelName, class.Window, common.LocalLogPreview(err.Error())))
+		}
 		if class.Provider {
 			host := service.UpstreamHostOf(c.GetString(string(constant.ContextKeyChannelBaseUrl)))
 			if d := service.CoolHost(host); d > 0 {

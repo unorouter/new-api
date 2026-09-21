@@ -3,6 +3,7 @@ package service
 import (
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
@@ -37,6 +38,9 @@ type UpstreamClass struct {
 	// nothing except shrinking the pool the retry walks, so it is never disabled
 	// for it.
 	Shared bool
+	// Window skips the lane for this long with no strike: a quota that refills on
+	// the clock is spent, not failing, so the doubling Cooldown ladder is wrong for it.
+	Window time.Duration
 }
 
 type upstreamRule struct {
@@ -126,6 +130,11 @@ var upstreamRules = []upstreamRule{
 	// learning one from the whole prompt would route every long chat past a lane
 	// that serves them. Arrives as 400, which alone never fails over.
 	{markers: []string{"prompt too long (max "}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone}, userMessage: "This provider limits the length of a single message. Shorten your last message, or retry and another provider will take it."},
+	// Workers AI's per minute cap on one model (3021) is one budget for every caller
+	// of the account behind a lane, and it refills each minute. On the doubling
+	// Cooldown all eight cfp glm-5.3 lanes sat out ten minutes at a time and the
+	// model left the catalog (2026-09-21); one window per hit follows the cap.
+	{markers: []string{"inference request per min rate reached"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Shared: true, Window: time.Minute}, userMessage: "This model is at its provider's per minute limit right now. Nothing is used up on your side. Try again in a minute."},
 	// A free lane whose upstream keeps answering that free capacity is limited
 	// and paid credits lift it: a 429 in words, but one lane (oc2 hy3) failed 583
 	// requests against 15 successes all day, so it counts toward the guard.
