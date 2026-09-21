@@ -39,6 +39,13 @@ function buildApiPath(endpoint: string, isAdmin: boolean): string {
   return isAdmin ? endpoint : `${endpoint}/self`
 }
 
+// The list handlers live at the collection path WITH the slash. Gin usually
+// redirects /api/task to /api/task/, but not while /api/task_plugin_options
+// shares the prefix and the /:mode/mj group holds a root wildcard: it 404s.
+function buildListPath(endpoint: string, isAdmin: boolean): string {
+  return isAdmin ? `${endpoint}/` : `${endpoint}/self`
+}
+
 async function fetchLogs<T>(
   endpoint: string,
   params: T,
@@ -50,7 +57,7 @@ async function fetchLogs<T>(
     page_size: paramRecord.page_size || 20,
     ...params,
   })
-  const path = buildApiPath(endpoint, isAdmin)
+  const path = buildListPath(endpoint, isAdmin)
   const res = await api.get(`${path}?${queryParams}`)
   return res.data
 }

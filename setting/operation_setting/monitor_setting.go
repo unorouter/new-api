@@ -36,6 +36,15 @@ type MonitorSetting struct {
 	ChannelFailureRateThreshold float64 `json:"channel_failure_rate_threshold"`
 	ChannelFailureMinSamples    int     `json:"channel_failure_min_samples"`
 	ChannelFailureAbsoluteFloor int     `json:"channel_failure_absolute_floor"`
+	// A lane that fails half its requests at a few requests an hour never puts
+	// enough failures into one ten minute window, so the fast gate above is blind
+	// to it by construction (no1 gemini-2.5-pro: 64 failures a day, 3 an hour).
+	// The slow window sums hourly buckets over ChannelSlowWindowHours and disables
+	// on the same rate once ChannelSlowFailureAbsoluteFloor failures are in it.
+	// Threshold 0 falls back to ChannelFailureRateThreshold; hours 0 disables it.
+	ChannelSlowWindowHours          int     `json:"channel_slow_window_hours"`
+	ChannelSlowFailureAbsoluteFloor int     `json:"channel_slow_failure_absolute_floor"`
+	ChannelSlowFailureRateThreshold float64 `json:"channel_slow_failure_rate_threshold"`
 	// A truncation is an upstream failure that arrived after the client had already
 	// received content: the answer is cut off and no retry can hide it. Measured on
 	// a7 lane 4056, the failure rate is a function of how long the request runs:
@@ -66,6 +75,15 @@ type MonitorSetting struct {
 	ChannelProbationMinSamples    int     `json:"channel_probation_min_samples"`
 	// Consecutive clean recovery probes before an auto-disabled channel comes back.
 	ChannelReenableProbePasses int `json:"channel_reenable_probe_passes"`
+	// A channel failing its scheduled probe over and over is asked less often:
+	// after ChannelProbeBackoffFloor consecutive failures the wait doubles from
+	// ChannelProbeBackoffBaseSeconds up to ChannelProbeBackoffMaxSeconds. Most
+	// of these never recover (a model archived upstream, a revoked key), and at
+	// full cadence they spend real upstream quota: one lane had logged 19,198
+	// identical 410s. 0 on base or max disables the backoff.
+	ChannelProbeBackoffFloor       int `json:"channel_probe_backoff_floor"`
+	ChannelProbeBackoffBaseSeconds int `json:"channel_probe_backoff_base_seconds"`
+	ChannelProbeBackoffMaxSeconds  int `json:"channel_probe_backoff_max_seconds"`
 	// Minimum seconds a paid lane (group ratio > 0) stays auto-disabled, 0 = none.
 	// Skipped when none of the lane's models has another enabled channel.
 	ChannelPaidReenableHoldSeconds int `json:"channel_paid_reenable_hold_seconds"`
@@ -112,6 +130,9 @@ var monitorSetting = MonitorSetting{
 	ChannelTruncationMinSamples:      200,
 	ChannelTruncationMinDurationSec:  60,
 	ChannelFailureAbsoluteFloor:      20,
+	ChannelSlowWindowHours:           6,
+	ChannelSlowFailureAbsoluteFloor:  20,
+	ChannelSlowFailureRateThreshold:  0,
 	ChannelFailureDeadFloor:          5,
 	ChannelFailureStreakFloor:        3,
 	ChannelProbationSeconds:          1800,
@@ -119,6 +140,9 @@ var monitorSetting = MonitorSetting{
 	ChannelProbationRateThreshold:    0.2,
 	ChannelProbationMinSamples:       5,
 	ChannelReenableProbePasses:       1,
+	ChannelProbeBackoffFloor:         3,
+	ChannelProbeBackoffBaseSeconds:   600,
+	ChannelProbeBackoffMaxSeconds:    3600,
 	ChannelPaidReenableHoldSeconds:   0,
 	ChannelCooldownBaseSeconds:       30,
 	ChannelCooldownMaxSeconds:        600,

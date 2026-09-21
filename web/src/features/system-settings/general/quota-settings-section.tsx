@@ -71,6 +71,17 @@ const quotaSchema = z.object({
     free_abuse_network_min_accounts: z.coerce.number().min(0),
     free_abuse_network_max_identity_pct: z.coerce.number().min(0).max(100),
     free_abuse_network_window_days: z.coerce.number().min(1),
+    free_abuse_burst_min_accounts: z.coerce.number().min(0),
+    free_abuse_burst_window_days: z.coerce.number().min(1),
+    free_abuse_unverified_pct: z.coerce.number().min(1).max(100),
+    free_abuse_cooccur_mode: z.coerce.number().min(0).max(2),
+    free_abuse_cooccur_ip_min_accounts: z.coerce.number().min(0),
+    free_abuse_cooccur_fp_min_accounts: z.coerce.number().min(0),
+    free_abuse_cooccur_net_min_accounts: z.coerce.number().min(0),
+    free_abuse_cooccur_window_seconds: z.coerce.number().min(60),
+    free_abuse_cooccur_ban_days: z.coerce.number().min(1),
+    free_abuse_username_domain_min_accounts: z.coerce.number().min(0),
+    free_abuse_username_domain_allowlist: z.string(),
     charge_on_error: z.boolean(),
   }),
 })
@@ -567,6 +578,292 @@ export function QuotaSettingsSection({
                   <FormDescription>
                     {t(
                       'How far back registrations are counted when scoring a network. Longer catches farms that register slowly; shorter lets a reformed network recover sooner.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_burst_min_accounts'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Registration burst threshold (per minute)")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "Password-only signups per wall-clock minute, across all networks, above which every account from that minute that never bound a third-party login, typed no email and never paid is shadow banned on free models. Farms renting one residential exit per account escape the network rule but still register in bursts. 0 disables."
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_burst_window_days'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Registration burst window (days)")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "How far back registration minutes are scanned for bursts. Longer keeps older farms banned; nothing beyond it is checked."
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_unverified_pct'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Unverified account threshold (%)")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "Every free abuse threshold above is scaled to this percent for an account with no third-party login, no verified email and zero balance. Account farms have none of the three, most real users have at least one. 100 means no difference."
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_cooccur_mode'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Co-occurrence detection mode")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "0 disables, 1 only logs which client IPs and client fingerprints would be flagged, 2 shadow bans. Run in log mode for a day and read the system log before enforcing."
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_cooccur_ip_min_accounts'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Co-occurrence threshold per client IP")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "Zero-balance accounts without a third-party login, verified email or spend seen from one client IP inside one window, above which every account in that window is shadow banned on free models and any later account from that IP joins them. Browsers stay under five, account farms rotating one host run sixty and more. 0 disables."
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_cooccur_fp_min_accounts'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Co-occurrence threshold per client fingerprint")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "Same rule keyed on the client software (exact User-Agent plus which headers it sends) instead of the IP, for farms that rotate proxies. Browser requests are never fingerprinted. 0 disables."
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_cooccur_net_min_accounts'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Co-occurrence threshold per client network")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "Same rule keyed on the /24 (IPv6 /48) the requests come from, for farms that spread over the addresses of one rented block. Counted for non-browser clients only and, like the fingerprint rule, only when the accounts share few client fingerprints. 0 disables."
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_cooccur_window_seconds'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Co-occurrence window (seconds)")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "Length of the window in which distinct accounts on one IP or fingerprint are counted."
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_cooccur_ban_days'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Co-occurrence ban duration (days)")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "How long a co-occurrence shadow ban lasts after the last hit. A farm that keeps going keeps its bans, one that stops is released."
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_username_domain_min_accounts'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Username domain cohort threshold")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "Accounts whose username is an address at the same domain, with no email set, above which the domain counts as a farm and its identity-free, never paid accounts are shadow banned on free models. Public mail providers in the allowlist are ignored. 0 disables."
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='quota_setting.free_abuse_username_domain_allowlist'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Username domain allowlist")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='text'
+                      value={field.value ?? ''}
+                      onChange={field.onChange}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      "Comma separated domains never counted as a username domain cohort, because real people type these addresses as usernames."
                     )}
                   </FormDescription>
                   <FormMessage />

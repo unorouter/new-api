@@ -378,6 +378,16 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 // emptyResponseOptions: a content-filter empty is the content being refused, not
 // the lane being dead, so it never feeds the empty-response disable counter.
+// EmptyResponseOptions is the shared rule for every adapter: a content block
+// never counts against the lane, any other empty reply feeds its counter.
+func EmptyResponseOptions(info *relaycommon.RelayInfo, contentFiltered bool) []types.NewAPIErrorOptions {
+	return emptyResponseOptions(info, contentFiltered)
+}
+
+func EmptyResponseMessage(contentFiltered bool) string {
+	return emptyResponseMessage(contentFiltered)
+}
+
 func emptyResponseOptions(info *relaycommon.RelayInfo, contentFiltered bool) []types.NewAPIErrorOptions {
 	if contentFiltered {
 		return []types.NewAPIErrorOptions{types.ErrOptionWithSkipDisable()}

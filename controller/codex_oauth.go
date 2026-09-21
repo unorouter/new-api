@@ -192,7 +192,7 @@ func completeCodexOAuthWithChannelID(ginCtx *gin.Context, reqCtx context.Context
 	_ = session.Save()
 
 	if channelID > 0 {
-		if err := model.DB.Model(&model.Channel{}).Where("id = ?", channelID).Update("key", string(encoded)).Error; err != nil {
+		if err := model.UpdateChannelKey(channelID, string(encoded)); err != nil {
 			return dto.Fail[dto.CodexOAuthCompleteData](err.Error())
 		}
 		model.InitChannelCache()

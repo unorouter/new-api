@@ -362,6 +362,8 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 	// billed as a good reply, and let the client resend.
 	if !sawOutput && info.RelayFormat != types.RelayFormatGemini &&
 		operation_setting.GetMonitorSetting().DisableOnEmptyResponse {
+		// Cannot fail over, but it is still an empty answer from this lane.
+		service.RecordEmptyResponseFailure(info.ChannelId)
 		return usage, types.NewOpenAIError(
 			errors.New("the upstream provider returned an empty reply after the response had already started, so it could not be retried automatically. Send the message again"),
 			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable,
@@ -450,17 +452,21 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	fullTextResponse.Usage = usage
 
 	// Same rule as the OpenAI adapter: a candidate made only of thought parts
-	// (MAX_TOKENS after thinking ate the budget, or a SAFETY stop) converts to
+	// (MAX_TOKENS after thinking ate the budget) or a safety stop converts to
 	// empty content and reached the client as a billable 200. Images are real
-	// output with no text, so they are exempt. Skip-disable: it is the budget or
-	// the content being refused, never a dead lane.
+	// output with no text, so they are exempt. A content block is the prompt's
+	// doing and never counts against the lane; everything else (a budget spent
+	// on thought, a malformed call, no candidates at all) feeds the empty
+	// response counter like the OpenAI adapter does, so a lane that answers
+	// nothing on every long request can still be pulled.
 	if imageCount == 0 && info.RelayFormat != types.RelayFormatGemini &&
 		operation_setting.GetMonitorSetting().DisableOnEmptyResponse &&
 		!openai.OpenAIResponseHasOutput(fullTextResponse) {
+		reason, filtered := geminiEmptyReason(&geminiResponse)
 		return nil, types.NewOpenAIError(
-			errors.New("the upstream provider returned an empty reply. The request has already been failed over to any other provider serving this model; retrying usually clears it"),
+			fmt.Errorf("%s (finishReason=%s)", openai.EmptyResponseMessage(filtered), reason),
 			types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests,
-			types.ErrOptionWithSkipDisable())
+			openai.EmptyResponseOptions(info, filtered)...)
 	}
 
 	switch info.RelayFormat {
@@ -658,4 +664,33 @@ func FetchGeminiModels(baseURL, apiKey, proxyURL string) ([]string, error) {
 	}
 
 	return allModels, nil
+}
+
+// Finish reasons that mean the content was refused: the prompt's doing, not the
+// lane's. Everything else on an empty candidate is the lane's fault.
+var geminiContentFilteredReasons = map[string]bool{
+	"SAFETY":             true,
+	"RECITATION":         true,
+	"BLOCKLIST":          true,
+	"PROHIBITED_CONTENT": true,
+	"SPII":               true,
+	"IMAGE_SAFETY":       true,
+}
+
+// geminiEmptyReason names why a reply came back without output and whether
+// that reason is a content block.
+func geminiEmptyReason(resp *dto.GeminiChatResponse) (string, bool) {
+	if resp == nil {
+		return "none", false
+	}
+	if resp.PromptFeedback != nil && resp.PromptFeedback.BlockReason != nil && *resp.PromptFeedback.BlockReason != "" {
+		return "blocked:" + *resp.PromptFeedback.BlockReason, true
+	}
+	for _, cand := range resp.Candidates {
+		if cand.FinishReason == nil || *cand.FinishReason == "" {
+			continue
+		}
+		return *cand.FinishReason, geminiContentFilteredReasons[*cand.FinishReason]
+	}
+	return "none", false
 }

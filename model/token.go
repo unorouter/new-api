@@ -14,7 +14,7 @@ import (
 type Token struct {
 	Id                 int     `json:"id"`
 	UserId             int     `json:"user_id" gorm:"index"`
-	Key                string  `json:"key" gorm:"type:varchar(128);uniqueIndex"`
+	Key                string  `json:"key" gorm:"-"` // never stored: opened from KeyEnc on load, see token_crypto.go
 	Status             int     `json:"status" gorm:"default:1"`
 	Name               string  `json:"name" gorm:"index" `
 	CreatedTime        int64   `json:"created_time" gorm:"bigint"`
@@ -33,6 +33,11 @@ type Token struct {
 	GroupMapping string         `json:"group_mapping" gorm:"type:text"`
 	AutoGroups   string         `json:"-" gorm:"type:text"`
 	DeletedAt    gorm.DeletedAt `gorm:"index"`
+	// Derived from Key, see token_crypto.go. A pointer so unsealed rows are NULL: the
+	// unique index would collide on empty strings.
+	KeyHash *string `json:"-" gorm:"type:char(64);uniqueIndex"`
+	KeyEnc  string  `json:"-" gorm:"type:varchar(255)"`
+	KeyHint string  `json:"-" gorm:"type:varchar(16)"`
 }
 
 func (token *Token) GetAutoGroups() ([]string, error) {
@@ -223,7 +228,13 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		if err != nil {
 			return nil, 0, err
 		}
-		baseQuery = baseQuery.Where(commonKeyCol+" LIKE ? ESCAPE '!'", tokenPattern)
+		// The key is only stored sealed: a complete key matches by hash, a fragment can
+		// only match the first or last four characters kept in key_hint.
+		if strings.Contains(tokenPattern, "%") {
+			baseQuery = baseQuery.Where("key_hint LIKE ? ESCAPE '!'", tokenPattern)
+		} else {
+			baseQuery = baseQuery.Where("key_hash = ?", hashTokenKey(token))
+		}
 	}
 
 	// 先查匹配总数（用于分页，受 maxTokens 上限保护，避免全表 COUNT）
@@ -316,9 +327,10 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		// Don't return error - fall through to DB
 	}
 	token = &Token{}
-	if err = DB.Where(commonKeyCol+" = ?", key).First(token).Error; err != nil {
+	if err = DB.Where("key_hash = ?", hashTokenKey(key)).First(token).Error; err != nil {
 		return nil, err
 	}
+	token.Key = key
 	if common.RedisEnabled {
 		// 冷缓存时用数据库快照初始化；已存在的哈希只刷新 TTL，
 		// 避免快照覆盖 Redis 中已被原子预扣的余额。初始化失败不影响本次读取。
@@ -514,7 +526,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
-	err := DB.Select("id", commonKeyCol).
+	err := DB.Select("id", "key_hash", "key_enc").
 		Where("user_id = ? AND id IN (?)", userId, ids).
 		Find(&tokens).Error
 	return tokens, err
@@ -532,7 +544,7 @@ func InvalidateUserTokensCache(userId int) error {
 	}
 	var tokens []Token
 	if err := DB.Unscoped().
-		Select("id", commonKeyCol).
+		Select("id", "key_hash", "key_enc").
 		Where("user_id = ?", userId).
 		Find(&tokens).Error; err != nil {
 		return err

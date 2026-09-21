@@ -41,7 +41,7 @@ export function AuditLogs() {
   const [accessRevoked, setAccessRevoked] = useState(false)
   const canReadAll =
     !!user &&
-    user.role >= ROLE.ADMIN &&
+    user.role >= ROLE.MOD &&
     hasPermission(
       user,
       ADMIN_PERMISSION_RESOURCES.AUDIT,

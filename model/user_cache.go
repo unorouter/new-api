@@ -11,21 +11,24 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const userCacheSchemaVersion = 2
+const userCacheSchemaVersion = 3
 
 type UserBase struct {
-	Id          int    `json:"id"`
-	Group       string `json:"group"`
-	Email       string `json:"email"`
-	Quota       int    `json:"quota"`
-	Status      int    `json:"status"`
-	Role        int    `json:"role"`
-	Username    string `json:"username"`
-	Setting     string `json:"setting"`
-	CreatedAt   int64  `json:"created_at"`
-	UsedQuota   int    `json:"used_quota"`
-	AuthVersion int64  `json:"-"`
-	CacheSchema int    `json:"-"`
+	Id        int    `json:"id"`
+	Group     string `json:"group"`
+	Email     string `json:"email"`
+	Quota     int    `json:"quota"`
+	Status    int    `json:"status"`
+	Role      int    `json:"role"`
+	Username  string `json:"username"`
+	Setting   string `json:"setting"`
+	CreatedAt int64  `json:"created_at"`
+	UsedQuota int    `json:"used_quota"`
+	// A third-party login vouched for this account. A typed email is not that
+	// while email verification is off.
+	HasIdentity bool  `json:"has_identity"`
+	AuthVersion int64 `json:"-"`
+	CacheSchema int   `json:"-"`
 }
 
 func (user *UserBase) WriteContext(c *gin.Context) {
@@ -36,6 +39,7 @@ func (user *UserBase) WriteContext(c *gin.Context) {
 	common.SetContextKey(c, constant.ContextKeyUserName, user.Username)
 	common.SetContextKey(c, constant.ContextKeyUserSetting, user.GetSetting())
 	common.SetContextKey(c, constant.ContextKeyUserCreatedAt, user.CreatedAt)
+	common.SetContextKey(c, constant.ContextKeyUserHasIdentity, user.HasIdentity)
 	common.SetContextKey(c, constant.ContextKeyUserUsedQuota, user.UsedQuota)
 	common.SetContextKey(c, constant.ContextKeyUserRole, user.Role)
 }

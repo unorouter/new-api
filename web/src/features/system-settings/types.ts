@@ -303,6 +303,17 @@ export type BillingSettings = {
   'quota_setting.free_abuse_network_min_accounts': number
   'quota_setting.free_abuse_network_max_identity_pct': number
   'quota_setting.free_abuse_network_window_days': number
+  'quota_setting.free_abuse_burst_min_accounts': number
+  'quota_setting.free_abuse_burst_window_days': number
+  'quota_setting.free_abuse_unverified_pct': number
+  'quota_setting.free_abuse_cooccur_mode': number
+  'quota_setting.free_abuse_cooccur_ip_min_accounts': number
+  'quota_setting.free_abuse_cooccur_fp_min_accounts': number
+  'quota_setting.free_abuse_cooccur_net_min_accounts': number
+  'quota_setting.free_abuse_cooccur_window_seconds': number
+  'quota_setting.free_abuse_cooccur_ban_days': number
+  'quota_setting.free_abuse_username_domain_min_accounts': number
+  'quota_setting.free_abuse_username_domain_allowlist': string
   'quota_setting.charge_on_error': boolean
   QuotaPerUnit: number
   USDExchangeRate: number

@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -207,6 +208,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			if userMessage, ok := service.UpstreamUserMessage(newAPIError); ok {
 				newAPIError.SetMessage(userMessage)
 			}
+			// A 402 from an upstream is that lane's billing problem. Clients render
+			// 402 as the customer being out of credits, so it leaves as a 503.
+			if newAPIError.StatusCode == http.StatusPaymentRequired && newAPIError.GetErrorType() != types.ErrorTypeNewAPIError {
+				newAPIError.StatusCode = http.StatusServiceUnavailable
+			}
 			// Response already streamed to the client. A JSON body would corrupt the
 			// committed stream, so it stays skipped, but returning nothing ends the
 			// SSE with no [DONE] and no error and every client then reports only that
@@ -330,8 +336,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.SetEstimatePromptTokens(tokens)
 
 	// A prompt past the model's window fails on every lane, and each lane it visits
-	// waits out a first-byte timeout and takes a failure for it (one customer sent
-	// 140 of these in a day, up to 42M tokens). The margin covers estimator error.
+	// waits out a first-byte timeout and takes a failure for it. The margin covers
+	// estimator error.
 	// Generation only: an embedding or rerank batch is many inputs, each under the
 	// window, and its total says nothing about any of them.
 	generation := relayInfo.RelayMode == relayconstant.RelayModeChatCompletions || relayInfo.RelayMode == relayconstant.RelayModeCompletions ||
@@ -356,20 +362,27 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// and an account farm identified by the network the account registered from.
 		// The farm verdict is held in memory rather than written to the account, so
 		// a stockpile dies one request at a time instead of at a single timestamp.
-		if relayInfo.UserQuota <= 0 &&
+		// Tracked before the ban check on purpose: a banned account must keep
+		// counting toward its host's window, otherwise a farm shrinks to just under
+		// the threshold and its last accounts leak forever.
+		// A bound login, any spend or a verified email exempts an account from every
+		// free-model ban, including an auto block it earned before proving itself.
+		freeVerified := service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail)
+		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels && relayInfo.UserQuota <= 0 && !freeVerified {
+			service.TrackFreeCooccurrence(c, relayInfo.UserId)
+		}
+		if relayInfo.UserQuota <= 0 && !freeVerified &&
 			(relayInfo.UserSetting.BlockFreeWhenNoQuota || service.FreeModelsShadowBanned(relayInfo.UserId)) {
 			// Shadow ban: return the same 429 rate-limit response a throttled free
 			// user gets, so an abuser cannot tell they are specifically blocked.
-			paidName := strings.TrimSuffix(relayInfo.OriginModelName, ":free")
 			newAPIError = types.NewErrorWithStatusCode(
-				fmt.Errorf("Too many requests. The free tier allows %d request(s) every %d min per account on %s - nothing is used up, retry in %ds. The paid %s has no per-minute limit.",
-					1, 1, relayInfo.OriginModelName, 60, paidName),
+				errors.New(shadowBanRateLimitMessage(c, relayInfo.UserId, relayInfo.OriginModelName)),
 				types.ErrorCodeRateLimitExceeded, http.StatusTooManyRequests,
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 			return
 		}
 		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels {
-			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName)
+			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName, freeVerified)
 		}
 		logger.LogInfo(c, fmt.Sprintf("model %s is free, skipping pre-consume billing", relayInfo.OriginModelName))
 	} else {
@@ -398,7 +411,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				!isTransientInfraError(newAPIError) &&
 				!isModerationRejection(newAPIError) {
 				service.TrackFreeModelError(relayInfo.UserId, relayInfo.UserQuota,
-					relayInfo.OriginModelName, isMediaRelayMode(relayInfo.RelayMode))
+					relayInfo.OriginModelName, isMediaRelayMode(relayInfo.RelayMode),
+					service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail))
 			}
 		}
 	}()
@@ -771,6 +785,24 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	return channel, nil
 }
 
+// shadowBanRateLimitMessage is the limiter's own rejection, byte for byte, with
+// the model's real limit, the headers the limiter sets, and a countdown that
+// behaves like a sliding window. See service.ShadowBanRetryAfter.
+func shadowBanRateLimitMessage(c *gin.Context, userId int, modelName string) string {
+	count, window := middleware.FreeModelLimitFor(c, modelName)
+	retryAfter := service.ShadowBanRetryAfter(userId, modelName, window)
+	c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
+	c.Header("X-RateLimit-Limit", strconv.Itoa(count))
+	c.Header("X-RateLimit-Remaining", "0")
+	c.Header("X-RateLimit-Reset", strconv.FormatInt(time.Now().Unix()+retryAfter, 10))
+	windowLabel := fmt.Sprintf("%v min", window/60)
+	if window%60 != 0 {
+		windowLabel = fmt.Sprintf("%vs", window)
+	}
+	return fmt.Sprintf("Too many requests. The free tier allows %v request(s) every %v per account on %v - nothing is used up, retry in %vs. The paid %v has no per-minute limit.",
+		count, windowLabel, modelName, retryAfter, strings.TrimSuffix(modelName, ":free"))
+}
+
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
 	if openaiErr == nil {
 		return false
@@ -979,6 +1011,8 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	softFailure := false
 	if class.Known {
 		switch {
+		case class.Shared:
+			shouldDisable = false
 		case class.DisableNow, class.Count == service.CountFailure:
 			shouldDisable = true
 		default:
@@ -1011,11 +1045,34 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// to be a sustained share of the channel's recent traffic before pulling it, so a
 	// capacity blip on a busy lane fails over instead of removing it for everyone.
 	// Credential faults are exempt: those cannot recover on their own.
-	if shouldDisable && !class.DisableNow && !service.IsCredentialFault(err) && !service.RecordChannelFailure(channelError.ChannelId, softFailure) {
+	rateGated := shouldDisable && !class.DisableNow && !service.IsCredentialFault(err)
+	if rateGated && !service.RecordChannelFailure(channelError.ChannelId, softFailure) {
 		fails, oks := service.ChannelFailureWindow(channelError.ChannelId)
-		logger.LogInfo(c, fmt.Sprintf("channel-guard: kept channel #%d (%s) enabled, fault below threshold: fail=%d ok=%d status=%d code=%s",
-			channelError.ChannelId, channelError.ChannelName, fails, oks, err.StatusCode, err.GetErrorCode()))
-		shouldDisable = false
+		// A lane failing half its requests at a few an hour never fills the fast
+		// window; the slow one catches it.
+		if sfails, soks, over := service.SlowWindowExceeded(channelError.ChannelId); over {
+			logger.LogInfo(c, fmt.Sprintf("channel-guard: slow window on channel #%d (%s): fail=%d ok=%d over %dh, disabling status=%d code=%s",
+				channelError.ChannelId, channelError.ChannelName, sfails, soks, operation_setting.GetMonitorSetting().ChannelSlowWindowHours, err.StatusCode, err.GetErrorCode()))
+		} else {
+			logger.LogInfo(c, fmt.Sprintf("channel-guard: kept channel #%d (%s) enabled, fault below threshold: fail=%d ok=%d slow fail=%d ok=%d status=%d code=%s",
+				channelError.ChannelId, channelError.ChannelName, fails, oks, sfails, soks, err.StatusCode, err.GetErrorCode()))
+			shouldDisable = false
+		}
+	}
+	// Never pull the last upstream serving a model on a rate verdict: with it
+	// gone the model errors just the same, and enabled it serves again the
+	// moment the upstream recovers. Credential and instant faults still disable.
+	// Unless the lane is dead in all but name: a sole 3 rpm lane served 9 of 300
+	// requests an hour on 2026-09-21 and hung the rest on the deadline first.
+	if shouldDisable && rateGated && !service.HasEnabledSiblingUpstream(c.GetString("original_model"), channelError.ChannelId, c.GetString(string(constant.ContextKeyChannelBaseUrl))) {
+		if dfails, doks, dead := service.SoleLaneDead(channelError.ChannelId); dead {
+			logger.LogInfo(c, fmt.Sprintf("channel-guard: last upstream serving %s but dead over the slow window: fail=%d ok=%d, disabling channel #%d (%s) status=%d code=%s",
+				c.GetString("original_model"), dfails, doks, channelError.ChannelId, channelError.ChannelName, err.StatusCode, err.GetErrorCode()))
+		} else {
+			logger.LogInfo(c, fmt.Sprintf("channel-guard: kept channel #%d (%s) enabled, last upstream serving %s status=%d code=%s",
+				channelError.ChannelId, channelError.ChannelName, c.GetString("original_model"), err.StatusCode, err.GetErrorCode()))
+			shouldDisable = false
+		}
 	}
 	// A truncation cannot fail over: the client is already reading the answer when
 	// the upstream cuts it. It is therefore counted on its own, far tighter window
@@ -1078,7 +1135,14 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		// Only the INPUT: a failed request produced no completion, and quota stays
 		// zero, so nothing here reaches billing or the tokens-served total (both
 		// are scoped to consume logs).
-		promptTokens := service.CountTextToken(relaycommon.ExtractPromptText(c), modelName)
+		// The estimate the relay routed and guarded on, when there is one: a second
+		// count from the raw body disagreed with it by an order of magnitude on
+		// Responses traffic, and a log that contradicts the guard sends whoever reads
+		// it after the wrong cause.
+		promptTokens := common.GetContextKeyInt(c, constant.ContextKeyPromptTokens)
+		if promptTokens <= 0 {
+			promptTokens = service.CountTextToken(relaycommon.ExtractPromptText(c), modelName)
+		}
 		model.RecordErrorLog(c, userId, channelError.ChannelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, promptTokens, other)
 	}
 
@@ -1277,16 +1341,23 @@ func executeTaskSubmissionWith(
 	// PriceData.FreeModel: the tiered branch in relay/relay_task.go builds
 	// PriceData by hand and never sets that flag.
 	if notify.IsFreeModel(relayInfo.OriginModelName) {
-		if relayInfo.UserQuota <= 0 &&
+		// Tracked before the ban check on purpose: a banned account must keep
+		// counting toward its host's window, otherwise a farm shrinks to just under
+		// the threshold and its last accounts leak forever.
+		// A bound login, any spend or a verified email exempts an account from every
+		// free-model ban, including an auto block it earned before proving itself.
+		freeVerified := service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail)
+		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels && relayInfo.UserQuota <= 0 && !freeVerified {
+			service.TrackFreeCooccurrence(c, relayInfo.UserId)
+		}
+		if relayInfo.UserQuota <= 0 && !freeVerified &&
 			(relayInfo.UserSetting.BlockFreeWhenNoQuota || service.FreeModelsShadowBanned(relayInfo.UserId)) {
-			paidName := strings.TrimSuffix(relayInfo.OriginModelName, ":free")
 			return nil, service.TaskErrorWrapperLocal(
-				fmt.Errorf("Too many requests. The free tier allows %d request(s) every %d min per account on %s - nothing is used up, retry in %ds. The paid %s has no per-minute limit.",
-					1, 1, relayInfo.OriginModelName, 60, paidName),
+				errors.New(shadowBanRateLimitMessage(c, relayInfo.UserId, relayInfo.OriginModelName)),
 				string(types.ErrorCodeRateLimitExceeded), http.StatusTooManyRequests)
 		}
 		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels {
-			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName)
+			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName, freeVerified)
 		}
 	}
 
