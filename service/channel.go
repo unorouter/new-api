@@ -327,6 +327,27 @@ func SlowWindowExceeded(channelId int) (failures int, successes int, exceeded bo
 	return failures, successes, float64(failures)/float64(failures+successes) >= threshold
 }
 
+// SoleLaneDead reports whether the last lane serving a model has stopped
+// serving in any useful sense over the slow window: at least soleLaneDeadFloor
+// failures and no more than one success in ten. Such a lane is kept enabled by
+// the last upstream rule only to hang every request on a deadline and then fail
+// it; disabled, the same requests fail at once and the disabled channel retest
+// brings the lane back the moment it answers again.
+const soleLaneDeadFloor = 100
+const soleLaneDeadRate = 0.9
+
+func SoleLaneDead(channelId int) (failures int, successes int, dead bool) {
+	if slowWindowHours() == 0 {
+		return 0, 0, false
+	}
+	failures = readSlowSlots("fail", &channelSlowFailSlots, channelId)
+	successes = readSlowSlots("ok", &channelSlowOkSlots, channelId)
+	if failures < soleLaneDeadFloor {
+		return failures, successes, false
+	}
+	return failures, successes, float64(failures)/float64(failures+successes) >= soleLaneDeadRate
+}
+
 // RecordRecoveryProbePass counts consecutive clean recovery probes on a disabled
 // channel and reports whether enough have passed to re-enable it.
 func RecordRecoveryProbePass(channelId int) bool {
