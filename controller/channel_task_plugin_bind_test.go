@@ -175,3 +175,76 @@ export function parseTaskResult() { return {}; }
 	require.NoError(t, err)
 	assert.Contains(t, string(encoded), `"base_url_source":"plugin_default"`)
 }
+
+func putUpdateChannel(t *testing.T, userID, role int, body string) *dto.Response[PatchChannel] {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ginCtx.Set("id", userID)
+	ginCtx.Set("role", role)
+	ginCtx.Request = httptest.NewRequest(http.MethodPut, "/api/channel", nil)
+
+	var patch PatchChannel
+	require.NoError(t, common.UnmarshalJsonStr(body, &patch))
+	ctx := fuego.NewMockContext[PatchChannel, any](patch, nil)
+	ctx.CommonCtx = ginCtx
+
+	response, err := UpdateChannel(ctx)
+	require.NoError(t, err)
+	return response
+}
+
+func TestNewAPIChannelPluginBindingsRequireBindPermission(t *testing.T) {
+	setupTaskPluginBindChannelTest(t)
+	const key = "gateway-bind"
+	source := `
+export const meta = {apiVersion: 1, key: "gateway-bind", name: "Gateway", version: "1.0.0", author: {name: "Test"}, models: ["gateway-doc"], fetchMode: "per_task", upstreams: ["vendor", "new_api"]};
+export function buildSubmitRequest() { return {}; }
+export function parseSubmitResponse() { return {}; }
+export function buildQueryRequest() { return {}; }
+export function parseTaskResult() { return {}; }
+`
+	_, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
+	require.NoError(t, err)
+	t.Cleanup(func() { jsplugin.DefaultRegistry.Unregister(key) })
+
+	bound := `{"mode":"single","channel":{"type":60,"name":"gateway","key":"sk","models":"gateway-doc","group":"default","base_url":"https://gateway.example","setting":"{\"task_extend_plugin_keys\":[\"gateway-bind\"]}"}}`
+	unbound := `{"mode":"single","channel":{"type":60,"name":"plain-gateway","key":"sk","models":"gpt","group":"default","base_url":"https://gateway.example"}}`
+	adminDenied := postAddChannel(t, 2, common.RoleAdminUser, bound)
+	assert.Contains(t, adminDenied.Message, "task plugin channels require the task_plugin.bind permission")
+	rootAllowed := postAddChannel(t, 1, common.RoleRootUser, bound)
+	assert.True(t, rootAllowed.Success)
+	adminUnbound := postAddChannel(t, 2, common.RoleAdminUser, unbound)
+	assert.True(t, adminUnbound.Success, "a gateway channel without plugin bindings needs no bind permission")
+
+	baseURL := "https://gateway.example"
+	setting := `{"task_extend_plugin_keys":["gateway-bind"]}`
+	channel := model.Channel{Type: constant.ChannelTypeNewAPI, Status: common.ChannelStatusEnabled, Name: "existing-gateway", Models: "gateway-doc", Group: "default", Key: "sk", BaseURL: &baseURL, Setting: &setting}
+	require.NoError(t, channel.Insert())
+	update := func(name, setting string) string {
+		return fmt.Sprintf(`{"id":%d,"type":60,"name":%q,"key":"sk","models":"gateway-doc","group":"default","base_url":"https://gateway.example","setting":%q}`, channel.Id, name, setting)
+	}
+	unchanged := putUpdateChannel(t, 2, common.RoleAdminUser, update("renamed-gateway", setting))
+	assert.True(t, unchanged.Success, "resubmitting the stored bindings does not need the bind permission")
+	assert.NotContains(t, unchanged.Message, "task_plugin.bind")
+	rebound := putUpdateChannel(t, 2, common.RoleAdminUser, update("renamed-gateway", `{"task_extend_plugin_keys":[]}`))
+	assert.Contains(t, rebound.Message, "task plugin channels require the task_plugin.bind permission")
+	rootRebound := putUpdateChannel(t, 1, common.RoleRootUser, update("renamed-gateway", `{"task_extend_plugin_keys":[]}`))
+	assert.True(t, rootRebound.Success)
+
+	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("setting", setting).Error)
+	copyChannel := func(userID, role int) *dto.Response[dto.CopyChannelData] {
+		ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ginCtx.Set("id", userID)
+		ginCtx.Set("role", role)
+		ginCtx.Params = gin.Params{{Key: "id", Value: fmt.Sprint(channel.Id)}}
+		ginCtx.Request = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/channel/copy/%d", channel.Id), nil)
+		ctx := fuego.NewMockContext[any, dto.CopyChannelParams](nil, dto.CopyChannelParams{})
+		ctx.CommonCtx = ginCtx
+		response, err := CopyChannel(ctx)
+		require.NoError(t, err)
+		return response
+	}
+	assert.Contains(t, copyChannel(2, common.RoleAdminUser).Message, "task plugin channels require the task_plugin.bind permission")
+	assert.True(t, copyChannel(1, common.RoleRootUser).Success)
+}

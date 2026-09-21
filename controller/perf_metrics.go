@@ -45,15 +45,15 @@ func GetPerfMetrics(c fuego.ContextWithParams[dto.GetPerfMetricsParams]) (*dto.R
 	}
 
 	result, err := perfmetrics.Query(perfmetrics.QueryParams{
-		Model: p.Model,
-		Group: p.Group,
-		Hours: hours,
+		Model:         p.Model,
+		Group:         p.Group,
+		Hours:         hours,
+		AllowedGroups: append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto"),
 	})
 	if err != nil {
 		return dto.Fail[perfmetrics.QueryResult](err.Error())
 	}
 
-	result.Groups = filterActiveGroups(result.Groups)
 	attachGroupUptime(&result, p.Model, hours)
 	return dto.Ok(result)
 }
@@ -77,12 +77,4 @@ func attachGroupUptime(result *perfmetrics.QueryResult, modelName string, hours 
 			result.Groups[i].UptimePercent = &pct
 		}
 	}
-}
-
-func filterActiveGroups(groups []perfmetrics.GroupResult) []perfmetrics.GroupResult {
-	activeRatios := ratio_setting.GetGroupRatioCopy()
-	return lo.Filter(groups, func(g perfmetrics.GroupResult, _ int) bool {
-		_, ok := activeRatios[g.Group]
-		return ok || g.Group == "auto"
-	})
 }

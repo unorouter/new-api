@@ -40,3 +40,4 @@ model/audit_log.go :: []int{common.RoleCommonUser, common.RoleModUser, common.Ro
 model/audit_log.go :: !filter.SelfView && viewerRole >= common.RoleModUser
 router/api-router.go :: middleware.ModAuth(), middleware.RequirePermission(authz.AuditRead)
 web/src/features/usage-logs/audit/index.tsx :: user.role >= ROLE.MOD &&
+relaykit/dto/openai_response.go :: Part         any
