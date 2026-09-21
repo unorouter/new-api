@@ -205,10 +205,10 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 	// it here too panics gin at boot with "handlers are already registered".
 	r.GinPost("/responses/compact", RelayResponsesCompact, dto.GinResp[dto.ResponsesAPIResponse]())
 
-	// image related routes
+	// image related routes. /images/generations and /images/edits are host
+	// protocol endpoints (openai_image) registered by SetTaskPluginProtocolRouter,
+	// which falls back to this relay path for unclaimed models.
 	r.GinPost("/edits", RelayEdits, dto.GinResp[dto.ImageGenerationResponse]())
-	r.GinPost("/images/generations", RelayImageGenerations, dto.GinResp[dto.ImageGenerationResponse]())
-	r.GinPost("/images/edits", RelayImageEdits, dto.GinResp[dto.ImageGenerationResponse]())
 
 	// embedding related routes
 	r.GinPost("/embeddings", RelayEmbeddings, dto.GinResp[relaydto.EmbeddingResponse]())

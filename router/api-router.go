@@ -378,6 +378,9 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		optionGroup.PATCH("/model_pricing", controller.UpdateModelPricingConfig)
 		optionGroup.POST("/model_pricing/convert", controller.PreviewModelPricingConversion)
 		optionGroup.POST("/model_pricing/preview", controller.PreviewModelPricing)
+		// Request policies (upstream 2026-09), raw gin like upstream.
+		optionGroup.GET("/request_policy", controller.GetRequestPolicy)
+		optionGroup.PATCH("/request_policy", controller.UpdateRequestPolicy)
 		optionGroup.PUT("/passkey/domains", controller.UpdatePasskeyDomains)
 		dto.Get(opt, "/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 		dto.DeleteP(opt, "/channel_affinity_cache", controller.ClearChannelAffinityCache)
@@ -425,6 +428,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		systemTaskGroup.POST("/log-cleanup", middleware.SessionOnly(), controller.CreateLogCleanupSystemTask)
 		systemTaskGroup.GET("/current", controller.GetCurrentSystemTask)
 		systemTaskGroup.GET("/list", controller.ListSystemTasks)
+		systemTaskGroup.DELETE("/history", middleware.SessionOnly(), controller.DeleteSystemTaskHistory)
 		systemTaskGroup.GET("/:task_id", controller.GetSystemTask)
 
 		systemInfoGroup := apiRouter.Group("/system-info", middleware.RootAuth(), middleware.NoPAT())

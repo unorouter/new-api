@@ -26,6 +26,7 @@ import { PaymentSettingsSection } from '../integrations/payment-settings-section
 import { RatioSettingsCard } from '../models/ratio-settings-card'
 import type { BillingSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { getQuotaDefaults } from './defaults'
 
 const getModelDefaults = (settings: BillingSettings) => ({
   ModelPrice: settings.ModelPrice,
@@ -60,63 +61,7 @@ const BILLING_SECTIONS = [
     titleKey: 'Quota Settings',
     build: (settings: BillingSettings) => (
       <QuotaSettingsSection
-        defaultValues={{
-          QuotaForNewUser: settings.QuotaForNewUser,
-          PreConsumedQuota: settings.PreConsumedQuota,
-          QuotaForInviter: settings.QuotaForInviter,
-          QuotaForInvitee: settings.QuotaForInvitee,
-          TopUpLink: settings.TopUpLink,
-          general_setting: {
-            docs_link: settings['general_setting.docs_link'],
-          },
-          quota_setting: {
-            enable_free_model_pre_consume:
-              settings['quota_setting.enable_free_model_pre_consume'],
-            enable_free_abuse_auto_block:
-              settings['quota_setting.enable_free_abuse_auto_block'],
-            free_abuse_max_per_minute:
-              settings['quota_setting.free_abuse_max_per_minute'],
-            free_abuse_max_distinct_models:
-              settings['quota_setting.free_abuse_max_distinct_models'],
-            free_abuse_max_distinct_models_per_day:
-              settings['quota_setting.free_abuse_max_distinct_models_per_day'],
-            free_abuse_max_per_day:
-              settings['quota_setting.free_abuse_max_per_day'],
-            free_abuse_max_errors_per_hour:
-              settings['quota_setting.free_abuse_max_errors_per_hour'],
-            free_abuse_max_media_err_models:
-              settings['quota_setting.free_abuse_max_media_err_models'],
-            free_abuse_network_min_accounts:
-              settings['quota_setting.free_abuse_network_min_accounts'],
-            free_abuse_network_max_identity_pct:
-              settings['quota_setting.free_abuse_network_max_identity_pct'],
-            free_abuse_network_window_days:
-              settings['quota_setting.free_abuse_network_window_days'],
-            free_abuse_burst_min_accounts:
-              settings['quota_setting.free_abuse_burst_min_accounts'],
-            free_abuse_burst_window_days:
-              settings['quota_setting.free_abuse_burst_window_days'],
-            free_abuse_unverified_pct:
-              settings['quota_setting.free_abuse_unverified_pct'],
-            free_abuse_cooccur_mode:
-              settings['quota_setting.free_abuse_cooccur_mode'],
-            free_abuse_cooccur_ip_min_accounts:
-              settings['quota_setting.free_abuse_cooccur_ip_min_accounts'],
-            free_abuse_cooccur_fp_min_accounts:
-              settings['quota_setting.free_abuse_cooccur_fp_min_accounts'],
-            free_abuse_cooccur_net_min_accounts:
-              settings['quota_setting.free_abuse_cooccur_net_min_accounts'],
-            free_abuse_cooccur_window_seconds:
-              settings['quota_setting.free_abuse_cooccur_window_seconds'],
-            free_abuse_cooccur_ban_days:
-              settings['quota_setting.free_abuse_cooccur_ban_days'],
-            free_abuse_username_domain_min_accounts:
-              settings['quota_setting.free_abuse_username_domain_min_accounts'],
-            free_abuse_username_domain_allowlist:
-              settings['quota_setting.free_abuse_username_domain_allowlist'],
-            charge_on_error: settings['quota_setting.charge_on_error'],
-          },
-        }}
+        defaultValues={getQuotaDefaults(settings)}
         complianceConfirmed={
           (settings['payment_setting.compliance_confirmed'] ?? false) &&
           settings['payment_setting.compliance_terms_version'] === 'v1'
