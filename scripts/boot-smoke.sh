@@ -38,7 +38,11 @@ sleep 2   # the entrypoint restarts postgres once after initdb
 # before the gateway starts, to rehearse a migration against a real schema.
 if [ -n "${SMOKE_SEED:-}" ]; then "$SMOKE_SEED" "$PG"; fi
 
-ENVS=(SESSION_SECRET=smoke-session-secret CRYPTO_SECRET=smoke-crypto-secret NODE_TYPE=master PORT="$PORT")
+# Token and channel key sealing refuse to boot without 32 byte secrets; these are
+# throwaway values for an empty or blanked database only.
+SMOKE_KEY=$(head -c 32 /dev/zero | tr '\0' 'a' | base64)
+ENVS=(SESSION_SECRET=smoke-session-secret CRYPTO_SECRET=smoke-crypto-secret NODE_TYPE=master PORT="$PORT"
+  TOKEN_KEY_PEPPER="$SMOKE_KEY" TOKEN_KEY_ENC_KEY="$SMOKE_KEY" CHANNEL_KEY_ENC_KEY="$SMOKE_KEY")
 if [ "$MODE" = image ]; then
   args=(); for e in "${ENVS[@]}"; do args+=(-e "$e"); done
   docker run -d --name "$APP" --network "$NET" -p "127.0.0.1:$PORT:$PORT" "${args[@]}" \

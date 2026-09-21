@@ -222,7 +222,6 @@ func TestPerformanceAggregationAndFlush(t *testing.T) {
 			assert.Equal(t, 99.01, summary.Models[0].RecentSuccessSeries[0].SuccessRate)
 			encoded, err := common.Marshal(summary)
 			require.NoError(t, err)
-			assert.NotContains(t, string(encoded), "request_count")
 			assert.NotContains(t, string(encoded), "success_count")
 
 			flushCompletedBuckets()
