@@ -54,6 +54,9 @@ type ChannelSettings struct {
 	// the executing plugin. TaskPluginKey remains the single type-61 binding
 	// and stays valid on a New API channel as well.
 	TaskExtendPluginKeys []string `json:"task_extend_plugin_keys,omitempty"`
+	// DecisionsUpstreamPath overrides the upstream decisions endpoint path.
+	// Empty uses the TypeSafe default /v1/systemone; set /api/alpha/decisions for OpenRouter.
+	DecisionsUpstreamPath string `json:"decisions_upstream_path,omitempty"`
 	// HTTPProtocol controls outbound HTTP version negotiation for this channel.
 	// Accepted values: "", "auto" (default), "http1".
 	HTTPProtocol string `json:"http_protocol,omitempty"`

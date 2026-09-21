@@ -39,6 +39,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// relayHandler dispatches a prepared request to the handler for its relay format.
 func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
 	switch info.RelayMode {
@@ -67,6 +68,8 @@ func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIErro
 		fallthrough
 	case relayconstant.RelayModeAudioTranscription:
 		err = relay.AudioHelper(c, info)
+	case relayconstant.RelayModeDecisions:
+		err = relay.DecisionsHelper(c, info)
 	case relayconstant.RelayModeRerank:
 		err = relay.RerankHelper(c, info)
 	case relayconstant.RelayModeEmbeddings:
@@ -93,7 +96,8 @@ func isModeratableRelayMode(mode int) bool {
 		relayconstant.RelayModeResponses,
 		relayconstant.RelayModeResponsesCompact,
 		relayconstant.RelayModeImagesGenerations,
-		relayconstant.RelayModeImagesEdits:
+		relayconstant.RelayModeImagesEdits,
+		relayconstant.RelayModeDecisions:
 		return true
 	default:
 		return false
@@ -356,7 +360,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// Generation only: an embedding or rerank batch is many inputs, each under the
 	// window, and its total says nothing about any of them.
 	generation := relayInfo.RelayMode == relayconstant.RelayModeChatCompletions || relayInfo.RelayMode == relayconstant.RelayModeCompletions ||
-		relayInfo.RelayMode == relayconstant.RelayModeResponses || relayInfo.RelayFormat == types.RelayFormatClaude || relayInfo.RelayFormat == types.RelayFormatGemini
+		relayInfo.RelayMode == relayconstant.RelayModeResponses || relayInfo.RelayMode == relayconstant.RelayModeDecisions ||
+		relayInfo.RelayFormat == types.RelayFormatClaude || relayInfo.RelayFormat == types.RelayFormatGemini
 	if window := model.GetCachedModelLimits(relayInfo.OriginModelName).ContextLength; generation && window > 0 && tokens > window+window/10 {
 		newAPIError = types.NewErrorWithStatusCode(
 			fmt.Errorf("This request is about %d tokens and %s accepts at most %d. Shorten the conversation or start a new session, then retry.", tokens, relayInfo.OriginModelName, window),
