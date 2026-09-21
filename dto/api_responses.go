@@ -18,11 +18,13 @@ type LogStatData struct {
 }
 
 // UserBotViewData is the data field for GET /api/user/:id/bot_view. Reduced on
-// purpose: the Discord bot reads only these two fields, so its service token
-// never sees the email, Discord id or register IP that the full record carries.
+// purpose: the Discord bot reads only these fields, so its service token never
+// sees the email, Discord id or register IP that the full record carries.
+// Username is shown in reward DMs so members see which account got paid.
 type UserBotViewData struct {
-	Quota   int    `json:"quota"`
-	Setting string `json:"setting"`
+	Username string `json:"username"`
+	Quota    int    `json:"quota"`
+	Setting  string `json:"setting"`
 }
 
 // LogByRequestData is the data field for GET /api/log/by-request. It carries no
