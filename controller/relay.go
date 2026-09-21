@@ -1011,6 +1011,8 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	softFailure := false
 	if class.Known {
 		switch {
+		case class.Shared:
+			shouldDisable = false
 		case class.DisableNow, class.Count == service.CountFailure:
 			shouldDisable = true
 		default:
