@@ -127,6 +127,12 @@ var upstreamRules = []upstreamRule{
 	// never completed, so the lane leaves rotation and the retest returns it.
 	{markers: []string{"remote error: tls:"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "The provider dropped the connection before it was established. It has left rotation, please retry."},
 
+	// Our own lane proxies (chatglm, gemini, kl): the shard's slots are full or the
+	// upstream handed back empty frames, which is what chatglm.cn's guest throttle
+	// looks like from inside the tunnel. A capacity state of the shard, not a
+	// broken lane: 108 of these reached users in five minutes on 2026-09-21 while
+	// the generic 503 default counted every one and pulled the lane.
+	{markers: []string{"shard busy, retry on another shard", "upstream returned an empty answer"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}, userMessage: "This model is at capacity right now. Nothing is used up on your side. Try again in a few moments."},
 	// Any host, rate limits and capacity: fail over, count nothing. AI Horde alone
 	// produced 190k of these in a week; each one disabled a lane the probe
 	// re-enabled five minutes later.
