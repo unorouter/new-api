@@ -183,6 +183,14 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	}
 }
 
+// keylessChannel is the sync's placeholder for lanes that take no credential.
+// api.kilo.ai began validating every Bearer it receives on 2026-09-21 13:45 UTC
+// and answered "Your authentication token is invalid" to the placeholder while
+// a request with no header still went through, so the header is left out.
+func keylessChannel(apiKey string) bool {
+	return apiKey == "keyless"
+}
+
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, header)
 	if info.ChannelType == constant.ChannelTypeAzure {
@@ -224,12 +232,12 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 			if legacyRealtimeBeta {
 				header.Set("openai-beta", "realtime=v1")
 			}
-			if !hasAuthOverride {
+			if !hasAuthOverride && !keylessChannel(info.ApiKey) {
 				header.Set("Authorization", "Bearer "+info.ApiKey)
 			}
 		}
 	} else {
-		if !hasAuthOverride {
+		if !hasAuthOverride && !keylessChannel(info.ApiKey) {
 			header.Set("Authorization", "Bearer "+info.ApiKey)
 		}
 	}
