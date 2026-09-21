@@ -69,6 +69,10 @@ func RelayAlphaSearch(c *gin.Context) {
 	controller.Relay(c, types.RelayFormatOpenAIAlphaSearch)
 }
 
+func RelayDecisions(c *gin.Context) {
+	controller.Relay(c, types.RelayFormatDecisions)
+}
+
 func RelayEdits(c *gin.Context) {
 	controller.Relay(c, types.RelayFormatOpenAIImage)
 }
@@ -219,6 +223,7 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 	r.GinPost("/audio/speech", RelayAudioSpeech, dto.GinResp[dto.MessageResponse]())
 
 	// rerank related routes
+	r.GinPost("/decisions", RelayDecisions, dto.GinResp[relaydto.DecisionsResponse]())
 	r.GinPost("/rerank", RelayRerank, dto.GinResp[relaydto.RerankResponse]())
 
 	// gemini relay routes

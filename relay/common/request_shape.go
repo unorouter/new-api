@@ -156,6 +156,14 @@ func ExtractPromptText(c *gin.Context) string {
 			appendText(sys)
 		}
 	}
+	// A decisions request carries its text in state and the question instructions.
+	if state := gjson.GetBytes(body, "state"); state.Exists() {
+		appendText(state)
+		gjson.GetBytes(body, "questions").ForEach(func(_, q gjson.Result) bool {
+			appendText(q.Get("instructions"))
+			return true
+		})
+	}
 	for _, key := range []string{"messages", "input", "contents"} {
 		gjson.GetBytes(body, key).ForEach(func(_, m gjson.Result) bool {
 			content := m.Get("content")
