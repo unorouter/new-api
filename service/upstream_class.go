@@ -112,6 +112,11 @@ var upstreamRules = []upstreamRule{
 	// times against 700 successes on 2026-09-21 and stayed enabled all day. The
 	// disabled-channel retest brings the lane back once the route answers again.
 	{markers: []string{"404 page not found", "please use an exact model id"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider no longer serves that model. It has left rotation, so please retry."},
+	// A retired model: NVIDIA answers 410 "has reached its end of life on <date>
+	// and is no longer available". Nothing about it clears, and read as an
+	// unknown error it counted nothing: three lanes failed 18,600 requests in ten
+	// hours on 2026-09-21 and stayed enabled.
+	{markers: []string{"reached its end of life", "has been retired", "has been deprecated and is no longer"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider has retired that model. It has left rotation, so please retry."},
 	// Any host, the name did not resolve: nothing this lane serves can be reached
 	// until the record is back, so it leaves rotation at the first failure instead
 	// of waiting for the rate guard. a6api.com rotates its CNAME between backends
@@ -243,6 +248,9 @@ func ClassifyUpstreamError(err *types.NewAPIError) UpstreamClass {
 		// An upstream's 402 is its own wallet or pin, never the customer's balance,
 		// which this gateway settles itself before any upstream call.
 		return UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}
+	case err.StatusCode == 410:
+		// Gone is permanent by definition: the route or model will not return.
+		return UpstreamClass{Known: true, Failover: true, DisableNow: true}
 	case err.StatusCode == 413:
 		return UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}
 	case err.StatusCode == 429:
