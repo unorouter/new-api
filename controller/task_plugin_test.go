@@ -30,6 +30,11 @@ func setupTaskPluginControllerTest(t *testing.T) {
 	originalDB := model.DB
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
+	// prod writes audit rows off the request goroutine; a second connection to
+	// an unshared :memory: database is an empty database.
+	sqlDB, err := database.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, database.AutoMigrate(&model.TaskPlugin{}, &model.Channel{}, &model.Ability{}, &model.Task{}, &model.Option{}))
 	model.DB = database
 	t.Cleanup(func() { model.DB = originalDB })
