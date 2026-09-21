@@ -208,6 +208,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			if userMessage, ok := service.UpstreamUserMessage(newAPIError); ok {
 				newAPIError.SetMessage(userMessage)
 			}
+			// A 402 from an upstream is that lane's billing problem. Clients render
+			// 402 as the customer being out of credits, so it leaves as a 503.
+			if newAPIError.StatusCode == http.StatusPaymentRequired && newAPIError.GetErrorType() != types.ErrorTypeNewAPIError {
+				newAPIError.StatusCode = http.StatusServiceUnavailable
+			}
 			// Response already streamed to the client. A JSON body would corrupt the
 			// committed stream, so it stays skipped, but returning nothing ends the
 			// SSE with no [DONE] and no error and every client then reports only that
