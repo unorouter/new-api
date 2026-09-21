@@ -100,6 +100,13 @@ var upstreamRules = []upstreamRule{
 	// lane doing it all day is dead.
 	{markers: []string{"协议能力与本次请求不匹配", "上游服务、网络链路或代理返回异常响应"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "The provider could not handle this request. Retry and it will go to a different one."},
 
+	// Any host, the route or model is simply not there: a Go mux "404 page not
+	// found" from a relay whose handler is gone, or a gateway naming the model as
+	// nonexistent. Deterministic for this lane, and the failure-RATE guard never
+	// trips on it while the lane still serves other requests: kl2 answered it 106
+	// times against 700 successes on 2026-09-21 and stayed enabled all day. The
+	// disabled-channel retest brings the lane back once the route answers again.
+	{markers: []string{"404 page not found", "please use an exact model id"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider no longer serves that model. It has left rotation, so please retry."},
 	// Any host, the name did not resolve: nothing this lane serves can be reached
 	// until the record is back, so it leaves rotation at the first failure instead
 	// of waiting for the rate guard. a6api.com rotates its CNAME between backends

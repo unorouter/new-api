@@ -33,6 +33,17 @@ func extractUpstreamErrorMessage(body []byte) string {
 	return ""
 }
 
+// plainTextErrorBody returns a short one-line text body ("404 page not found"
+// from a Go mux, "Bad Gateway" from a proxy) so the classifier can read it. HTML
+// and anything long or multi-line stay out of the message.
+func plainTextErrorBody(body []byte) string {
+	text := strings.TrimSpace(string(body))
+	if text == "" || len(text) > 160 || strings.ContainsAny(text, "<\n") {
+		return ""
+	}
+	return text
+}
+
 func MidjourneyErrorWrapper(code int, desc string) *taskdto.MidjourneyResponse {
 	return &taskdto.MidjourneyResponse{
 		Code:        code,
@@ -129,6 +140,8 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 			// actual cause instead of a bare "bad response status code".
 			if msg := extractUpstreamErrorMessage(responseBody); msg != "" {
 				newApiErr = types.NewOpenAIError(errors.New(msg), types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
+			} else if text := plainTextErrorBody(responseBody); text != "" {
+				newApiErr = types.NewOpenAIError(errors.New(text), types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
 			} else {
 				newApiErr.Err = fmt.Errorf("bad response status code %d", resp.StatusCode)
 			}
