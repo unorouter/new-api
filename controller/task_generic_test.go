@@ -368,7 +368,6 @@ func TestDisabledArtifactStorePreservesPluginUpstreamContent(t *testing.T) {
 
 	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", task.ChannelId).Updates(map[string]any{
 		"type":     constant.ChannelTypeGemini,
-		"key":      "provider-key",
 		"base_url": upstream.URL,
 	}).Error)
 	task.Platform = constant.TaskPlatform("google")

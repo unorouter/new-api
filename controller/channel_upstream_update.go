@@ -44,7 +44,7 @@ var channelUpstreamModelUpdateSelectFields = []string{
 	"id",
 	"name",
 	"type",
-	"key",
+	"key_enc",
 	"status",
 	"base_url",
 	"models",

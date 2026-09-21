@@ -75,11 +75,11 @@ func TestSaveStatusStateFromSingleKeySnapshotPreservesUnownedColumns(t *testing.
 		MultiKeyPollingIndex: 1,
 	}
 	require.NoError(t, DB.Model(&Channel{}).Where("id = ?", channel.Id).Updates(map[string]any{
-		"key":          "rotated-key",
 		"used_quota":   gorm.Expr("used_quota + ?", 250),
 		"models":       "concurrent-model",
 		"channel_info": concurrentChannelInfo,
 	}).Error)
+	require.NoError(t, UpdateChannelKey(channel.Id, "rotated-key"))
 
 	stale.Status = common.ChannelStatusManuallyDisabled
 	stale.SetOtherInfo(map[string]any{

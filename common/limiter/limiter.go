@@ -30,26 +30,30 @@ type RedisLimiter struct {
 
 var (
 	instance *RedisLimiter
-	once     sync.Once
+	mu       sync.Mutex
 )
 
+// The scripts are loaded once per client: a replaced client (a reconnect, a
+// test's fresh server) must not keep evaluating against the closed one.
 func New(ctx context.Context, r *redis.Client) *RedisLimiter {
-	once.Do(func() {
-		load := func(name, script string) string {
-			sha, err := r.ScriptLoad(ctx, script).Result()
-			if err != nil {
-				common.SysLog(fmt.Sprintf("Failed to load %s script: %v", name, err))
-			}
-			return sha
+	mu.Lock()
+	defer mu.Unlock()
+	if instance != nil && instance.client == r {
+		return instance
+	}
+	load := func(name, script string) string {
+		sha, err := r.ScriptLoad(ctx, script).Result()
+		if err != nil {
+			common.SysLog(fmt.Sprintf("Failed to load %s script: %v", name, err))
 		}
-		instance = &RedisLimiter{
-			client:           r,
-			limitScriptSHA:   load("rate limit", rateLimitScript),
-			reserveScriptSHA: load("sliding window reserve", slidingWindowReserveScript),
-			releaseScriptSHA: load("sliding window release", slidingWindowReleaseScript),
-		}
-	})
-
+		return sha
+	}
+	instance = &RedisLimiter{
+		client:           r,
+		limitScriptSHA:   load("rate limit", rateLimitScript),
+		reserveScriptSHA: load("sliding window reserve", slidingWindowReserveScript),
+		releaseScriptSHA: load("sliding window release", slidingWindowReleaseScript),
+	}
 	return instance
 }
 

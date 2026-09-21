@@ -152,9 +152,10 @@ cmd_rehearse() {
   cat > "$tmp/seed.sh" <<SEED
 #!/usr/bin/env bash
 set -euo pipefail
-pg_dump "$PROD_PG" --schema-only --no-owner --no-privileges | docker exec -i "\$1" psql -q -U postgres -d newapi >/dev/null 2>&1 || true
-pg_dump "$PROD_PG" --data-only --no-owner -t options -t channels -t abilities | docker exec -i "\$1" psql -q -U postgres -d newapi >/dev/null
-docker exec -i "\$1" psql -q -U postgres -d newapi -c "UPDATE channels SET key='rehearsal', base_url='http://127.0.0.1:9'" \
+# A newer pg_dump emits SET transaction_timeout, which the 15 image rejects.
+pg_dump "$PROD_PG" --schema-only --no-owner --no-privileges | grep -v '^SET transaction_timeout' | docker exec -i "\$1" psql -q -U postgres -d newapi >/dev/null 2>&1 || true
+pg_dump "$PROD_PG" --data-only --no-owner -t options -t channels -t abilities | grep -v '^SET transaction_timeout' | docker exec -i "\$1" psql -q -U postgres -d newapi >/dev/null
+docker exec -i "\$1" psql -q -U postgres -d newapi -c "UPDATE channels SET key_enc='', base_url='http://127.0.0.1:9'" \
   -c "DELETE FROM options WHERE key ~* '(webhook|secret|token|api_?key|password)'"
 SEED
   chmod +x "$tmp/seed.sh"

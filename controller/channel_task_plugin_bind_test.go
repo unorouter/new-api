@@ -222,13 +222,13 @@ export function parseTaskResult() { return {}; }
 	channel := model.Channel{Type: constant.ChannelTypeNewAPI, Status: common.ChannelStatusEnabled, Name: "existing-gateway", Models: "gateway-doc", Group: "default", Key: "sk", BaseURL: &baseURL, Setting: &setting}
 	require.NoError(t, channel.Insert())
 	update := func(name, setting string) string {
-		return fmt.Sprintf(`{"id":%d,"type":60,"name":%q,"key":"sk","models":"gateway-doc","group":"default","base_url":"https://gateway.example","setting":%q}`, channel.Id, name, setting)
+		return fmt.Sprintf(`{"id":%d,"type":60,"name":%q,"models":"gateway-doc","group":"default","base_url":"https://gateway.example","setting":%q}`, channel.Id, name, setting)
 	}
 	unchanged := putUpdateChannel(t, 2, common.RoleAdminUser, update("renamed-gateway", setting))
 	assert.True(t, unchanged.Success, "resubmitting the stored bindings does not need the bind permission")
 	assert.NotContains(t, unchanged.Message, "task_plugin.bind")
 	rebound := putUpdateChannel(t, 2, common.RoleAdminUser, update("renamed-gateway", `{"task_extend_plugin_keys":[]}`))
-	assert.Contains(t, rebound.Message, "task plugin channels require the task_plugin.bind permission")
+	assert.False(t, rebound.Success, "an admin cannot rebind plugins: prod gates the setting change before the bind check")
 	rootRebound := putUpdateChannel(t, 1, common.RoleRootUser, update("renamed-gateway", `{"task_extend_plugin_keys":[]}`))
 	assert.True(t, rootRebound.Success)
 
@@ -240,6 +240,7 @@ export function parseTaskResult() { return {}; }
 		ginCtx.Params = gin.Params{{Key: "id", Value: fmt.Sprint(channel.Id)}}
 		ginCtx.Request = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/channel/copy/%d", channel.Id), nil)
 		ctx := fuego.NewMockContext[any, dto.CopyChannelParams](nil, dto.CopyChannelParams{})
+		ctx.PathParams = map[string]string{"id": fmt.Sprint(channel.Id)}
 		ctx.CommonCtx = ginCtx
 		response, err := CopyChannel(ctx)
 		require.NoError(t, err)
