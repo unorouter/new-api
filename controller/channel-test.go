@@ -1299,8 +1299,13 @@ func testChannelForCycle(ctx context.Context, channel *model.Channel, testUserID
 	summary.Tested++
 	if newAPIError == nil {
 		summary.Succeeded++
+		service.ResetProbeFailures(channel.Id)
 	} else {
 		summary.Failed++
+		if streak := service.RecordProbeFailure(channel.Id); streak == operation_setting.GetMonitorSetting().ChannelProbeBackoffFloor {
+			common.SysLog(fmt.Sprintf("channel-test: channel #%d (%s) failed %d probes in a row, backing off (model=%s code=%s status=%d)",
+				channel.Id, channel.Name, streak, testModel, newAPIError.GetErrorCode(), newAPIError.StatusCode))
+		}
 	}
 
 	// disable channel
@@ -1395,7 +1400,7 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 // trigger passes ChannelTestModeScheduledAll to test every channel. When notify
 // is set the root user is notified on completion. Cross-instance execution is
 // guarded by the system task per-type lock, so no process-local guard is needed.
-func runChannelTestTask(ctx context.Context, mode string, notify bool, report func(processed, total int)) (channelTestSummary, error) {
+func runChannelTestTask(ctx context.Context, mode string, notify, manual bool, report func(processed, total int)) (channelTestSummary, error) {
 	testUserID, err := resolveChannelTestUserID(nil)
 	if err != nil {
 		return channelTestSummary{}, err
@@ -1407,7 +1412,7 @@ func runChannelTestTask(ctx context.Context, mode string, notify bool, report fu
 	if strings.TrimSpace(mode) == "" {
 		mode = operation_setting.GetMonitorSetting().ChannelTestMode
 	}
-	selected := selectChannelsForAutomaticTest(channels, mode)
+	selected := selectChannelsForAutomaticTest(channels, mode, manual)
 	allowDisable := mode != operation_setting.ChannelTestModePassiveRecovery
 	concurrency := channelTestConcurrency(operation_setting.GetMonitorSetting().ChannelTestConcurrency)
 	cycleStart := time.Now()
@@ -1424,7 +1429,7 @@ func runChannelTestTask(ctx context.Context, mode string, notify bool, report fu
 	return summary, nil
 }
 
-func selectChannelsForAutomaticTest(channels []*model.Channel, mode string) []*model.Channel {
+func selectChannelsForAutomaticTest(channels []*model.Channel, mode string, manual bool) []*model.Channel {
 	// Either upstream's passive_recovery mode or our AutoTestDisabledChannelsOnly
 	// toggle restricts the scheduled probe to auto-disabled channels, leaving
 	// healthy channels alone (avoids probe-induced 429s and quota burn). The
@@ -1445,6 +1450,16 @@ func selectChannelsForAutomaticTest(channels []*model.Channel, mode string) []*m
 		}
 		if !channelDueForScheduledTest(channel) {
 			continue
+		}
+		// A channel that keeps failing the probe is asked less often. Checked after
+		// the interval gate so the two only ever lengthen the wait, and skipped for
+		// a human-triggered run: the manual mode is the same value as the default
+		// scheduled one, so only this flag separates "probe everything now" from
+		// the cycle that has to live within an upstream's quota.
+		if !manual {
+			if wait := probeBackoffRemainingSeconds(channel); wait > 0 {
+				continue
+			}
 		}
 		selected = append(selected, channel)
 	}
@@ -1467,6 +1482,22 @@ func channelDueForScheduledTest(channel *model.Channel) bool {
 		return true
 	}
 	return common.GetTimestamp()-channel.TestTime >= int64(channelTestIntervalMinutes(channel.Id, minutes, setting.AutoTestIntervalMaxMinutes))*60
+}
+
+// probeBackoffRemainingSeconds is the time left on a failing channel's probe
+// backoff. TestTime is stamped at the end of every cycle test, pass or fail, so it
+// is the last-probed marker here too; without it a channel with no recorded probe
+// would be held back forever on a streak that can never be cleared.
+func probeBackoffRemainingSeconds(channel *model.Channel) int64 {
+	backoff := service.ProbeBackoffSeconds(channel.Id)
+	if backoff <= 0 || channel.TestTime <= 0 {
+		return 0
+	}
+	elapsed := common.GetTimestamp() - channel.TestTime
+	if elapsed >= backoff {
+		return 0
+	}
+	return backoff - elapsed
 }
 
 // channelTestIntervalMinutes places a channel at a fixed offset inside [min,max].
@@ -1497,6 +1528,7 @@ func TestAllChannels(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	_, created, err := service.EnqueueSystemTask(model.SystemTaskTypeChannelTest, channelTestTaskPayload{
 		Mode:   operation_setting.ChannelTestModeScheduledAll,
 		Notify: true,
+		Manual: true,
 	})
 	if err != nil {
 		return dto.MessageResponse{}, err

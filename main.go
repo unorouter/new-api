@@ -328,6 +328,15 @@ func InitResources() error {
 
 	service.InitTokenEncoders()
 
+	if err = model.InitTokenKeyCrypto(); err != nil {
+		common.FatalLog("failed to initialize token key encryption: " + err.Error())
+		return err
+	}
+	if err = model.InitChannelKeyCrypto(); err != nil {
+		common.FatalLog("failed to initialize channel key encryption: " + err.Error())
+		return err
+	}
+
 	// Initialize SQL Database
 	err = model.InitDB()
 	if err != nil {

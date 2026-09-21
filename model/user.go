@@ -140,10 +140,18 @@ func (user *User) ToBaseUser() *UserBase {
 		Email:       user.Email,
 		CreatedAt:   user.CreatedAt,
 		UsedQuota:   user.UsedQuota,
+		HasIdentity: user.HasIdentity(),
 		AuthVersion: user.AuthVersion,
 		CacheSchema: userCacheSchemaVersion,
 	}
 	return cache
+}
+
+// HasIdentity reports whether an external provider vouched for this account.
+// Same rule as RegistrationProvenance.HasIdentity.
+func (user *User) HasIdentity() bool {
+	return user.GitHubId != "" || user.DiscordId != "" || user.OidcId != "" ||
+		user.TelegramId != "" || user.LinuxDOId != "" || user.WeChatId != "" || user.GoogleId != ""
 }
 
 func (user *User) GetAccessToken() string {
@@ -1296,7 +1304,7 @@ func (user *User) HardDelete() error {
 			return err
 		}
 		if common.RedisEnabled {
-			if err := tx.Unscoped().Select("id", commonKeyCol).Where("user_id = ?", user.Id).Find(&tokens).Error; err != nil {
+			if err := tx.Unscoped().Select("id", "key_hash", "key_enc").Where("user_id = ?", user.Id).Find(&tokens).Error; err != nil {
 				return err
 			}
 		}
