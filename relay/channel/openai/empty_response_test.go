@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -140,9 +141,9 @@ func TestStreamHadOutput(t *testing.T) {
 			var builder strings.Builder
 			var stats StreamOutputStats
 			var toolCount int
+			info := &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeChatCompletions}
 			for _, chunk := range tc.chunks {
-				require.NoError(t, processTokenData(
-					relayconstant.RelayModeChatCompletions, chunk, &builder, &toolCount, &stats))
+				require.NoError(t, processTokenData(info, chunk, &builder, &toolCount, &stats))
 			}
 
 			assert.Equal(t, tc.want, streamHadOutput(&stats, toolCount))
