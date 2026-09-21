@@ -130,7 +130,7 @@ var upstreamRules = []upstreamRule{
 	// Any host, rate limits and capacity: fail over, count nothing. AI Horde alone
 	// produced 190k of these in a week; each one disabled a lane the probe
 	// re-enabled five minutes later.
-	{markers: []string{"per 1 second", "parallel requests (", "rate limit reached", "rate limit exceeded", "resource has been exhausted", "temporarily overloaded", "this model is busy right now", "rate_limit_exceeded", "并发上限", "总请求数限制"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}, userMessage: "This model is rate limited right now. Nothing is used up on your side. Try again in a few moments."},
+	{markers: []string{"per 1 second", "parallel requests (", "rate limit reached", "rate limit exceeded", "resource has been exhausted", "temporarily overloaded", "this model is busy right now", "rate_limit_exceeded", "并发上限", "总请求数限制", "请求过于频繁"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}, userMessage: "This model is rate limited right now. Nothing is used up on your side. Try again in a few moments."},
 	// Any host, the lane cannot serve this model's requests at all (unsupported
 	// parameter, wrong model id, audio model behind a chat route): deterministic
 	// for this lane only, so fail over AND let the rate guard pull it.
