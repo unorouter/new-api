@@ -101,6 +101,13 @@ var ChannelFaultKeywords = []string{
 	// rate limit and keeps the channel in rotation serving nothing.
 	"has been suspended",
 	"consumer 'api_key",
+	// Groq's daily token allowance ("Rate limit reached ... on tokens per day
+	// (TPD)"): spent for the day, so read as a bare 429 it only cooled the lane
+	// and gq1 failed 1,700 requests against 840 successes on 2026-09-21.
+	"tokens per day (tpd)",
+	// Inception answers 402 "Free tier limit reached. Please upgrade to a paid
+	// plan": the allowance is gone, nothing about it clears.
+	"free tier limit reached",
 }
 
 func keywordsToString(kw []string) string {
