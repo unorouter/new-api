@@ -354,7 +354,7 @@ func WithOpenAIError(openAIError OpenAIError, statusCode int, ops ...NewAPIError
 	// a drained wallet reads as a rate limit on some resellers, and unlike a
 	// capacity 429 it cannot clear until the balance is topped up.
 	if (statusCode == http.StatusBadRequest || statusCode == http.StatusForbidden ||
-		statusCode == http.StatusTooManyRequests) &&
+		statusCode == http.StatusPaymentRequired || statusCode == http.StatusTooManyRequests) &&
 		isUpstreamCredentialFault(openAIError.Message) {
 		code = string(ErrorCodeChannelInvalidKey)
 	}
