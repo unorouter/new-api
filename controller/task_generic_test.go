@@ -370,6 +370,7 @@ func TestDisabledArtifactStorePreservesPluginUpstreamContent(t *testing.T) {
 		"type":     constant.ChannelTypeGemini,
 		"base_url": upstream.URL,
 	}).Error)
+	require.NoError(t, model.UpdateChannelKey(task.ChannelId, "provider-key"))
 	task.Platform = constant.TaskPlatform("google")
 	task.PrivateData.Execution = &model.TaskExecutionSnapshot{TaskPlugin: &model.TaskPluginSnapshot{
 		Key: "google", Name: "Google Veo (Gemini API)", Version: "1.0.0", APIVersion: 1,
