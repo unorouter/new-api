@@ -713,6 +713,16 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		// RecordChannelFailure still gates whether a channel is actually pulled, and
 		// the scheduled probe re-enables it once the upstream recovers.
 		if (types.IsUpstreamTimeoutError(err) || platformLimitHit.Load()) && !errors.Is(c.Request.Context().Err(), context.Canceled) {
+			// Every lane hits the same wall, so no failover and no stall recorded against the lane.
+			if info != nil && (!info.IsStream || info.ForceUpstreamStream) && info.GetEstimatePromptTokens() >= longPromptFirstByteFloor {
+				limit := wait
+				if limit <= 0 {
+					limit = service.ResponseHeaderCeiling()
+				}
+				return nil, types.NewErrorWithStatusCode(
+					fmt.Errorf("this request was not streamed, and a reply that is not streamed has to arrive complete within %d seconds. A prompt of %d tokens needs longer than that on this model. Turn on streaming (\"stream\": true), which gives long prompts more time to start answering, or shorten the prompt", int(limit.Seconds()), info.GetEstimatePromptTokens()),
+					types.ErrorCodeNonStreamedTooSlow, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
+			}
 			return nil, types.NewOpenAIError(
 				errors.New("the upstream provider is saturated and did not respond in time. Please retry: the request has already been failed over to any other provider serving this model"),
 				types.ErrorCodeChannelResponseTimeExceeded, http.StatusTooManyRequests)
