@@ -71,6 +71,8 @@ const (
 
 	// request error
 	ErrorCodeBadRequestBody ErrorCode = "bad_request_body"
+	// A buffered reply to a long prompt that no lane can finish inside the edge's window.
+	ErrorCodeNonStreamedTooSlow ErrorCode = "non_streamed_too_slow"
 
 	// response error
 	ErrorCodeReadResponseBodyFailed ErrorCode = "read_response_body_failed"
