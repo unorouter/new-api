@@ -120,7 +120,10 @@ var upstreamRules = []upstreamRule{
 	// and is no longer available". Nothing about it clears, and read as an
 	// unknown error it counted nothing: three lanes failed 18,600 requests in ten
 	// hours on 2026-09-21 and stayed enabled.
-	{markers: []string{"reached its end of life", "has been retired", "has been deprecated and is no longer"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider has retired that model. It has left rotation, so please retry."},
+	{markers: []string{"reached its end of life", "has been retired", "has been deprecated and is no longer", "has been deprecated. please use one of the available models"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider has retired that model. It has left rotation, so please retry."},
+	// A free allowance spent until its daily or monthly reset fails every request until then, and a
+	// sole lane is never pulled on rate: incp1 mercury stayed listed through 367 of these in two days.
+	{markers: []string{"free tier limit reached", "daily free quota for the model", "today's free-model token quota", "free-models-per-day", "api calls / month", "reached your monthly usage limit"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider's free allowance is used up until it resets. It has left rotation, so please retry and another provider will take it."},
 	// A demo site fronted by our cfp shards caps the messages per conversation:
 	// the customer's long chat is refused, the lane is fine. Its 502 read as a
 	// lane failure disabled ten cfp lanes on 2026-09-21 at half their traffic.
