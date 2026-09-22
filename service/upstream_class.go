@@ -138,6 +138,10 @@ var upstreamRules = []upstreamRule{
 	// Cooldown all eight cfp glm-5.3 lanes sat out ten minutes at a time and the
 	// model left the catalog (2026-09-21); one window per hit follows the cap.
 	{markers: []string{"inference request per min rate reached"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Shared: true, Window: time.Minute}, userMessage: "This model is at its provider's per minute limit right now. Nothing is used up on your side. Try again in a minute."},
+	// Per key and per address caps that refill each minute: Gonka Broker's free
+	// tier (6 RPM) and ch.at (100 a minute per exit, relayed by our proxy). The
+	// generic rate limit rule below would double the sit out up to ten minutes.
+	{markers: []string{"free tier rate limit (", "ch.at 429"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: time.Minute}, userMessage: "This model is at its provider's per minute limit right now. Nothing is used up on your side. Try again in a minute."},
 	// A free lane whose upstream keeps answering that free capacity is limited
 	// and paid credits lift it: a 429 in words, but one lane (oc2 hy3) failed 583
 	// requests against 15 successes all day, so it counts toward the guard.
