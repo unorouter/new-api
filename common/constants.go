@@ -145,7 +145,6 @@ var SMTPForceAuthLogin = false
 var SMTPAccount = ""
 var SMTPFrom = ""
 var SMTPToken = ""
-var SMTPBcc = ""
 
 var GitHubClientId = ""
 var GitHubClientSecret = ""

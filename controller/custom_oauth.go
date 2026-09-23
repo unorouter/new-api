@@ -392,9 +392,9 @@ func UnbindCustomOAuth(c *gin.Context) {
 		return
 	}
 
-	succeeded, notificationFailed := false, false
+	succeeded := false
 	defer func() {
-		recordUserSecurityAudit(c, identity.UserID, "user.binding_unbind", map[string]any{"provider_id": providerId, "success": succeeded, "notification_failed": notificationFailed})
+		recordUserSecurityAudit(c, identity.UserID, "user.binding_unbind", map[string]any{"provider_id": providerId, "success": succeeded})
 	}()
 	context, err := common.Marshal(service.AccountUnbindingContext{ProviderID: providerId})
 	if err != nil {
@@ -409,17 +409,9 @@ func UnbindCustomOAuth(c *gin.Context) {
 		return
 	}
 	succeeded = true
-	user, err := model.GetUserById(identity.UserID, false)
-	if err != nil {
-		writeSecurityOperationError(c, err)
-		return
-	}
-	notificationFailed = service.NotifyAccountSecurityChange(user.Email, "Login account unlinked") != nil
-
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Unbound successfully",
-		"data":    gin.H{"notification_warning": notificationFailed},
 	})
 }
 

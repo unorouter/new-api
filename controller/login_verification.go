@@ -159,10 +159,9 @@ func completeVerifiedLoginResponse(c *gin.Context, bundle *service.AuthBundle, m
 	c.Set("login_verification_method", method)
 	if migration != nil {
 		// The legacy GitHub binding was rewritten together with this session.
-		notificationFailed := service.NotifyAccountSecurityChange(user.Email, "Login account linked: GitHub") != nil
 		recordLegacyGitHubBindingAudit(c, user, true, map[string]any{
 			"legacy_id": migration.LegacyID, "provider_user_id": migration.GitHubID,
-			"verification_method": method, "notification_failed": notificationFailed,
+			"verification_method": method,
 		})
 	}
 	writeLoginResponse(c, user, bundle)

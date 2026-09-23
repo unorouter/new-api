@@ -134,9 +134,9 @@ func WeChatBind(c *gin.Context) {
 		writeSecurityOperationError(c, service.ErrAuthTokenInvalid)
 		return
 	}
-	succeeded, notificationFailed := false, false
+	succeeded := false
 	defer func() {
-		recordUserSecurityAudit(c, identity.UserID, "user.binding_bind", map[string]any{"provider": "wechat", "success": succeeded, "notification_failed": notificationFailed})
+		recordUserSecurityAudit(c, identity.UserID, "user.binding_bind", map[string]any{"provider": "wechat", "success": succeeded})
 	}()
 	if !common.WeChatAuthEnabled {
 		c.JSON(http.StatusOK, gin.H{
@@ -186,16 +186,9 @@ func WeChatBind(c *gin.Context) {
 	}
 	succeeded = true
 	model.LiftShadowBan(identity.UserID, "linked wechat")
-	user, err := model.GetUserById(identity.UserID, false)
-	if err != nil {
-		writeSecurityOperationError(c, err)
-		return
-	}
-	notificationFailed = service.NotifyAccountSecurityChange(user.Email, "WeChat account linked") != nil
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    gin.H{"notification_warning": notificationFailed},
 	})
 	return
 }

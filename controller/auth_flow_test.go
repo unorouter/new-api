@@ -928,8 +928,7 @@ func TestOAuthLoginLegacyGitHubBindingRequiresAccountEvidence(t *testing.T) {
 		{
 			name: "verified email match migrates", existingGitHubID: "octocat-legacy", legacyID: "octocat-legacy",
 			verifiedEmails: []string{"other@example.com", " Legacy-GitHub@Example.com "}, expectLogin: true, expectMigration: true, expectEmailCalls: 1,
-			// No SMTP server is configured in tests, so the notification attempt is recorded as failed.
-			expectAuditParams: `{"provider":"github","legacy_migration":true,"legacy_id":"octocat-legacy","provider_user_id":"900001","verified_email_matched":true,"success":true,"notification_failed":true}`,
+			expectAuditParams: `{"provider":"github","legacy_migration":true,"legacy_id":"octocat-legacy","provider_user_id":"900001","verified_email_matched":true,"success":true}`,
 		},
 		{
 			name: "no matching verified email declines", existingGitHubID: "octocat-legacy", legacyID: "octocat-legacy",
@@ -1082,8 +1081,7 @@ func TestOAuthLoginLegacyGitHubBindingMigratesAfterLoginVerification(t *testing.
 			assert.Equal(t, existing.Id, audits[0].UserId)
 			assert.Equal(t, common.RoleCommonUser, audits[0].ActorRole)
 			assert.True(t, audits[0].Success)
-			// No SMTP server is configured in tests, so the notification attempt is recorded as failed.
-			assert.JSONEq(t, `{"provider":"github","legacy_migration":true,"legacy_id":"octocat-legacy","provider_user_id":"900001","verification_method":"2fa","success":true,"notification_failed":true}`, params[0])
+			assert.JSONEq(t, `{"provider":"github","legacy_migration":true,"legacy_id":"octocat-legacy","provider_user_id":"900001","verification_method":"2fa","success":true}`, params[0])
 		})
 	}
 }

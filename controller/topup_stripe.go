@@ -16,7 +16,6 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -413,7 +412,6 @@ func fulfillOrder(ctx context.Context, event stripe.Event, referenceId string, c
 	logger.LogInfo(ctx, fmt.Sprintf("Stripe topup succeeded trade_no=%s amount_total=%.2f currency=%s event_type=%s client_ip=%s", referenceId, total/100, currency, string(event.Type), callerIp))
 
 	if topUp := model.GetTopUpByTradeNo(referenceId); topUp != nil {
-		go service.SendTopupConfirmationEmail(topUp.UserId, topUp.Money, total/100, currency, topUp.TradeNo)
 	}
 }
 

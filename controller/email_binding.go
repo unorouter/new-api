@@ -103,9 +103,6 @@ func EmailBindVerified(c *gin.Context) {
 	}
 	succeeded = true
 	notificationFailed = service.NotifyAccountSecurityChange(state.CurrentEmail, "Email address changed") != nil
-	if err := service.NotifyAccountSecurityChange(state.Email, "Email address confirmed"); err != nil {
-		notificationFailed = true
-	}
 	if err := model.PublishUserAuthCache(identity.UserID); err != nil {
 		writeSecurityOperationError(c, err)
 		return
