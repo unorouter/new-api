@@ -176,11 +176,11 @@ var upstreamRules = []upstreamRule{
 	// Any host, rate limits and capacity: fail over, count nothing. AI Horde alone
 	// produced 190k of these in a week; each one disabled a lane the probe
 	// re-enabled five minutes later.
-	// chatglm.cn guest throttle, metered across every exit at once: on 2026-09-21
-	// it ran at 25% pass fleet-wide, the rate gate pulled 33 of 37 glm-5.3-flash
-	// lanes within minutes of re-enabling them, and 414 of 689 failed requests then
-	// had a single lane left to try. Cool the lane, never count it.
-	{markers: []string{"请求过于频繁"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true, Shared: true}, userMessage: "This model is rate limited right now. Nothing is used up on your side. Try again in a few moments."},
+	// chatglm.cn guest throttle. Exempting it from disable (2026-09-21) left every
+	// chatglm lane enabled at 0 to 2% pass on 2026-09-23, each failure holding the
+	// caller for the whole first byte deadline; the scheduled test re-enables a
+	// lane once the throttle lifts.
+	{markers: []string{"请求过于频繁"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This model is rate limited right now. Nothing is used up on your side. Try again in a few moments."},
 	{markers: []string{"per 1 second", "parallel requests (", "rate limit reached", "rate limit exceeded", "resource has been exhausted", "temporarily overloaded", "this model is busy right now", "rate_limit_exceeded", "并发上限", "总请求数限制"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}, userMessage: "This model is rate limited right now. Nothing is used up on your side. Try again in a few moments."},
 	// Any host, the lane cannot serve this model's requests at all (unsupported
 	// parameter, wrong model id, audio model behind a chat route): deterministic
