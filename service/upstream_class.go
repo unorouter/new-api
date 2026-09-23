@@ -95,9 +95,9 @@ var upstreamRules = []upstreamRule{
 	// prompts as small as 2 tokens (548 rows average 2,310 against an 18,054
 	// baseline), so it is the merchant's allowance, not this request's size.
 	{markers: []string{"可用额度不足", "您已超过输入 tokens 配额"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "This provider ran out of credit on their side. That is on us, not you: retry and the request goes to another provider."},
-	// Reseller, states the platform itself calls durable: the merchant's upstream
-	// balance is gone "and will not recover soon", or our account there is banned.
-	{markers: []string{"上游账户余额不足", "账号处于封禁状态"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider can no longer take requests from us. We have taken it out of rotation, so please retry."},
+	// The upstream balance is gone (a reseller adds "and will not recover soon"),
+	// or our account there is banned.
+	{markers: []string{"上游账户余额不足", "账号处于封禁状态", "insufficient balance", "no credits available", "may have insufficient balance"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider can no longer take requests from us. We have taken it out of rotation, so please retry."},
 	// Reseller, platform-wide faults every lane on the host answers together (auth
 	// database degraded, CPU admission, no channel found, platform concurrency):
 	// 290 rows across 55 lanes in three minutes on 2026-09-16. Counted per lane
@@ -123,7 +123,7 @@ var upstreamRules = []upstreamRule{
 	{markers: []string{"reached its end of life", "has been retired", "has been deprecated and is no longer", "has been deprecated. please use one of the available models"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider has retired that model. It has left rotation, so please retry."},
 	// A free allowance spent until its daily or monthly reset fails every request until then, and a
 	// sole lane is never pulled on rate: incp1 mercury stayed listed through 367 of these in two days.
-	{markers: []string{"free tier limit reached", "daily free quota for the model", "today's free-model token quota", "free-models-per-day", "api calls / month", "reached your monthly usage limit"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider's free allowance is used up until it resets. It has left rotation, so please retry and another provider will take it."},
+	{markers: []string{"free tier limit reached", "too many tokens per day", "daily free quota for the model", "today's free-model token quota", "free-models-per-day", "api calls / month", "reached your monthly usage limit"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider's free allowance is used up until it resets. It has left rotation, so please retry and another provider will take it."},
 	// A demo site fronted by our cfp shards caps the messages per conversation:
 	// the customer's long chat is refused, the lane is fine. Its 502 read as a
 	// lane failure disabled ten cfp lanes on 2026-09-21 at half their traffic.
@@ -276,8 +276,9 @@ func ClassifyUpstreamError(err *types.NewAPIError) UpstreamClass {
 	switch {
 	case err.StatusCode == 402:
 		// An upstream's 402 is its own wallet or pin, never the customer's balance,
-		// which this gateway settles itself before any upstream call.
-		return UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}
+		// which this gateway settles itself before any upstream call. Spent money does
+		// not come back on a retry, so the lane leaves until the retest passes.
+		return UpstreamClass{Known: true, Failover: true, DisableNow: true}
 	case err.StatusCode == 410:
 		// Gone is permanent by definition: the route or model will not return.
 		return UpstreamClass{Known: true, Failover: true, DisableNow: true}
