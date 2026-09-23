@@ -350,7 +350,6 @@ func settleNowPaymentsEvent(ctx context.Context, event *dto.NowPaymentsWebhookEv
 		}
 
 		if topUp := model.GetTopUpByTradeNo(orderId); topUp != nil {
-			go service.SendTopupConfirmationEmail(topUp.UserId, topUp.Money, event.ActuallyPaid, strings.ToUpper(event.PayCurrency), topUp.TradeNo)
 		}
 		return http.StatusOK
 
@@ -397,7 +396,6 @@ func settleNowPaymentsEvent(ctx context.Context, event *dto.NowPaymentsWebhookEv
 				return http.StatusInternalServerError
 			}
 			if topUp := model.GetTopUpByTradeNo(orderId); topUp != nil {
-				go service.SendTopupConfirmationEmail(topUp.UserId, topUp.Money, event.ActuallyPaid, strings.ToUpper(event.PayCurrency), topUp.TradeNo)
 			}
 			return http.StatusOK
 		}

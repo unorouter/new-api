@@ -248,10 +248,10 @@ func HandleOAuth(c *gin.Context) {
 		Provider: providerName,
 		Intent:   pendingFlow.Intent,
 	}
-	bindSucceeded, notificationFailed := false, false
+	bindSucceeded := false
 	if pendingFlow.Intent == model.AuthFlowIntentBind {
 		defer func() {
-			recordUserSecurityAudit(c, pendingFlow.UserId, "user.binding_bind", map[string]any{"provider": providerName, "success": bindSucceeded, "notification_failed": notificationFailed, "external": redirectURI != ""})
+			recordUserSecurityAudit(c, pendingFlow.UserId, "user.binding_bind", map[string]any{"provider": providerName, "success": bindSucceeded, "external": redirectURI != ""})
 		}()
 	}
 	// External-frontend binds (redirect_uri present, no session id) are bound to
@@ -360,7 +360,7 @@ func HandleOAuth(c *gin.Context) {
 		return
 	}
 	if pendingFlow.Intent == model.AuthFlowIntentBind {
-		bindSucceeded, notificationFailed = handleOAuthBind(c, providerName, provider, oauthUser, pendingFlow, state, consumeMatch, redirectURI)
+		bindSucceeded = handleOAuthBind(c, providerName, provider, oauthUser, pendingFlow, state, consumeMatch, redirectURI)
 		return
 	}
 	flow, err := model.ConsumeAuthFlow(state, consumeMatch)
@@ -440,7 +440,7 @@ func handleOAuthLogin(c *gin.Context, provider oauth.Provider, oauthUser *oauth.
 // proof recorded in the flow; external-frontend binds (redirectURI set, no
 // session id) were verified by session token at state creation and answer with
 // a redirect instead of JSON.
-func handleOAuthBind(c *gin.Context, providerName string, provider oauth.Provider, oauthUser *oauth.OAuthUser, flow *model.AuthFlow, state string, match model.AuthFlowMatch, redirectURI string) (bool, bool) {
+func handleOAuthBind(c *gin.Context, providerName string, provider oauth.Provider, oauthUser *oauth.OAuthUser, flow *model.AuthFlow, state string, match model.AuthFlowMatch, redirectURI string) bool {
 	external := redirectURI != "" && flow.SessionId == ""
 	var identity service.AuthIdentity
 	if !external {
@@ -448,34 +448,34 @@ func handleOAuthBind(c *gin.Context, providerName string, provider oauth.Provide
 		identity, ok = middleware.GetSessionAuthIdentity(c)
 		if !ok {
 			writeSecurityOperationError(c, service.ErrAuthTokenInvalid)
-			return false, false
+			return false
 		}
 	}
 	var payload oauthFlowPayload
 	if err := common.UnmarshalJsonStr(flow.Payload, &payload); err != nil {
 		writeSecurityOperationError(c, model.ErrAuthFlowInvalid)
-		return false, false
+		return false
 	}
 	if !external {
 		context, err := common.Marshal(service.AccountBindingContext{Provider: providerName})
 		if err != nil {
 			writeSecurityOperationError(c, err)
-			return false, false
+			return false
 		}
 		// Recheck after the external provider round trip, then validate the session
 		// under the transaction's locks before consuming the flow and writing.
 		if err := service.ValidateFlowAuthorization(identity, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: context}, payload.Authorization); err != nil {
 			writeSecurityOperationError(c, err)
-			return false, false
+			return false
 		}
 	}
 	if provider.IsUserIDTaken(oauthUser.ProviderUserID) {
 		alreadyBound := common.TranslateMessage(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
 		if setupOAuthErrorRedirect(c, redirectURI, alreadyBound) {
-			return false, false
+			return false
 		}
 		common.ApiErrorI18n(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
-		return false, false
+		return false
 	}
 	userId := flow.UserId
 	_, err := model.ConsumeAuthFlowWithAction(state, match, func(tx *gorm.DB, _ *model.AuthFlow) error {
@@ -496,28 +496,27 @@ func handleOAuthBind(c *gin.Context, providerName string, provider oauth.Provide
 	if err != nil {
 		if external {
 			if setupOAuthErrorRedirect(c, redirectURI, err.Error()) {
-				return false, false
+				return false
 			}
 		}
 		writeSecurityOperationError(c, err)
-		return false, false
+		return false
 	}
 	model.LiftShadowBan(userId, "linked "+provider.GetName())
 	user, err := model.GetUserById(userId, false)
 	if err != nil {
 		writeSecurityOperationError(c, err)
-		return true, true
+		return true
 	}
 	backfillOAuthEmail(user, oauthUser)
-	notificationFailed := service.NotifyAccountSecurityChange(user.Email, "Login account linked: "+provider.GetName()) != nil
 
 	// Cross-domain bind: redirect back with exchange code
 	if redirectURI != "" {
 		setupBindAndRedirect(user, c, redirectURI)
-		return true, notificationFailed
+		return true
 	}
-	common.ApiSuccessI18n(c, i18n.MsgOAuthBindSuccess, gin.H{"action": "bind", "notification_warning": notificationFailed})
-	return true, notificationFailed
+	common.ApiSuccessI18n(c, i18n.MsgOAuthBindSuccess, gin.H{"action": "bind"})
+	return true
 }
 
 // backfillOAuthEmail adopts the provider's email for an account that has none.
@@ -613,10 +612,9 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 			}
 			if written {
 				user.GitHubId = oauthUser.ProviderUserID
-				notificationFailed := service.NotifyAccountSecurityChange(user.Email, "Login account linked: "+provider.GetName()) != nil
 				recordLegacyGitHubBindingAudit(c, user, true, map[string]any{
 					"legacy_id": legacyID, "provider_user_id": oauthUser.ProviderUserID,
-					"verified_email_matched": true, "notification_failed": notificationFailed,
+					"verified_email_matched": true,
 				})
 			}
 			backfillOAuthEmail(user, oauthUser)
