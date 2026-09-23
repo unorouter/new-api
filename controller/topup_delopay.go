@@ -19,7 +19,6 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -355,7 +354,6 @@ func handleDeloPayEvent(c *gin.Context, event *dto.DeloPayWebhookEvent, callerIp
 		}
 
 		if topUp := model.GetTopUpByTradeNo(orderId); topUp != nil {
-			go service.SendTopupConfirmationEmail(topUp.UserId, topUp.Money, topUp.Money, "USD", topUp.TradeNo)
 		}
 		c.Status(http.StatusOK)
 

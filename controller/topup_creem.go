@@ -695,8 +695,6 @@ func handleCheckoutCompleted(c *gin.Context, event *dto.CreemWebhookEvent) {
 
 	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem topup succeeded trade_no=%s creem_order_id=%s quota=%d money=%.2f client_ip=%s", referenceId, event.Object.Order.Id, topUp.Amount, topUp.Money, c.ClientIP()))
 
-	go service.SendTopupConfirmationEmail(topUp.UserId, topUp.Money, float64(event.Object.Order.AmountPaid)/100, event.Object.Order.Currency, topUp.TradeNo)
-
 	c.Status(http.StatusOK)
 }
 
