@@ -336,7 +336,15 @@ func SlowWindowExceeded(channelId int) (failures int, successes int, exceeded bo
 const soleLaneDeadFloor = 100
 const soleLaneDeadRate = 0.9
 
+// Nothing through the fast window is dead too, whatever the slow one still
+// holds: dsg1 glm-5.3 served 0 of 2,500 for four hours on 2026-09-23 while its
+// afternoon successes kept the 6h rate under soleLaneDeadRate.
+const soleLaneFastDeadFloor = 30
+
 func SoleLaneDead(channelId int) (failures int, successes int, dead bool) {
+	if f, ok := ChannelFailureWindow(channelId); ok == 0 && f >= soleLaneFastDeadFloor {
+		return f, ok, true
+	}
 	if slowWindowHours() == 0 {
 		return 0, 0, false
 	}

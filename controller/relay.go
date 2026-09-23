@@ -1098,7 +1098,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// requests an hour on 2026-09-21 and hung the rest on the deadline first.
 	if shouldDisable && rateGated && !service.HasEnabledSiblingUpstream(c.GetString("original_model"), channelError.ChannelId, c.GetString(string(constant.ContextKeyChannelBaseUrl))) {
 		if dfails, doks, dead := service.SoleLaneDead(channelError.ChannelId); dead {
-			logger.LogInfo(c, fmt.Sprintf("channel-guard: last upstream serving %s but dead over the slow window: fail=%d ok=%d, disabling channel #%d (%s) status=%d code=%s",
+			logger.LogInfo(c, fmt.Sprintf("channel-guard: last upstream serving %s but dead: fail=%d ok=%d, disabling channel #%d (%s) status=%d code=%s",
 				c.GetString("original_model"), dfails, doks, channelError.ChannelId, channelError.ChannelName, err.StatusCode, err.GetErrorCode()))
 		} else {
 			logger.LogInfo(c, fmt.Sprintf("channel-guard: kept channel #%d (%s) enabled, last upstream serving %s status=%d code=%s",
