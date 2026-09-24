@@ -377,8 +377,12 @@ func cachedPerfSummary() reliability {
 			// slower than a terse one on the same upstream.
 			// A zero means no timed request in the window (or none of them streamed),
 			// not an instant model, so it stays absent and renders as unmeasured.
+			// Image, audio and non-streamed calls have no first token, so their
+			// total duration stands in rather than leaving the column blank.
 			if row.AvgTtftMs > 0 {
 				out.latency[row.ModelName] = float64(row.AvgTtftMs)
+			} else if row.AvgLatencyMs > 0 {
+				out.latency[row.ModelName] = float64(row.AvgLatencyMs)
 			}
 		}
 	}
