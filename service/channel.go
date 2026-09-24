@@ -177,6 +177,11 @@ func StartChannelProbation(channelId int) {
 	channelProbationUntil.Store(channelId, time.Now().Add(ttl))
 }
 
+// InChannelProbation reports whether an automatic re-enable is still on probation.
+func InChannelProbation(channelId int) bool {
+	return inChannelProbation(channelId)
+}
+
 func inChannelProbation(channelId int) bool {
 	if common.RedisEnabled {
 		n, err := common.RDB.Exists(context.Background(), channelProbationKey(channelId)).Result()

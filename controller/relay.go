@@ -1096,7 +1096,10 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// moment the upstream recovers. Credential and instant faults still disable.
 	// Unless the lane is dead in all but name: a sole 3 rpm lane served 9 of 300
 	// requests an hour on 2026-09-21 and hung the rest on the deadline first.
-	if shouldDisable && rateGated && !service.HasEnabledSiblingUpstream(c.GetString("original_model"), channelError.ChannelId, c.GetString(string(constant.ContextKeyChannelBaseUrl))) {
+	// A relapse on probation is pulled even here: one tiny probe re-enabled it, and
+	// that probe's success kept the dead check below from ever firing (dsg1 kimi-k3
+	// cycled 190 probes an hour while real requests failed on 2026-09-24).
+	if shouldDisable && rateGated && !service.InChannelProbation(channelError.ChannelId) && !service.HasEnabledSiblingUpstream(c.GetString("original_model"), channelError.ChannelId, c.GetString(string(constant.ContextKeyChannelBaseUrl))) {
 		if dfails, doks, dead := service.SoleLaneDead(channelError.ChannelId); dead {
 			logger.LogInfo(c, fmt.Sprintf("channel-guard: last upstream serving %s but dead: fail=%d ok=%d, disabling channel #%d (%s) status=%d code=%s",
 				c.GetString("original_model"), dfails, doks, channelError.ChannelId, channelError.ChannelName, err.StatusCode, err.GetErrorCode()))
