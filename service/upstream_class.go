@@ -94,7 +94,9 @@ var upstreamRules = []upstreamRule{
 	// "您已超过输入 tokens 配额" is the same state metered differently: it fires on
 	// prompts as small as 2 tokens (548 rows average 2,310 against an 18,054
 	// baseline), so it is the merchant's allowance, not this request's size.
-	{markers: []string{"可用额度不足", "您已超过输入 tokens 配额"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "This provider ran out of credit on their side. That is on us, not you: retry and the request goes to another provider."},
+	// Also cools the whole host: on 2026-09-25 our own a7 balance ran out and every
+	// a7 lane answered it for five hours while each request walked several of them.
+	{markers: []string{"可用额度不足", "您已超过输入 tokens 配额"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true, Provider: true}, userMessage: "This provider ran out of credit on their side. That is on us, not you: retry and the request goes to another provider."},
 	// The upstream balance is gone (a reseller adds "and will not recover soon"),
 	// or our account there is banned.
 	{markers: []string{"上游账户余额不足", "账号处于封禁状态", "insufficient balance", "no credits available", "may have insufficient balance"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider can no longer take requests from us. We have taken it out of rotation, so please retry."},
