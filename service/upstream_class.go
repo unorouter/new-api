@@ -87,16 +87,13 @@ var upstreamRules = []upstreamRule{
 	// lane sheds the strike on its next success, so only real bursts bite.
 	{markers: []string{"您固定的商家当前处于繁忙", "该商家拒绝了本次请求", "该商家上游返回了错误"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "The provider is busy or refused this request. Retrying usually lands on a different provider."},
 	// Reseller, the merchant's own wallet or plan cannot fund the call ("请充值").
-	// Intermittent in practice: over 24h lane 4591 answered it 43 times spread
-	// across six hours while serving 792 requests, and 4615 17 times against 1,937.
-	// Pulled at once, both flapped through the retest; counted, the guard pulls only
-	// the lanes where it is the majority answer (4569: 91 against 15).
 	// "您已超过输入 tokens 配额" is the same state metered differently: it fires on
-	// prompts as small as 2 tokens (548 rows average 2,310 against an 18,054
-	// baseline), so it is the merchant's allowance, not this request's size.
-	// Also cools the whole host: on 2026-09-25 our own a7 balance ran out and every
-	// a7 lane answered it for five hours while each request walked several of them.
-	{markers: []string{"可用额度不足", "您已超过输入 tokens 配额"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true, Provider: true}, userMessage: "This provider ran out of credit on their side. That is on us, not you: retry and the request goes to another provider."},
+	// prompts as small as 2 tokens, so it is the merchant's allowance, not this
+	// request's size. Pulled on the first answer, and the whole host cools: on
+	// 2026-09-25 our own a7 balance ran out and a counted rule kept every a7 lane in
+	// rotation for five hours while each request walked several of them. A lane that
+	// only flapped comes back through the scheduled retest.
+	{markers: []string{"可用额度不足", "您已超过输入 tokens 配额"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true, Provider: true}, userMessage: "This provider ran out of credit on their side. That is on us, not you: retry and the request goes to another provider."},
 	// The upstream balance is gone (a reseller adds "and will not recover soon"),
 	// or our account there is banned.
 	{markers: []string{"上游账户余额不足", "账号处于封禁状态", "insufficient balance", "no credits available", "may have insufficient balance"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider can no longer take requests from us. We have taken it out of rotation, so please retry."},
