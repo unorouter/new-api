@@ -119,7 +119,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		var outbound struct {
 			N *uint `json:"n"`
 		}
-		if err := common.Unmarshal(jsonData, &outbound); err != nil {
+		if err := unmarshalOutboundImageCount(jsonData, &outbound.N); err != nil {
 			return types.NewErrorWithStatusCode(fmt.Errorf("invalid image billing parameters: %w", err), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 		quantityRequest := dto.ImageRequest{N: outbound.N}
@@ -221,5 +221,38 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	}
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), logContent)
+	return nil
+}
+
+// Runware takes a task array and counts images in numberResults, not n.
+func unmarshalOutboundImageCount(body []byte, n **uint) error {
+	trimmed := bytes.TrimLeft(body, " \t\r\n")
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		var outbound struct {
+			N *uint `json:"n"`
+		}
+		if err := common.Unmarshal(body, &outbound); err != nil {
+			return err
+		}
+		*n = outbound.N
+		return nil
+	}
+	var tasks []struct {
+		NumberResults *uint `json:"numberResults"`
+	}
+	if err := common.Unmarshal(body, &tasks); err != nil {
+		return err
+	}
+	var total uint
+	counted := false
+	for _, task := range tasks {
+		if task.NumberResults != nil {
+			total += *task.NumberResults
+			counted = true
+		}
+	}
+	if counted {
+		*n = &total
+	}
 	return nil
 }
