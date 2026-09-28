@@ -587,11 +587,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		retryLogStr := fmt.Sprintf("retry: %s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
 		logger.LogInfo(c, retryLogStr)
 	}
-	// A failed chain that stopped on the loop condition leaves no other trace.
-	if newAPIError != nil {
-		logger.LogInfo(c, fmt.Sprintf("relay chain ended: attempts=%d retry=%d budget=%d channels=%d client_gone=%t error=%s",
-			attempts, retryParam.GetRetry(), retryBudget, len(useChannel), c.Request.Context().Err() != nil, newAPIError.GetErrorCode()))
-	}
 }
 
 // CountClaudeTokens implements Anthropic's token-counting utility endpoint.
