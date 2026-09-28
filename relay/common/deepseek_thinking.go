@@ -98,6 +98,13 @@ func ApplyDeepSeekV4OpenAIRequestRules(request *dto.GeneralOpenAIRequest) error 
 		return nil
 	}
 	stripImagesForTextOnlyModel(request)
+	// Same backfill as the Claude path: a tool-call turn without the field 400s.
+	for i := range request.Messages {
+		msg := &request.Messages[i]
+		if msg.Role == "assistant" && msg.ReasoningContent == nil && msg.Reasoning == nil {
+			msg.ReasoningContent = new(string)
+		}
+	}
 	if request.ReasoningEffort == "xhigh" {
 		request.ReasoningEffort = "max"
 	}

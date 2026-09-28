@@ -19,6 +19,7 @@ const (
 	responsesInputTypeFunctionCallOutput = "function_call_output"
 	responsesInputTypeCustomToolCall     = "custom_tool_call"
 	responsesInputTypeCustomToolOutput   = "custom_tool_call_output"
+	responsesInputTypeReasoning          = "reasoning"
 )
 
 const (
@@ -217,6 +218,13 @@ func responsesInputItemToChatMessages(item map[string]any, messages []dto.Messag
 		callID := strings.TrimSpace(kitutil.Interface2String(item["call_id"]))
 		content, media := responsesToolOutputToChat(item["output"])
 		return append(messages, dto.Message{Role: "tool", ToolCallId: callID, Content: content}), media, nil
+	case responsesInputTypeReasoning:
+		// Chat carries reasoning as reasoning_content on the assistant turn it
+		// preceded; read as a role-less item it became a user message of raw
+		// reasoning_text parts, which strict upstreams reject, and DeepSeek
+		// thinking 400s when a tool-call turn arrives without it.
+		reasoning := responsesReasoningItemText(item)
+		return append(messages, dto.Message{Role: "assistant", ReasoningContent: &reasoning}), nil, nil
 	}
 
 	role := strings.TrimSpace(kitutil.Interface2String(item["role"]))
@@ -227,7 +235,37 @@ func responsesInputItemToChatMessages(item map[string]any, messages []dto.Messag
 	if err != nil {
 		return nil, nil, err
 	}
+	if last := len(messages) - 1; role == "assistant" && last >= 0 && isReasoningOnlyAssistant(messages[last]) {
+		messages[last].Content = content
+		return messages, nil, nil
+	}
 	return append(messages, dto.Message{Role: role, Content: content}), nil, nil
+}
+
+func responsesReasoningItemText(item map[string]any) string {
+	var text strings.Builder
+	for _, key := range []string{"content", "summary"} {
+		parts, _ := item[key].([]any)
+		for _, rawPart := range parts {
+			part, ok := rawPart.(map[string]any)
+			if !ok {
+				continue
+			}
+			if text.Len() > 0 {
+				text.WriteString("\n")
+			}
+			text.WriteString(kitutil.Interface2String(part["text"]))
+		}
+		if text.Len() > 0 {
+			break
+		}
+	}
+	return text.String()
+}
+
+func isReasoningOnlyAssistant(message dto.Message) bool {
+	return message.Role == "assistant" && message.ReasoningContent != nil &&
+		message.Content == nil && len(message.ToolCalls) == 0
 }
 
 func responsesInputContentToChatContent(content any) (any, error) {
