@@ -66,10 +66,16 @@ func OaiStreamToJsonHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 		usage             *dto.Usage
 		choicesByIndex    = map[int]*choiceAggregator{}
 		orderedIndexes    []int
+		timeoutGuardCut   bool
 	)
 
 	streamErr := helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if data == "" {
+			return
+		}
+		if isUpstreamTimeoutGuard(data) {
+			timeoutGuardCut = true
+			sr.Stop(errors.New("upstream timeout guard"))
 			return
 		}
 		var chunk dto.ChatCompletionsStreamResponse
@@ -148,6 +154,9 @@ func OaiStreamToJsonHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 
 	if streamErr != nil {
 		return nil, streamErr
+	}
+	if timeoutGuardCut {
+		return nil, upstreamTimeoutGuardError(false)
 	}
 
 	if responseId == "" {

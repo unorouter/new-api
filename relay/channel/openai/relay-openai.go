@@ -216,6 +216,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	streamingStarted := !bufferEmptyOpener
 	var pendingFlush []string
 	var streamErrChunk string // PROD-ONLY (fork): raw mid-stream error chunk; "" = none
+	var timeoutGuardCut bool
 	sendChunk := func(sr *helper.StreamResult, data string) {
 		if err := HandleStreamFormat(c, info, data, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 			common.SysLog("error handling stream format: " + err.Error())
@@ -256,6 +257,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				sr.Stop(errors.New("upstream stream error chunk"))
 				return
 			}
+			if isUpstreamTimeoutGuard(data) {
+				timeoutGuardCut = true
+				sr.Stop(errors.New("upstream timeout guard"))
+				return
+			}
 
 			// 保留倒数第二个stream data；部分兼容网关把完整usage放在倒数第二个事件
 			if lastStreamData != "" {
@@ -279,6 +285,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// + failover). usage is still the zero &dto.Usage{} - nothing billable.
 	if streamErrChunk != "" {
 		return usage, buildStreamErrorAPIError(streamErrChunk, streamingStarted)
+	}
+	if timeoutGuardCut {
+		return usage, upstreamTimeoutGuardError(streamingStarted)
 	}
 
 	info.StreamStatus.RequireTerminal()
@@ -454,6 +463,25 @@ func buildStreamErrorAPIError(errChunk string, streamingStarted bool) *types.New
 		opts = append(opts, types.ErrOptionWithSkipRetry(), types.ErrOptionWithStreamTruncated())
 	}
 	return types.WithOpenAIError(oaiErr, status, opts...)
+}
+
+// A reseller that cuts long replies at its own deadline ends the stream with a
+// synthetic chunk of this id: finish_reason "stop" and a flat 1000/1000 usage
+// stub. Read as a real ending, a half answer passed as complete and billed the
+// stub (a7-bbgt at ~297s, 2026-09-28).
+const upstreamTimeoutGuardChunkID = "chatcmpl-timeout-guard"
+
+func isUpstreamTimeoutGuard(data string) bool {
+	return gjson.Get(data, "id").String() == upstreamTimeoutGuardChunkID
+}
+
+func upstreamTimeoutGuardError(streamingStarted bool) *types.NewAPIError {
+	err := errors.New("the provider cut this reply off at its own time limit before it finished, so it was not charged. Send it again")
+	if !streamingStarted {
+		return types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusGatewayTimeout)
+	}
+	return types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusGatewayTimeout,
+		types.ErrOptionWithSkipRetry(), types.ErrOptionWithStreamTruncated())
 }
 
 // streamFinishedOnContentFilter reports whether the final stream chunk carried a
