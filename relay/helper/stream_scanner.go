@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -210,6 +211,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	}
 
 	dataChan := make(chan string, 10)
+	// Who hung up first on a client_gone: read back in the log line at the select below.
+	var lastUpstreamAt, lastClientWriteAt atomic.Int64
+	var upstreamEnded atomic.Bool
 
 	wg.Add(1)
 	gopool.Go(func() {
@@ -229,6 +233,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				defer writeMutex.Unlock()
 				ExtendWriteDeadline(c)
 				dataHandler(data, sr)
+				lastClientWriteAt.Store(time.Now().UnixNano())
 			}()
 			if sr.IsStopped() {
 				return
@@ -240,6 +245,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	wg.Add(1)
 	common.RelayCtxGo(ctx, func() {
 		defer func() {
+			upstreamEnded.Store(true)
 			close(dataChan)
 			if r := recover(); r != nil {
 				logger.LogError(c, fmt.Sprintf("scanner goroutine panic: %v", r))
@@ -261,6 +267,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			}
 
 			ticker.Reset(idleTimeout)
+			lastUpstreamAt.Store(time.Now().UnixNano())
 			data := scanner.Text()
 			logger.LogDebug(c, "stream scanner data: %s", common.ElideBase64(data))
 
@@ -313,6 +320,20 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		// 客户端断开：立即 cleanup 关闭上游 resp.Body，解除 scanner 阻塞并让上游停止生成，
 		// 避免为已放弃的请求继续消费上游 token。
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+		now := time.Now()
+		since := func(at int64) string {
+			if at == 0 {
+				return "never"
+			}
+			return now.Sub(time.Unix(0, at)).Round(time.Millisecond).String()
+		}
+		channelID := 0
+		if info.ChannelMeta != nil {
+			channelID = info.ChannelId
+		}
+		logger.LogInfo(c, fmt.Sprintf("stream client gone: channel=%d after=%s since_upstream=%s since_client_write=%s upstream_ended=%t received=%d",
+			channelID, now.Sub(info.StartTime).Round(time.Millisecond), since(lastUpstreamAt.Load()), since(lastClientWriteAt.Load()),
+			upstreamEnded.Load(), info.ReceivedResponseCount))
 	}
 
 	cleanup()
