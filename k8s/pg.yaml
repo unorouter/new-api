@@ -84,6 +84,12 @@ spec:
       # 5s was the default; under load the instance manager's own check can take
       # longer than that without postgres being unhealthy.
       timeoutSeconds: 10
+    # The isolation check stops the primary when it reaches neither the API server nor every
+    # replica (one unhealthy replica is enough, cloudnative-pg#10287). Set false while the kube
+    # API is down on purpose (etcd CA rotation); the flip applies live, no pod restarts.
+    liveness:
+      isolationCheck:
+        enabled: false
   # Surfaces the new-api audit trail (logs.ip, admin actions, key reveals, 2FA churn) as
   # Prometheus series so the security alerts in infra rules-security.yaml can fire. Added
   # after the 2026-08-26 takeover, which was fully recorded in `logs` and alerted on by
