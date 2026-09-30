@@ -807,6 +807,11 @@ func ReverseTopUp(in TopUpReversalInput) (TopUpReversalResult, error) {
 			return tx.Model(&TopUp{}).Where("id = ?", topUp.Id).Update("status", status).Error
 		}
 		quota := int(topUp.Amount)
+		if topUp.Amount <= 0 {
+			// A subscription purchase carries its value in the plan, not in Amount: mark it
+			// and let the caller end the subscription instead of failing the webhook forever.
+			return tx.Model(&TopUp{}).Where("id = ?", topUp.Id).Update("status", status).Error
+		}
 		if !in.Dispute && in.PaidCents > 0 && in.ReversedCents > 0 && in.ReversedCents < in.PaidCents {
 			quota = int(math.Round(float64(topUp.Amount) * float64(in.ReversedCents) / float64(in.PaidCents)))
 		}
