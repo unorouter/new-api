@@ -72,6 +72,10 @@ type GeminiOptions struct {
 	// withholds thoughts unless asked, while a gemini-3 model thinks either
 	// way, so the caller pays for reasoning it never receives.
 	IncludeThoughtsDefaultEnabled bool
+	// DefaultReasoningEffort applies to a cross-protocol request that states
+	// no reasoning at all; any effort, budget or native config the caller sends
+	// wins. Empty leaves the model at its own default.
+	DefaultReasoningEffort string
 	// SupportsImagine reports whether the model supports image generation
 	// (switches response modalities). Nil means "never".
 	SupportsImagine func(modelName string) bool

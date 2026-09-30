@@ -51,3 +51,7 @@ model/audit_log.go :: !filter.SelfView && viewerRole >= common.RoleModUser
 router/api-router.go :: middleware.ModAuth(), middleware.RequirePermission(authz.AuditRead)
 web/src/features/usage-logs/audit/index.tsx :: user.role >= ROLE.MOD &&
 relaykit/dto/openai_response.go :: Part         any
+setting/model_setting/gemini.go :: DefaultReasoningEffort:                "low",
+relay/common/relay_info.go :: DefaultReasoningEffort:                geminiSettings.DefaultReasoningEffort,
+relaykit/relayconvert/internal/shared/gemini/request.go :: opts.Gemini.DefaultReasoningEffort != "" &&
+relaykit/relayconvert/reasoning/intent.go :: SourceDefault  Source = "default"
