@@ -126,6 +126,9 @@ var upstreamRules = []upstreamRule{
 	// A reseller refusing a model outright answers 403, which neither failed over nor counted: both
 	// nbi1 gpt-6-astra lanes returned it 253 times in 3h on 2026-09-30 while five other lanes served.
 	{markers: []string{"拒绝，服务暂时不可用，请联系管理员"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider stopped serving that model. It has left rotation, so please retry."},
+	// xAI refuses a stale Grok CLI identity with 426 until the relay updates it: duck and no1
+	// grok lanes answered only this from 2026-09-30 20:39, 0 successes, and stayed enabled.
+	{markers: []string{"grok cli version"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider's upstream client is out of date. It has left rotation, so please retry."},
 	// A free allowance spent until its daily or monthly reset fails every request until then, and a
 	// sole lane is never pulled on rate: incp1 mercury stayed listed through 367 of these in two days.
 	{markers: []string{"free tier limit reached", "too many tokens per day", "daily free quota for the model", "today's free-model token quota", "free-models-per-day", "api calls / month", "reached your monthly usage limit"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider's free allowance is used up until it resets. It has left rotation, so please retry and another provider will take it."},
