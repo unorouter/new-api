@@ -29,6 +29,9 @@ type GeminiSettings struct {
 	FunctionCallThoughtSignatureEnabled   bool              `json:"function_call_thought_signature_enabled"`
 	RemoveFunctionResponseIdEnabled       bool              `json:"remove_function_response_id_enabled"`
 	IncludeThoughtsDefaultEnabled         bool              `json:"include_thoughts_default_enabled"`
+	// Effort for a thinking Gemini model when the request carries none; "" keeps
+	// the model's own default (high on Gemini 3).
+	DefaultReasoningEffort string `json:"default_reasoning_effort"`
 }
 
 // 默认配置
@@ -54,6 +57,7 @@ var defaultGeminiSettings = GeminiSettings{
 	FunctionCallThoughtSignatureEnabled:   true,
 	RemoveFunctionResponseIdEnabled:       true,
 	IncludeThoughtsDefaultEnabled:         true,
+	DefaultReasoningEffort:                "low",
 }
 
 // 全局实例

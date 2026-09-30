@@ -64,6 +64,7 @@ const (
 	SourceNative   Source = "native"
 	SourceSuffix   Source = "suffix"
 	SourcePivot    Source = "pivot"
+	SourceDefault  Source = "default"
 )
 
 var (

@@ -974,6 +974,7 @@ func (info *RelayInfo) ConvOptions() *convmeta.Options {
 			ThinkingAdapterBudgetTokensPercentage: geminiSettings.ThinkingAdapterBudgetTokensPercentage,
 			FunctionCallThoughtSignatureEnabled:   geminiSettings.FunctionCallThoughtSignatureEnabled,
 			IncludeThoughtsDefaultEnabled:         geminiSettings.IncludeThoughtsDefaultEnabled,
+			DefaultReasoningEffort:                geminiSettings.DefaultReasoningEffort,
 			SupportsImagine:                       model_setting.IsGeminiModelSupportImagine,
 			SafetySetting:                         model_setting.GetGeminiSafetySetting,
 		},

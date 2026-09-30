@@ -193,6 +193,12 @@ func ApplyThinkingConfig(ctx context.Context, geminiRequest *dto.GeminiChatReque
 		return err
 	}
 	convdiag.Add(ctx, diagnostics...)
+	if crossProtocol && !requested.HasStrength() && !native.HasStrength() &&
+		opts.Gemini.DefaultReasoningEffort != "" &&
+		reasoning.GeminiSupportsThoughtVisibility(baseModel) {
+		requested.Effort = reasoning.Effort(opts.Gemini.DefaultReasoningEffort)
+		requested.Source = reasoning.SourceDefault
+	}
 	requested = reasoning.ResolveGeminiEnabledDefault(baseModel, requested, geminiRequest.GenerationConfig.MaxOutputTokens)
 
 	// A client speaking another protocol has no portable field for the thinking
