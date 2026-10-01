@@ -122,6 +122,10 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
 	cfReq := CfImageRequest{Prompt: request.Prompt}
+	// flux-1-schnell has a fixed output size and answers 400 to width/height.
+	if strings.Contains(info.UpstreamModelName, "flux-1-schnell") {
+		return cfReq, nil
+	}
 	if w, h, ok := parseImageSize(request.Size); ok {
 		cfReq.Width = w
 		cfReq.Height = h
