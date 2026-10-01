@@ -55,3 +55,8 @@ setting/model_setting/gemini.go :: DefaultReasoningEffort:                "low",
 relay/common/relay_info.go :: DefaultReasoningEffort:                geminiSettings.DefaultReasoningEffort,
 relaykit/relayconvert/internal/shared/gemini/request.go :: opts.Gemini.DefaultReasoningEffort != "" &&
 relaykit/relayconvert/reasoning/intent.go :: SourceDefault  Source = "default"
+service/host_stall.go :: func HostStallingFor(userId int, host string) bool
+controller/relay.go :: service.RecordHostStall(service.UpstreamHostOf(stalled.GetBaseURL()), channelError.ChannelId)
+controller/relay.go :: service.HostStallingFor(c.GetInt("id"), host)
+middleware/distributor.go :: !service.HostStallingFor(c.GetInt("id"), service.UpstreamHostOf(preferred.GetBaseURL()))
+setting/operation_setting/monitor_setting.go :: ProviderStallUserIds       []int `json:"provider_stall_user_ids"`

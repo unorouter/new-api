@@ -204,7 +204,8 @@ func Distribute() func(c *gin.Context) {
 					// session there costs a first byte timeout every turn until it recovers.
 					// Letting go re-sticks the session to whichever lane answers next.
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
-						!service.LaneCooled(preferred.Id) && !service.HostCooled(service.UpstreamHostOf(preferred.GetBaseURL())) {
+						!service.LaneCooled(preferred.Id) && !service.HostCooled(service.UpstreamHostOf(preferred.GetBaseURL())) &&
+						!service.HostStallingFor(c.GetInt("id"), service.UpstreamHostOf(preferred.GetBaseURL())) {
 						affinitySatisfied, _ = model.ChannelSatisfiesFilters(preferred, modelRequest.Model, constraints.Filters)
 					}
 					if affinitySatisfied {
