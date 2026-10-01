@@ -275,6 +275,11 @@ func ClassifyUpstreamError(err *types.NewAPIError) UpstreamClass {
 	if err.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded || err.GetErrorCode() == types.ErrorCodeChannelEmptyResponse {
 		return UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}
 	}
+	// A provider notice served as the answer (replyRules): no retest prompt
+	// reproduces it reliably, so the lane leaves on the first one.
+	if err.GetErrorCode() == types.ErrorCodeChannelCannedReply {
+		return UpstreamClass{Known: true, Failover: true, DisableNow: true}
+	}
 	if err.GetErrorType() == types.ErrorTypeNewAPIError {
 		return UpstreamClass{}
 	}
