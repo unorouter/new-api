@@ -92,6 +92,12 @@ type MonitorSetting struct {
 	ChannelCooldownBaseSeconds int `json:"channel_cooldown_base_seconds"`
 	ChannelCooldownMaxSeconds  int `json:"channel_cooldown_max_seconds"`
 	ProviderCooldownSeconds    int `json:"provider_cooldown_seconds"`
+	// A host with ProviderStallLanes different lanes past the first byte deadline
+	// inside ProviderStallWindowSeconds is passed over, for these users only, while
+	// another provider can serve. An empty list turns it off.
+	ProviderStallLanes         int   `json:"provider_stall_lanes"`
+	ProviderStallWindowSeconds int   `json:"provider_stall_window_seconds"`
+	ProviderStallUserIds       []int `json:"provider_stall_user_ids"`
 }
 
 const (
@@ -147,6 +153,8 @@ var monitorSetting = MonitorSetting{
 	ChannelCooldownBaseSeconds:       30,
 	ChannelCooldownMaxSeconds:        600,
 	ProviderCooldownSeconds:          60,
+	ProviderStallLanes:               3,
+	ProviderStallWindowSeconds:       120,
 }
 
 func init() {

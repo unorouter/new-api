@@ -681,7 +681,8 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			return picked, nil
 		}
 		fit := service.LanePromptFit(picked.Id, info.GetEstimatePromptTokens())
-		if fit == service.LaneFitProven || (fit == service.LaneFitUnknown && info.GetEstimatePromptTokens() < service.LongPromptFloor) {
+		hostStalling := service.HostStallingFor(c.GetInt("id"), service.UpstreamHostOf(c.GetString(string(constant.ContextKeyChannelBaseUrl))))
+		if !hostStalling && (fit == service.LaneFitProven || (fit == service.LaneFitUnknown && info.GetEstimatePromptTokens() < service.LongPromptFloor)) {
 			service.RequestPolicy(c).BeginAttempt(picked, info.UsingGroup)
 			return picked, nil
 		}
@@ -724,7 +725,8 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	for hops := 0; hops < maxHops && err == nil && channel != nil; hops++ {
 		fit := service.LanePromptFit(channel.Id, promptTokens)
 		sawProven = sawProven || fit == service.LaneFitProven
-		if service.LaneCooled(channel.Id) || service.HostCooled(service.UpstreamHostOf(channel.GetBaseURL())) || fit == service.LaneFitRejected {
+		host := service.UpstreamHostOf(channel.GetBaseURL())
+		if service.LaneCooled(channel.Id) || service.HostCooled(host) || service.HostStallingFor(c.GetInt("id"), host) || fit == service.LaneFitRejected {
 			if cooled == nil {
 				cooled, cooledGroup = channel, selectGroup
 			}
@@ -1021,6 +1023,11 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// The upstream's own text decides before the status-code rules: a rate limit
 	// counts nothing, a lane-fatal state disables now, the rest feeds the guard.
 	class := service.ClassifyUpstreamError(err)
+	if err.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded {
+		if stalled, cacheErr := model.CacheGetChannel(channelError.ChannelId); cacheErr == nil && stalled != nil {
+			service.RecordHostStall(service.UpstreamHostOf(stalled.GetBaseURL()), channelError.ChannelId)
+		}
+	}
 	// A credential fault keeps its immediate disable: a drained key does not recover.
 	if service.IsCredentialFault(err) {
 		class = service.UpstreamClass{}
