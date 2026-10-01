@@ -158,6 +158,14 @@ func OaiStreamToJsonHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 	if timeoutGuardCut {
 		return nil, upstreamTimeoutGuardError(false)
 	}
+	if len(orderedIndexes) > 0 {
+		first := choicesByIndex[orderedIndexes[0]]
+		if len(first.toolCallOrder) == 0 {
+			if cannedErr := service.CannedReplyError(first.content.String(), false); cannedErr != nil {
+				return nil, cannedErr
+			}
+		}
+	}
 
 	if responseId == "" {
 		responseId = "chatcmpl-" + common.GetRandomString(16)

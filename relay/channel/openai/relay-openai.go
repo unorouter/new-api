@@ -383,6 +383,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable,
 			types.ErrOptionWithSkipRetry())
 	}
+	if toolCount == 0 {
+		if cannedErr := service.CannedReplyError(outputStats.Content.String(), true); cannedErr != nil {
+			return usage, cannedErr
+		}
+	}
 
 	return usage, nil
 }
@@ -622,6 +627,11 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 			errors.New(emptyResponseMessage(contentFiltered)),
 			types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests,
 			emptyResponseOptions(info, contentFiltered)...)
+	}
+	if len(simpleResponse.Choices) > 0 && len(simpleResponse.Choices[0].Message.ParseToolCalls()) == 0 {
+		if cannedErr := service.CannedReplyError(simpleResponse.Choices[0].Message.StringContent(), false); cannedErr != nil {
+			return nil, cannedErr
+		}
 	}
 
 	forceFormat := false
