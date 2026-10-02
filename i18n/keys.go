@@ -145,6 +145,7 @@ const (
 	MsgSubscriptionGroupNotExists   = "subscription.group_not_exists"
 	MsgSubscriptionResetCycleGtZero = "subscription.reset_cycle_gt_zero"
 	MsgSubscriptionPurchaseMax      = "subscription.purchase_max"
+	MsgSubscriptionAlreadyActive    = "subscription.already_active"
 	MsgSubscriptionInvalidId        = "subscription.invalid_id"
 	MsgSubscriptionInvalidUserId    = "subscription.invalid_user_id"
 )

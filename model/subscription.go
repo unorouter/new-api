@@ -955,6 +955,22 @@ func HasActiveUserSubscription(userId int) (bool, error) {
 	return count > 0, nil
 }
 
+// HasActiveUserSubscriptionForPlan gates a checkout: a plan is held at most once
+// at a time, different plans stack. Two of the same plan made Creem's first
+// charge for the second look like a renewal of the first.
+func HasActiveUserSubscriptionForPlan(userId int, planId int) (bool, error) {
+	if userId <= 0 || planId <= 0 {
+		return false, errors.New("invalid userId or planId")
+	}
+	var count int64
+	if err := DB.Model(&UserSubscription{}).
+		Where("user_id = ? AND plan_id = ? AND status = ? AND end_time > ?", userId, planId, "active", common.GetTimestamp()).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // UserActiveSubscriptionsAllowWalletOverflow returns whether wallet balance may be used
 // after the user's subscription quota is exhausted. A single active subscription that
 // disallows wallet overflow (allow_wallet_overflow = false) blocks the fallback.

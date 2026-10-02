@@ -47,6 +47,12 @@ func SubscriptionRequestCreemPay(c fuego.ContextWithBody[dto.SubscriptionCreemPa
 		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "user.not_exists"))
 	}
 
+	if held, err := model.HasActiveUserSubscriptionForPlan(userId, plan.Id); err != nil {
+		return dto.Fail[dto.CreemPayData](err.Error())
+	} else if held {
+		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, i18n.MsgSubscriptionAlreadyActive))
+	}
+
 	if plan.MaxPurchasePerUser > 0 {
 		count, err := model.CountUserSubscriptionsByPlan(userId, plan.Id)
 		if err != nil {

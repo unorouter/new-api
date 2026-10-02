@@ -160,6 +160,11 @@ func SubscriptionRequestBalancePay(c fuego.ContextWithBody[SubscriptionBalancePa
 		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
 	}
 
+	if held, err := model.HasActiveUserSubscriptionForPlan(userId, req.PlanId); err != nil {
+		return dto.FailMsg(err.Error())
+	} else if held {
+		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgSubscriptionAlreadyActive))
+	}
 	if err := model.PurchaseSubscriptionWithBalance(userId, req.PlanId); err != nil {
 		return dto.FailMsg(err.Error())
 	}

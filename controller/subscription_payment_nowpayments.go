@@ -50,6 +50,12 @@ func SubscriptionRequestNowPaymentsPay(c fuego.ContextWithBody[dto.SubscriptionN
 		return dto.Fail[dto.NowPaymentsPayData](common.TranslateMessage(ginCtx, "user.not_exists"))
 	}
 
+	if held, err := model.HasActiveUserSubscriptionForPlan(userId, plan.Id); err != nil {
+		return dto.Fail[dto.NowPaymentsPayData](err.Error())
+	} else if held {
+		return dto.Fail[dto.NowPaymentsPayData](common.TranslateMessage(ginCtx, i18n.MsgSubscriptionAlreadyActive))
+	}
+
 	if plan.MaxPurchasePerUser > 0 {
 		count, err := model.CountUserSubscriptionsByPlan(userId, plan.Id)
 		if err != nil {

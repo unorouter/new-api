@@ -49,6 +49,12 @@ func SubscriptionRequestDeloPayPay(c fuego.ContextWithBody[dto.SubscriptionDeloP
 		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, "user.not_exists"))
 	}
 
+	if held, err := model.HasActiveUserSubscriptionForPlan(userId, plan.Id); err != nil {
+		return dto.Fail[dto.DeloPayPayData](err.Error())
+	} else if held {
+		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, i18n.MsgSubscriptionAlreadyActive))
+	}
+
 	if plan.MaxPurchasePerUser > 0 {
 		count, err := model.CountUserSubscriptionsByPlan(userId, plan.Id)
 		if err != nil {
