@@ -131,6 +131,7 @@ subscription.quota_negative: "总额度不能为负数"
 subscription.group_not_exists: "升级分组不存在"
 subscription.reset_cycle_gt_zero: "自定义重置周期需大于0秒"
 subscription.purchase_max: "已达到该套餐购买上限"
+subscription.already_active: "您已拥有该套餐且仍在有效期内。同一套餐同时只能持有一个，您可以另外购买其他套餐。"
 subscription.invalid_id: "无效的订阅ID"
 subscription.invalid_user_id: "无效的用户ID"
 

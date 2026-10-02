@@ -44,6 +44,12 @@ func SubscriptionRequestEpay(c fuego.ContextWithBody[dto.SubscriptionEpayPayRequ
 	}
 
 	userId := dto.UserID(c)
+	if held, err := model.HasActiveUserSubscriptionForPlan(userId, plan.Id); err != nil {
+		return dto.Fail[dto.EpayPayResponse](err.Error())
+	} else if held {
+		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, i18n.MsgSubscriptionAlreadyActive))
+	}
+
 	if plan.MaxPurchasePerUser > 0 {
 		count, err := model.CountUserSubscriptionsByPlan(userId, plan.Id)
 		if err != nil {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -60,6 +61,14 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 	}
 	if user == nil {
 		common.ApiErrorMsg(c, "User does not exist")
+		return
+	}
+
+	if held, err := model.HasActiveUserSubscriptionForPlan(userId, plan.Id); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if held {
+		common.ApiErrorMsg(c, common.TranslateMessage(c, i18n.MsgSubscriptionAlreadyActive))
 		return
 	}
 

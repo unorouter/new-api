@@ -130,6 +130,7 @@ subscription.quota_negative: "Total quota cannot be negative"
 subscription.group_not_exists: "Upgrade group does not exist"
 subscription.reset_cycle_gt_zero: "Custom reset cycle must be greater than 0 seconds"
 subscription.purchase_max: "Purchase limit for this plan has been reached"
+subscription.already_active: "You already hold this plan and it is still active. A plan can be held once at a time; you can add a different plan next to it."
 subscription.invalid_id: "Invalid subscription ID"
 subscription.invalid_user_id: "Invalid user ID"
 
