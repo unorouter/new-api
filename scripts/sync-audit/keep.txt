@@ -60,3 +60,5 @@ controller/relay.go :: service.RecordHostStall(service.UpstreamHostOf(stalled.Ge
 controller/relay.go :: service.HostStallingFor(c.GetInt("id"), host)
 middleware/distributor.go :: !service.HostStallingFor(c.GetInt("id"), service.UpstreamHostOf(preferred.GetBaseURL()))
 setting/operation_setting/monitor_setting.go :: ProviderStallUserIds       []int `json:"provider_stall_user_ids"`
+model/pricing.go :: model_setting.IsCatalogHiddenModel(model)
+setting/model_setting/global.go :: func IsCatalogHiddenModel(name string) bool

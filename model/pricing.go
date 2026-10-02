@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 )
@@ -477,7 +478,7 @@ func buildPricing(enableAbilities []AbilityWithChannel, hasEnabled map[string]bo
 	result := make([]Pricing, 0)
 	pluginGeneration := jsplugin.DefaultRegistry.Generation()
 	for _, model := range modelNames.Items() {
-		if strings.HasSuffix(model, "[1m]") {
+		if strings.HasSuffix(model, "[1m]") || model_setting.IsCatalogHiddenModel(model) {
 			continue
 		}
 		enableGroup := []string{}
