@@ -43,6 +43,10 @@ type GlobalSettings struct {
 	// family whitelist but whose names already end in an effort word.
 	EffortTailModelIDs               []string                         `json:"effort_tail_model_ids"`
 	ChatCompletionsToResponsesPolicy ChatCompletionsToResponsesPolicy `json:"chat_completions_to_responses_policy"`
+	// Names that stay routable but are left out of the pricing catalog: a second
+	// name for a model already listed (gemini-3.1-pro-preview next to
+	// gemini-3.1-pro) reads as two models there.
+	CatalogHiddenModels []string `json:"catalog_hidden_models"`
 }
 
 // 默认配置
@@ -180,6 +184,16 @@ func ShouldPreserveEffortTail(modelName string) bool {
 			continue
 		}
 		if entry == target || entry == bare {
+			return true
+		}
+	}
+	return false
+}
+
+// IsCatalogHiddenModel reports whether the pricing catalog leaves the name out.
+func IsCatalogHiddenModel(name string) bool {
+	for _, hidden := range globalSettings.CatalogHiddenModels {
+		if hidden == name {
 			return true
 		}
 	}
