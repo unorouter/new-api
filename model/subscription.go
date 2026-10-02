@@ -1135,6 +1135,10 @@ type CreemRenewalInput struct {
 	Money                  float64
 }
 
+// How long after a checkout order completes its own first subscription.paid can
+// still arrive. A real renewal comes a billing period later.
+const creemFirstChargeWindowSeconds = 3600
+
 // creemRenewalDedupKey guards against Creem's webhook retries (30s/1m/5m/1h)
 // double-extending a subscription: each renewal charge has a unique
 // last_transaction_id, so we process a given transaction at most once.
@@ -1182,8 +1186,8 @@ func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
 		// 1) Resolve the plan + user. Prefer the original order (authoritative
 		//    plan + user), fall back to creem_customer / creem_product_id.
 		var planId, userId int
+		var order SubscriptionOrder
 		if in.ReferenceId != "" {
-			var order SubscriptionOrder
 			refCol := "`trade_no`"
 			if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
 				refCol = `"trade_no"`
@@ -1222,6 +1226,31 @@ func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
 			findErr = lockForUpdate(tx).
 				Where("provider_subscription_id = ?", in.ProviderSubscriptionId).
 				Order("id DESC").First(&sub).Error
+		}
+		if findErr != nil && order.Id != 0 {
+			// Creem sends subscription.paid for the FIRST charge of a purchase too.
+			// The checkout order owns that grant, so an unknown Creem subscription
+			// whose order is still open or only just completed is not a renewal.
+			// Read as one, a second purchase of a plan rolled the customer's
+			// EARLIER subscription forward a month and froze its weekly reset
+			// until that later month began.
+			if order.Status == common.TopUpStatusPending {
+				return nil
+			}
+			if GetDBTimestamp()-order.CompleteTime < creemFirstChargeWindowSeconds {
+				if in.ProviderSubscriptionId == "" {
+					return nil
+				}
+				var granted UserSubscription
+				if err := lockForUpdate(tx).
+					Where("user_id = ? AND plan_id = ? AND coalesce(provider_subscription_id, '') = ? AND created_at >= ?",
+						userId, planId, "", order.CompleteTime-60).
+					Order("id DESC").First(&granted).Error; err != nil {
+					return nil
+				}
+				return tx.Model(&UserSubscription{}).Where("id = ?", granted.Id).
+					Update("provider_subscription_id", in.ProviderSubscriptionId).Error
+			}
 		}
 		if findErr != nil {
 			// No id yet (first renewal after the column shipped, or a legacy row).
