@@ -29,6 +29,9 @@ var replyRules = []replyRule{
 	// refuses anything off its own topic and names itself when asked
 	// (a7 merchant 4224 deepseek-v4-pro-0813, 2026-10-01).
 	{markers: []string{"orcaterm", "如果您有服务器运维、云资源管理"}},
+	// A reseller's own failure text served as a 200 answer (a7 merchant 3836
+	// glm-5.3, a third of its replies on 2026-10-03).
+	{markers: []string{"please retry later, or reduce the request parameters/content"}},
 }
 
 const cannedReplyMaxRunes = 600
