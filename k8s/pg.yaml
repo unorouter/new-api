@@ -219,6 +219,18 @@ spec:
         passwordSecret:
           name: newapi-pg-ip-retention
         inRoles: []
+      # ClickHouse reads newapi-pg from the -ro service through this role: its two security
+      # dictionaries, and the one-time copy of logs and audit_logs. Password role on CNPG's
+      # trailing scram rule like ip_retention; grants in
+      # infra/databases/clickhouse-dict-least-privilege.sql, hand-applied.
+      - name: clickhouse_dict
+        login: true
+        connectionLimit: 4
+        ensure: present
+        inherit: true
+        passwordSecret:
+          name: newapi-pg-clickhouse-dict
+        inRoles: []
       # Teleport-provisioned admin role for named operators: cert-only (no password), so
       # the only way in is a Teleport session under a GitHub identity, with the queries
       # in Teleport's audit. Replaces `kubectl exec ... psql -U postgres` for prod writes.
