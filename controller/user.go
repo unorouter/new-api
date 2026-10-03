@@ -1566,13 +1566,28 @@ func GrantDiscordQuota(c fuego.ContextWithBody[dto.GrantDiscordQuotaRequest]) (*
 		return dto.Ok(dto.GrantDiscordQuotaData{Linked: false})
 	}
 
-	if req.CheckIpUnique && user.RegisterIpHash != "" {
+	// The shared-IP check is a gate for new accounts, not a state an established
+	// one can fall back into: a VPN exit someone else used, a hash backfill or an
+	// older account surfacing later would otherwise cut off a member who was being
+	// paid for weeks. Passing once, or holding an earlier bot grant, clears it for good.
+	if req.CheckIpUnique && user.RegisterIpHash != "" && !user.GetSetting().RewardIpCleared {
 		duplicate, err := model.HasEarlierUserWithRegisterIpHash(user.RegisterIpHash, user.Id)
 		if err != nil {
 			return dto.Fail[dto.GrantDiscordQuotaData](err.Error())
 		}
 		if duplicate {
-			return dto.Ok(dto.GrantDiscordQuotaData{UserId: user.Id, Linked: true, IpDuplicate: true})
+			granted, err := model.HasDiscordBotGrant(user.Id)
+			if err != nil {
+				return dto.Fail[dto.GrantDiscordQuotaData](err.Error())
+			}
+			if !granted {
+				return dto.Ok(dto.GrantDiscordQuotaData{UserId: user.Id, Linked: true, IpDuplicate: true})
+			}
+		}
+		setting := user.GetSetting()
+		setting.RewardIpCleared = true
+		if err := model.UpdateUserSetting(user.Id, setting); err != nil {
+			return dto.Fail[dto.GrantDiscordQuotaData](err.Error())
 		}
 	}
 

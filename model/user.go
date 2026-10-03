@@ -388,6 +388,15 @@ func HasEarlierUserWithRegisterIpHash(hash string, userId int) (bool, error) {
 	return count > 0, err
 }
 
+// HasDiscordBotGrant reports whether the Discord bot ever credited this user.
+func HasDiscordBotGrant(userId int) (bool, error) {
+	var count int64
+	err := LOG_DB.Model(&Log{}).
+		Where("user_id = ? AND type = ? AND content LIKE ?", userId, LogTypeManage, "%granted quota%to a Discord-linked user%").
+		Limit(1).Count(&count).Error
+	return count > 0, err
+}
+
 func emailQuery(tx *gorm.DB, email string) *gorm.DB {
 	if tx == nil {
 		tx = DB

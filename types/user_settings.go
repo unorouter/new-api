@@ -24,6 +24,7 @@ type UserSetting struct {
 	FreeRateLimitWindowPct           int      `json:"free_rate_limit_window_pct,omitempty"`           // 免费模型限流窗口缩短百分比（0 = 不缩短）
 	MaxFirstTokenSeconds             int      `json:"max_first_token_seconds,omitempty"`              // 单次尝试等待首字节的上限，秒（0 = 使用全局值）
 	MaxChainFirstTokenSeconds        int      `json:"max_chain_first_token_seconds,omitempty"`        // 整条重试链等待首字节的总上限，秒（0 = 不限制）
+	RewardIpCleared                  bool     `json:"reward_ip_cleared,omitempty"`                    // 已通过一次奖励的注册IP检查，此后不再因共享IP被拒
 }
 
 // First-token limits bound only the wait for the upstream's FIRST BYTE, never a
