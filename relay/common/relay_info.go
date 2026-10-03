@@ -73,6 +73,8 @@ type ChannelMeta struct {
 	ChannelOtherSettings dto.ChannelOtherSettings
 	UpstreamModelName    string
 	IsModelMapped        bool
+	// Upstream ID from an `@effort:` mapping; it encodes the effort, so suffix parsers keep it.
+	EffortVariantModel   string
 	SupportStreamOptions bool // 是否支持流式选项
 }
 
@@ -956,6 +958,14 @@ func (info *RelayInfo) IncrSendResponseCount() {
 
 // ConvOptions snapshots host settings for the converters. Rebuilt on each
 // call site's first use; cached so one relay session sees one snapshot.
+// KeepsModelName: a global thinking-suffix exemption or this attempt's effort variant.
+func (info *RelayInfo) KeepsModelName(modelName string) bool {
+	if info != nil && info.ChannelMeta != nil && info.EffortVariantModel != "" && modelName == info.EffortVariantModel {
+		return true
+	}
+	return model_setting.ShouldPreserveThinkingSuffix(modelName)
+}
+
 func (info *RelayInfo) ConvOptions() *convmeta.Options {
 	if info != nil && info.convOptions != nil {
 		return info.convOptions
@@ -979,7 +989,7 @@ func (info *RelayInfo) ConvOptions() *convmeta.Options {
 			SafetySetting:                         model_setting.GetGeminiSafetySetting,
 		},
 		OpenRouterDialect:      info != nil && info.GetChannelType() == constant.ChannelTypeOpenRouter,
-		PreserveThinkingSuffix: model_setting.ShouldPreserveThinkingSuffix,
+		PreserveThinkingSuffix: info.KeepsModelName,
 		PreserveEffortTail:     model_setting.ShouldPreserveEffortTail,
 	}
 	if info != nil {

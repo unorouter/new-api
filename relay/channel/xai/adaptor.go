@@ -11,7 +11,6 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/setting/model_setting"
 
 	"github.com/QuantumNous/new-api/relay/constant"
 
@@ -79,7 +78,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 			request.MaxCompletionTokens = request.MaxTokens
 			request.MaxTokens = nil
 		}
-		preserveSuffix := model_setting.ShouldPreserveThinkingSuffix(info.OriginModelName) || model_setting.ShouldPreserveThinkingSuffix(request.Model)
+		preserveSuffix := info.KeepsModelName(info.OriginModelName) || info.KeepsModelName(request.Model)
 		if !preserveSuffix && strings.HasSuffix(request.Model, "-high") {
 			request.ReasoningEffort = "high"
 			request.Model = strings.TrimSuffix(request.Model, "-high")
