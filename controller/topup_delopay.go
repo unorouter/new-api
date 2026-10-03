@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -77,8 +78,9 @@ func RequestDeloPayPay(c fuego.ContextWithBody[dto.DeloPayPayRequest]) (*dto.Res
 	if req.Amount < getDeloPayMinTopup() {
 		return dto.Fail[dto.DeloPayPayData](fmt.Sprintf("Top-up amount cannot be less than %v", getDeloPayMinTopup()))
 	}
-	if req.Amount > 10000 {
-		return dto.Fail[dto.DeloPayPayData]("Top-up amount cannot exceed 10000")
+	// PayPal is the chargeback-prone rail: only the listed amounts, at most $500.
+	if req.Amount > deloPayMaxTopup || !slices.Contains(operation_setting.GetPaymentSetting().AmountOptions, int(req.Amount)) {
+		return dto.Fail[dto.DeloPayPayData](fmt.Sprintf("PayPal top-ups are limited to the listed amounts up to $%d", deloPayMaxTopup))
 	}
 
 	id := dto.UserID(c)
@@ -395,6 +397,8 @@ func getDeloPayPayMoney(amount float64, group string) float64 {
 	}
 	return amount * topupGroupRatio * discount
 }
+
+const deloPayMaxTopup = 500
 
 func getDeloPayMinTopup() int64 {
 	minTopup := setting.DeloPayMinTopUp
