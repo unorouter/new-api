@@ -37,15 +37,15 @@ func TestNormalizeClickHouseDSN(t *testing.T) {
 	assert.Contains(t, normalized, "secure=true")
 	assert.True(t, strings.HasPrefix(normalized, "https://"))
 
-	// https that already specifies secure is left untouched
+	// explicit settings in the DSN are kept
 	assert.Equal(t,
-		"https://localhost:8443/logs?secure=false",
-		normalizeClickHouseDSN("https://localhost:8443/logs?secure=false"),
+		"https://localhost:8443/logs?async_insert=0&secure=false&wait_for_async_insert=0",
+		normalizeClickHouseDSN("https://localhost:8443/logs?secure=false&async_insert=0&wait_for_async_insert=0"),
 	)
 
-	// non-https schemes are returned verbatim
-	assert.Equal(t, "clickhouse://localhost:9000/logs", normalizeClickHouseDSN("clickhouse://localhost:9000/logs"))
-	assert.Equal(t, "tcp://localhost:9000/logs", normalizeClickHouseDSN("tcp://localhost:9000/logs"))
+	// async inserts are on by default for every scheme
+	assert.Equal(t, "clickhouse://localhost:9000/logs?async_insert=1&wait_for_async_insert=1", normalizeClickHouseDSN("clickhouse://localhost:9000/logs"))
+	assert.Equal(t, "tcp://localhost:9000/logs?async_insert=1&wait_for_async_insert=1", normalizeClickHouseDSN("tcp://localhost:9000/logs"))
 }
 
 func TestChooseDBRejectsClickHouseForMainDatabase(t *testing.T) {
@@ -67,33 +67,48 @@ func TestChooseDBRejectsClickHouseForMainDatabase(t *testing.T) {
 }
 
 func TestClickHouseLogTTLExpression(t *testing.T) {
-	assert.Equal(t, "", clickHouseLogTTLExpression(0))
-	assert.Equal(t, "", clickHouseLogTTLExpression(-5))
-	assert.Equal(t, "toDateTime(created_at) + INTERVAL 30 DAY DELETE", clickHouseLogTTLExpression(30))
-}
-
-func TestClickHouseLogTTLClause(t *testing.T) {
-	assert.Equal(t, "", clickHouseLogTTLClause(0))
-	assert.Equal(t, "\nTTL toDateTime(created_at) + INTERVAL 7 DAY DELETE", clickHouseLogTTLClause(7))
+	assert.Equal(t, "", clickHouseLogTTLExpression(clickHouseLogStorage{}))
+	assert.Equal(t, "toDateTime(created_at) + toIntervalDay(30)", clickHouseLogTTLExpression(clickHouseLogStorage{ttlDays: 30}))
+	assert.Equal(t, "toDateTime(created_at) + toIntervalDay(7) TO VOLUME 'cold'", clickHouseLogTTLExpression(clickHouseLogStorage{moveAfterDays: 7}))
+	assert.Equal(t,
+		"toDateTime(created_at) + toIntervalDay(7) TO VOLUME 'cold', toDateTime(created_at) + toIntervalDay(365)",
+		clickHouseLogTTLExpression(clickHouseLogStorage{ttlDays: 365, moveAfterDays: 7}),
+	)
 }
 
 func TestClickHouseLogCreateTableSQL(t *testing.T) {
-	withoutTTL := clickHouseLogCreateTableSQL(0)
-	assert.Contains(t, withoutTTL, "CREATE TABLE IF NOT EXISTS logs")
-	assert.Contains(t, withoutTTL, "ENGINE = MergeTree()")
-	assert.Contains(t, withoutTTL, "PARTITION BY toYYYYMM(toDateTime(created_at))")
-	assert.Contains(t, withoutTTL, "ORDER BY (created_at, request_id)")
-	assert.NotContains(t, withoutTTL, "TTL ")
+	plain := clickHouseLogCreateTableSQL(clickHouseLogStorage{})
+	assert.Contains(t, plain, "CREATE TABLE IF NOT EXISTS logs")
+	assert.Contains(t, plain, "ENGINE = MergeTree()")
+	assert.Contains(t, plain, "PARTITION BY toYYYYMM(toDateTime(created_at))")
+	assert.Contains(t, plain, "ORDER BY (created_at, request_id)")
+	assert.Contains(t, plain, "ip String DEFAULT '' TTL toDateTime(created_at) + toIntervalDay(30),")
+	assert.NotContains(t, plain, "\nTTL ")
+	assert.NotContains(t, plain, "SETTINGS")
 
-	withTTL := clickHouseLogCreateTableSQL(30)
-	assert.Contains(t, withTTL, "ORDER BY (created_at, request_id)")
-	assert.Contains(t, withTTL, "TTL toDateTime(created_at) + INTERVAL 30 DAY DELETE")
+	tiered := clickHouseLogCreateTableSQL(clickHouseLogStorage{ttlDays: 30, moveAfterDays: 7, storagePolicy: "tiered"})
+	assert.True(t, strings.HasSuffix(tiered, "ORDER BY (created_at, request_id)\nTTL toDateTime(created_at) + toIntervalDay(7) TO VOLUME 'cold', toDateTime(created_at) + toIntervalDay(30)\nSETTINGS storage_policy = 'tiered'"))
 }
 
-func TestClickHouseCreateTableHasTTL(t *testing.T) {
-	assert.True(t, clickHouseCreateTableHasTTL("CREATE TABLE logs (...)\nTTL toDateTime(created_at) + INTERVAL 30 DAY DELETE"))
-	assert.True(t, clickHouseCreateTableHasTTL("CREATE TABLE logs (...) TTL toDateTime(created_at)"))
-	assert.False(t, clickHouseCreateTableHasTTL("CREATE TABLE logs (...)\nORDER BY (created_at, request_id)"))
+func TestClickHouseTableTTL(t *testing.T) {
+	assert.Equal(t, "", clickHouseTableTTL("MergeTree PARTITION BY toYYYYMM(toDateTime(created_at)) ORDER BY (created_at, request_id) SETTINGS index_granularity = 8192"))
+	assert.Equal(t,
+		"toDateTime(created_at) + toIntervalDay(5) TO VOLUME 'cold', toDateTime(created_at) + toIntervalDay(90)",
+		clickHouseTableTTL("MergeTree ORDER BY created_at TTL toDateTime(created_at) + toIntervalDay(5) TO VOLUME 'cold', toDateTime(created_at) + toIntervalDay(90) SETTINGS index_granularity = 8192"),
+	)
+}
+
+func TestClickHouseLikeFromBangEscaped(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"%gpt!_4%", `%gpt\_4%`},
+		{"%a!!b%", "%a!b%"},
+		{"%c!%d%", `%c\%d%`},
+		{`%back\slash%`, `%back\\slash%`},
+		{"glm%:free", "glm%:free"},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, clickHouseLikeFromBangEscaped(c.in), "pattern=%q", c.in)
+	}
 }
 
 func TestClickHouseLogOrder(t *testing.T) {

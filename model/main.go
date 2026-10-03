@@ -124,16 +124,23 @@ func isClickHouseDSN(dsn string) bool {
 		strings.HasPrefix(dsn, "https://")
 }
 
+// normalizeClickHouseDSN defaults to server-side async inserts so per-request
+// log rows are batched into parts by ClickHouse; a DSN setting wins.
 func normalizeClickHouseDSN(dsn string) string {
 	parsed, err := url.Parse(dsn)
-	if err != nil || parsed.Scheme != "https" {
+	if err != nil {
 		return dsn
 	}
 	query := parsed.Query()
-	if _, ok := query["secure"]; !ok {
+	if _, ok := query["secure"]; !ok && parsed.Scheme == "https" {
 		query.Set("secure", "true")
-		parsed.RawQuery = query.Encode()
 	}
+	for _, setting := range []string{"async_insert", "wait_for_async_insert"} {
+		if _, ok := query[setting]; !ok {
+			query.Set(setting, "1")
+		}
+	}
+	parsed.RawQuery = query.Encode()
 	return parsed.String()
 }
 
@@ -615,37 +622,74 @@ func migrateLOGDB() error {
 }
 
 func migrateClickHouseLogDB() error {
-	ttlDays := clickHouseLogTTLDays()
-	if err := LOG_DB.Exec(clickHouseLogCreateTableSQL(ttlDays)).Error; err != nil {
+	storage, err := clickHouseLogStorageFromEnv()
+	if err != nil {
 		return err
 	}
-	return syncClickHouseLogTTL(ttlDays)
-}
-
-func clickHouseLogTTLDays() int {
-	ttlDays := common.GetEnvOrDefault("LOG_SQL_CLICKHOUSE_TTL_DAYS", 0)
-	if ttlDays < 0 {
-		return 0
+	if err := LOG_DB.Exec(clickHouseLogCreateTableSQL(storage)).Error; err != nil {
+		return err
 	}
-	return ttlDays
-}
-
-func clickHouseLogTTLExpression(ttlDays int) string {
-	if ttlDays <= 0 {
-		return ""
+	// A tiering setting the server cannot apply must not keep the gateway down.
+	if err := syncClickHouseLogStorage(storage); err != nil {
+		common.SysError("failed to apply ClickHouse log storage settings: " + err.Error())
 	}
-	return fmt.Sprintf("toDateTime(created_at) + INTERVAL %d DAY DELETE", ttlDays)
-}
-
-func clickHouseLogTTLClause(ttlDays int) string {
-	expression := clickHouseLogTTLExpression(ttlDays)
-	if expression == "" {
-		return ""
+	if err := ensureClickHouseIpRetention("logs"); err != nil {
+		return err
 	}
-	return "\nTTL " + expression
+	var quotaType string
+	if err := LOG_DB.Raw("SELECT type FROM system.columns WHERE database = currentDatabase() AND table = 'logs' AND name = 'quota'").Scan(&quotaType).Error; err != nil {
+		return err
+	}
+	if quotaType == "Int32" {
+		return LOG_DB.Exec("ALTER TABLE logs MODIFY COLUMN quota Int64 DEFAULT 0").Error
+	}
+	return nil
 }
 
-func clickHouseLogCreateTableSQL(ttlDays int) string {
+// clickHouseLogStorage holds the optional retention and tiering settings of
+// the ClickHouse logs table.
+type clickHouseLogStorage struct {
+	ttlDays       int
+	moveAfterDays int
+	storagePolicy string
+}
+
+func clickHouseLogStorageFromEnv() (clickHouseLogStorage, error) {
+	storage := clickHouseLogStorage{
+		ttlDays:       max(common.GetEnvOrDefault("LOG_SQL_CLICKHOUSE_TTL_DAYS", 0), 0),
+		moveAfterDays: max(common.GetEnvOrDefault("LOG_SQL_CLICKHOUSE_MOVE_AFTER_DAYS", 0), 0),
+		storagePolicy: strings.TrimSpace(os.Getenv("LOG_SQL_CLICKHOUSE_STORAGE_POLICY")),
+	}
+	if strings.Trim(storage.storagePolicy, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != "" {
+		return storage, fmt.Errorf("invalid LOG_SQL_CLICKHOUSE_STORAGE_POLICY %q", storage.storagePolicy)
+	}
+	return storage, nil
+}
+
+// clickHouseLogTTLExpression is written the way ClickHouse prints a table TTL
+// back, so an unchanged setting is recognized and never re-materialized.
+func clickHouseLogTTLExpression(storage clickHouseLogStorage) string {
+	var rules []string
+	if storage.moveAfterDays > 0 {
+		rules = append(rules, fmt.Sprintf("toDateTime(created_at) + toIntervalDay(%d) TO VOLUME 'cold'", storage.moveAfterDays))
+	}
+	if storage.ttlDays > 0 {
+		rules = append(rules, fmt.Sprintf("toDateTime(created_at) + toIntervalDay(%d)", storage.ttlDays))
+	}
+	return strings.Join(rules, ", ")
+}
+
+// Blanks the address after 30 days, like the Postgres ip-retention job.
+const clickHouseIpRetentionTTL = "toDateTime(created_at) + toIntervalDay(30)"
+
+func clickHouseLogCreateTableSQL(storage clickHouseLogStorage) string {
+	var tail strings.Builder
+	if expression := clickHouseLogTTLExpression(storage); expression != "" {
+		tail.WriteString("\nTTL " + expression)
+	}
+	if storage.storagePolicy != "" {
+		tail.WriteString("\nSETTINGS storage_policy = '" + storage.storagePolicy + "'")
+	}
 	return fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS logs (
 	id Int64 DEFAULT 0,
@@ -656,7 +700,7 @@ CREATE TABLE IF NOT EXISTS logs (
 	username String DEFAULT '',
 	token_name String DEFAULT '',
 	model_name String DEFAULT '',
-	quota Int32 DEFAULT 0,
+	quota Int64 DEFAULT 0,
 	prompt_tokens Int32 DEFAULT 0,
 	completion_tokens Int32 DEFAULT 0,
 	use_time Int32 DEFAULT 0,
@@ -664,43 +708,61 @@ CREATE TABLE IF NOT EXISTS logs (
 	channel_id Int32 DEFAULT 0,
 	token_id Int32 DEFAULT 0,
 	`+"`group`"+` String DEFAULT '',
-	ip String DEFAULT '',
+	ip String DEFAULT '' TTL %s,
 	request_id String DEFAULT '',
 	upstream_request_id String DEFAULT '',
 	other String DEFAULT ''
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(toDateTime(created_at))
-ORDER BY (created_at, request_id)%s`, clickHouseLogTTLClause(ttlDays))
+ORDER BY (created_at, request_id)%s`, clickHouseIpRetentionTTL, tail.String())
 }
 
-func syncClickHouseLogTTL(ttlDays int) error {
-	expression := clickHouseLogTTLExpression(ttlDays)
-	if expression != "" {
-		return LOG_DB.Exec("ALTER TABLE logs MODIFY TTL " + expression).Error
+// syncClickHouseLogStorage applies env changes to an existing table. The policy
+// goes first because a TO VOLUME rule needs the volume to exist.
+func syncClickHouseLogStorage(storage clickHouseLogStorage) error {
+	var table struct {
+		EngineFull    string `gorm:"column:engine_full"`
+		StoragePolicy string `gorm:"column:storage_policy"`
 	}
-
-	hasTTL, err := clickHouseLogTableHasTTL()
-	if err != nil {
+	if err := LOG_DB.Raw("SELECT engine_full, storage_policy FROM system.tables WHERE database = currentDatabase() AND name = 'logs'").Scan(&table).Error; err != nil {
 		return err
 	}
-	if !hasTTL {
+	if storage.storagePolicy != "" && storage.storagePolicy != table.StoragePolicy {
+		if err := LOG_DB.Exec("ALTER TABLE logs MODIFY SETTING storage_policy = '" + storage.storagePolicy + "'").Error; err != nil {
+			return err
+		}
+	}
+	expression := clickHouseLogTTLExpression(storage)
+	if expression == clickHouseTableTTL(table.EngineFull) {
 		return nil
 	}
-	return LOG_DB.Exec("ALTER TABLE logs REMOVE TTL").Error
-}
-
-func clickHouseLogTableHasTTL() (bool, error) {
-	var createTableSQL string
-	if err := LOG_DB.Raw("SHOW CREATE TABLE logs").Scan(&createTableSQL).Error; err != nil {
-		return false, err
+	if expression == "" {
+		return LOG_DB.Exec("ALTER TABLE logs REMOVE TTL").Error
 	}
-	return clickHouseCreateTableHasTTL(createTableSQL), nil
+	return LOG_DB.Exec("ALTER TABLE logs MODIFY TTL " + expression).Error
 }
 
-func clickHouseCreateTableHasTTL(createTableSQL string) bool {
-	upperSQL := strings.ToUpper(createTableSQL)
-	return strings.Contains(upperSQL, "\nTTL ") || strings.Contains(upperSQL, " TTL ")
+// clickHouseTableTTL extracts the table TTL from system.tables.engine_full,
+// which unlike SHOW CREATE TABLE carries no column TTLs.
+func clickHouseTableTTL(engineFull string) string {
+	_, ttl, found := strings.Cut(engineFull, " TTL ")
+	if !found {
+		return ""
+	}
+	ttl, _, _ = strings.Cut(ttl, " SETTINGS ")
+	return strings.TrimSpace(ttl)
+}
+
+func ensureClickHouseIpRetention(table string) error {
+	var createTableSQL string
+	if err := LOG_DB.Raw("SHOW CREATE TABLE " + table).Scan(&createTableSQL).Error; err != nil {
+		return err
+	}
+	if strings.Contains(createTableSQL, "`ip` String DEFAULT '' TTL "+clickHouseIpRetentionTTL) {
+		return nil
+	}
+	return LOG_DB.Exec("ALTER TABLE " + table + " MODIFY COLUMN ip String DEFAULT '' TTL " + clickHouseIpRetentionTTL).Error
 }
 
 type sqliteColumnDef struct {
@@ -911,6 +973,7 @@ func closeDB(db *gorm.DB) error {
 
 func CloseDB() error {
 	if LOG_DB != DB {
+		drainClickHouseLogInserts(15 * time.Second)
 		err := closeDB(LOG_DB)
 		if err != nil {
 			return err

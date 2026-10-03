@@ -116,7 +116,6 @@ func RecordAuditLog(c *gin.Context, entry AuditLog) {
 		logger.LogError(ctx, fmt.Sprintf("audit log write failed (request_id=%s): log database unavailable", entry.RequestId))
 		return
 	}
-	var row any = &entry
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		encoded, err := common.Marshal(entry.Other)
 		if err != nil {
@@ -126,12 +125,13 @@ func RecordAuditLog(c *gin.Context, entry AuditLog) {
 		// The ClickHouse GORM insert callback passes structs to the native
 		// driver without resolving their Valuer. Bind this column's JSON
 		// encoding while retaining AuditOther in the domain and API models.
-		row = &struct {
+		insertClickHouseLogRow("audit_logs", entry.RequestId, &struct {
 			AuditLog     `gorm:"embedded"`
 			EncodedOther string `gorm:"column:other;type:json"`
-		}{AuditLog: entry, EncodedOther: string(encoded)}
+		}{AuditLog: entry, EncodedOther: string(encoded)})
+		return
 	}
-	if err := LOG_DB.Table("audit_logs").Create(row).Error; err != nil {
+	if err := LOG_DB.Table("audit_logs").Create(&entry).Error; err != nil {
 		logger.LogError(ctx, fmt.Sprintf("audit log write failed (request_id=%s): %v", entry.RequestId, err))
 	}
 }
@@ -239,19 +239,22 @@ func GetUserAccessTokenStatus(userId int) (*UserAccessTokenStatus, error) {
 }
 
 // MigrateAuditLogs also supports independently configured ClickHouse log stores.
-// No TTL clause or usage-log cleanup integration is intentional.
+// No row TTL or usage-log cleanup integration is intentional.
 func MigrateAuditLogs() error {
 	if !common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		return LOG_DB.AutoMigrate(&AuditLog{})
 	}
-	return LOG_DB.Exec(`CREATE TABLE IF NOT EXISTS audit_logs (
+	if err := LOG_DB.Exec(`CREATE TABLE IF NOT EXISTS audit_logs (
 		id Int64 DEFAULT 0, event_id String, user_id Int64, username String, actor_role Int32,
 		created_at Int64, category String, action String, token_ref String,
-		auth_method String, ip String, user_agent String, method String, route String,
+		auth_method String, ip String DEFAULT '' TTL ` + clickHouseIpRetentionTTL + `, user_agent String, method String, route String,
 		status Int32, success UInt8, request_id String, content String, other JSON
 	) ENGINE = MergeTree()
 	PARTITION BY toYYYYMM(toDateTime(created_at))
-	ORDER BY (created_at, event_id)`).Error
+	ORDER BY (created_at, event_id)`).Error; err != nil {
+		return err
+	}
+	return ensureClickHouseIpRetention("audit_logs")
 }
 
 func ValidAuditCategory(category string) bool {

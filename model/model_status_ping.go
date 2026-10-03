@@ -94,7 +94,7 @@ func DeleteModelStatusPingsNotIn(activeModels []string) error {
 func LatestPingByModel() (map[string]*ModelStatusPing, error) {
 	var latestTs int64
 	if err := DB.Model(&ModelStatusPing{}).
-		Select("MAX(timestamp)").
+		Select("COALESCE(MAX(timestamp), 0)").
 		Scan(&latestTs).Error; err != nil {
 		return nil, err
 	}

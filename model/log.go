@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -44,6 +45,41 @@ func buildLogLikeCondition(column string, value string) (string, string, error) 
 		return "", "", err
 	}
 	return column + " LIKE ? ESCAPE '!'", pattern, nil
+}
+
+// whereLogILike takes a pattern escaped with `!` (sanitizeLikePattern,
+// modelNameLikePattern) and matches it case-insensitively.
+func whereLogILike(tx *gorm.DB, column string, pattern string) *gorm.DB {
+	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
+		return tx.Where(column+" ILIKE ?", clickHouseLikeFromBangEscaped(pattern))
+	}
+	return tx.Where("LOWER("+column+") LIKE LOWER(?) ESCAPE '!'", pattern)
+}
+
+// ClickHouse LIKE has no ESCAPE clause: a backslash escapes only %, _ and
+// itself, and before any other character it stays in the pattern.
+func clickHouseLikeFromBangEscaped(pattern string) string {
+	var b strings.Builder
+	b.Grow(len(pattern) + 4)
+	for i := 0; i < len(pattern); i++ {
+		switch c := pattern[i]; c {
+		case '!':
+			if i+1 < len(pattern) {
+				i++
+				if pattern[i] == '%' || pattern[i] == '_' {
+					b.WriteByte('\\')
+				}
+				b.WriteByte(pattern[i])
+			} else {
+				b.WriteByte(c)
+			}
+		case '\\':
+			b.WriteString(`\\`)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 func sanitizeClickHouseLikePattern(input string) (string, error) {
@@ -165,7 +201,42 @@ func ensureLogRequestId(log *Log) {
 
 func createLog(log *Log) error {
 	ensureLogRequestId(log)
+	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
+		insertClickHouseLogRow("logs", log.RequestId, log)
+		return nil
+	}
 	return LOG_DB.Create(log).Error
+}
+
+const clickHouseLogInsertTimeout = 10 * time.Second
+
+var pendingClickHouseLogInserts sync.WaitGroup
+
+// insertClickHouseLogRow writes off the request goroutine: with
+// wait_for_async_insert the server holds the INSERT until its buffer flushes,
+// and an unreachable ClickHouse must not stall the caller either.
+func insertClickHouseLogRow(table string, requestId string, row any) {
+	pendingClickHouseLogInserts.Go(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), clickHouseLogInsertTimeout)
+		defer cancel()
+		if err := LOG_DB.WithContext(ctx).Table(table).Create(row).Error; err != nil {
+			common.SysError(fmt.Sprintf("failed to write %s row (request_id=%s): %v", table, requestId, err))
+		}
+	})
+}
+
+// drainClickHouseLogInserts lets queued log rows land before LOG_DB closes.
+func drainClickHouseLogInserts(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		pendingClickHouseLogInserts.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		common.SysError("timed out waiting for pending ClickHouse log writes")
+	}
 }
 
 func clickHouseLogOrder(prefix string) string {
@@ -580,7 +651,7 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 		if err != nil {
 			return nil, 0, err
 		}
-		tx = tx.Where("LOWER(logs.model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
+		tx = whereLogILike(tx, "logs.model_name", modelNamePattern)
 	}
 	if username != "" {
 		// A Discord snowflake (all digits, 17-20 chars) pasted into the username
@@ -601,7 +672,7 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 		if err != nil {
 			return nil, 0, err
 		}
-		tx = tx.Where("LOWER(logs.token_name) LIKE LOWER(?) ESCAPE '!'", "%"+tokenNamePattern+"%")
+		tx = whereLogILike(tx, "logs.token_name", "%"+tokenNamePattern+"%")
 	}
 	if requestId != "" {
 		tx = tx.Where("logs.request_id = ?", requestId)
@@ -626,13 +697,17 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 		if err != nil {
 			return nil, 0, err
 		}
-		tx = tx.Where("LOWER(logs.other) LIKE LOWER(?) ESCAPE '!'", `%"subscription_plan_title":"%`+planPattern+`%"%`)
+		tx = whereLogILike(tx, "logs.other", `%"subscription_plan_title":"%`+planPattern+`%"%`)
 	}
 	// A request_id names ONE row, so counting is pointless work: the unbounded count below
 	// scanned the whole logs table and took 40 to 60 seconds under load, which starved the
 	// rest of the gateway while a caller only wanted that single row.
 	if requestId != "" || upstreamRequestId != "" {
-		err = tx.Order("logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
+		order := "logs.id desc"
+		if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
+			order = clickHouseLogOrder("logs.")
+		}
+		err = tx.Order(order).Limit(num).Offset(startIdx).Find(&logs).Error
 		if err != nil {
 			common.SysError("failed to search logs by request id: " + err.Error())
 			return nil, 0, errors.New("failed to query logs")
@@ -679,14 +754,14 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 		if err != nil {
 			return nil, 0, err
 		}
-		tx = tx.Where("LOWER(logs.model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
+		tx = whereLogILike(tx, "logs.model_name", modelNamePattern)
 	}
 	if tokenName != "" {
 		tokenNamePattern, err := sanitizeLikePattern(tokenName)
 		if err != nil {
 			return nil, 0, err
 		}
-		tx = tx.Where("LOWER(logs.token_name) LIKE LOWER(?) ESCAPE '!'", "%"+tokenNamePattern+"%")
+		tx = whereLogILike(tx, "logs.token_name", "%"+tokenNamePattern+"%")
 	}
 	if requestId != "" {
 		tx = tx.Where("logs.request_id = ?", requestId)
@@ -708,7 +783,7 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 		if err != nil {
 			return nil, 0, err
 		}
-		tx = tx.Where("LOWER(logs.other) LIKE LOWER(?) ESCAPE '!'", `%"subscription_plan_title":"%`+planPattern+`%"%`)
+		tx = whereLogILike(tx, "logs.other", `%"subscription_plan_title":"%`+planPattern+`%"%`)
 	}
 	err = tx.Model(&Log{}).Limit(logSearchCountLimit).Count(&total).Error
 	if err != nil {
@@ -750,8 +825,8 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		if err != nil {
 			return stat, err
 		}
-		tx = tx.Where("LOWER(token_name) LIKE LOWER(?) ESCAPE '!'", "%"+tokenNamePattern+"%")
-		rpmTpmQuery = rpmTpmQuery.Where("LOWER(token_name) LIKE LOWER(?) ESCAPE '!'", "%"+tokenNamePattern+"%")
+		tx = whereLogILike(tx, "token_name", "%"+tokenNamePattern+"%")
+		rpmTpmQuery = whereLogILike(rpmTpmQuery, "token_name", "%"+tokenNamePattern+"%")
 	}
 	if startTimestamp != 0 {
 		tx = tx.Where("created_at >= ?", startTimestamp)
@@ -764,8 +839,8 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		if err != nil {
 			return stat, err
 		}
-		tx = tx.Where("LOWER(model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
-		rpmTpmQuery = rpmTpmQuery.Where("LOWER(model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
+		tx = whereLogILike(tx, "model_name", modelNamePattern)
+		rpmTpmQuery = whereLogILike(rpmTpmQuery, "model_name", modelNamePattern)
 	}
 	if channel != 0 {
 		tx = tx.Where("channel_id = ?", channel)
@@ -811,7 +886,7 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		if err != nil {
 			return 0
 		}
-		tx = tx.Where("LOWER(token_name) LIKE LOWER(?) ESCAPE '!'", "%"+tokenNamePattern+"%")
+		tx = whereLogILike(tx, "token_name", "%"+tokenNamePattern+"%")
 	}
 	if startTimestamp != 0 {
 		tx = tx.Where("created_at >= ?", startTimestamp)
@@ -824,7 +899,7 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		if err != nil {
 			return 0
 		}
-		tx = tx.Where("LOWER(model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
+		tx = whereLogILike(tx, "model_name", modelNamePattern)
 	}
 	tx.Where("type = ?", LogTypeConsume).Scan(&token)
 	return token
