@@ -31,6 +31,9 @@ var replyRules = []replyRule{
 	{markers: []string{"orcaterm", "如果您有服务器运维、云资源管理"}},
 	// LoreBary pauses external traffic at peak and answers with a bracketed notice.
 	{markers: []string{"[lorebary:"}},
+	// A reseller's own failure text served as a 200 answer (a7 merchant 3836
+	// glm-5.3, a third of its replies on 2026-10-03).
+	{markers: []string{"please retry later, or reduce the request parameters/content"}},
 }
 
 const cannedReplyMaxRunes = 600
