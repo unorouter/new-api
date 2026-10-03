@@ -21,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -136,13 +137,24 @@ func Distribute() func(c *gin.Context) {
 					if mappedGroup == "" {
 						mappedGroup = service.ResolveTokenGroupForModel(mapping, accountGroup, matchName, "", candidatesFor(matchName))
 					}
+					// A catalog-hidden preview name is the same model the key pinned under its
+					// public name: SillyTavern still sends gemini-3.1-pro-preview while the pin
+					// picker only offers gemini-3.1-pro, so the pin silently fell through.
+					publicName := ""
+					if model_setting.IsCatalogHiddenModel(modelRequest.Model) {
+						publicName = strings.Replace(modelRequest.Model, "-preview", "", 1)
+					}
+					if mappedGroup == "" && publicName != "" {
+						mappedGroup = service.ResolveTokenGroupForModel(mapping, accountGroup, publicName, "", candidatesFor(modelRequest.Model))
+					}
 					if mappedGroup != "" {
 						usingGroup = mappedGroup
 						common.SetContextKey(c, constant.ContextKeyUsingGroup, mappedGroup)
 						common.SetContextKey(c, constant.ContextKeyTokenGroup, mappedGroup)
 						common.SetContextKey(c, constant.ContextKeyTokenGroupMappingApplied, true)
 					} else if service.TokenPinsModel(mapping, modelRequest.Model) ||
-						service.TokenPinsModel(mapping, matchName) {
+						service.TokenPinsModel(mapping, matchName) ||
+						(publicName != "" && service.TokenPinsModel(mapping, publicName)) {
 						// Nothing the pin allows is enabled right now. Falling through here
 						// dropped the pin and billed the caller on the open chain, so a price
 						// ceiling stopped existing exactly when every lane under it went down.
