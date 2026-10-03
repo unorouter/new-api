@@ -586,3 +586,45 @@ func TestApplyReasoningModelSuffixPreservesGpt51CodexMax(t *testing.T) {
 	assert.Nil(t, info.ReasoningConversion)
 	assert.Equal(t, "gpt-5.1-codex-max", hostreasoning.BaseModelName("gpt-5.1-codex-max"))
 }
+
+// The chosen effort variant must reach upstream with its effort tail intact.
+func TestModelMappedHelperSelectsEffortVariant(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	variants := `{"gemini-3.8-flash":"gemini-3.8-flash-medium",` +
+		`"gemini-3.8-flash@effort:low":"gemini-3.8-flash-low",` +
+		`"gemini-3.8-flash@effort:medium":"gemini-3.8-flash-medium",` +
+		`"gemini-3.8-flash@effort:high":"gemini-3.8-flash-high"}`
+	cases := []struct {
+		name     string
+		mapping  string
+		model    string
+		effort   string
+		upstream string
+	}{
+		{"body effort picks its variant", variants, "gemini-3.8-flash", "low", "gemini-3.8-flash-low"},
+		{"model suffix beats body effort", variants, "gemini-3.8-flash-high", "low", "gemini-3.8-flash-high"},
+		{"model modifier picks its variant", variants, "gemini-3.8-flash@effort:low", "", "gemini-3.8-flash-low"},
+		{"effort without its key gets the default variant", variants, "gemini-3.8-flash", "xhigh", "gemini-3.8-flash-medium"},
+		{"effort without its key on a bare default reaches the bare ID", `{"gpt-5.4@effort:high":"gpt-5.4-high"}`, "gpt-5.4", "low", "gpt-5.4"},
+		{"no effort keeps the default variant intact", variants, "gemini-3.8-flash", "", "gemini-3.8-flash-medium"},
+		{"channel without variant keys strips as before", `{"gemini-3.8-flash":"gemini-3.8-flash-high"}`, "gemini-3.8-flash", "low", "gemini-3.8-flash"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Set("model_mapping", tc.mapping)
+			request := &dto.GeneralOpenAIRequest{Model: tc.model, ReasoningEffort: tc.effort}
+			info := &relaycommon.RelayInfo{
+				OriginModelName: tc.model,
+				Request:         request,
+				ReasoningEffort: tc.effort,
+				ChannelMeta:     &relaycommon.ChannelMeta{UpstreamModelName: tc.model},
+			}
+
+			require.NoError(t, ModelMappedHelper(c, info, request))
+			mustApplyReasoningModelSuffix(t, info, request)
+			assert.Equal(t, tc.upstream, info.UpstreamModelName)
+			assert.Equal(t, tc.upstream, request.Model)
+		})
+	}
+}

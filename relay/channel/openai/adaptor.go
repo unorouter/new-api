@@ -31,7 +31,6 @@ import (
 	kitreasoning "github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/samber/lo"
 
@@ -283,7 +282,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	// projection even without a protocol conversion hop. Native top-level
 	// reasoning_effort stays untouched unless a modifier or conversion applies.
 	// OpenRouter retains its own dialect normalization below.
-	preserveSuffix := model_setting.ShouldPreserveThinkingSuffix(info.OriginModelName) || model_setting.ShouldPreserveThinkingSuffix(info.UpstreamModelName)
+	preserveSuffix := info.KeepsModelName(info.OriginModelName) || info.KeepsModelName(info.UpstreamModelName)
 	upstreamEffort, _ := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(info.UpstreamModelName)
 	originEffort, _ := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(info.OriginModelName)
 	renderReasoning := len(request.Reasoning) > 0 || len(info.RequestConversionChain) > 1 || request.ReasoningConversion != nil || info.ReasoningState() != nil ||
@@ -737,7 +736,7 @@ func detectImageMimeType(filename string) string {
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
 	//  转换模型推理力度后缀
 	effort, originModel := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(request.Model)
-	preserveSuffix := model_setting.ShouldPreserveThinkingSuffix(request.Model) || (info != nil && model_setting.ShouldPreserveThinkingSuffix(info.OriginModelName))
+	preserveSuffix := info.KeepsModelName(request.Model) || (info != nil && info.KeepsModelName(info.OriginModelName))
 	if preserveSuffix {
 		effort = ""
 	}
