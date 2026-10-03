@@ -29,7 +29,7 @@ import (
 func OpenAIResponseHasOutput(resp *dto.OpenAITextResponse) bool {
 	for i := range resp.Choices {
 		msg := &resp.Choices[i].Message
-		if strings.TrimSpace(msg.StringContent()) != "" {
+		if meaningfulRunes(msg.StringContent()) > 0 {
 			return true
 		}
 		if len(msg.ParseToolCalls()) > 0 {
@@ -40,7 +40,7 @@ func OpenAIResponseHasOutput(resp *dto.OpenAITextResponse) bool {
 		// finish_reason=length with empty content means the model ran out of
 		// budget mid-reasoning and never produced an answer (GLM with thinking
 		// left on) - blank to the user, so treat it as empty and auto-disable.
-		if strings.TrimSpace(msg.GetReasoningContent()) != "" &&
+		if meaningfulRunes(msg.GetReasoningContent()) > 0 &&
 			resp.Choices[i].FinishReason != constant.FinishReasonLength {
 			return true
 		}
@@ -61,7 +61,7 @@ func streamHadOutput(stats *StreamOutputStats, toolCount int) bool {
 	if stats == nil {
 		return false
 	}
-	if strings.TrimSpace(stats.Content.String()) != "" {
+	if meaningfulRunes(stats.Content.String()) > 0 {
 		return true
 	}
 	return stats.ReasoningChars > 0 && stats.FinishReason == constant.FinishReasonStop
@@ -229,7 +229,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			// Whitespace-only content must not count: a Vertex safety block streams a
 			// lone "\n" and would otherwise commit the response before it is judged empty.
 			if !streamingStarted && (toolCount > 0 || outputStats.ReasoningChars > 0 ||
-				strings.TrimSpace(outputStats.Content.String()) != "") {
+				meaningfulRunes(outputStats.Content.String()) > 0) {
 				// First real content has landed: release the held openers, then stream live.
 				streamingStarted = true
 				for _, d := range pendingFlush {

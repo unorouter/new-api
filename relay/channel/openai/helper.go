@@ -3,6 +3,7 @@ package openai
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -135,6 +136,20 @@ type StreamOutputStats struct {
 	FinishReason string
 }
 
+// meaningfulRunes counts letters, digits and symbols (emoji included). A backend
+// in a degenerate state streams "!!!!!!!!" as its reasoning (kimi-k3 on 18 a7
+// lanes, 2026-10-03), and counting that as output committed the stream before
+// it could fail over, so the reader got an empty answer.
+func meaningfulRunes(s string) int {
+	n := 0
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsSymbol(r) {
+			n++
+		}
+	}
+	return n
+}
+
 func ProcessStreamResponse(streamResponse dto.ChatCompletionsStreamResponse, responseTextBuilder *strings.Builder, toolCount *int, stats *StreamOutputStats) error {
 	for _, choice := range streamResponse.Choices {
 		content := choice.Delta.GetContentString()
@@ -143,7 +158,7 @@ func ProcessStreamResponse(streamResponse dto.ChatCompletionsStreamResponse, res
 		responseTextBuilder.WriteString(reasoning)
 		if stats != nil {
 			stats.Content.WriteString(content)
-			stats.ReasoningChars += len(reasoning)
+			stats.ReasoningChars += meaningfulRunes(reasoning)
 			if fr := choice.FinishReason; fr != nil && *fr != "" {
 				stats.FinishReason = *fr
 			}
