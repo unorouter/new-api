@@ -295,7 +295,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: redis
-          image: redis:7-alpine
+          image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
           # maxmemory-policy is volatile-lru, NOT allkeys-lru. Most keys here carry
           # a TTL and are safely evictable, but auth:user:version:* is deliberately
           # written without one: it is the permanent monotonic floor that makes a
