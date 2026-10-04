@@ -9,6 +9,7 @@ on:
     # edit: ArgoCD applies k8s/ on its own, a rebuild only rolls the gateway.
     paths-ignore:
       - k8s/**
+      - renovate.json
 
 concurrency:
   group: ghcr-${{ github.ref }}
