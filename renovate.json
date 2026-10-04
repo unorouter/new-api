@@ -1,13 +1,14 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Workflow actions only, pinned by commit SHA. Never a PR: minor, patch and digest bumps merge straight to main in the Monday window; a major waits in the Dependency dashboard issue until its box is ticked. App dependencies are not managed here.",
+  "description": "Workflow actions only, pinned by commit SHA. Never a PR: minor, patch and digest bumps merge straight to main in the Monday window; a major waits in the Dependency dashboard issue until its box is ticked. The CNPG Postgres image in k8s/pg.yaml moves by digest only, never by version. App dependencies are not managed here.",
   "extends": [
     "config:recommended",
     ":semanticCommitsDisabled",
     "helpers:pinGitHubActionDigests"
   ],
   "enabledManagers": [
-    "github-actions"
+    "github-actions",
+    "custom.regex"
   ],
   "timezone": "Europe/Berlin",
   "schedule": [
@@ -31,6 +32,41 @@
         "major"
       ],
       "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Postgres: digest only, a version change is a migration",
+      "matchPackageNames": [
+        "ghcr.io/cloudnative-pg/postgresql"
+      ],
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "newapi-pg is primaryUpdateStrategy supervised: the replicas roll on merge and the primary waits for a switchover, so a new digest waits for its box in the dashboard",
+      "matchPackageNames": [
+        "ghcr.io/cloudnative-pg/postgresql"
+      ],
+      "matchUpdateTypes": [
+        "digest"
+      ],
+      "dependencyDashboardApproval": true
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "CNPG Postgres image, tag@digest",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^k8s/pg\\.yaml$/"
+      ],
+      "matchStrings": [
+        "imageName: (?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
     }
   ]
 }

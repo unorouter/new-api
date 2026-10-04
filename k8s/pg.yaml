@@ -52,7 +52,7 @@ spec:
   inheritedMetadata:
     annotations:
       backup.velero.io/backup-volumes-excludes: pgdata,scratch-data,shm
-  imageName: ghcr.io/cloudnative-pg/postgresql:15-standard-bookworm
+  imageName: ghcr.io/cloudnative-pg/postgresql:15-standard-bookworm@sha256:6cca69b026405a5cc8593b6bf2a095010fad51ba338a368a3b5305c1c2c77cf6
   instances: 3
   # required, not the default preferred: a replacement replica landed next to another
   # instance twice during the node rolls (2026-09-17). Pending until its node is back beats
