@@ -61,12 +61,13 @@ func RelayMidjourneyImage(c *gin.Context) {
 	}
 	if validateErr != nil {
 		c.JSON(http.StatusForbidden, gin.H{
-			"error": fmt.Sprintf("request blocked: %v", validateErr),
+			"error": "request_blocked",
 		})
 		return
 	}
 	resp, err := httpClient.Get(midjourneyTask.ImageUrl)
 	if err != nil {
+		logger.LogWarn(c, fmt.Sprintf("midjourney image fetch failed for task %s: %v", taskId, err))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "http_get_image_failed",
 		})
@@ -74,9 +75,9 @@ func RelayMidjourneyImage(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		responseBody, _ := io.ReadAll(resp.Body)
-		c.JSON(resp.StatusCode, gin.H{
-			"error": string(responseBody),
+		logger.LogWarn(c, fmt.Sprintf("midjourney image fetch for task %s returned status %d", taskId, resp.StatusCode))
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": "http_get_image_failed",
 		})
 		return
 	}
@@ -107,7 +108,8 @@ func RelayMidjourneyNotify(c *gin.Context) *dto.MidjourneyResponse {
 			Result:      "",
 		}
 	}
-	midjourneyTask := model.GetByOnlyMJId(midjRequest.MjId)
+	// notifyHook is stripped before submit, so no upstream calls this: only the task owner may update it
+	midjourneyTask := model.GetByMJId(c.GetInt("id"), midjRequest.MjId)
 	if midjourneyTask == nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,

@@ -85,7 +85,7 @@ func TestProtectedFetchDialerRejectsPrivateReboundAddress(t *testing.T) {
 
 	require.Error(t, err)
 	require.Nil(t, conn)
-	require.Contains(t, err.Error(), "private IP address not allowed")
+	require.ErrorIs(t, err, common.ErrURLNotAllowed)
 }
 
 func TestProtectedFetchDialerRejectsMixedResolvedIPs(t *testing.T) {
@@ -114,7 +114,7 @@ func TestProtectedFetchDialerRejectsMixedResolvedIPs(t *testing.T) {
 	require.Nil(t, conn)
 
 	require.Empty(t, dialed)
-	require.Contains(t, err.Error(), "private IP address not allowed")
+	require.ErrorIs(t, err, common.ErrURLNotAllowed)
 }
 
 func TestProtectedFetchDialerDialsWhenAllResolvedIPsAllowed(t *testing.T) {
@@ -268,7 +268,7 @@ func TestProtectedFetchRoundTripperRejectsPrivateTargetBeforeProxy(t *testing.T)
 	resp, err := client.Do(req)
 	require.Error(t, err)
 	require.Nil(t, resp)
-	require.Contains(t, err.Error(), "private IP address not allowed")
+	require.ErrorIs(t, err, common.ErrURLNotAllowed)
 	require.Empty(t, dialed)
 }
 
@@ -297,7 +297,7 @@ func TestProtectedFetchRoundTripperNoProxyUsesProtectedDialer(t *testing.T) {
 	resp, err := client.Do(req)
 	require.Error(t, err)
 	require.Nil(t, resp)
-	require.Contains(t, err.Error(), "private IP address not allowed")
+	require.ErrorIs(t, err, common.ErrURLNotAllowed)
 	require.Empty(t, dialed)
 }
 

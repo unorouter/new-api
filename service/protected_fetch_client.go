@@ -197,7 +197,8 @@ func (d *protectedFetchDialer) DialContext(ctx context.Context, network, addr st
 
 	resolved, err := d.resolver.LookupIPAddr(ctx, host)
 	if err != nil {
-		return nil, fmt.Errorf("DNS resolution failed for %s: %v", host, err)
+		common.SysLog(fmt.Sprintf("ssrf protected dial: DNS resolution failed for %s: %v", host, err))
+		return nil, fmt.Errorf("DNS resolution failed for %s", host)
 	}
 
 	var candidateIPs []net.IP

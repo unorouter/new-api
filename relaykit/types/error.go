@@ -166,9 +166,6 @@ func (e *NewAPIError) MaskSensitiveError() string {
 		return string(e.errorCode)
 	}
 	errStr := e.Err.Error()
-	if e.errorCode == ErrorCodeCountTokenFailed {
-		return errStr
-	}
 	return kitutil.MaskSensitiveInfo(errStr)
 }
 
@@ -219,9 +216,7 @@ func (e *NewAPIError) ToOpenAIError() OpenAIError {
 			Code:    e.errorCode,
 		}
 	}
-	if e.errorCode != ErrorCodeCountTokenFailed {
-		result.Message = kitutil.MaskSensitiveInfo(result.Message)
-	}
+	result.Message = kitutil.MaskSensitiveInfo(result.Message)
 	if result.Message == "" {
 		result.Message = string(e.errorType)
 	}
@@ -248,9 +243,7 @@ func (e *NewAPIError) ToClaudeError() ClaudeError {
 			Type:    string(e.errorType),
 		}
 	}
-	if e.errorCode != ErrorCodeCountTokenFailed {
-		result.Message = kitutil.MaskSensitiveInfo(result.Message)
-	}
+	result.Message = kitutil.MaskSensitiveInfo(result.Message)
 	if result.Message == "" {
 		result.Message = string(e.errorType)
 	}

@@ -44,7 +44,7 @@ type proxyURLConfig struct {
 func checkRedirect(req *http.Request, via []*http.Request) error {
 	urlStr := req.URL.String()
 	if err := validateURLWithCurrentFetchSetting(urlStr, true); err != nil {
-		return fmt.Errorf("redirect to %s blocked: %v", urlStr, err)
+		return fmt.Errorf("redirect blocked: %w", err)
 	}
 	if len(via) >= 10 {
 		return fmt.Errorf("stopped after 10 redirects")
@@ -55,7 +55,7 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 func checkProtectedFetchRedirect(req *http.Request, via []*http.Request) error {
 	urlStr := req.URL.String()
 	if err := ValidateSSRFProtectedFetchURL(urlStr); err != nil {
-		return fmt.Errorf("redirect to %s blocked: %v", urlStr, err)
+		return fmt.Errorf("redirect blocked: %w", err)
 	}
 	if len(via) >= 10 {
 		return fmt.Errorf("stopped after 10 redirects")

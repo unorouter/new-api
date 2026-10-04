@@ -1,6 +1,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -74,16 +75,18 @@ var privateIPv4Nets = []net.IPNet{
 // https://www.iana.org/assignments/iana-ipv6-special-registry/
 var privateIPv6Nets = func() []net.IPNet {
 	cidrs := []string{
-		"::/128",        // 未指定地址
-		"::1/128",       // 回环
-		"::ffff:0:0/96", // IPv4-mapped
-		"64:ff9b::/96",  // IPv4/IPv6 translation
-		"100::/64",      // Discard-Only
-		"2001::/23",     // IETF Protocol Assignments
-		"2001:db8::/32", // 文档
-		"fc00::/7",      // Unique Local Address (ULA)
-		"fe80::/10",     // 链路本地
-		"ff00::/8",      // 组播
+		"::/128",         // 未指定地址
+		"::1/128",        // 回环
+		"::ffff:0:0/96",  // IPv4-mapped
+		"64:ff9b::/96",   // IPv4/IPv6 translation
+		"64:ff9b:1::/48", // Local-use IPv4/IPv6 translation
+		"100::/64",       // Discard-Only
+		"2001::/23",      // IETF Protocol Assignments
+		"2001:db8::/32",  // 文档
+		"2002::/16",      // 6to4
+		"fc00::/7",       // Unique Local Address (ULA)
+		"fe80::/10",      // 链路本地
+		"ff00::/8",       // 组播
 	}
 	nets := make([]net.IPNet, 0, len(cidrs))
 	for _, c := range cidrs {
@@ -121,6 +124,11 @@ func isPrivateIP(ip net.IP) bool {
 		return false
 	}
 
+	// IPv4-compatible (::a.b.c.d, deprecated) is dialed as the embedded IPv4 by some stacks
+	if isIPv4Compatible(ip) {
+		return isPrivateIP(net.IPv4(ip[12], ip[13], ip[14], ip[15]))
+	}
+
 	// IPv6 检查
 	for _, privateNet := range privateIPv6Nets {
 		if privateNet.Contains(ip) {
@@ -132,6 +140,19 @@ func isPrivateIP(ip net.IP) bool {
 		return true
 	}
 	return false
+}
+
+func isIPv4Compatible(ip net.IP) bool {
+	ip16 := ip.To16()
+	if ip16 == nil {
+		return false
+	}
+	for _, b := range ip16[:12] {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // parsePortRanges 解析端口范围配置
@@ -282,8 +303,23 @@ func (p *SSRFProtection) ipAccessError(host string, ip net.IP) error {
 	return fmt.Errorf("ip in blacklist: %s", ip.String())
 }
 
+// ErrURLNotAllowed is the only SSRF refusal callers see; the detailed reason (resolved IPs, list hits) goes to the server log.
+var ErrURLNotAllowed = errors.New("url not allowed")
+
+func rejectURL(detail error) error {
+	SysLog("ssrf protection rejected request: " + detail.Error())
+	return ErrURLNotAllowed
+}
+
 // ValidateNetworkTarget validates the host and port before dialing.
 func (p *SSRFProtection) ValidateNetworkTarget(host string, port int) error {
+	if err := p.validateNetworkTarget(host, port); err != nil {
+		return rejectURL(err)
+	}
+	return nil
+}
+
+func (p *SSRFProtection) validateNetworkTarget(host string, port int) error {
 	host = strings.TrimSpace(host)
 	if host == "" {
 		return fmt.Errorf("invalid host")
@@ -314,13 +350,20 @@ func (p *SSRFProtection) ValidateNetworkTarget(host string, port int) error {
 // ValidateResolvedIP validates a domain's resolved IP immediately before dialing it.
 func (p *SSRFProtection) ValidateResolvedIP(host string, ip net.IP) error {
 	if !p.IsIPAccessAllowed(ip) {
-		return p.ipAccessError(host, ip)
+		return rejectURL(p.ipAccessError(host, ip))
 	}
 	return nil
 }
 
 // ValidateURL 验证URL是否安全
 func (p *SSRFProtection) ValidateURL(urlStr string) error {
+	if err := p.validateURL(urlStr); err != nil {
+		return rejectURL(err)
+	}
+	return nil
+}
+
+func (p *SSRFProtection) validateURL(urlStr string) error {
 	// 解析URL
 	u, err := url.Parse(urlStr)
 	if err != nil {
@@ -350,7 +393,7 @@ func (p *SSRFProtection) ValidateURL(urlStr string) error {
 		return fmt.Errorf("invalid port: %s", portStr)
 	}
 
-	if err := p.ValidateNetworkTarget(host, port); err != nil {
+	if err := p.validateNetworkTarget(host, port); err != nil {
 		return err
 	}
 
@@ -365,8 +408,8 @@ func (p *SSRFProtection) ValidateURL(urlStr string) error {
 		return fmt.Errorf("DNS resolution failed for %s: %v", host, err)
 	}
 	for _, ip := range ips {
-		if err := p.ValidateResolvedIP(host, ip); err != nil {
-			return err
+		if !p.IsIPAccessAllowed(ip) {
+			return p.ipAccessError(host, ip)
 		}
 	}
 	return nil
@@ -381,7 +424,7 @@ func ValidateURLWithFetchSetting(urlStr string, enableSSRFProtection, allowPriva
 
 	protection, err := NewSSRFProtectionFromFetchSetting(allowPrivateIp, domainFilterMode, ipFilterMode, domainList, ipList, allowedPorts, applyIPFilterForDomain)
 	if err != nil {
-		return err
+		return rejectURL(err)
 	}
 	return protection.ValidateURL(urlStr)
 }
