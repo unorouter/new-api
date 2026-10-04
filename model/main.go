@@ -616,6 +616,9 @@ func migrateLOGDB() error {
 		return err
 	}
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
+		if err := migrateLogSpool(); err != nil {
+			return err
+		}
 		return migrateClickHouseLogDB()
 	}
 	return LOG_DB.AutoMigrate(&Log{})

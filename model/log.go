@@ -219,9 +219,15 @@ func insertClickHouseLogRow(table string, requestId string, row any) {
 	pendingClickHouseLogInserts.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), clickHouseLogInsertTimeout)
 		defer cancel()
-		if err := LOG_DB.WithContext(ctx).Table(table).Create(row).Error; err != nil {
-			common.SysError(fmt.Sprintf("failed to write %s row (request_id=%s): %v", table, requestId, err))
+		err := LOG_DB.WithContext(ctx).Table(table).Create(row).Error
+		if err == nil {
+			return
 		}
+		if spoolErr := spoolLogRow(table, row); spoolErr != nil {
+			common.SysError(fmt.Sprintf("failed to write %s row (request_id=%s): %v; spool: %v", table, requestId, err, spoolErr))
+			return
+		}
+		common.SysError(fmt.Sprintf("spooled %s row after ClickHouse error (request_id=%s): %v", table, requestId, err))
 	})
 }
 

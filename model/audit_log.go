@@ -125,10 +125,7 @@ func RecordAuditLog(c *gin.Context, entry AuditLog) {
 		// The ClickHouse GORM insert callback passes structs to the native
 		// driver without resolving their Valuer. Bind this column's JSON
 		// encoding while retaining AuditOther in the domain and API models.
-		insertClickHouseLogRow("audit_logs", entry.RequestId, &struct {
-			AuditLog     `gorm:"embedded"`
-			EncodedOther string `gorm:"column:other;type:json"`
-		}{AuditLog: entry, EncodedOther: string(encoded)})
+		insertClickHouseLogRow("audit_logs", entry.RequestId, &clickHouseAuditRow{AuditLog: entry, EncodedOther: string(encoded)})
 		return
 	}
 	if err := LOG_DB.Table("audit_logs").Create(&entry).Error; err != nil {

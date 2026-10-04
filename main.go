@@ -403,6 +403,7 @@ func InitResources() error {
 	}
 
 	service.StartAuthArtifactCleanup()
+	model.StartLogSpoolDrain()
 	service.StartNetworkReputation()
 
 	return nil
