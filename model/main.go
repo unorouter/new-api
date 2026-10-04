@@ -152,7 +152,11 @@ func chooseDB(envName string, isLog bool) (*gorm.DB, common.DatabaseType, error)
 				return nil, "", fmt.Errorf("%s does not support ClickHouse; use SQLite, MySQL, or PostgreSQL for the primary database and LOG_SQL_DSN for ClickHouse logs", envName)
 			}
 			common.SysLog("using ClickHouse as log database")
-			db, err := gorm.Open(clickhouse.Open(normalizeClickHouseDSN(dsn)), newGormConfig(false))
+			// ClickHouse must never keep the gateway from starting: unreachable, rows go to the spool.
+			// The version query only gates features of releases older than 21.11.
+			config := newGormConfig(false)
+			config.DisableAutomaticPing = true
+			db, err := gorm.Open(clickhouse.New(clickhouse.Config{DSN: normalizeClickHouseDSN(dsn), SkipInitializeWithVersion: true}), config)
 			return db, common.DatabaseTypeClickHouse, err
 		}
 		if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
@@ -270,6 +274,15 @@ func InitLogDB() (err error) {
 			return nil
 		}
 		common.SysLog("database migration started")
+		if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
+			if err := migrateLogSpool(); err != nil {
+				return err
+			}
+			if err := migrateLOGDB(); err != nil {
+				common.SysError("ClickHouse log migration failed, rows go to the log spool until it is reachable: " + err.Error())
+			}
+			return nil
+		}
 		err = migrateLOGDB()
 		return err
 	} else {
@@ -616,9 +629,6 @@ func migrateLOGDB() error {
 		return err
 	}
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
-		if err := migrateLogSpool(); err != nil {
-			return err
-		}
 		return migrateClickHouseLogDB()
 	}
 	return LOG_DB.AutoMigrate(&Log{})
