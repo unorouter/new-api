@@ -154,6 +154,10 @@ var upstreamRules = []upstreamRule{
 	{markers: []string{"free tier rate limit (", "account per-minute rate limit exceeded (", "ch.at 429", "[literouter] rate limit exceeded for your tier", "[literouter] too many concurrent requests"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: time.Minute}, userMessage: "This model is at its provider's per minute limit right now. Nothing is used up on your side. Try again in a minute."},
 	// LiteRouter also caps each free key per hour across all its free ids (a 403);
 	// on 2026-09-26 it disabled six of eight ltr1 lanes within minutes of the first sync.
+	// Dahl admits signed-in and paid accounts first; an anonymous key at peak gets
+	// this for minutes at a time, and its text carried Dahl's signup link and model
+	// list straight to our users (2026-10-04, glm-5.3-flash:free).
+	{markers: []string{"at concurrency capacity. signed-in and paid accounts are admitted first"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 5 * time.Minute}, userMessage: "This model's provider is full right now. Nothing is used up on your side. Retry and another provider will take it, or try again in a few minutes."},
 	{markers: []string{"[literouter] hourly rate limit exceeded for free models"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 15 * time.Minute}, userMessage: "This model is at its provider's hourly limit right now. Nothing is used up on your side. Retry and another provider will take it."},
 	// A free lane whose upstream keeps answering that free capacity is limited
 	// and paid credits lift it: a 429 in words, but one lane (oc2 hy3) failed 583
