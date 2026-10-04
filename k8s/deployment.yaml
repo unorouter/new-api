@@ -40,6 +40,13 @@ spec:
     metadata:
       labels: { app: new-api, tier: master }
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
       # Above SHUTDOWN_TIMEOUT_SECONDS (120s, main.go). The 30s default SIGKILLs a pod
       # with queries still streaming, which strands the backend in ClientWrite holding
       # its table locks: that is how one dead client blocked 105 sessions on 2026-09-11.
@@ -76,6 +83,9 @@ spec:
           # NEVER set this back to :latest -- a floating tag never changes the manifest, so
           # ArgoCD sees no diff and the deploy silently does not happen.
           image: ghcr.io/unorouter/new-api:142957558e932725cf65d74c5d0cbe7ef489652e@sha256:8f012661fc46449c2aaafee6a96aa49e2acce0e2a43ff41ec3078e02bfe494fd
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
           # 2026-08-12 evening: pods rolled out mid-peak spiked to 840Mi (reconnecting SSE
           # streams + cold caches) and the old 1Gi limit OOM-killed them in a cascade that
           # briefly zeroed the deployment. Steady state ~200-320Mi; the limit is a node
@@ -167,6 +177,13 @@ spec:
     metadata:
       labels: { app: new-api, tier: slave }
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
       # Above SHUTDOWN_TIMEOUT_SECONDS (120s, main.go). The 30s default SIGKILLs a pod
       # with queries still streaming, which strands the backend in ClientWrite holding
       # its table locks: that is how one dead client blocked 105 sessions on 2026-09-11.
@@ -207,6 +224,9 @@ spec:
           # NEVER set this back to :latest -- a floating tag never changes the manifest, so
           # ArgoCD sees no diff and the deploy silently does not happen.
           image: ghcr.io/unorouter/new-api:142957558e932725cf65d74c5d0cbe7ef489652e@sha256:8f012661fc46449c2aaafee6a96aa49e2acce0e2a43ff41ec3078e02bfe494fd
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
           resources:
             requests: { memory: 512Mi, cpu: 100m }
             limits: { memory: 2Gi }
@@ -290,12 +310,22 @@ spec:
     metadata:
       labels: { app: newapi-redis }
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
       priorityClassName: serving
       imagePullSecrets:
         - name: ghcr-pull
       containers:
         - name: redis
           image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
           # maxmemory-policy is volatile-lru, NOT allkeys-lru. Most keys here carry
           # a TTL and are safely evictable, but auth:user:version:* is deliberately
           # written without one: it is the permanent monotonic floor that makes a
