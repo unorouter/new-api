@@ -402,28 +402,39 @@ func handleOAuthLogin(c *gin.Context, provider oauth.Provider, oauthUser *oauth.
 	}
 	user, migration, err := findOrCreateOAuthUser(c, provider, oauthUser, token, payload.AffiliateCode)
 	if err != nil {
-		if errors.Is(err, model.ErrEmailAlreadyTaken) {
-			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
-			return
-		}
+		var msg string
 		switch err.(type) {
 		case *types.OAuthUserDeletedError:
-			common.ApiErrorI18n(c, i18n.MsgOAuthUserDeleted)
+			msg = i18n.T(c, i18n.MsgOAuthUserDeleted)
 		case *types.OAuthRegistrationDisabledError:
-			common.ApiErrorI18n(c, i18n.MsgUserRegisterDisabled)
+			msg = i18n.T(c, i18n.MsgUserRegisterDisabled)
 		case *OAuthEmailAlreadyTakenError:
-			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+			msg = i18n.T(c, i18n.MsgUserEmailAlreadyTaken)
 		case *OAuthLegacyBindingNotConfirmedError:
-			common.ApiErrorI18n(c, i18n.MsgOAuthNotAutoLinked, providerParams(provider.GetName()))
-		default:
-			writeSecurityOperationError(c, err)
+			msg = i18n.T(c, i18n.MsgOAuthNotAutoLinked, providerParams(provider.GetName()))
 		}
+		if errors.Is(err, model.ErrEmailAlreadyTaken) {
+			msg = i18n.T(c, i18n.MsgUserEmailAlreadyTaken)
+		}
+		if msg == "" {
+			writeSecurityOperationError(c, err)
+			return
+		}
+		// Send the user back to the frontend that started the login, not the API host's own sign-in page.
+		if setupOAuthErrorRedirect(c, redirectURI, msg) {
+			return
+		}
+		common.ApiErrorMsg(c, msg)
 		return
 	}
 
 	// 9. Check user status
 	if user.Status != common.UserStatusEnabled {
-		common.ApiErrorI18n(c, i18n.MsgOAuthUserBanned)
+		msg := i18n.T(c, i18n.MsgOAuthUserBanned)
+		if setupOAuthErrorRedirect(c, redirectURI, msg) {
+			return
+		}
+		common.ApiErrorMsg(c, msg)
 		return
 	}
 
