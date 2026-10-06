@@ -265,6 +265,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
+	// A decisions model answers POST /v1/decisions only. Clients pick it from
+	// /v1/models and send chat, which used to leave as a 500 counted against the lane.
+	if relayFormat != types.RelayFormatDecisions && common.GetContextKeyInt(c, constant.ContextKeyChannelType) == constant.ChannelTypeTypeSafe {
+		newAPIError = types.NewErrorWithStatusCode(fmt.Errorf("model %s only serves POST /v1/decisions", common.GetContextKeyString(c, constant.ContextKeyOriginalModel)), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		return
+	}
+
 	relayInfo, err := relaycommon.GenRelayInfo(c, relayFormat, request, ws)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
