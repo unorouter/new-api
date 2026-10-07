@@ -415,6 +415,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	} else {
 		newAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
 		if newAPIError != nil {
+			if newAPIError.GetErrorCode() == types.ErrorCodeInsufficientUserQuota && relayInfo.UserUsedQuota <= 0 {
+				service.TrackPaidProbe(relayInfo.UserId, relayInfo.OriginModelName)
+			}
 			return
 		}
 	}

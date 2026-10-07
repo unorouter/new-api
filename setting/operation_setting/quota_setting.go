@@ -45,6 +45,9 @@ type QuotaSetting struct {
 	// 用户名域名簇：用户名形如邮箱、未填写邮箱，且同一稀有域名下账号数达到阈值、几乎无人绑定身份，则视为农场。
 	FreeAbuseUsernameDomainMinAccounts int    `json:"free_abuse_username_domain_min_accounts"` // 0=关闭
 	FreeAbuseUsernameDomainAllowlist   string `json:"free_abuse_username_domain_allowlist"`    // 逗号分隔的公共邮箱域名，不参与统计
+	// 付费模型探测：从未消费的零余额账号在 10 分钟内被拒绝的不同付费模型数达到阈值，则禁用账号。仅在启用 Redis 时生效；0=关闭。
+	PaidProbeMaxDistinctModels int    `json:"paid_probe_max_distinct_models"`
+	PaidProbeExemptUserIds     string `json:"paid_probe_exempt_user_ids"` // 逗号分隔的豁免用户 ID
 }
 
 // 默认配置
@@ -67,6 +70,7 @@ var quotaSetting = QuotaSetting{
 	FreeAbuseBurstMinAccounts:      0,
 	FreeAbuseBurstWindowDays:       90,
 	FreeAbuseUnverifiedPct:         100,
+	PaidProbeMaxDistinctModels:     20,
 
 	FreeAbuseCooccurMode:               0,
 	FreeAbuseCooccurIpMinAccounts:      0,
