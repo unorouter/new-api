@@ -70,3 +70,5 @@ setting/operation_setting/quota_setting.go :: PaidProbeMaxDistinctModels int
 setting/operation_setting/quota_setting.go :: PaidProbeMaxRefusals
 service/network_reputation.go :: func accountEmailDomain(username, email string, allow map[string]struct{}) string
 setting/operation_setting/quota_setting.go :: FreeAbuseEmailDomainDailyMin int
+middleware/turnstile-check.go :: func TurnstileCheckAnonymous() gin.HandlerFunc
+router/api-router.go :: middleware.TurnstileCheckAnonymous()

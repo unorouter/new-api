@@ -86,9 +86,11 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// session (same-origin bind and verify intents need it); anonymous login
 		// flows pass through TryUserAuth untouched.
 		oauthSession := dto.NewRouter(engine, apiRouter.Group("", middleware.CORS(), middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.TryUserAuthLenient()), "OAuth", secPublic())
-		// GET is the external frontend's (BFF) entry, POST the built-in one.
-		dto.GetP(oauthSession, "/oauth/state", controller.GenerateOAuthCodeQuery)
-		oauthSession.GinPost("/oauth/state", controller.GenerateOAuthCode, dto.GinResp[dto.ApiResponse]())
+		// GET is the external frontend's (BFF) entry, POST the built-in one. Both
+		// challenge anonymous callers: this is where a new OAuth account starts.
+		oauthState := dto.NewRouter(engine, apiRouter.Group("", middleware.CORS(), middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.TryUserAuthLenient(), middleware.TurnstileCheckAnonymous()), "OAuth", secPublic())
+		dto.GetP(oauthState, "/oauth/state", controller.GenerateOAuthCodeQuery, dto.TurnstileQuery())
+		oauthState.GinPost("/oauth/state", controller.GenerateOAuthCode, dto.GinResp[dto.ApiResponse](), dto.TurnstileQuery())
 		dto.PostB(oauthCritical, "/oauth/exchange", controller.ExchangeOAuthCode)
 		// Binding an email to the CURRENT account, so it needs the caller
 		// identified. The handler's own fallback only accepts a system access

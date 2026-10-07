@@ -332,11 +332,28 @@ export function UserAuthForm({
         </div>
       )}
 
+      {/* Turnstile: outside the password block, the OAuth start needs it too */}
+      {isTurnstileEnabled && (
+        <div className='mt-2'>
+          <Turnstile
+            key={turnstileWidgetKey}
+            siteKey={turnstileSiteKey}
+            onVerify={setTurnstileToken}
+            onExpire={() => setTurnstileToken('')}
+          />
+        </div>
+      )}
+
       {/* OAuth Providers */}
       <OAuthProviders
         status={status}
         redirectTo={redirectTo}
-        disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
+        turnstileToken={turnstileToken}
+        disabled={
+          isLoading ||
+          (requiresLegalConsent && !agreedToLegal) ||
+          (isTurnstileEnabled && !turnstileToken)
+        }
         onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
         isWeChatLoading={isWeChatSubmitting}
       />
@@ -406,17 +423,6 @@ export function UserAuthForm({
               {t('Sign in')}
             </Button>
 
-            {/* Turnstile */}
-            {isTurnstileEnabled && (
-              <div className='mt-2'>
-                <Turnstile
-                  key={turnstileWidgetKey}
-                  siteKey={turnstileSiteKey}
-                  onVerify={setTurnstileToken}
-                  onExpire={() => setTurnstileToken('')}
-                />
-              </div>
-            )}
           </>
         )}
 

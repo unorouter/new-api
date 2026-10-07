@@ -62,3 +62,18 @@ func TurnstileCheck() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// TurnstileCheckAnonymous challenges only callers without a dashboard session.
+// The OAuth start was the one way to create an account without a challenge (the
+// gkotto.com Google Workspace farm, 2026-10-06), while linking a provider from a
+// logged-in account has nothing to gain from one.
+func TurnstileCheckAnonymous() gin.HandlerFunc {
+	check := TurnstileCheck()
+	return func(c *gin.Context) {
+		if c.GetInt("id") > 0 {
+			c.Next()
+			return
+		}
+		check(c)
+	}
+}
