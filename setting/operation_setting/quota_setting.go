@@ -47,6 +47,7 @@ type QuotaSetting struct {
 	FreeAbuseUsernameDomainAllowlist   string `json:"free_abuse_username_domain_allowlist"`    // 逗号分隔的公共邮箱域名，不参与统计
 	// 付费模型探测：从未消费的零余额账号在 10 分钟内被拒绝的不同付费模型数达到阈值，则禁用账号。仅在启用 Redis 时生效；0=关闭。
 	PaidProbeMaxDistinctModels int    `json:"paid_probe_max_distinct_models"`
+	PaidProbeMaxRefusals       int    `json:"paid_probe_max_refusals"`    // 同一窗口内被拒绝的付费请求总数上限（反复请求同一付费模型）；0=关闭
 	PaidProbeExemptUserIds     string `json:"paid_probe_exempt_user_ids"` // 逗号分隔的豁免用户 ID
 }
 
@@ -71,6 +72,7 @@ var quotaSetting = QuotaSetting{
 	FreeAbuseBurstWindowDays:       90,
 	FreeAbuseUnverifiedPct:         100,
 	PaidProbeMaxDistinctModels:     20,
+	PaidProbeMaxRefusals:           100,
 
 	FreeAbuseCooccurMode:               0,
 	FreeAbuseCooccurIpMinAccounts:      0,
