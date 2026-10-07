@@ -384,6 +384,20 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 			types.ErrOptionWithSkipRetry(), types.ErrOptionWithSkipDisable())
 	}
 
+	// The relay closed the stream before Gemini's terminal chunk (finishReason and
+	// usage): only the thinking reached the client (lnk1 Vertex, 2026-10-07), and it
+	// was logged a success while the client saw no finish reason. Bytes are committed,
+	// so no failover; end with an error the client can show, unbilled.
+	if sawOutput && info.RelayFormat != types.RelayFormatGemini && info.StreamStatus != nil &&
+		info.StreamStatus.EndReason == relaycommon.StreamEndReasonEOF &&
+		info.StreamStatus.ResponseOutcome() == string(relaycommon.ResponseOutcomeUnknown) {
+		openai.SendPendingThinkClose(c, info, id, createAt)
+		return usage, types.NewOpenAIError(
+			errors.New("the provider ended this reply before it finished, so it was not charged. Send it again"),
+			types.ErrorCodeBadResponse, http.StatusBadGateway,
+			types.ErrOptionWithSkipRetry(), types.ErrOptionWithStreamTruncated())
+	}
+
 	response := helper.GenerateFinalUsageResponse(id, createAt, info.UpstreamModelName, *usage)
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo != nil && !info.ClaudeConvertInfo.Done {
 		response = helper.GenerateStopResponse(id, createAt, info.UpstreamModelName, finishReason)
