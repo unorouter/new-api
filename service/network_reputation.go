@@ -57,7 +57,8 @@ func refreshNetworkReputation() {
 	minAccounts := setting.FreeAbuseNetworkMinAccounts
 	burstMin := setting.FreeAbuseBurstMinAccounts
 	domainMin := setting.FreeAbuseUsernameDomainMinAccounts
-	if minAccounts <= 0 && burstMin <= 0 && domainMin <= 0 {
+	emailDomainDailyMin := setting.FreeAbuseEmailDomainDailyMin
+	if minAccounts <= 0 && burstMin <= 0 && domainMin <= 0 && emailDomainDailyMin <= 0 {
 		currentNetworkReputation.Store(&networkReputation{})
 		return
 	}
@@ -72,7 +73,7 @@ func refreshNetworkReputation() {
 	now := time.Now()
 	networkSince := now.AddDate(0, 0, -windowDays).Unix()
 	fetchSince := networkSince
-	if (burstMin > 0 || domainMin > 0) && burstDays > windowDays {
+	if (burstMin > 0 || domainMin > 0 || emailDomainDailyMin > 0) && burstDays > windowDays {
 		fetchSince = now.AddDate(0, 0, -burstDays).Unix()
 	}
 	rows, err := model.RegistrationProvenanceSince(fetchSince)
@@ -98,7 +99,19 @@ func refreshNetworkReputation() {
 	domainAllow := usernameDomainAllowlist(setting.FreeAbuseUsernameDomainAllowlist)
 	domainAccounts := make(map[string]int)
 	domainIdentities := make(map[string]int)
+	// Sign-ups per uncommon email domain per UTC day, identity or not: a farm that
+	// owns a Google Workspace domain mints accounts that all count as verified
+	// (gkotto.com, 39 in eight hours on 2026-10-06). Over the 90 days to 2026-10-07
+	// every domain reaching 10 in a day had no payer once the public providers on
+	// either allowlist were set aside.
+	emailDomainAllow := emailDomainBurstAllowlist(domainAllow)
+	emailDomainDays := make(map[string]int)
 	for i := range rows {
+		if emailDomainDailyMin > 0 {
+			if domain := accountEmailDomain(rows[i].Username, rows[i].Email, emailDomainAllow); domain != "" {
+				emailDomainDays[fmt.Sprintf("%s|%d", domain, rows[i].CreatedAt/86400)]++
+			}
+		}
 		if !rows[i].HasIdentity() && burstMin > 0 {
 			burstMinutes[rows[i].CreatedAt/60]++
 		}
@@ -147,10 +160,25 @@ func refreshNetworkReputation() {
 		flaggedDomains[domain] = struct{}{}
 	}
 
+	flaggedEmailDomains := make(map[string]struct{})
+	for key, total := range emailDomainDays {
+		if total >= emailDomainDailyMin {
+			flaggedEmailDomains[key[:strings.LastIndex(key, "|")]] = struct{}{}
+		}
+	}
+
 	shadowBanned := make(map[int]struct{})
 	burstBanned := 0
 	domainBanned := 0
+	emailDomainBanned := 0
 	for i := range rows {
+		if rows[i].UsedQuota == 0 && len(flaggedEmailDomains) > 0 {
+			if _, ok := flaggedEmailDomains[accountEmailDomain(rows[i].Username, rows[i].Email, emailDomainAllow)]; ok {
+				shadowBanned[rows[i].Id] = struct{}{}
+				emailDomainBanned++
+				continue
+			}
+		}
 		if rows[i].HasIdentity() || rows[i].UsedQuota > 0 {
 			continue
 		}
@@ -179,8 +207,8 @@ func refreshNetworkReputation() {
 
 	prev := currentNetworkReputation.Load()
 	if prev == nil || len(prev.shadowBanned) != len(shadowBanned) {
-		common.SysLog(fmt.Sprintf("network reputation: %d flagged networks, %d flagged username domains, %d shadow-banned accounts (%d from registration bursts, %d from username domains)",
-			len(flaggedNetworks), len(flaggedDomains), len(shadowBanned), burstBanned, domainBanned))
+		common.SysLog(fmt.Sprintf("network reputation: %d flagged networks, %d flagged username domains, %d flagged email domains, %d shadow-banned accounts (%d from registration bursts, %d from username domains, %d from email domains)",
+			len(flaggedNetworks), len(flaggedDomains), len(flaggedEmailDomains), len(shadowBanned), burstBanned, domainBanned, emailDomainBanned))
 	}
 	currentNetworkReputation.Store(&networkReputation{
 		flaggedNetworks: flaggedNetworks,
@@ -196,6 +224,41 @@ func usernameDomainAllowlist(raw string) map[string]struct{} {
 		}
 	}
 	return allow
+}
+
+// emailDomainBurstAllowlist joins the username-domain allowlist with the signup
+// whitelist, which carries the national provider domains and the privacy relays
+// (outlook.es reached 19 sign-ups in a day with a paying customer among them).
+func emailDomainBurstAllowlist(usernameAllow map[string]struct{}) map[string]struct{} {
+	allow := make(map[string]struct{}, len(usernameAllow)+len(common.EmailDomainWhitelist))
+	for domain := range usernameAllow {
+		allow[domain] = struct{}{}
+	}
+	for _, domain := range common.EmailDomainWhitelist {
+		allow[strings.ToLower(strings.TrimSpace(domain))] = struct{}{}
+	}
+	return allow
+}
+
+// accountEmailDomain returns the domain of the account's email, or of an
+// address-shaped username when no email was given, unless it is allowlisted.
+func accountEmailDomain(username, email string, allow map[string]struct{}) string {
+	address := email
+	if address == "" {
+		address = username
+	}
+	at := strings.LastIndex(address, "@")
+	if at <= 0 || at == len(address)-1 {
+		return ""
+	}
+	domain := strings.ToLower(address[at+1:])
+	if !strings.Contains(domain, ".") || strings.ContainsAny(domain, " \t/\\") {
+		return ""
+	}
+	if _, ok := allow[domain]; ok {
+		return ""
+	}
+	return domain
 }
 
 // usernameDomain returns the domain of an address-shaped username on an account

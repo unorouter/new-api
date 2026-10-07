@@ -68,3 +68,5 @@ service/paid_probe.go :: func TrackPaidProbe(userId int, modelName string)
 controller/relay.go :: service.TrackPaidProbe(relayInfo.UserId, relayInfo.OriginModelName)
 setting/operation_setting/quota_setting.go :: PaidProbeMaxDistinctModels int
 setting/operation_setting/quota_setting.go :: PaidProbeMaxRefusals
+service/network_reputation.go :: func accountEmailDomain(username, email string, allow map[string]struct{}) string
+setting/operation_setting/quota_setting.go :: FreeAbuseEmailDomainDailyMin int
