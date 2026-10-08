@@ -50,6 +50,11 @@ var (
 	// OAUTH_ALLOWED_REDIRECT_ORIGINS + "/en/consent" - so most deployments
 	// don't have to set this explicitly.
 	OAuthConsentPageUrl = ""
+
+	// OAuthExternalCallbackUrl receives OAuth callbacks whose state no longer
+	// resolves (expired, replayed), so the browser lands on the external frontend
+	// instead of this host's own sign-in page. Derived like OAuthConsentPageUrl.
+	OAuthExternalCallbackUrl = ""
 )
 
 // InitOAuthServerEnv populates the package vars from environment variables
@@ -83,5 +88,11 @@ func InitOAuthServerEnv() {
 	} else if len(common.OAuthAllowedRedirectOrigins) > 0 {
 		origin := strings.TrimRight(common.OAuthAllowedRedirectOrigins[0], "/")
 		OAuthConsentPageUrl = origin + "/en/consent"
+	}
+	if v := os.Getenv("OAUTH_EXTERNAL_CALLBACK_URL"); v != "" {
+		OAuthExternalCallbackUrl = v
+	} else if len(common.OAuthAllowedRedirectOrigins) > 0 {
+		origin := strings.TrimRight(common.OAuthAllowedRedirectOrigins[0], "/")
+		OAuthExternalCallbackUrl = origin + "/api/auth/account/oauth/callback"
 	}
 }

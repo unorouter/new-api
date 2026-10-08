@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/go-fuego/fuego"
@@ -228,10 +229,13 @@ func HandleOAuth(c *gin.Context) {
 		Provider: providerName,
 	})
 	if err != nil {
-		c.JSON(http.StatusForbidden, gin.H{
-			"success": false,
-			"message": i18n.T(c, i18n.MsgOAuthStateInvalid),
-		})
+		msg := i18n.T(c, i18n.MsgOAuthStateInvalid)
+		// An expired or replayed state has no redirect target of its own; showing this
+		// host's sign-in instead stranded users on the API host after they retried there.
+		if setupOAuthErrorRedirect(c, setting.OAuthExternalCallbackUrl, msg) {
+			return
+		}
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": msg})
 		return
 	}
 
