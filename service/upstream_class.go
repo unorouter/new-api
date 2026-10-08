@@ -108,6 +108,11 @@ var upstreamRules = []upstreamRule{
 	// lane doing it all day is dead.
 	{markers: []string{"协议能力与本次请求不匹配", "上游服务、网络链路或代理返回异常响应"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "The provider could not handle this request. Retry and it will go to a different one."},
 
+	// Strict schema hosts (si) refuse request shapes other lanes take: non-text
+	// content parts, or echoed reasoning_content. The lane is healthy, only this
+	// request does not fit it, so a sibling serves it and nothing is counted.
+	{markers: []string{"type is invalid, allowed values: ['text']", "extra inputs are not permitted"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone}, userMessage: "This provider cannot take part of your request (an image, file or reasoning block). Retry and it will go to a provider that accepts it."},
+
 	// Any host, the route or model is simply not there: a Go mux "404 page not
 	// found" from a relay whose handler is gone, or a gateway naming the model as
 	// nonexistent. Deterministic for this lane, and the failure-RATE guard never
