@@ -1540,6 +1540,28 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 	return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 }
 
+func grantLabel(req dto.GrantDiscordQuotaRequest) string {
+	clean := func(v string, max int) string {
+		v = strings.Join(strings.Fields(v), " ")
+		if r := []rune(v); len(r) > max {
+			v = string(r[:max])
+		}
+		return v
+	}
+	source, reason, by := clean(req.Source, 32), clean(req.Reason, 120), clean(req.GrantedBy, 32)
+	if source == "" && reason == "" {
+		return ""
+	}
+	label := " [" + source
+	if reason != "" {
+		label += ": " + reason
+	}
+	if by != "" && by != "system" {
+		label += ", by Discord user " + by
+	}
+	return label + "]"
+}
+
 // GrantDiscordQuota grants quota to the user linked to a Discord ID.
 // Repeatable: it always adds quota when the Discord account is linked. The caller
 // (the Discord bot) owns any idempotency/audit. Returns Linked=false when no user
@@ -1597,7 +1619,7 @@ func GrantDiscordQuota(c fuego.ContextWithBody[dto.GrantDiscordQuotaRequest]) (*
 
 	adminName := ginCtx.GetString("username")
 	model.RecordLog(user.Id, model.LogTypeManage,
-		fmt.Sprintf("admin (%v) granted quota %v to a Discord-linked user", adminName, logger.LogQuota(req.Quota)))
+		fmt.Sprintf("admin (%v) granted quota %v to a Discord-linked user%s", adminName, logger.LogQuota(req.Quota), grantLabel(req)))
 
 	return dto.Ok(dto.GrantDiscordQuotaData{UserId: user.Id, Linked: true})
 }

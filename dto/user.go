@@ -60,6 +60,10 @@ type GrantDiscordQuotaRequest struct {
 	Quota     int    `json:"quota"`
 	// CheckIpUnique refuses the grant when another account shares the target's register IP.
 	CheckIpUnique bool `json:"check_ip_unique,omitempty"`
+	// Source, Reason and GrantedBy only label the grant log line, so an alert can say why it happened.
+	Source    string `json:"source,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	GrantedBy string `json:"granted_by,omitempty"`
 }
 
 // GrantDiscordQuotaData is the response data for POST /api/user/discord_grant.
