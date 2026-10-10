@@ -34,9 +34,10 @@ reanchor() {
   local last twin
   last=$(cat "$REF_FILE")
   twin=$(twin_of "$last")
-  [ "$twin" = "$last" ] && return 0
-  say "upstream rewrote history: $last is no longer in $UP"
   [ -n "$twin" ] || die "no commit in $UP has the tree of $last. Find the equivalent by hand, then: git merge -s ours <it>"
+  # the ref may already name the rewritten commit while HEAD holds only the old one
+  git merge-base --is-ancestor "$twin" HEAD && return 0
+  say "upstream rewrote history: $twin is not in HEAD"
   git merge -s ours --no-edit -m "Anchor on rewritten upstream history
 
 $last is $twin there, identical tree" "$twin"
@@ -59,6 +60,35 @@ print(f'{path}: upstream order kept, {len(extra)} prod-only keys appended')
 PY
 }
 
+# Taking upstream's go.mod whole drops prod's own dependencies (fuego, webpush,
+# oidc) and downgrades shared ones. Keep upstream's file, then require every
+# prod module at the higher of the two versions; go.sum is the union.
+merge_gomod() {
+  local mod=$1 dir; dir=$(dirname "$1")
+  case "$mod" in
+    *.sum) { git show ":2:$mod"; git show ":3:$mod"; } | sort -u > "$mod"; echo "union   $mod"; return ;;
+  esac
+  git checkout --theirs -- "$mod"
+  git show ":2:$mod" > "$mod.ours"
+  python3 - "$mod.ours" "$mod" <<'PY2' | while read -r flag value; do (cd "$dir" && go mod edit "$flag=$value"); done
+import json, re, subprocess, sys
+def load(path):
+    return json.loads(subprocess.run(['go', 'mod', 'edit', '-json', path], capture_output=True, text=True, check=True).stdout)
+def key(v):
+    m = re.match(r'v?(\d+)\.(\d+)(?:\.(\d+))?', v or '')
+    return tuple(int(x or 0) for x in m.groups()) if m else (0,)
+ours, theirs = load(sys.argv[1]), load(sys.argv[2])
+have = {r['Path']: r['Version'] for r in theirs.get('Require') or []}
+for r in ours.get('Require') or []:
+    if r['Path'] not in have or key(r['Version']) > key(have[r['Path']]):
+        print('-require', r['Path'] + '@' + r['Version'])
+if key(ours.get('Go')) > key(theirs.get('Go')):
+    print('-go', ours['Go'])
+PY2
+  rm -f "$mod.ours"
+  echo "merged  $mod"
+}
+
 cmd_start() {
   [ -z "$(git status --porcelain)" ] || die "working tree is not clean"
   [ "$(branch)" = main ] || die "start from main"
@@ -76,8 +106,9 @@ cmd_start() {
     case "$f" in
       web/classic/*)                   git rm -q --cached -- "$f" 2>/dev/null; rm -f -- "$f"; echo "rm      $f" ;;
       router/api-router.go)            git checkout --ours -- "$f" && git add -- "$f"; echo "ours    $f   (fold new upstream routes in by hand, list below)" ;;
-      go.mod|go.sum|relaykit/go.mod|relaykit/go.sum|i18n/locales/*.yaml)
-                                       git checkout --theirs -- "$f" && git add -- "$f"; echo "theirs  $f" ;;
+      go.mod|go.sum|relaykit/go.mod|relaykit/go.sum|tokenkit/go.mod|tokenkit/go.sum)
+                                       merge_gomod "$f" && git add -- "$f" ;;
+      i18n/locales/*.yaml)             git checkout --theirs -- "$f" && git add -- "$f"; echo "theirs  $f" ;;
       web/src/i18n/locales/*.json)     merge_locale "$f" && git add -- "$f" ;;
     esac
   done
@@ -103,15 +134,18 @@ cmd_check() {
   say "build"
   go build ./...
   (cd relaykit; go build ./...)
+  (cd tokenkit; go build ./...)
   # tidy only once the tree compiles: on a broken tree it drops the relaykit require
   say "tidy"
   go mod tidy
   (cd relaykit; go mod tidy)
+  (cd tokenkit; go mod tidy)
   say "audit"
   scripts/sync-audit.sh
   say "vet"
   go vet ./...
   (cd relaykit; go vet ./...)
+  (cd tokenkit; go vet ./...)
   say "go test"
   make test
   say "frontend"
