@@ -99,6 +99,9 @@ spec:
           env:
             - name: POD_UID
               valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+            # collect hard near the 2Gi limit instead of being OOM killed (2026-10-10)
+            - name: GOMEMLIMIT
+              value: "1600MiB"
             # Upstream now writes Argon2id password hashes by default. Keep bcrypt until
             # every pod runs a dual-format reader; drop this in a later deploy to switch.
             - name: ACCOUNT_PASSWORD_HASH_ALGORITHM
@@ -235,6 +238,9 @@ spec:
           env:
             - name: POD_UID
               valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+            # collect hard near the 2Gi limit instead of being OOM killed (2026-10-10)
+            - name: GOMEMLIMIT
+              value: "1600MiB"
             - name: NODE_TYPE
               value: slave
             # Upstream now writes Argon2id password hashes by default. Keep bcrypt until
