@@ -3,16 +3,14 @@ middleware/auth.go: authHelper(c, common.RoleAdminUser)
 middleware/auth.go: authHelper(c, common.RoleRootUser)
 middleware/auth.go: c.Set("role", common.RoleAdminUser)
 middleware/auth.go: if !AuthenticatedViaPAT(c) || c.GetInt("role") < common.RoleAdminUser {
+middleware/auth.go: if lookup.user.Role >= common.RoleAdminUser {
 middleware/auth.go: if minRole >= common.RoleAdminUser {
-middleware/auth.go: if user.Role >= common.RoleAdminUser {
-model/audit_log.go: case common.RoleCommonUser, common.RoleAdminUser, common.RoleRootUser:
 model/audit_log.go: case common.RoleCommonUser, common.RoleModUser, common.RoleAdminUser, common.RoleRootUser:
 model/audit_log.go: if !filter.SelfView && viewerRole >= common.RoleRootUser {
 model/audit_log.go: if user.Role < common.RoleRootUser {
 model/audit_log.go: if viewerRole < common.RoleRootUser {
 model/audit_log.go: query = query.Where("actor_role IN ?", []int{common.RoleCommonUser, common.RoleAdminUser})
 model/audit_log.go: query = query.Where("actor_role IN ?", []int{common.RoleCommonUser, common.RoleModUser, common.RoleAdminUser})
-model/audit_log.go: } else if !filter.SelfView && viewerRole >= common.RoleAdminUser {
 model/main.go: Role: common.RoleRootUser,
 model/usedata_flow.go: case role >= common.RoleRootUser:
 model/user.go: // DB.Model(&User{}).Where("role = ?", common.RoleRootUser).Select("email").Find(&email)
@@ -26,10 +24,23 @@ model/user.go: } else if userRole == common.RoleAdminUser {
 model/user.go: } else if userRole == common.RoleRootUser {
 model/user_quota_adjustment.go: if operatorRole != common.RoleRootUser && operatorRole <= user.Role {
 relay/helper/price.go: if model.IsAdmin(userId) {
+service/access_token_scope.go: if role >= common.RoleAdminUser {
+service/access_token_scope.go: {Resource: "billing", LabelKey: "Billing management", group: AccessTokenGroupAdmin, minRole: common.RoleAdminUser, Actions: []authz.ActionDefinition{
+service/access_token_scope.go: {Resource: "deployment", LabelKey: "Deployments", group: AccessTokenGroupAdmin, minRole: common.RoleAdminUser, Actions: []authz.ActionDefinition{
+service/access_token_scope.go: {Resource: "group", LabelKey: "Groups", group: AccessTokenGroupAdmin, minRole: common.RoleAdminUser, Actions: []authz.ActionDefinition{
+service/access_token_scope.go: {Resource: "log", LabelKey: "Logs", group: AccessTokenGroupAdmin, minRole: common.RoleAdminUser, Actions: []authz.ActionDefinition{
+service/access_token_scope.go: {Resource: "model", LabelKey: "Models", group: AccessTokenGroupAdmin, minRole: common.RoleAdminUser, Actions: []authz.ActionDefinition{
+service/access_token_scope.go: {Resource: "ops", LabelKey: "Operations", group: AccessTokenGroupSystem, minRole: common.RoleRootUser, Actions: []authz.ActionDefinition{
+service/access_token_scope.go: {Resource: "option", LabelKey: "System settings", group: AccessTokenGroupSystem, minRole: common.RoleRootUser, Actions: []authz.ActionDefinition{
+service/access_token_scope.go: {Resource: "plugin", LabelKey: "Task plugins", group: AccessTokenGroupSystem, minRole: common.RoleRootUser, Actions: []authz.ActionDefinition{
+service/access_token_scope.go: {Resource: "redemption", LabelKey: "Redemption codes", group: AccessTokenGroupAdmin, minRole: common.RoleAdminUser, Actions: []authz.ActionDefinition{
+service/access_token_scope.go: {Resource: "user", LabelKey: "Users", group: AccessTokenGroupAdmin, minRole: common.RoleAdminUser, Actions: []authz.ActionDefinition{
 service/authz/assignment.go: case systemRole >= common.RoleAdminUser:
 service/authz/assignment.go: case systemRole >= common.RoleRootUser:
 service/authz/override.go: return Capabilities(userID, common.RoleAdminUser)
 service/authz/role_prod.go: if systemRole >= common.RoleModUser && systemRole < common.RoleAdminUser {
+service/security_verification.go: if len(fields) != 1 || common.Unmarshal(fields["role"], &context.Role) != nil || context.Role < common.RoleAdminUser || !common.IsValidateRole(context.Role) {
 service/security_verification.go: if scope == VerificationScopeAccountDelete && state.Role == common.RoleRootUser {
 service/security_verification.go: if scope == VerificationScopeChannelKeyRead && state.Role != common.RoleRootUser {
+service/security_verification.go: if strings.HasPrefix(scope, verificationScopeAdminUserPrefix) && state.Role < common.RoleAdminUser {
 service/user_notify.go: Where("status = ? AND role >= ?", common.UserStatusEnabled, common.RoleAdminUser).
