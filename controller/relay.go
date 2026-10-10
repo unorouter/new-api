@@ -231,6 +231,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					_ = helper.ObjectData(c, gin.H{"error": newAPIError.ToOpenAIError()})
 					helper.Done(c)
 				}
+				// Keepalive padding already committed a 200; the error still goes out as
+				// the JSON body, or the client would parse whitespace as an empty reply.
+				if helper.OnlyJSONKeepaliveWritten(c) {
+					newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.MaskSensitiveErrorWithStatusCode(), requestId))
+					body := gin.H{"error": newAPIError.ToOpenAIError()}
+					if relayFormat == types.RelayFormatClaude {
+						body = gin.H{"type": "error", "error": newAPIError.ToClaudeError()}
+					}
+					if data, err := common.Marshal(body); err == nil {
+						_, _ = c.Writer.Write(data)
+					}
+				}
 				return
 			}
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))

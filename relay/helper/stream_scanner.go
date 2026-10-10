@@ -210,6 +210,19 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		})
 	}
 
+	if info.ForceUpstreamStream && !info.ClientWantsStream {
+		wg.Add(1)
+		gopool.Go(func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.LogError(c, fmt.Sprintf("json keepalive goroutine panic: %v", r))
+				}
+				wg.Done()
+			}()
+			runJSONKeepalive(c, ctx, stopChan, &writeMutex)
+		})
+	}
+
 	dataChan := make(chan string, 10)
 	// Who hung up first on a client_gone: read back in the log line at the select below.
 	var lastUpstreamAt, lastClientWriteAt atomic.Int64
