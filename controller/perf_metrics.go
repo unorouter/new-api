@@ -23,8 +23,12 @@ func GetPerfMetricsSummary(c fuego.ContextWithParams[dto.GetPerfMetricsSummaryPa
 		hours = 24
 	}
 
+	recentModels := dto.GinCtx(c).QueryArray("recent_model")
+	if len(recentModels) > perfmetrics.MaxRecentModels {
+		return dto.Fail[perfmetrics.SummaryAllResult]("Invalid parameters")
+	}
 	activeGroups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto")
-	result, err := perfmetrics.QuerySummaryAll(hours, activeGroups)
+	result, err := perfmetrics.QuerySummaryAll(hours, activeGroups, recentModels...)
 	if err != nil {
 		return dto.Fail[perfmetrics.SummaryAllResult](err.Error())
 	}

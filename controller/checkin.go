@@ -1,9 +1,9 @@
 package controller
 
 import (
-	"fmt"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
@@ -75,7 +75,7 @@ func DoCheckin(c fuego.ContextNoBody) (*dto.Response[dto.CheckinResultData], err
 	if err != nil {
 		return dto.Fail[dto.CheckinResultData](err.Error())
 	}
-	model.RecordLog(userId, model.LogTypeSystem, fmt.Sprintf("user checked in, received quota %s", logger.LogQuota(checkin.QuotaAwarded)))
+	model.RecordLog(userId, model.LogTypeSystem, common.NewMessage("Daily check-in, received {{quota}}", map[string]any{"quota": logger.FormatQuota(checkin.QuotaAwarded)}))
 	return dto.OkMsg("Check-in successful", dto.CheckinResultData{
 		QuotaAwarded: checkin.QuotaAwarded,
 		CheckinDate:  checkin.CheckinDate,

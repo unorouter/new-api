@@ -168,7 +168,7 @@ func resolveOrigins(r *http.Request, settings *system_setting.PasskeySettings) (
 				continue
 			}
 			if !settings.AllowInsecureOrigin && strings.HasPrefix(strings.ToLower(trimmed), "http://") {
-				return nil, fmt.Errorf("Passkey does not allow insecure Origin: %s", trimmed)
+				return nil, fmt.Errorf("passkey does not allow the insecure origin %s", trimmed)
 			}
 			origins = append(origins, trimmed)
 		}
@@ -182,7 +182,7 @@ func resolveOrigins(r *http.Request, settings *system_setting.PasskeySettings) (
 autoDetect:
 	scheme := detectScheme(r)
 	if scheme == "http" && !settings.AllowInsecureOrigin && r.Host != "localhost" && r.Host != "127.0.0.1" && !strings.HasPrefix(r.Host, "127.0.0.1:") && !strings.HasPrefix(r.Host, "localhost:") {
-		return nil, fmt.Errorf("Passkey only supports HTTPS, current access: %s://%s, please allow insecure Origin in Passkey settings or configure HTTPS", scheme, r.Host)
+		return nil, fmt.Errorf("passkey requires HTTPS, current request: %s://%s; allow insecure origins in the Passkey settings or configure HTTPS", scheme, r.Host)
 	}
 	// 优先使用请求的完整Host（包含端口）
 	host := r.Host
@@ -197,7 +197,7 @@ autoDetect:
 		}
 	}
 	if host == "" {
-		return nil, fmt.Errorf("unable to determine Passkey Origin, please specify it in system settings or Passkey settings. Current Host: '%s', ServerAddress: '%s'", r.Host, system_setting.ServerAddress)
+		return nil, fmt.Errorf("cannot determine the Passkey origin; set it in the system settings or the Passkey settings. Host: '%s', ServerAddress: '%s'", r.Host, system_setting.ServerAddress)
 	}
 	if scheme == "" {
 		scheme = "https"
@@ -212,11 +212,11 @@ func resolveRPID(r *http.Request, settings *system_setting.PasskeySettings, orig
 		return hostWithoutPort(rpID), nil
 	}
 	if len(origins) == 0 {
-		return "", errors.New("Passkey Origin not configured, unable to derive RPID")
+		return "", errors.New("passkey origin is not configured, cannot derive the RP ID")
 	}
 	parsed, err := url.Parse(origins[0])
 	if err != nil {
-		return "", fmt.Errorf("unable to parse Passkey Origin: %w", err)
+		return "", fmt.Errorf("failed to parse the Passkey origin: %w", err)
 	}
 	return hostWithoutPort(parsed.Host), nil
 }

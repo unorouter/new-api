@@ -46,10 +46,9 @@ func deloPayMinorUnits(money float64) int64 {
 }
 
 func RequestDeloPayAmount(c fuego.ContextWithBody[dto.DeloPayPayRequest]) (*dto.Response[string], error) {
-	ginCtx := dto.GinCtx(c)
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[string](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[string]("Invalid parameters")
 	}
 	if req.Amount < getDeloPayMinTopup() {
 		return dto.Fail[string](fmt.Sprintf("Top-up amount cannot be less than %v", getDeloPayMinTopup()))
@@ -70,7 +69,7 @@ func RequestDeloPayPay(c fuego.ContextWithBody[dto.DeloPayPayRequest]) (*dto.Res
 	}
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.DeloPayPayData]("Invalid parameters")
 	}
 	if req.PaymentMethod != model.PaymentMethodDeloPay {
 		return dto.Fail[dto.DeloPayPayData]("Payment channel is not supported")
@@ -100,7 +99,7 @@ func RequestDeloPayPay(c fuego.ContextWithBody[dto.DeloPayPayRequest]) (*dto.Res
 	payLink, paymentId, err := createDeloPayPayment(referenceId, billedMoney, fmt.Sprintf("new-api topup %d units", req.Amount), paymentReturnPath(ginCtx, "/console/log"), deloPayCustomerFor(user))
 	if err != nil {
 		log.Println("failed to get DeloPay payment link:", err)
-		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, "payment.start_failed"))
+		return dto.Fail[dto.DeloPayPayData]("Failed to start payment")
 	}
 
 	topUp := &model.TopUp{
@@ -117,7 +116,7 @@ func RequestDeloPayPay(c fuego.ContextWithBody[dto.DeloPayPayRequest]) (*dto.Res
 		ProviderPaymentId: paymentId,
 	}
 	if err = topUp.Insert(); err != nil {
-		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, "payment.create_failed"))
+		return dto.Fail[dto.DeloPayPayData]("Failed to create order")
 	}
 	return dto.Ok(dto.DeloPayPayData{PayLink: payLink})
 }

@@ -207,7 +207,7 @@ func FetchUpstreamRatios(c fuego.ContextWithBody[relaydto.UpstreamRequest]) (*dt
 	req, err := c.Body()
 	if err != nil {
 		common.SysError("failed to bind upstream request: " + err.Error())
-		return dto.Fail[dto.FetchUpstreamRatiosResult](common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.Fail[dto.FetchUpstreamRatiosResult]("Invalid parameters")
 	}
 
 	if req.Timeout <= 0 {
@@ -260,7 +260,7 @@ func FetchUpstreamRatios(c fuego.ContextWithBody[relaydto.UpstreamRequest]) (*dt
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	transport := &http.Transport{MaxIdleConns: 100, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 10 * time.Second, ExpectContinueTimeout: 1 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
 	if common.TLSInsecureSkipVerify {
-		transport.TLSClientConfig = common.InsecureTLSConfig
+		transport.TLSClientConfig = common.InsecureTLSConfig.Clone()
 	}
 	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, _, err := net.SplitHostPort(addr)
@@ -454,8 +454,8 @@ func FetchUpstreamRatios(c fuego.ContextWithBody[relaydto.UpstreamRequest]) (*dt
 				BillingExpr          string   `json:"billing_expr"`
 			}
 			if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
-				logger.LogWarn(reqCtx, "unrecognized data format from "+chItem.Name+": "+err.Error())
-				ch <- upstreamResult{Name: uniqueName, Err: "failed to parse upstream response data"}
+				logger.LogWarn(reqCtx, common.LogText("unrecognized data format from %s: %s", chItem.Name, err.Error()))
+				ch <- upstreamResult{Name: uniqueName, Err: "failed to parse the upstream response"}
 				return
 			}
 

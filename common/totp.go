@@ -2,6 +2,7 @@ package common
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -130,12 +131,12 @@ func ValidateNumericCode(code string) (string, error) {
 	code = strings.ReplaceAll(code, " ", "")
 
 	if len(code) != 6 {
-		return "", fmt.Errorf("verification code must be 6 digits")
+		return "", errors.New("the verification code must be 6 digits")
 	}
 
 	// 检查是否为纯数字
 	if _, err := strconv.Atoi(code); err != nil {
-		return "", fmt.Errorf("verification code can only contain digits")
+		return "", errors.New("the verification code must contain only digits")
 	}
 
 	return code, nil

@@ -78,7 +78,7 @@ func tryOAuthBearerAuth(c *gin.Context) (matched bool, ok bool) {
 		c.Header("WWW-Authenticate", wwwAuthenticateBearer)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
-			"message": common.TranslateMessage(c, i18n.MsgAuthAccessTokenInvalid),
+			"message": "Unauthorized, invalid access token",
 		})
 		c.Abort()
 		return true, false
@@ -91,7 +91,7 @@ func tryOAuthBearerAuth(c *gin.Context) (matched bool, ok bool) {
 		c.Header("WWW-Authenticate", wwwAuthenticateBearer)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
-			"message": common.TranslateMessage(c, i18n.MsgAuthAccessTokenInvalid),
+			"message": "Unauthorized, invalid access token",
 		})
 		c.Abort()
 		return true, false
@@ -102,7 +102,7 @@ func tryOAuthBearerAuth(c *gin.Context) (matched bool, ok bool) {
 		c.Header("WWW-Authenticate", wwwAuthenticateBearer)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
-			"message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid),
+			"message": "Unauthorized, invalid user info",
 		})
 		c.Abort()
 		return true, false
@@ -115,7 +115,7 @@ func tryOAuthBearerAuth(c *gin.Context) (matched bool, ok bool) {
 		c.Header("WWW-Authenticate", wwwAuthenticateBearer)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
-			"message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid),
+			"message": "Unauthorized, invalid user info",
 		})
 		c.Abort()
 		return true, false
@@ -123,7 +123,7 @@ func tryOAuthBearerAuth(c *gin.Context) (matched bool, ok bool) {
 	if user.Status != common.UserStatusEnabled {
 		c.JSON(http.StatusForbidden, gin.H{
 			"success": false,
-			"message": common.TranslateMessage(c, i18n.MsgAuthUserBanned),
+			"message": i18n.T(c, i18n.MsgAuthUserBanned),
 		})
 		c.Abort()
 		return true, false

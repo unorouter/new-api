@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay/channel/advancedcustom"
@@ -346,7 +347,8 @@ func getFetchModelsResponseBody(method string, requestURL string, channel *model
 			request.Host = headers.Get(name)
 		}
 	}
-	client, err := service.NewProxyHttpClient(channel.GetSetting().Proxy)
+	setting := channel.GetSetting()
+	client, err := service.GetHttpClientWithProxySettings(setting.Proxy, setting)
 	if err != nil {
 		return nil, err
 	}
@@ -393,7 +395,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 			return nil, fmt.Errorf("failed to get channel key: %w", apiErr)
 		}
 		key = strings.TrimSpace(key)
-		models, err := gemini.FetchGeminiModels(baseURL, key, channel.GetSetting().Proxy)
+		models, err := gemini.FetchGeminiModels(baseURL, key, channel.GetSetting())
 		if err != nil {
 			return nil, err
 		}
@@ -595,7 +597,7 @@ func refreshChannelRuntimeCache() {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					common.SysLog(fmt.Sprintf("InitChannelCache panic: %v", r))
+					common.SysLog(common.LogText("InitChannelCache panic: %v", r))
 				}
 			}()
 			model.InitChannelCache()
@@ -638,37 +640,62 @@ func buildUpstreamModelUpdateTaskNotificationContent(
 ) string {
 	var builder strings.Builder
 	failedChannels := len(failedChannelIDs)
-	builder.WriteString(fmt.Sprintf("upstream model check summary: checked %v channels, found %v changes, %v added, %v removed, auto-synced %v additions, %v failed.",
-		checkedChannels, changedChannels, detectedAddModels, detectedRemoveModels, autoAddedModels, failedChannels))
+	builder.WriteString(i18n.Translate(lang, i18n.MsgChannelUpstreamUpdateSummary, map[string]any{
+		"Checked":   checkedChannels,
+		"Changed":   changedChannels,
+		"Added":     detectedAddModels,
+		"Removed":   detectedRemoveModels,
+		"AutoAdded": autoAddedModels,
+		"Failed":    failedChannels,
+	}))
 
 	if len(channelSummaries) > 0 {
 		displayCount := min(len(channelSummaries), channelUpstreamModelUpdateNotifyMaxChannelDetails)
-		builder.WriteString(fmt.Sprintf("\n\nchanged channel details (showing %v/%v):", displayCount, len(channelSummaries)))
+		builder.WriteString("\n\n")
+		builder.WriteString(i18n.Translate(lang, i18n.MsgChannelUpstreamUpdateChangedChannels, map[string]any{
+			"Shown": displayCount,
+			"Total": len(channelSummaries),
+		}))
 		for _, summary := range channelSummaries[:displayCount] {
 			builder.WriteString(fmt.Sprintf("\n- %s (+%d / -%d)", summary.ChannelName, summary.AddCount, summary.RemoveCount))
 		}
 		if len(channelSummaries) > displayCount {
-			builder.WriteString(fmt.Sprintf("\n- %v more channels omitted", len(channelSummaries)-displayCount))
+			builder.WriteString("\n- ")
+			builder.WriteString(i18n.Translate(lang, i18n.MsgChannelUpstreamUpdateMoreChannels, map[string]any{
+				"Count": len(channelSummaries) - displayCount,
+			}))
 		}
 	}
 
 	normalizedAddModelSamples := normalizeModelNames(addModelSamples)
 	if len(normalizedAddModelSamples) > 0 {
 		displayCount := min(len(normalizedAddModelSamples), channelUpstreamModelUpdateNotifyMaxModelDetails)
-		builder.WriteString(fmt.Sprintf("\n\nadded model samples (showing %v/%v): %v",
-			displayCount, len(normalizedAddModelSamples), strings.Join(normalizedAddModelSamples[:displayCount], ", ")))
+		builder.WriteString("\n\n")
+		builder.WriteString(i18n.Translate(lang, i18n.MsgChannelUpstreamUpdateAddedModels, map[string]any{
+			"Shown":  displayCount,
+			"Total":  len(normalizedAddModelSamples),
+			"Models": strings.Join(normalizedAddModelSamples[:displayCount], ", "),
+		}))
 		if len(normalizedAddModelSamples) > displayCount {
-			builder.WriteString(fmt.Sprintf(" (%v more omitted)", len(normalizedAddModelSamples)-displayCount))
+			builder.WriteString(i18n.Translate(lang, i18n.MsgChannelUpstreamUpdateMoreOmitted, map[string]any{
+				"Count": len(normalizedAddModelSamples) - displayCount,
+			}))
 		}
 	}
 
 	normalizedRemoveModelSamples := normalizeModelNames(removeModelSamples)
 	if len(normalizedRemoveModelSamples) > 0 {
 		displayCount := min(len(normalizedRemoveModelSamples), channelUpstreamModelUpdateNotifyMaxModelDetails)
-		builder.WriteString(fmt.Sprintf("\n\nremoved model samples (showing %v/%v): %v",
-			displayCount, len(normalizedRemoveModelSamples), strings.Join(normalizedRemoveModelSamples[:displayCount], ", ")))
+		builder.WriteString("\n\n")
+		builder.WriteString(i18n.Translate(lang, i18n.MsgChannelUpstreamUpdateRemovedModels, map[string]any{
+			"Shown":  displayCount,
+			"Total":  len(normalizedRemoveModelSamples),
+			"Models": strings.Join(normalizedRemoveModelSamples[:displayCount], ", "),
+		}))
 		if len(normalizedRemoveModelSamples) > displayCount {
-			builder.WriteString(fmt.Sprintf(" (%v more omitted)", len(normalizedRemoveModelSamples)-displayCount))
+			builder.WriteString(i18n.Translate(lang, i18n.MsgChannelUpstreamUpdateMoreOmitted, map[string]any{
+				"Count": len(normalizedRemoveModelSamples) - displayCount,
+			}))
 		}
 	}
 
@@ -677,10 +704,16 @@ func buildUpstreamModelUpdateTaskNotificationContent(
 		displayIDs := lo.Map(failedChannelIDs[:displayCount], func(channelID int, _ int) string {
 			return fmt.Sprintf("%d", channelID)
 		})
-		builder.WriteString(fmt.Sprintf("\n\nfailed channel IDs (showing %v/%v): %v",
-			displayCount, failedChannels, strings.Join(displayIDs, ", ")))
+		builder.WriteString("\n\n")
+		builder.WriteString(i18n.Translate(lang, i18n.MsgChannelUpstreamUpdateFailedChannels, map[string]any{
+			"Shown": displayCount,
+			"Total": failedChannels,
+			"Ids":   strings.Join(displayIDs, ", "),
+		}))
 		if failedChannels > displayCount {
-			builder.WriteString(fmt.Sprintf(" (%v more omitted)", failedChannels-displayCount))
+			builder.WriteString(i18n.Translate(lang, i18n.MsgChannelUpstreamUpdateMoreOmitted, map[string]any{
+				"Count": failedChannels - displayCount,
+			}))
 		}
 	}
 	return builder.String()
@@ -741,7 +774,7 @@ scanLoop:
 		}
 		err := query.Find(&channels).Error
 		if err != nil {
-			common.SysLog(fmt.Sprintf("upstream model update task query failed: %v", err))
+			common.SysLog(common.LogText("upstream model update task query failed: %v", err))
 			break
 		}
 		if len(channels) == 0 {
@@ -772,7 +805,7 @@ scanLoop:
 			if err != nil {
 				failedChannels++
 				failedChannelIDs = append(failedChannelIDs, channel.Id)
-				common.SysLog(fmt.Sprintf("upstream model update check failed: channel_id=%d channel_name=%s err=%v", channel.Id, channel.Name, err))
+				common.SysLog(common.LogText("upstream model update check failed: channel_id=%d channel_name=%s err=%v", channel.Id, channel.Name, err))
 				continue
 			}
 			currentAddModels := normalizeModelNames(settings.UpstreamModelUpdateLastDetectedModels)
@@ -832,7 +865,7 @@ scanLoop:
 	}
 
 	if checkedChannels > 0 || common.DebugEnabled {
-		common.SysLog(fmt.Sprintf(
+		common.SysLog(common.LogText(
 			"upstream model update task done: checked_channels=%d changed_channels=%d detected_add_models=%d detected_remove_models=%d failed_channels=%d auto_added_models=%d",
 			checkedChannels,
 			changedChannels,
@@ -845,7 +878,7 @@ scanLoop:
 	if changedChannels > 0 || failedChannels > 0 {
 		now := common.GetTimestamp()
 		if !shouldSendUpstreamModelUpdateNotification(now, changedChannels, failedChannels) {
-			common.SysLog(fmt.Sprintf(
+			common.SysLog(common.LogText(
 				"upstream model update notification skipped in 24h window: changed_channels=%d failed_channels=%d",
 				changedChannels,
 				failedChannels,
@@ -853,7 +886,7 @@ scanLoop:
 			return summary
 		}
 		service.NotifyUpstreamModelUpdateWatchers(func(lang string) (string, string) {
-			return "upstream model check notification",
+			return i18n.Translate(lang, i18n.MsgChannelUpstreamUpdateNotifySubject),
 				buildUpstreamModelUpdateTaskNotificationContent(
 					lang,
 					checkedChannels,
@@ -1135,15 +1168,12 @@ func DetectAllChannelUpstreamModelUpdates(c *gin.Context) {
 		return
 	}
 	if !created {
-		c.JSON(http.StatusConflict, gin.H{
-			"success": false,
-			"message": "A model update task is already running or pending; cannot start this manual task",
-			"data": gin.H{
-				"task_id": task.TaskID,
-				"status":  task.Status,
-				"type":    task.Type,
-			},
-		})
+		msg := common.NewMessage("A model update task is already running or queued. Cannot start this manual task")
+		common.ApiErrorStatus(c, http.StatusConflict, msg, gin.H{"data": gin.H{
+			"task_id": task.TaskID,
+			"status":  task.Status,
+			"type":    task.Type,
+		}})
 		return
 	}
 

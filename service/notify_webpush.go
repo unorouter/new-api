@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/notify"
 
@@ -87,33 +86,41 @@ func reloadWebPushSubs() {
 	webPushSubsLock.Unlock()
 }
 
-func webPushLocale(locale string) string {
-	if i18n.IsSupported(locale) {
-		return locale
-	}
-	return i18n.LangEn
+// webPushTexts holds the title and body template of each push event; subscribers
+// read them in English whatever their locale.
+var webPushTexts = map[string][2]string{
+	"model_online":            {"{{model}} is back online", "Available again at {{ratio}}x"},
+	"model_offline":           {"{{model}} is unavailable", "All providers are currently down"},
+	"model_price_change":      {"{{model}} price changed", "Now {{ratio}}x, was {{prev_ratio}}x"},
+	"model_added":             {"New model: {{model}}", "Now available at {{ratio}}x"},
+	"model_removed":           {"{{model}} was removed", "No longer offered"},
+	"bulk.model_online":       {"{{count}} models are back online", "Including {{models}}"},
+	"bulk.model_offline":      {"{{count}} models went unavailable", "Including {{models}}"},
+	"bulk.model_added":        {"{{count}} new models added", "Including {{models}}"},
+	"bulk.model_removed":      {"{{count}} models were removed", "Including {{models}}"},
+	"bulk.model_price_change": {"{{count}} model prices changed", "Including {{models}}"},
 }
 
-func webPushText(evt notify.Event, locale string) (string, string) {
-	lang := webPushLocale(locale)
-	args := map[string]any{"Model": evt.Data.Model}
+func webPushText(evt notify.Event) (string, string) {
+	args := map[string]any{"model": evt.Data.Model}
 	if evt.Data.CheapestRatio != nil {
-		args["Ratio"] = fmt.Sprintf("%.3g", *evt.Data.CheapestRatio)
+		args["ratio"] = fmt.Sprintf("%.3g", *evt.Data.CheapestRatio)
 	}
 	if evt.Data.PrevCheapestRatio != nil {
-		args["PrevRatio"] = fmt.Sprintf("%.3g", *evt.Data.PrevCheapestRatio)
+		args["prev_ratio"] = fmt.Sprintf("%.3g", *evt.Data.PrevCheapestRatio)
 	}
+	key := evt.Type
 	// A digest names no single model; it keys off the collapsed event instead.
 	if evt.Type == notify.EventModelBulkChange {
-		args["Count"] = evt.Data.BulkCount
-		args["Models"] = strings.Join(evt.Data.Models, ", ")
-		key := "notify.bulk." + evt.Data.BulkEvent
-		return i18n.TranslateLang(lang, key+".title", args),
-			i18n.TranslateLang(lang, key+".body", args)
+		args["count"] = evt.Data.BulkCount
+		args["models"] = strings.Join(evt.Data.Models, ", ")
+		key = "bulk." + evt.Data.BulkEvent
 	}
-	title := i18n.TranslateLang(lang, "notify."+evt.Type+".title", args)
-	body := i18n.TranslateLang(lang, "notify."+evt.Type+".body", args)
-	return title, body
+	text, ok := webPushTexts[key]
+	if !ok {
+		return key, ""
+	}
+	return common.NewMessage(text[0], args).Error(), common.NewMessage(text[1], args).Error()
 }
 
 func webPushURL(evt notify.Event) string {
@@ -204,7 +211,7 @@ func sendWebPushEvent(evt notify.Event) {
 }
 
 func sendWebPushToSub(evt notify.Event, sub model.PushSubscription, urgency webpush.Urgency) {
-	title, body := webPushText(evt, sub.Locale)
+	title, body := webPushText(evt)
 	payload, err := common.Marshal(map[string]interface{}{
 		"title": title,
 		"body":  body,

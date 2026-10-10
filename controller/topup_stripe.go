@@ -35,10 +35,9 @@ const (
 )
 
 func RequestStripeAmount(c fuego.ContextWithBody[dto.StripePayRequest]) (*dto.Response[string], error) {
-	ginCtx := dto.GinCtx(c)
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[string](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[string]("Invalid parameters")
 	}
 	if req.Amount < getStripeMinTopup() {
 		return dto.Fail[string](fmt.Sprintf("Top-up amount cannot be less than %v", getStripeMinTopup()))
@@ -65,7 +64,7 @@ func RequestStripePay(c fuego.ContextWithBody[dto.StripePayRequest]) (*dto.Respo
 	ginCtx := dto.GinCtx(c)
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.StripePayLinkData]("Invalid parameters")
 	}
 	if req.PaymentMethod != PaymentMethodStripe {
 		return dto.Fail[dto.StripePayLinkData]("Payment channel is not supported")
@@ -98,7 +97,7 @@ func RequestStripePay(c fuego.ContextWithBody[dto.StripePayRequest]) (*dto.Respo
 	if capUSD := setting.CardTopUpNewAccountCapUSD; capUSD > 0 && user.CreatedAt > 0 && time.Now().Unix()-user.CreatedAt < 86400 {
 		committed, err := model.CardMoneyCommitted(id)
 		if err != nil {
-			return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "payment.create_failed"))
+			return dto.Fail[dto.StripePayLinkData]("Failed to create order")
 		}
 		if committed+chargedMoney > capUSD {
 			return dto.Fail[dto.StripePayLinkData](fmt.Sprintf("Card top-ups are limited to $%.0f in total during an account's first 24 hours. Please try again later or pay with crypto.", capUSD))
@@ -111,7 +110,7 @@ func RequestStripePay(c fuego.ContextWithBody[dto.StripePayRequest]) (*dto.Respo
 	payLink, err := genStripeLink(ginCtx, referenceId, user.StripeCustomer, user.Email, req.Amount, req.SuccessURL, req.CancelURL)
 	if err != nil {
 		log.Println("failed to get Stripe Checkout payment link", err)
-		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "payment.start_failed"))
+		return dto.Fail[dto.StripePayLinkData]("Failed to start payment")
 	}
 
 	topUp := &model.TopUp{
@@ -126,7 +125,7 @@ func RequestStripePay(c fuego.ContextWithBody[dto.StripePayRequest]) (*dto.Respo
 	}
 	err = topUp.Insert()
 	if err != nil {
-		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "payment.create_failed"))
+		return dto.Fail[dto.StripePayLinkData]("Failed to create order")
 	}
 	return dto.Ok(dto.StripePayLinkData{PayLink: payLink})
 }
@@ -327,11 +326,11 @@ func stripeReversal(ctx context.Context, event stripe.Event, callerIp string, di
 		return
 	}
 
-	note := fmt.Sprintf("Stripe %s: %d quota reversed, top-up %d, payment_intent %s, charge %s, event %s", kind, res.QuotaRemoved, res.TopUpId, in.OrderId, in.TransactionId, event.ID)
+	note := "Stripe {{kind}}: {{quota}} quota reversed, top-up {{top_up_id}}, payment_intent {{order_id}}, charge {{transaction_id}}, event {{event_id}}"
 	if dispute {
 		note += ", account disabled"
 	}
-	model.RecordLog(res.UserId, model.LogTypeRefund, note)
+	model.RecordLog(res.UserId, model.LogTypeRefund, common.NewMessage(note, map[string]any{"kind": kind, "quota": res.QuotaRemoved, "top_up_id": res.TopUpId, "order_id": in.OrderId, "transaction_id": in.TransactionId, "event_id": event.ID}))
 	logger.LogInfo(ctx, fmt.Sprintf("Stripe %s applied event_id=%s user_id=%d top_up_id=%d quota_removed=%d disabled=%t", kind, event.ID, res.UserId, res.TopUpId, res.QuotaRemoved, dispute))
 }
 

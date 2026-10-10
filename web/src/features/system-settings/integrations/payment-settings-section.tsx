@@ -47,6 +47,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { getPaymentErrorTranslation } from '@/features/wallet/lib/payment'
 import { handleServerError } from '@/lib/handle-server-error'
 import { cn } from '@/lib/utils'
 
@@ -1081,7 +1082,9 @@ export function PaymentSettingsSection({
         return
       }
 
-      const reason = typeof body?.data === 'string' ? body.data : undefined
+      const reason =
+        getPaymentErrorTranslation(body) ??
+        (typeof body?.data === 'string' ? body.data : undefined)
       handleServerError(body, undefined, {
         title: reason
           ? `${t('Waffo Pancake save failed')}: ${reason}`

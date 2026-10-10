@@ -1,10 +1,12 @@
 package helper
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -21,17 +23,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func modelPriceNotConfiguredError(modelName string, userId int) error {
+func modelPriceNotConfiguredError(c *gin.Context, modelName string, userId int) error {
+	key := i18n.MsgRelayModelPriceNotConfigured
 	if model.IsAdmin(userId) {
-		return fmt.Errorf(
-			"Model %s price not configured. Go to System Settings -> Operation Settings to enable self-use mode, or configure the model price in System Settings -> Group & Model Pricing.",
-			modelName,
-		)
+		key = i18n.MsgRelayModelPriceNotConfiguredAdmin
 	}
-	return fmt.Errorf(
-		"Model %s has not been priced by the administrator yet. Please contact the site administrator to enable this model.",
-		modelName,
-	)
+	return errors.New(i18n.T(c, key, map[string]any{"Model": modelName}))
 }
 
 // https://docs.claude.com/en/docs/build-with-claude/prompt-caching#1-hour-cache-duration
@@ -112,7 +109,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 			}
 			if !acceptUnsetRatio {
 				logger.LogWarn(c, fmt.Sprintf("model price not configured model=%s billing_model=%s user=%d group=%s", matchName, billingModelName, info.UserId, info.UsingGroup))
-				return hosttypes.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
+				return hosttypes.PriceData{}, modelPriceNotConfiguredError(c, matchName, info.UserId)
 			}
 		}
 		completionRatio = ratio_setting.GetCompletionRatio(billingModelName)
@@ -242,7 +239,7 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 			}
 			if !ratioSuccess && !acceptUnsetRatio {
 				logger.LogWarn(c, fmt.Sprintf("model price not configured model=%s origin_model=%s user=%d group=%s", matchName, info.OriginModelName, info.UserId, info.UsingGroup))
-				return hosttypes.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
+				return hosttypes.PriceData{}, modelPriceNotConfiguredError(c, matchName, info.UserId)
 			}
 		}
 	}

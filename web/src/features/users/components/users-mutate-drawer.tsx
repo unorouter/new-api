@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
 import { Pencil } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -31,8 +31,9 @@ import {
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
+import { MultiSelect } from '@/components/multi-select'
+import { PermissionMatrix } from '@/components/permission-matrix'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Combobox } from '@/components/ui/combobox'
 import {
   Form,
@@ -45,7 +46,6 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { MultiSelect } from '@/components/multi-select'
 import {
   Select,
   SelectContent,
@@ -71,12 +71,14 @@ import {
   EMPTY_PERMISSION_CATALOG,
   hasPermission,
   normalizeAdminPermissions,
+  type AdminPermissionMatrix,
 } from '@/lib/admin-permissions'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { accountPasswordSchema } from '@/lib/password-policy'
 import { ROLE } from '@/lib/roles'
+import { AuthOperationError } from '@/lib/secure-verification'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -115,7 +117,7 @@ function parseBlockFree(settingJson?: string): boolean {
   try {
     const parsed = JSON.parse(settingJson)
     return parsed.block_free_when_no_quota === true
-  } catch (_e) {
+  } catch {
     return false
   }
 }
@@ -125,7 +127,7 @@ function parseUnlimitedFree(settingJson?: string): boolean {
   try {
     const parsed = JSON.parse(settingJson)
     return parsed.unlimited_free_models === true
-  } catch (_e) {
+  } catch {
     return false
   }
 }
@@ -135,7 +137,7 @@ function parseModerationExempt(settingJson?: string): boolean {
   try {
     const parsed = JSON.parse(settingJson)
     return parsed.moderation_exempt === true
-  } catch (_e) {
+  } catch {
     return false
   }
 }
@@ -146,7 +148,7 @@ function parseFreeRateLimitWindowPct(settingJson?: string): number {
     const parsed = JSON.parse(settingJson)
     const pct = Number(parsed.free_rate_limit_window_pct)
     return Number.isFinite(pct) && pct > 0 ? pct : 0
-  } catch (_e) {
+  } catch {
     return 0
   }
 }
@@ -156,7 +158,7 @@ function parseUsableGroups(settingJson?: string): string[] {
   try {
     const parsed = JSON.parse(settingJson)
     return Array.isArray(parsed.usable_groups) ? parsed.usable_groups : []
-  } catch (_e) {
+  } catch {
     return []
   }
 }
@@ -168,7 +170,7 @@ export function UsersMutateDrawer({
 }: UsersMutateDrawerProps) {
   const { t } = useTranslation()
   const isUpdate = !!currentRow
-  const { triggerRefresh } = useUsers()
+  const { triggerRefresh, requestVerification } = useUsers()
   const currentUser = useAuthStore((s) => s.auth.user)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
@@ -182,6 +184,9 @@ export function UsersMutateDrawer({
   const [freeRateLimitPctSaving, setFreeRateLimitPctSaving] = useState(false)
   const [usableGroups, setUsableGroups] = useState<string[]>([])
   const [usableGroupsSaving, setUsableGroupsSaving] = useState(false)
+  // Matrix as loaded from the server; an unchanged matrix is not resubmitted so
+  // routine edits of an administrator do not require step-up verification.
+  const loadedPermissions = useRef<AdminPermissionMatrix | undefined>(undefined)
 
   // Fetch groups
   const { data: groupsData } = useQuery({
@@ -211,6 +216,7 @@ export function UsersMutateDrawer({
       getUser(currentRow.id)
         .then((result) => {
           if (result.success && result.data) {
+            loadedPermissions.current = result.data.admin_permissions
             form.reset(transformUserToFormDefaults(result.data))
             setBlockFree(parseBlockFree(result.data.setting))
             setUnlimitedFree(parseUnlimitedFree(result.data.setting))
@@ -258,9 +264,54 @@ export function UsersMutateDrawer({
         currentRow?.id,
         permissionCatalog
       )
+      if (
+        isUpdate &&
+        payload.admin_permissions &&
+        JSON.stringify(payload.admin_permissions) ===
+          JSON.stringify(
+            normalizeAdminPermissions(
+              loadedPermissions.current,
+              permissionCatalog
+            )
+          )
+      ) {
+        delete payload.admin_permissions
+      }
+      // Resetting a password, rewriting admin permissions, or creating an
+      // administrator changes who can sign in or what they may do.
+      let proofToken: string | undefined
+      if (isUpdate && currentRow) {
+        if (payload.password || payload.admin_permissions) {
+          const proof = await requestVerification({
+            scope: 'admin.user.update',
+            context: { user_id: currentRow.id },
+            title: t('Verify to update user credentials'),
+            description: t(
+              'Confirm your identity before changing the account {{username}}.',
+              { username: currentRow.username }
+            ),
+          })
+          if (!proof) return
+          proofToken = proof.proof_token
+        }
+      } else if ((payload.role ?? 0) >= ROLE.ADMIN) {
+        const proof = await requestVerification({
+          scope: 'admin.user.create',
+          context: { role: payload.role ?? ROLE.ADMIN },
+          title: t('Verify to create administrator'),
+          description: t(
+            'Confirm your identity before creating an administrator account.'
+          ),
+        })
+        if (!proof) return
+        proofToken = proof.proof_token
+      }
       const result = isUpdate
-        ? await updateUser(payload as typeof payload & { id: number })
-        : await createUser(payload)
+        ? await updateUser(
+            payload as typeof payload & { id: number },
+            proofToken
+          )
+        : await createUser(payload, proofToken)
 
       if (result.success) {
         toast.success(
@@ -274,7 +325,10 @@ export function UsersMutateDrawer({
         handleServerError(result, t(ERROR_MESSAGES.CREATE_FAILED))
       }
     } catch (error) {
-      handleServerError(error, t(ERROR_MESSAGES.UNEXPECTED))
+      handleServerError(
+        AuthOperationError.from(error),
+        t(ERROR_MESSAGES.UNEXPECTED)
+      )
     } finally {
       setIsSubmitting(false)
     }
@@ -285,6 +339,7 @@ export function UsersMutateDrawer({
     try {
       const result = requireServerSuccess(await getUser(currentRow.id))
       if (result.success && result.data) {
+        loadedPermissions.current = result.data.admin_permissions
         form.reset(transformUserToFormDefaults(result.data))
         setBlockFree(parseBlockFree(result.data.setting))
         setUnlimitedFree(parseUnlimitedFree(result.data.setting))
@@ -311,7 +366,7 @@ export function UsersMutateDrawer({
         setBlockFree(!checked)
         toast.error(result.message || t(ERROR_MESSAGES.UPDATE_FAILED))
       }
-    } catch (_error) {
+    } catch {
       setBlockFree(!checked)
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
@@ -332,7 +387,7 @@ export function UsersMutateDrawer({
         setUnlimitedFree(!checked)
         toast.error(result.message || t(ERROR_MESSAGES.UPDATE_FAILED))
       }
-    } catch (_error) {
+    } catch {
       setUnlimitedFree(!checked)
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
@@ -353,7 +408,7 @@ export function UsersMutateDrawer({
         setModerationExempt(!checked)
         toast.error(result.message || t(ERROR_MESSAGES.UPDATE_FAILED))
       }
-    } catch (_error) {
+    } catch {
       setModerationExempt(!checked)
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
@@ -379,7 +434,7 @@ export function UsersMutateDrawer({
         setFreeRateLimitPct(previous)
         toast.error(result.message || t(ERROR_MESSAGES.UPDATE_FAILED))
       }
-    } catch (_error) {
+    } catch {
       setFreeRateLimitPct(previous)
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
@@ -401,7 +456,7 @@ export function UsersMutateDrawer({
         setUsableGroups(prev)
         toast.error(result.message || t(ERROR_MESSAGES.UPDATE_FAILED))
       }
-    } catch (_error) {
+    } catch {
       setUsableGroups(prev)
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
@@ -756,7 +811,7 @@ export function UsersMutateDrawer({
                       <Label>{t('Exempt from prompt moderation')}</Label>
                       <p className='text-muted-foreground text-xs sm:text-sm'>
                         {t(
-                          'Skips content moderation on this user\'s image and video generation prompts. Grant only to trusted accounts; the platform stays liable for what they generate.'
+                          "Skips content moderation on this user's image and video generation prompts. Grant only to trusted accounts; the platform stays liable for what they generate."
                         )}
                       </p>
                     </div>
@@ -821,52 +876,11 @@ export function UsersMutateDrawer({
                         )
                         return (
                           <FormItem>
-                            <div className='space-y-3'>
-                              {permissionCatalog.resources.map((resource) => (
-                                <div
-                                  key={resource.resource}
-                                  className='space-y-2 rounded-md border p-3'
-                                >
-                                  <div className='text-sm font-medium'>
-                                    {t(resource.label_key)}
-                                  </div>
-                                  <div className='space-y-2'>
-                                    {resource.actions.map((option) => (
-                                      <label
-                                        key={option.action}
-                                        className='flex items-start gap-3'
-                                      >
-                                        <Checkbox
-                                          checked={
-                                            selected[resource.resource]?.[
-                                              option.action
-                                            ] === true
-                                          }
-                                          onCheckedChange={(checked) => {
-                                            field.onChange({
-                                              ...selected,
-                                              [resource.resource]: {
-                                                ...selected[resource.resource],
-                                                [option.action]:
-                                                  checked === true,
-                                              },
-                                            })
-                                          }}
-                                        />
-                                        <span className='flex flex-col gap-1'>
-                                          <span className='text-sm font-medium'>
-                                            {t(option.label_key)}
-                                          </span>
-                                          <span className='text-muted-foreground text-xs'>
-                                            {t(option.description_key)}
-                                          </span>
-                                        </span>
-                                      </label>
-                                    ))}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
+                            <PermissionMatrix
+                              resources={permissionCatalog.resources}
+                              value={selected}
+                              onChange={field.onChange}
+                            />
                             <FormMessage />
                           </FormItem>
                         )

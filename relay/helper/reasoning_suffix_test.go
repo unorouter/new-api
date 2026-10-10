@@ -161,6 +161,27 @@ func TestApplyReasoningModelSuffixGeminiNoThinkingWhenAdapterEnabled(t *testing.
 	assert.Equal(t, "none", info.ReasoningConversion.Effort)
 }
 
+func TestApplyReasoningModelSuffixClaudeEffortTailKeptWhenAdapterDisabled(t *testing.T) {
+	settings := model_setting.GetClaudeSettings()
+	original := settings.ThinkingAdapterEnabled
+	t.Cleanup(func() { settings.ThinkingAdapterEnabled = original })
+	settings.ThinkingAdapterEnabled = false
+
+	req := &dto.ClaudeRequest{Model: "claude-opus-5-5-high"}
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "claude-opus-5-5-high",
+		Request:         req,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "claude-opus-5-5-high",
+		},
+	}
+
+	mustApplyReasoningModelSuffix(t, info, req)
+	assert.Equal(t, "claude-opus-5-5-high", info.UpstreamModelName)
+	assert.Equal(t, "claude-opus-5-5-high", req.Model)
+	assert.Nil(t, info.ReasoningConversion)
+}
+
 func TestApplyReasoningModelSuffixPreservesEffortTailModelID(t *testing.T) {
 	info := &relaycommon.RelayInfo{
 		OriginModelName: "qwen-max",
@@ -607,7 +628,7 @@ func TestModelMappedHelperSelectsEffortVariant(t *testing.T) {
 		{"effort without its key gets the default variant", variants, "gemini-3.8-flash", "xhigh", "gemini-3.8-flash-medium"},
 		{"effort without its key on a bare default reaches the bare ID", `{"gpt-5.4@effort:high":"gpt-5.4-high"}`, "gpt-5.4", "low", "gpt-5.4"},
 		{"no effort keeps the default variant intact", variants, "gemini-3.8-flash", "", "gemini-3.8-flash-medium"},
-		{"channel without variant keys strips as before", `{"gemini-3.8-flash":"gemini-3.8-flash-high"}`, "gemini-3.8-flash", "low", "gemini-3.8-flash"},
+		{"channel without variant keys sends the mapped name verbatim", `{"gemini-3.8-flash":"gemini-3.8-flash-high"}`, "gemini-3.8-flash", "low", "gemini-3.8-flash-high"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

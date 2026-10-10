@@ -163,6 +163,6 @@ func ClearTerminatedSubscriptionPerks(userId int, moneyReturned bool) {
 		logger.LogWarn(ctx, fmt.Sprintf("failed to revoke unlimited-free-models for user %d: %v", userId, err))
 		return
 	}
-	model.RecordLog(userId, model.LogTypeManage, "unlimited free models revoked, the subscription it came with was refunded")
+	model.RecordLog(userId, model.LogTypeManage, common.NewMessage("unlimited free models revoked, the subscription it came with was refunded"))
 	logger.LogInfo(ctx, fmt.Sprintf("subscription refunded for user %d, unlimited-free-models revoked", userId))
 }

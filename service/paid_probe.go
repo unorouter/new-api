@@ -65,9 +65,9 @@ func TrackPaidProbe(userId int, modelName string) {
 			common.SysLog(fmt.Sprintf("failed to disable paid-model prober %d: %s", userId, err.Error()))
 			return
 		}
-		model.RecordLog(userId, model.LogTypeManage, fmt.Sprintf(
-			"auto-disabled: refused %d paid requests across %d distinct models within %d minutes on a balance that never held money",
-			refusals, distinct, int(paidProbeWindow.Minutes())))
+		model.RecordLog(userId, model.LogTypeManage, common.NewMessage(
+			"auto-disabled: refused {{refusals}} paid requests across {{models}} distinct models within {{minutes}} minutes on a balance that never held money",
+			map[string]any{"refusals": refusals, "models": distinct, "minutes": int(paidProbeWindow.Minutes())}))
 	})
 }
 

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -50,7 +50,7 @@ func (p *GoogleProvider) IsEnabled() bool {
 
 func (p *GoogleProvider) ExchangeToken(ctx context.Context, code string, c *gin.Context) (*OAuthToken, error) {
 	if code == "" {
-		return nil, NewOAuthError(i18n.MsgOAuthInvalidCode, nil)
+		return nil, NewOAuthError(common.NewMessage(msgInvalidCode))
 	}
 
 	settings := system_setting.GetGoogleSettings()
@@ -77,7 +77,7 @@ func (p *GoogleProvider) ExchangeToken(ctx context.Context, code string, c *gin.
 	res, err := client.Do(req)
 	if err != nil {
 		logger.LogError(ctx, fmt.Sprintf("[OAuth-Google] ExchangeToken error: %s", err.Error()))
-		return nil, NewOAuthErrorWithRaw(i18n.MsgOAuthConnectFailed, map[string]any{"Provider": "Google"}, err.Error())
+		return nil, NewOAuthErrorWithRaw(common.NewMessage(msgConnectFailed, map[string]any{"provider": "Google"}), err.Error())
 	}
 	defer res.Body.Close()
 
@@ -92,7 +92,7 @@ func (p *GoogleProvider) ExchangeToken(ctx context.Context, code string, c *gin.
 
 	if googleResponse.AccessToken == "" {
 		logger.LogError(ctx, "[OAuth-Google] ExchangeToken failed: empty access token")
-		return nil, NewOAuthError(i18n.MsgOAuthTokenFailed, map[string]any{"Provider": "Google"})
+		return nil, NewOAuthError(common.NewMessage(msgTokenFailed, map[string]any{"provider": "Google"}))
 	}
 
 	logger.LogDebug(ctx, "[OAuth-Google] ExchangeToken success: scope=%s", googleResponse.Scope)
@@ -122,7 +122,7 @@ func (p *GoogleProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*O
 	res, err := client.Do(req)
 	if err != nil {
 		logger.LogError(ctx, fmt.Sprintf("[OAuth-Google] GetUserInfo error: %s", err.Error()))
-		return nil, NewOAuthErrorWithRaw(i18n.MsgOAuthConnectFailed, map[string]any{"Provider": "Google"}, err.Error())
+		return nil, NewOAuthErrorWithRaw(common.NewMessage(msgConnectFailed, map[string]any{"provider": "Google"}), err.Error())
 	}
 	defer res.Body.Close()
 
@@ -130,7 +130,7 @@ func (p *GoogleProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*O
 
 	if res.StatusCode != http.StatusOK {
 		logger.LogError(ctx, fmt.Sprintf("[OAuth-Google] GetUserInfo failed: status=%d", res.StatusCode))
-		return nil, NewOAuthError(i18n.MsgOAuthGetUserErr, nil)
+		return nil, NewOAuthError(common.NewMessage(msgGetUserFailed))
 	}
 
 	var googleUser googleUser
@@ -142,7 +142,7 @@ func (p *GoogleProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*O
 
 	if googleUser.Sub == "" {
 		logger.LogError(ctx, "[OAuth-Google] GetUserInfo failed: empty user fields")
-		return nil, NewOAuthError(i18n.MsgOAuthUserInfoEmpty, map[string]any{"Provider": "Google"})
+		return nil, NewOAuthError(common.NewMessage(msgUserInfoEmpty, map[string]any{"provider": "Google"}))
 	}
 
 	logger.LogDebug(ctx, "[OAuth-Google] GetUserInfo success: sub=%s, name=%s, email=%t", googleUser.Sub, googleUser.Name, googleUser.Email != "")

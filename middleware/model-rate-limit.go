@@ -100,7 +100,7 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 		successKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, userId)
 		allowed, retryAfter, err := checkRedisRateLimit(ctx, rdb, successKey, successMaxCount, duration)
 		if err != nil {
-			fmt.Println("failed to check success request rate limit:", err.Error())
+			fmt.Println(common.LogText("failed to check the successful request limit: %s", err.Error()))
 			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
 			return
 		}
@@ -109,7 +109,7 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 				retryAfter = duration
 			}
 			c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
-			abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, "rate_limit.reached", map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Count": successMaxCount}))
+			abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": successMaxCount}))
 			return
 		}
 
@@ -127,13 +127,13 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 			)
 
 			if err != nil {
-				fmt.Println("failed to check total request rate limit:", err.Error())
+				fmt.Println(common.LogText("failed to check the total request limit: %s", err.Error()))
 				abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
 				return
 			}
 
 			if !allowed {
-				abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, "rate_limit.total_reached", map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Count": totalMaxCount}))
+				abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitTotalReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": totalMaxCount}))
 				return
 			}
 		}

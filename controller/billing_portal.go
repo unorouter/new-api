@@ -43,7 +43,7 @@ func GetBillingPortal(c fuego.ContextNoBody) (*dto.Response[dto.BillingPortalDat
 
 	user, err := model.GetUserById(userId, false)
 	if err != nil || user == nil {
-		return dto.Fail[dto.BillingPortalData](common.TranslateMessage(dto.GinCtx(c), "user.not_found"))
+		return dto.Fail[dto.BillingPortalData]("User not found")
 	}
 
 	// An explicit ?provider= lets a caller open the portal for a specific payment

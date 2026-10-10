@@ -14,7 +14,7 @@ import (
 func GetAllQuotaDates(c fuego.ContextWithParams[dto.GetAllQuotaDatesParams]) (*dto.Response[[]*model.QuotaData], error) {
 	p, err := dto.ParseParams[dto.GetAllQuotaDatesParams](c)
 	if err != nil {
-		return dto.Fail[[]*model.QuotaData](common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.Fail[[]*model.QuotaData]("Invalid parameters")
 	}
 	dates, err := model.GetAllQuotaDates(p.StartTimestamp, p.EndTimestamp, p.Username)
 	if err != nil {
@@ -29,7 +29,7 @@ func GetAllQuotaDates(c fuego.ContextWithParams[dto.GetAllQuotaDatesParams]) (*d
 func GetQuotaDataSummary(c fuego.ContextWithParams[dto.GetQuotaSummaryParams]) (*dto.Response[*model.QuotaDataSummary], error) {
 	p, err := dto.ParseParams[dto.GetQuotaSummaryParams](c)
 	if err != nil {
-		return dto.Fail[*model.QuotaDataSummary](common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.Fail[*model.QuotaDataSummary]("Invalid parameters")
 	}
 	summary, err := model.GetQuotaDataSummary(p.StartTimestamp, p.EndTimestamp)
 	if err != nil {
@@ -62,7 +62,7 @@ const maxQuotaDateSpan = 10 * 365 * 86400
 func GetFlowQuotaDates(c fuego.ContextWithParams[dto.GetFlowQuotaDatesParams]) (*dto.Response[[]*model.FlowQuotaData], error) {
 	p, err := dto.ParseParams[dto.GetFlowQuotaDatesParams](c)
 	if err != nil {
-		return dto.Fail[[]*model.FlowQuotaData](common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.Fail[[]*model.FlowQuotaData]("Invalid parameters")
 	}
 	if p.EndTimestamp < p.StartTimestamp {
 		return dto.Fail[[]*model.FlowQuotaData]("End time cannot be earlier than start time")
@@ -83,7 +83,7 @@ func GetFlowQuotaDates(c fuego.ContextWithParams[dto.GetFlowQuotaDatesParams]) (
 func GetUserFlowQuotaDates(c fuego.ContextWithParams[dto.GetFlowQuotaDatesParams]) (*dto.Response[[]*model.FlowQuotaData], error) {
 	p, err := dto.ParseParams[dto.GetFlowQuotaDatesParams](c)
 	if err != nil {
-		return dto.Fail[[]*model.FlowQuotaData](common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.Fail[[]*model.FlowQuotaData]("Invalid parameters")
 	}
 	if p.EndTimestamp < p.StartTimestamp {
 		return dto.Fail[[]*model.FlowQuotaData]("End time cannot be earlier than start time")
@@ -102,7 +102,7 @@ func GetUserQuotaDates(c fuego.ContextWithParams[dto.GetUserQuotaDatesParams]) (
 	userId := dto.UserID(c)
 	p, err := dto.ParseParams[dto.GetUserQuotaDatesParams](c)
 	if err != nil {
-		return dto.Fail[[]*model.QuotaData](common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.Fail[[]*model.QuotaData]("Invalid parameters")
 	}
 	if p.EndTimestamp < p.StartTimestamp {
 		return dto.Fail[[]*model.QuotaData]("End time cannot be earlier than start time")

@@ -114,7 +114,7 @@ func InitChannelCache() {
 func SyncChannelCache(frequency int) {
 	for {
 		time.Sleep(time.Duration(frequency) * time.Second)
-		common.SysLog("syncing channels from database")
+		common.SysLog(common.LogText("syncing channels from database"))
 		InitChannelCache()
 	}
 }

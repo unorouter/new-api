@@ -8,7 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -117,7 +117,7 @@ func buildMaskedTokenResponse(token *model.Token) *TokenResponse {
 	maskedToken.Key = token.GetMaskedKey()
 	autoGroups, err := token.GetAutoGroups()
 	if err != nil {
-		common.SysError(fmt.Sprintf("failed to parse auto groups for token %d: %v", token.Id, err))
+		common.SysError(common.LogText("failed to parse auto groups for token %d: %v", token.Id, err))
 		autoGroups = nil
 	}
 	if len(autoGroups) == 0 {
@@ -313,7 +313,7 @@ func AddToken(c fuego.ContextWithBody[dto.CreateTokenRequest]) (dto.MessageRespo
 		}
 		maxQuotaValue := maxTokenQuota()
 		if token.RemainQuota > maxQuotaValue {
-			return dto.FailMsg(fmt.Sprintf("Quota value exceeds valid range, maximum is %d", maxQuotaValue))
+			return dto.FailMsg(fmt.Sprintf("Quota value exceeds valid range, maximum is %s", logger.FormatQuota(maxQuotaValue)))
 		}
 	}
 	maxTokens := operation_setting.GetMaxUserTokens()
@@ -411,7 +411,7 @@ func UpdateToken(c fuego.Context[dto.UpdateTokenRequest, dto.StatusOnlyParams]) 
 		}
 		maxQuotaValue := maxTokenQuota()
 		if token.RemainQuota > maxQuotaValue {
-			return dto.Fail[TokenResponse](fmt.Sprintf("Quota value exceeds valid range, maximum is %d", maxQuotaValue))
+			return dto.Fail[TokenResponse](fmt.Sprintf("Quota value exceeds valid range, maximum is %s", logger.FormatQuota(maxQuotaValue)))
 		}
 	}
 	cleanToken, err := model.GetTokenByIds(token.Id, dto.UserID(c))
@@ -557,11 +557,11 @@ func DeleteTokenBatch(c fuego.ContextWithBody[dto.TokenBatch]) (*dto.Response[in
 func GetTokenKeysBatch(c *gin.Context) {
 	tokenBatch := dto.TokenBatch{}
 	if err := c.ShouldBindJSON(&tokenBatch); err != nil || len(tokenBatch.Ids) == 0 {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiError(c, common.NewMessage("Invalid parameters"))
 		return
 	}
 	if len(tokenBatch.Ids) > 100 {
-		common.ApiErrorI18n(c, i18n.MsgBatchTooMany, map[string]any{"Max": 100})
+		common.ApiErrorT(c, "Too many items in batch request, maximum is {{max}}", map[string]any{"max": 100})
 		return
 	}
 	userId := c.GetInt("id")

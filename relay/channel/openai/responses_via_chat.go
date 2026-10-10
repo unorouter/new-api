@@ -73,6 +73,9 @@ type chatToResponsesEmitter struct {
 	info      *relaycommon.RelayInfo
 	state     *relayconvert.ResponseStreamState
 	streamErr *types.NewAPIError
+	// upstreamFailure is the upstream or conversion failure the client was
+	// told about with response.failed.
+	upstreamFailure *types.NewAPIError
 }
 
 func newChatToResponsesEmitter(c *gin.Context, info *relaycommon.RelayInfo) (*chatToResponsesEmitter, *types.NewAPIError) {
@@ -94,6 +97,13 @@ func (e *chatToResponsesEmitter) send(event relayconvert.ChatToResponsesStreamEv
 		return false
 	}
 	if err := helper.ResponseChunkData(e.c, dto.ResponsesStreamResponse{Type: event.Type}, string(data)); err != nil {
+		// When the client went away the upstream already produced output,
+		// so the stream stops and settles normally instead of failing; any
+		// other write error stays a server error.
+		if e.c.Request.Context().Err() != nil {
+			e.info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+			return false
+		}
 		e.streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		return false
 	}
@@ -125,13 +135,26 @@ func (e *chatToResponsesEmitter) fail(err error) bool {
 	return true
 }
 
+// stopErr is the error that ends the stream: a response.failed the client
+// already saw, a plain stream error, or nil when the client went away.
+func (e *chatToResponsesEmitter) stopErr() *types.NewAPIError {
+	if e.upstreamFailure != nil {
+		return e.upstreamFailure
+	}
+	return e.streamErr
+}
+
 // chunk converts one upstream chat chunk and emits the resulting events.
-// Returns false once the stream is in error; streamErr holds the cause.
+// Returns false once the stream stops; stopErr holds the cause.
 func (e *chatToResponsesEmitter) chunk(data string, statusCode int) bool {
 	var errorResp dto.OpenAITextResponse
 	if err := common.UnmarshalJsonStr(data, &errorResp); err == nil {
 		if oaiError := errorResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
-			if !e.fail(fmt.Errorf("%s", oaiError.Message)) {
+			if e.fail(fmt.Errorf("%s", oaiError.Message)) {
+				// The client got response.failed, so the request is never
+				// retried; the recorded error keeps the stream failed.
+				e.upstreamFailure = types.WithOpenAIError(*oaiError, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
+			} else {
 				e.streamErr = types.WithOpenAIError(*oaiError, statusCode)
 			}
 			return false
@@ -140,8 +163,10 @@ func (e *chatToResponsesEmitter) chunk(data string, statusCode int) bool {
 
 	var chunk dto.ChatCompletionsStreamResponse
 	if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
-		logger.LogError(e.c, "failed to unmarshal chat stream response: "+err.Error())
-		if !e.fail(err) {
+		logger.LogError(e.c, common.LogText("failed to unmarshal chat stream response: %s", err.Error()))
+		if e.fail(err) {
+			e.upstreamFailure = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
+		} else {
 			e.streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 		}
 		return false
@@ -153,7 +178,9 @@ func (e *chatToResponsesEmitter) convert(chunk *dto.ChatCompletionsStreamRespons
 	e.info.ObserveResponseModel(chunk.Model)
 	results, err := service.ConvertStreamResponseChunk(e.c, e.info, e.state, chunk)
 	if err != nil {
-		if !e.fail(err) {
+		if e.fail(err) {
+			e.upstreamFailure = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
+		} else {
 			e.streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		}
 		return false
@@ -168,9 +195,18 @@ func (e *chatToResponsesEmitter) finish() (*dto.Usage, *types.NewAPIError) {
 		return nil, e.streamErr
 	}
 	usage := e.state.Usage()
-	if usage == nil || usage.TotalTokens == 0 {
+	noUpstreamUsage := usage == nil || usage.TotalTokens == 0
+	if e.upstreamFailure != nil && noUpstreamUsage && e.state.UsageText() == "" {
+		// The stream failed before any output reached the client, which
+		// already received response.failed: the request is not charged.
+		return nil, e.upstreamFailure
+	}
+	if noUpstreamUsage {
 		usage = service.ResponseText2Usage(e.c, e.state.UsageText(), e.info.UpstreamModelName, e.info.GetEstimatePromptTokens())
 		e.state.SetUsage(usage)
+	}
+	if e.info.StreamStatus != nil && e.info.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone {
+		return usage, nil
 	}
 	finalResults, err := service.FinalizeStreamResponse(e.c, e.info, e.state)
 	if err != nil {
@@ -179,7 +215,7 @@ func (e *chatToResponsesEmitter) finish() (*dto.Usage, *types.NewAPIError) {
 		}
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
-	if !e.sendAll(finalResults) {
+	if !e.sendAll(finalResults) && e.streamErr != nil {
 		return nil, e.streamErr
 	}
 	return usage, nil
@@ -198,11 +234,11 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 
 	scannerErr := helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if emitter.streamErr != nil {
-			sr.Stop(emitter.streamErr)
+			stopStream(sr, emitter.streamErr)
 			return
 		}
 		if !emitter.chunk(data, resp.StatusCode) {
-			sr.Stop(emitter.streamErr)
+			stopStream(sr, emitter.stopErr())
 		}
 	})
 	if scannerErr != nil {
@@ -276,9 +312,7 @@ func OaiChatToResponsesReplayHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, newApiErr
 	}
 	helper.SetEventStreamHeaders(c)
-	if !emitter.convert(&chunk) {
-		return nil, emitter.streamErr
-	}
+	emitter.convert(&chunk)
 	return emitter.finish()
 }
 
@@ -367,4 +401,16 @@ func OaiChatToResponsesBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 	c.Writer.Header().Set("Content-Type", "application/json")
 	service.IOCopyBytesGracefully(c, nil, responseBody)
 	return usage, nil
+}
+
+// stopStream ends a converted stream from the scanner callback. A nil
+// streamErr (the stream stops because the client went away) must reach
+// StreamResult.Stop as an untyped nil; a typed nil *NewAPIError is a non-nil
+// error that StreamResult would record as a failure and dereference.
+func stopStream(sr *helper.StreamResult, streamErr *types.NewAPIError) {
+	if streamErr == nil {
+		sr.Stop(nil)
+		return
+	}
+	sr.Stop(streamErr)
 }

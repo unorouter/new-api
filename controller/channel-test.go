@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,11 +14,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
+
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -452,7 +454,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	//// 创建一个用于日志的 info 副本，移除 ApiKey
 	//logInfo := info
 	//logInfo.ApiKey = ""
-	common.SysLog(fmt.Sprintf("testing channel %d with model %s , info %+v ", channel.Id, testModel, info.ToString()))
+	common.SysLog(common.LogText("testing channel %d with model %s , info %+v ", channel.Id, testModel, info.ToString()))
 
 	priceData, err := helper.ModelPriceHelper(c, info, 0, request.GetTokenCountMeta())
 	if err != nil {
@@ -633,7 +635,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		httpResp = resp.(*http.Response)
 		if httpResp.StatusCode != http.StatusOK {
 			err := service.RelayErrorHandler(c.Request.Context(), httpResp, true)
-			common.SysError(fmt.Sprintf(
+			common.SysError(common.LogText(
 				"channel test bad response: channel_id=%d name=%s type=%d model=%s endpoint_type=%s status=%d err=%v",
 				channel.Id,
 				channel.Name,
@@ -704,13 +706,13 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		ModelName:        info.OriginModelName,
 		TokenName:        "Model test",
 		Quota:            quota,
-		Content:          "Model test",
+		Content:          []*common.Message{common.NewMessage("Model test")},
 		UseTimeSeconds:   int(consumedTime),
 		IsStream:         info.IsStream,
 		Group:            info.UsingGroup,
 		Other:            other,
 	})
-	common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
+	common.SysLog(common.LogText("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
 	return testResult{
 		context:     c,
 		localErr:    nil,
@@ -1467,7 +1469,8 @@ func runChannelTestTask(ctx context.Context, mode string, notify, manual bool, r
 		summary.Tested, summary.Succeeded, summary.Enabled, summary.Disabled,
 		len(selected), concurrency, time.Since(cycleStart).Seconds()))
 	if notify && (ctx == nil || ctx.Err() == nil) {
-		service.NotifyRootUser(relaydto.NotifyTypeChannelTest, "Channel test complete", "All channel tests have completed")
+		lang := service.RootUserLanguage()
+		service.NotifyRootUser(relaydto.NotifyTypeChannelTest, i18n.Translate(lang, i18n.MsgChannelTestCompletedSubject), i18n.Translate(lang, i18n.MsgChannelTestCompletedContent))
 	}
 	return summary, nil
 }

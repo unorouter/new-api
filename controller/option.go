@@ -11,7 +11,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -172,7 +171,7 @@ func UpdatePasskeyDomains(c *gin.Context) {
 		RemovalConfirmation string  `json:"removal_confirmation"`
 	}
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil || request.RPID == nil || request.LegacyRPIDs == nil || request.Origins == nil {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	change, err := model.UpdatePasskeyDomainOptions(map[string]string{
@@ -194,9 +193,9 @@ func UpdatePasskeyDomains(c *gin.Context) {
 func writePasskeyDomainSettingsError(c *gin.Context, err error) {
 	var removal *model.PasskeyDomainRemovalError
 	if errors.As(err, &removal) {
-		c.JSON(http.StatusConflict, gin.H{
-			"success": false, "code": "PASSKEY_RP_ID_REMOVAL_CONFIRMATION_REQUIRED",
-			"message": i18n.T(c, i18n.MsgPasskeyRPIDRemovalConfirmation), "data": removal.Change,
+		common.ApiErrorStatus(c, http.StatusConflict, common.NewMessage("Review the affected Passkeys and confirm the domain removal. If the settings or impact have changed, confirmation is required again."), gin.H{
+			"code": "PASSKEY_RP_ID_REMOVAL_CONFIRMATION_REQUIRED",
+			"data": removal.Change,
 		})
 		return
 	}
@@ -211,14 +210,14 @@ func UpdateOption(c fuego.ContextWithBody[dto.OptionUpdateRequest]) (dto.Message
 	ginCtx := dto.GinCtx(c)
 	option, err := c.Body()
 	if err != nil {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 	// The sync's service credential reaches this route for pricing and routing
 	// only. Route access alone is not enough here: one handler serves every
 	// option, so without this check the token still reaches the auth-hardening
 	// switches that made the takeover possible.
 	if middleware.AuthenticatedViaSyncToken(ginCtx) && !syncAllowedOptionKeys[option.Key] {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgAuthInsufficientPrivilege))
+		return dto.FailMsg("Unauthorized, insufficient privileges")
 	}
 	switch option.Value.(type) {
 	case bool:
@@ -233,7 +232,7 @@ func UpdateOption(c fuego.ContextWithBody[dto.OptionUpdateRequest]) (dto.Message
 	switch option.Key {
 	case "QuotaForInviter", "QuotaForInvitee":
 		if isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+			return dto.FailMsg("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 		}
 	default:
 		if isPaymentComplianceOptionKey(option.Key) {

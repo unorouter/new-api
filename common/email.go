@@ -139,7 +139,7 @@ func SendEmailWithBcc(subject string, receiver string, bcc string, content strin
 	}
 	err = client.Quit()
 	if err != nil {
-		SysError(fmt.Sprintf("failed to send email to %s: %v", receiver, err))
+		SysError(LogText("failed to send email to %s: %v", receiver, err))
 	}
 	return err
 }

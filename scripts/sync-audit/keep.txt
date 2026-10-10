@@ -72,3 +72,5 @@ service/network_reputation.go :: func accountEmailDomain(username, email string,
 setting/operation_setting/quota_setting.go :: FreeAbuseEmailDomainDailyMin int
 middleware/turnstile-check.go :: func TurnstileCheckAnonymous() gin.HandlerFunc
 router/api-router.go :: middleware.TurnstileCheckAnonymous()
+# the BFF issues legacy access tokens; upstream retires them 30 days after first start
+model/user_access_token.go :: The BFF still issues legacy tokens

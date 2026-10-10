@@ -31,8 +31,10 @@ var auditContentTemplates = map[string]string{
 	"user.binding_clear":        "Cleared ${bindingType} binding for user ${username}",
 	"user.2fa_disable":          "Force-disabled two-factor authentication for the user",
 	"user.passkey_register":     "Registered a passkey",
-	"access_token.generate":     "Generated a system access token",
-	"access_token.revoke":       "Revoked the system access token",
+	"access_token.generate":     "Generated an access token",
+	"access_token.revoke":       "Revoked an access token",
+	"access_token.rename":       "Renamed an access token",
+	"access_token.update":       "Changed access token permissions",
 	"user.2fa_setup":            "Started two-factor authentication setup",
 	"user.2fa_enable":           "Enabled two-factor authentication",
 	"user.2fa_disable_self":     "Disabled two-factor authentication",
@@ -92,8 +94,9 @@ var auditContentTemplates = map[string]string{
 	"redemption.create":       "Created ${count} redemption codes named ${name} (${quota} each)",
 	"redemption.delete_batch": "Batch deleted ${count} redemption codes",
 
-	"subscription.plan_reset":      "Reset active subscriptions for plan ${plan_id}",
-	"subscription.user_plan_reset": "Reset active plan ${plan_id} subscriptions for user ${target_user_id}",
+	"subscription.plan_reset":       "Reset active subscriptions for plan ${plan_id}",
+	"subscription.user_plan_reset":  "Reset active plan ${plan_id} subscriptions for user ${target_user_id}",
+	"subscription.user_quota_reset": "Administrator reset the quota of subscription plan ${plan_title} (ID: ${plan_id})",
 }
 
 func recordPasskeyDomainAudit(c *gin.Context, change *model.PasskeyDomainChange, confirmed bool, err error) {
@@ -198,6 +201,9 @@ func recordUserSecurityAudit(c *gin.Context, userId int, action string, params m
 	}
 	if code := c.GetString("security_error_code"); code != "" {
 		params["code"] = code
+	}
+	if c.GetBool("use_access_token") {
+		params["token_ref"] = c.GetString("access_token_ref")
 	}
 	// Recording the action must never be what fails it, and a context without a
 	// Request is real: handler tests build one, and the audit is not what they

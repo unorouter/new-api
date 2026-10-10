@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
@@ -206,10 +207,10 @@ func GetHomePageContent(c fuego.ContextNoBody) (*dto.Response[string], error) {
 func SendEmailVerification(c fuego.ContextWithParams[dto.EmailParams]) (dto.MessageResponse, error) {
 	p, err := dto.ParseParams[dto.EmailParams](c)
 	if err != nil {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 	if err := common.Validate.Var(p.Email, "required,email"); err != nil {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 	parts := strings.Split(p.Email, "@")
 	if len(parts) != 2 {
@@ -241,8 +242,17 @@ func SendEmailVerification(c fuego.ContextWithParams[dto.EmailParams]) (dto.Mess
 	}
 	code := common.GenerateVerificationCode(6)
 	common.RegisterVerificationCodeWithKey(p.Email, code, common.EmailVerificationPurpose)
-	subject := fmt.Sprintf("%v Email Verification", common.SystemName)
-	content := fmt.Sprintf("<p>Hello, you are performing %v email verification.</p><p>Your verification code is: <strong>%v</strong></p><p>The verification code is valid for %v minutes. If this was not initiated by you, please ignore this email.</p>", common.SystemName, code, common.VerificationValidMinutes)
+	// The address may not belong to an account yet, so the mail follows the
+	// request language.
+	ginCtx := dto.GinCtx(c)
+	systemName := map[string]any{"SystemName": common.SystemName}
+	subject := i18n.T(ginCtx, i18n.MsgEmailVerificationSubject, systemName)
+	content := fmt.Sprintf("<p>%s</p>"+
+		"<p>%s</p>"+
+		"<p>%s</p>",
+		i18n.T(ginCtx, i18n.MsgEmailVerificationGreeting, systemName),
+		i18n.T(ginCtx, i18n.MsgEmailVerificationCode, map[string]any{"Code": code}),
+		i18n.T(ginCtx, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
 	err = common.SendEmail(subject, p.Email, content)
 	if err != nil {
 		common.SysError("failed to send email verification: " + err.Error())
@@ -254,14 +264,14 @@ func SendEmailVerification(c fuego.ContextWithParams[dto.EmailParams]) (dto.Mess
 func SendPasswordResetEmail(c fuego.ContextWithParams[dto.EmailParams]) (dto.MessageResponse, error) {
 	p, err := dto.ParseParams[dto.EmailParams](c)
 	if err != nil {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 	if err := common.Validate.Var(p.Email, "required,email"); err != nil {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 	// Never reveal whether the address is registered: send silently when it is,
 	// stay quiet otherwise, and only log genuine lookup failures.
-	if _, err := model.GetUniqueUserForPasswordReset(p.Email); err == nil {
+	if user, err := model.GetUniqueUserForPasswordReset(p.Email); err == nil {
 		code := common.GenerateVerificationCode(0)
 		common.RegisterVerificationCodeWithKey(p.Email, code, common.PasswordResetPurpose)
 		// The bundled UI serves the confirm page at /user/reset; a separate
@@ -271,8 +281,21 @@ func SendPasswordResetEmail(c fuego.ContextWithParams[dto.EmailParams]) (dto.Mes
 			resetPath = "/reset"
 		}
 		link := fmt.Sprintf("%s%s?email=%s&token=%s", system_setting.UserLinkBase(), resetPath, url.QueryEscape(p.Email), url.QueryEscape(code))
-		subject := fmt.Sprintf("%v Password Reset", common.SystemName)
-		content := fmt.Sprintf("<p>Hello, you are performing %v password reset.</p><p>Click <a href='%v'>here</a> to reset your password.</p><p>If the link cannot be opened, please copy the following URL into your browser: %v</p><p>The reset link is valid for %v minutes. If this was not initiated by you, please ignore this email.</p>", common.SystemName, link, link, common.VerificationValidMinutes)
+		lang := user.GetSetting().Language
+		if lang == "" {
+			lang = i18n.StatedLang(dto.GinCtx(c))
+		}
+		systemName := map[string]any{"SystemName": common.SystemName}
+		linkParams := map[string]any{"Link": link}
+		subject := i18n.Translate(lang, i18n.MsgEmailPasswordResetSubject, systemName)
+		content := fmt.Sprintf("<p>%s</p>"+
+			"<p>%s</p>"+
+			"<p>%s </p>"+
+			"<p>%s</p>",
+			i18n.Translate(lang, i18n.MsgEmailPasswordResetGreeting, systemName),
+			i18n.Translate(lang, i18n.MsgEmailPasswordResetLink, linkParams),
+			i18n.Translate(lang, i18n.MsgEmailPasswordResetLinkFallback, linkParams),
+			i18n.Translate(lang, i18n.MsgEmailPasswordResetValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
 		if err := common.SendEmail(subject, p.Email, content); err != nil {
 			common.SysError("failed to send password reset email: " + err.Error())
 			return dto.FailMsg("Failed to send email, please try again later")
@@ -286,7 +309,7 @@ func SendPasswordResetEmail(c fuego.ContextWithParams[dto.EmailParams]) (dto.Mes
 func ResetPassword(c fuego.ContextWithBody[dto.PasswordResetRequest]) (*dto.Response[string], error) {
 	req, err := c.Body()
 	if err != nil || req.Email == "" || req.Token == "" {
-		return dto.Fail[string](common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.Fail[string]("Invalid parameters")
 	}
 	if !common.VerifyCodeWithKey(req.Email, req.Token, common.PasswordResetPurpose) {
 		return dto.Fail[string]("Reset link is invalid or has expired")

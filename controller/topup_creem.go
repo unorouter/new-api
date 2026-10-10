@@ -104,10 +104,9 @@ func verifyCreemSignature(payload string, signature string, secret string) bool 
 }
 
 func RequestCreemPay(c fuego.ContextWithBody[dto.CreemPayRequest]) (*dto.Response[dto.CreemPayData], error) {
-	ginCtx := dto.GinCtx(c)
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.CreemPayData]("Invalid parameters")
 	}
 
 	if req.PaymentMethod != PaymentMethodCreem {
@@ -191,13 +190,13 @@ func RequestCreemPay(c fuego.ContextWithBody[dto.CreemPayRequest]) (*dto.Respons
 
 	user, _ := model.GetUserById(id, false)
 	if user == nil {
-		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.create_failed"))
+		return dto.Fail[dto.CreemPayData]("Failed to create order")
 	}
 
 	if capUSD := setting.CardTopUpNewAccountCapUSD; capUSD > 0 && user.CreatedAt > 0 && time.Now().Unix()-user.CreatedAt < 86400 {
 		committed, err := model.CardMoneyCommitted(id)
 		if err != nil {
-			return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.create_failed"))
+			return dto.Fail[dto.CreemPayData]("Failed to create order")
 		}
 		if committed+payAmount > capUSD {
 			return dto.Fail[dto.CreemPayData](fmt.Sprintf("Card top-ups are limited to $%.0f in total during an account's first 24 hours. Please try again later or pay with crypto.", capUSD))
@@ -226,14 +225,14 @@ func RequestCreemPay(c fuego.ContextWithBody[dto.CreemPayRequest]) (*dto.Respons
 	err = topUp.Insert()
 	if err != nil {
 		log.Printf("failed to create Creem order: %s", err.Error())
-		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.create_failed"))
+		return dto.Fail[dto.CreemPayData]("Failed to create order")
 	}
 
 	// 创建支付链接，传入用户邮箱
 	checkoutUrl, err := genCreemLink(referenceId, selectedProduct, user.Email, user.Username, customPriceCents)
 	if err != nil {
 		log.Printf("failed to get Creem payment link: %s", err.Error())
-		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.start_failed"))
+		return dto.Fail[dto.CreemPayData]("Failed to start payment")
 	}
 
 	log.Printf("Creem order created - UserID: %d, OrderNo: %s, Product: %s, Quota: %d, PayAmount: %.2f, CustomPriceCents: %d", id, referenceId, selectedProduct.Name, payQuota, payAmount, customPriceCents)
@@ -495,11 +494,11 @@ func handleTopUpReversal(c *gin.Context, event *dto.CreemWebhookEvent, rawBody s
 		return
 	}
 
-	note := fmt.Sprintf("Creem %s: %d quota reversed, top-up %d, order %s, transaction %s, event %s", kind, res.QuotaRemoved, res.TopUpId, in.OrderId, in.TransactionId, event.Id)
+	note := "Creem {{kind}}: {{quota}} quota reversed, top-up {{top_up_id}}, order {{order_id}}, transaction {{transaction_id}}, event {{event_id}}"
 	if dispute {
 		note += ", account disabled"
 	}
-	model.RecordLog(res.UserId, model.LogTypeRefund, note)
+	model.RecordLog(res.UserId, model.LogTypeRefund, common.NewMessage(note, map[string]any{"kind": kind, "quota": res.QuotaRemoved, "top_up_id": res.TopUpId, "order_id": in.OrderId, "transaction_id": in.TransactionId, "event_id": event.Id}))
 	logger.LogInfo(ctx, fmt.Sprintf("Creem %s applied event_id=%s user_id=%d top_up_id=%d quota_removed=%d disabled=%t", kind, event.Id, res.UserId, res.TopUpId, res.QuotaRemoved, dispute))
 	c.Status(http.StatusOK)
 }
@@ -686,7 +685,7 @@ func handleCheckoutCompleted(c *gin.Context, event *dto.CreemWebhookEvent) {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem failed to record order id trade_no=%s order_id=%s error=%q", referenceId, event.Object.Order.Id, err.Error()))
 	}
 
-	err := model.RechargeCreem(referenceId, customerEmail, customerName)
+	err := model.RechargeCreem(referenceId, customerEmail, customerName, c.ClientIP())
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem topup processing failed trade_no=%s creem_order_id=%s client_ip=%s error=%q", referenceId, event.Object.Order.Id, c.ClientIP(), err.Error()))
 		c.AbortWithStatus(http.StatusInternalServerError)

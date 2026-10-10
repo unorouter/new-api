@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/tokenkit"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -25,7 +26,7 @@ func TestImagePromptTokensAreCountedNotStubbed(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := service.CountTextToken(tc.prompt, model)
+			got := tokenkit.Count(model, tc.prompt)
 			assert.False(t, service.IsStubTokenCount(got),
 				"a real prompt must not count as a stub placeholder")
 			assert.Greater(t, got, 1, "prompt must cost more than the old hardcoded 1")
@@ -34,5 +35,5 @@ func TestImagePromptTokensAreCountedNotStubbed(t *testing.T) {
 
 	// An empty prompt has nothing to charge for and stays stub-shaped, so the
 	// TotalTokens fallback must not be tricked into reporting a phantom cost.
-	assert.True(t, service.IsStubTokenCount(service.CountTextToken("", model)))
+	assert.True(t, service.IsStubTokenCount(tokenkit.Count(model, "")))
 }

@@ -11,8 +11,6 @@ import (
 	"gorm.io/gorm"
 )
 
-var errSessionNotFound = errors.New("Passkey session does not exist or has expired")
-
 const passkeyFlowTTL = 5 * time.Minute
 
 type flowPayload struct {
@@ -31,7 +29,7 @@ type FlowSecurity struct {
 
 func CreateSessionDataFlow(purpose string, security FlowSecurity, data *webauthn.SessionData) (string, int64, error) {
 	if data == nil {
-		return "", 0, errors.New("Passkey session data cannot be empty")
+		return "", 0, errors.New("passkey session data is empty")
 	}
 	if purpose == model.AuthFlowPurposeLoginPasskey {
 		if security.UserID <= 0 || security.UserAuthVersion <= 0 || security.LoginFlowID <= 0 || security.LoginExpiresAt <= time.Now().Unix() || security.SessionID != "" || security.SessionVersion != 0 {

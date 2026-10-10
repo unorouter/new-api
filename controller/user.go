@@ -11,7 +11,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -43,7 +42,7 @@ func GetPasswordEncryptionKey(c *gin.Context) {
 	}
 	keyID, publicKey := common.PasswordEncryptionPublicKey()
 	if keyID == "" || publicKey == "" {
-		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+		common.ApiErrorT(c, "Database error, please contact the administrator")
 		return
 	}
 	common.ApiSuccess(c, gin.H{
@@ -56,30 +55,30 @@ func GetPasswordEncryptionKey(c *gin.Context) {
 // Login uses *gin.Context because setupLogin writes session + JSON directly
 func Login(c *gin.Context) {
 	if !common.PasswordLoginEnabled {
-		common.ApiErrorI18n(c, "user.password_login_disabled")
+		common.ApiError(c, common.NewMessage("Password login has been disabled by administrator"))
 		return
 	}
 	var loginRequest dto.LoginRequest
 	err := common.DecodeJson(c.Request.Body, &loginRequest)
 	if err != nil {
-		common.ApiErrorI18n(c, "common.invalid_params")
+		common.ApiError(c, common.NewMessage("Invalid parameters"))
 		return
 	}
 	username := loginRequest.Username
 	password := loginRequest.Password
 	if common.PasswordLoginEncryptionEnabled {
 		if loginRequest.PasswordEncrypted == "" || loginRequest.EncryptionKeyID == "" {
-			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			common.ApiErrorT(c, "Invalid parameters")
 			return
 		}
 		password, err = common.DecryptPassword(loginRequest.PasswordEncrypted, loginRequest.EncryptionKeyID)
 		if err != nil {
-			common.ApiErrorI18n(c, i18n.MsgUserUsernameOrPasswordError)
+			common.ApiErrorT(c, "Username or password is incorrect, or user has been banned")
 			return
 		}
 	}
 	if username == "" || password == "" {
-		common.ApiErrorI18n(c, "common.invalid_params")
+		common.ApiError(c, common.NewMessage("Invalid parameters"))
 		return
 	}
 	user := model.User{
@@ -90,14 +89,14 @@ func Login(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, model.ErrDatabase):
-			common.SysLog(fmt.Sprintf("Login database error for user %s: %v", username, err))
-			common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+			common.SysLog(common.LogText("Login database error for user %s: %v", username, err))
+			common.ApiErrorT(c, "Database error, please contact the administrator")
 		case errors.Is(err, model.ErrUserEmptyCredentials):
-			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			common.ApiError(c, common.NewMessage("Invalid parameters"))
 		case errors.Is(err, model.ErrUserDisabled):
-			common.ApiErrorI18n(c, i18n.MsgUserAccountSuspended)
+			common.ApiError(c, common.NewMessage("This account is suspended. Contact support@unorouter.com if you think this is a mistake."))
 		default:
-			common.ApiErrorI18n(c, i18n.MsgUserUsernameOrPasswordError)
+			common.ApiErrorT(c, "Username or password is incorrect, or user has been banned")
 		}
 		return
 	}
@@ -239,7 +238,7 @@ func setupLogin(user *model.User, migration *service.LegacyGitHubMigration, c *g
 
 func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin.Context) {
 	if user == nil || user.Id <= 0 || user.Status != common.UserStatusEnabled {
-		common.ApiErrorI18n(c, i18n.MsgAuthUserBanned)
+		common.ApiErrorT(c, "User has been banned")
 		return
 	}
 	backfillRegisterIp(user, c)
@@ -398,10 +397,9 @@ func setupOAuthErrorRedirect(c *gin.Context, redirectURI, errMsg string) bool {
 
 // ExchangeOAuthCode exchanges a one-time OAuth code for user data and access token.
 func ExchangeOAuthCode(c fuego.ContextWithBody[dto.OAuthExchangeRequest]) (*dto.Response[dto.OAuthExchangeData], error) {
-	ginCtx := dto.GinCtx(c)
 	body, err := c.Body()
 	if err != nil || body.Code == "" {
-		return dto.Fail[dto.OAuthExchangeData](common.TranslateMessage(ginCtx, "oauth.invalid_code"))
+		return dto.Fail[dto.OAuthExchangeData]("Invalid authorization code")
 	}
 
 	data := common.RedeemOAuthExchangeCode(body.Code)
@@ -454,42 +452,42 @@ func registerIpLimited(ip string) (bool, error) {
 func Register(c fuego.ContextWithBody[dto.RegisterRequest]) (dto.MessageResponse, error) {
 	ginCtx := dto.GinCtx(c)
 	if !common.RegisterEnabled {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.register_disabled"))
+		return dto.FailMsg("New user registration has been disabled by administrator")
 	}
 	if !common.PasswordRegisterEnabled {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.password_register_disabled"))
+		return dto.FailMsg("Password registration has been disabled by administrator, please use third-party account verification")
 	}
 	req, err := c.Body()
 	if err != nil {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	if req.Username == "" {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 	if err := common.Validate.Struct(&req); err != nil {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.input_invalid", map[string]any{"Error": err.Error()}))
+		return dto.FailMsg(common.NewMessage("Invalid input {{Error}}", map[string]any{"Error": err.Error()}).Error())
 	}
 	if common.EmailVerificationEnabled {
 		if req.Email == "" || req.VerificationCode == "" {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "user.email_verification_required"))
+			return dto.FailMsg("Email verification is enabled, please enter email address and verification code")
 		}
 		if !common.VerifyCodeWithKey(req.Email, req.VerificationCode, common.EmailVerificationPurpose) {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "user.verification_code_error"))
+			return dto.FailMsg("Verification code is incorrect or has expired")
 		}
 	}
 	exist, err := model.CheckUserExistOrDeleted(req.Username, req.Email)
 	if err != nil {
 		common.SysLog(fmt.Sprintf("CheckUserExistOrDeleted error: %v", err))
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.database_error"))
+		return dto.FailMsg("Database error, please contact the administrator")
 	}
 	if exist {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.exists"))
+		return dto.FailMsg("Username already exists or has been deleted")
 	}
 	registerIp := publicClientIp(ginCtx)
 	limited, err := registerIpLimited(registerIp)
 	if err != nil {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.database_error"))
+		return dto.FailMsg("Database error, please contact the administrator")
 	}
 	if limited {
 		return dto.FailMsg("An account has already been registered from this IP address")
@@ -516,13 +514,13 @@ func Register(c fuego.ContextWithBody[dto.RegisterRequest]) (dto.MessageResponse
 
 	var insertedUser model.User
 	if err := model.DB.Where("username = ?", cleanUser.Username).First(&insertedUser).Error; err != nil {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.register_failed"))
+		return dto.FailMsg("User registration failed or user ID retrieval failed")
 	}
 	if constant.GenerateDefaultToken {
 		key, err := common.GenerateKey()
 		if err != nil {
 			common.SysLog("failed to generate token key: " + err.Error())
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "user.default_token_failed"))
+			return dto.FailMsg("Failed to generate default token")
 		}
 		token := model.Token{
 			UserId:             insertedUser.Id,
@@ -539,7 +537,7 @@ func Register(c fuego.ContextWithBody[dto.RegisterRequest]) (dto.MessageResponse
 			token.Group = "auto"
 		}
 		if err := token.Insert(); err != nil {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "user.create_default_token_error"))
+			return dto.FailMsg("Failed to create default token")
 		}
 	}
 
@@ -640,7 +638,7 @@ func GetUser(c fuego.ContextNoBody) (*dto.Response[model.User], error) {
 	}
 	myRole := dto.UserRole(c)
 	if !canManageTargetRole(myRole, user.Role) {
-		return dto.Fail[model.User](common.TranslateMessage(dto.GinCtx(c), "user.no_permission_same_level"))
+		return dto.Fail[model.User]("No permission to access users of same or higher level")
 	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
 	return dto.Ok(*user)
@@ -653,19 +651,19 @@ func GenerateAccessToken(c fuego.ContextNoBody) (*dto.Response[string], error) {
 	// created it and was replayed from Tor; rotate such a token with a scoped
 	// database UPDATE instead, so it never exists as a mintable value.
 	if dto.UserRole(c) >= common.RoleAdminUser {
-		return dto.Fail[string](common.TranslateMessage(dto.GinCtx(c), i18n.MsgAuthInsufficientPrivilege))
+		return dto.Fail[string]("Unauthorized, insufficient privileges")
 	}
 	randI := common.GetRandomInt(4)
 	key, err := common.GenerateRandomKey(29 + randI)
 	if err != nil {
 		common.SysLog("failed to generate key: " + err.Error())
-		return dto.Fail[string](common.TranslateMessage(dto.GinCtx(c), "common.generate_failed"))
+		return dto.Fail[string]("Generation failed")
 	}
 	if model.DB.Where("access_token = ?", key).First(&model.User{}).RowsAffected != 0 {
-		return dto.Fail[string](common.TranslateMessage(dto.GinCtx(c), "common.uuid_duplicate"))
+		return dto.Fail[string]("Please retry, the system generated a duplicate UUID!")
 	}
 
-	if err := model.UpdateUserAccessToken(id, key); err != nil {
+	if err := model.UpdateUserLegacyAccessToken(id, key); err != nil {
 		return dto.Fail[string](err.Error())
 	}
 
@@ -675,7 +673,7 @@ func GenerateAccessToken(c fuego.ContextNoBody) (*dto.Response[string], error) {
 func TransferAffQuota(c fuego.ContextWithBody[dto.TransferAffQuotaRequest]) (dto.MessageResponse, error) {
 	ginCtx := dto.GinCtx(c)
 	if !operation_setting.IsPaymentComplianceConfirmed() {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+		return dto.FailMsg("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
 	id := dto.UserID(c)
 	user, err := model.GetUserById(id, true)
@@ -687,8 +685,12 @@ func TransferAffQuota(c fuego.ContextWithBody[dto.TransferAffQuotaRequest]) (dto
 		return dto.FailMsg(err.Error())
 	}
 	err = user.TransferAffQuotaToQuota(tran.Quota)
+	var message *common.Message
+	if errors.As(err, &message) {
+		return dto.FailMsg(message.Error())
+	}
 	if err != nil {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "user.transfer_failed", map[string]any{"Error": err.Error()}))
+		return dto.FailMsg(common.NewMessage("Transfer failed {{Error}}", map[string]any{"Error": err.Error()}).Error())
 	}
 	// Converts commission into spendable balance. Lower risk than a partner grant
 	// because the money stays in the account, but it is still a balance change a
@@ -696,7 +698,7 @@ func TransferAffQuota(c fuego.ContextWithBody[dto.TransferAffQuotaRequest]) (dto
 	recordUserSecurityAudit(ginCtx, id, "user.aff_transfer", map[string]interface{}{
 		"quota": tran.Quota,
 	})
-	return dto.Msg(common.TranslateMessage(dto.GinCtx(c), "user.transfer_success"))
+	return dto.Msg("Transfer successful")
 }
 
 func GetAffCode(c fuego.ContextNoBody) (*dto.Response[string], error) {
@@ -921,12 +923,12 @@ func UpdateUser(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error
 	ginCtx := dto.GinCtx(c)
 	updatedUser, err := c.Body()
 	if err != nil || updatedUser.Id == 0 {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 	// Password is optional on update: empty = keep unchanged (the `omitempty`
 	// validate tag lets an empty password bind + pass validation).
 	if err := common.Validate.Struct(&updatedUser); err != nil {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.input_invalid", map[string]any{"Error": err.Error()}))
+		return dto.FailMsg(common.NewMessage("Invalid input {{Error}}", map[string]any{"Error": err.Error()}).Error())
 	}
 	originUser, err := model.GetUserById(updatedUser.Id, false)
 	if err != nil {
@@ -934,17 +936,32 @@ func UpdateUser(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error
 	}
 	myRole := dto.UserRole(c)
 	if !canManageTargetRole(myRole, originUser.Role) {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.no_permission_higher_level"))
+		return dto.FailMsg("No permission to update users of same or higher permission level")
 	}
 	if !canManageTargetRole(myRole, updatedUser.Role) {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.cannot_create_higher_level"))
+		return dto.FailMsg("Cannot create users with permission level equal to or higher than yourself")
 	}
 	updatePassword := updatedUser.Password != ""
 	// Changing your OWN password belongs on /user/self, which requires the current
 	// password and an interactive session. Allowing it here let the 2026-08-26
 	// intruder rewrite the root password from a stolen token without knowing it.
 	if updatePassword && updatedUser.Id == dto.UserID(c) {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.no_permission_higher_level"))
+		return dto.FailMsg("No permission to update users of same or higher permission level")
+	}
+	auditParams := map[string]any{
+		"username": originUser.Username,
+		"id":       updatedUser.Id,
+	}
+	// Resetting a password or rewriting the admin permission matrix changes what
+	// the managed account can do or who can sign in to it.
+	if updatePassword || updatedUser.AdminPermissions != nil {
+		authorization, failure := checkAdminUserProof(ginCtx, service.VerificationScopeAdminUserUpdate, service.AdminUserContext{UserID: updatedUser.Id})
+		if authorization == nil {
+			return dto.FailMsg(failure)
+		}
+		auditParams["verification_method"] = authorization.Method
+		auditParams["password_reset"] = updatePassword
+		auditParams["admin_permissions_updated"] = updatedUser.AdminPermissions != nil
 	}
 	authzTouched := false
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
@@ -970,10 +987,7 @@ func UpdateUser(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error
 	if err := model.PublishUserAuthCache(updatedUser.Id); err != nil {
 		return dto.FailMsg(err.Error())
 	}
-	recordManageAuditFor(ginCtx, updatedUser.Id, "user.update", map[string]interface{}{
-		"username": originUser.Username,
-		"id":       updatedUser.Id,
-	})
+	recordManageAuditFor(ginCtx, updatedUser.Id, "user.update", auditParams)
 	return dto.Msg("")
 }
 
@@ -981,12 +995,12 @@ func AdminClearUserBinding(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	ginCtx := dto.GinCtx(c)
 	id, err := c.PathParamIntErr("id")
 	if err != nil {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 
 	bindingType := strings.ToLower(strings.TrimSpace(c.PathParam("binding_type")))
 	if bindingType == "" {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 
 	user, err := model.GetUserById(id, false)
@@ -996,7 +1010,11 @@ func AdminClearUserBinding(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 
 	myRole := dto.UserRole(c)
 	if !canManageTargetRole(myRole, user.Role) {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.no_permission_same_level"))
+		return dto.FailMsg("No permission to access users of same or higher level")
+	}
+	authorization, failure := checkAdminUserProof(ginCtx, service.VerificationScopeAdminUserBindingClear, service.AdminUserBindingContext{UserID: user.Id, BindingType: bindingType})
+	if authorization == nil {
+		return dto.FailMsg(failure)
 	}
 
 	if err := user.ClearBinding(bindingType); err != nil {
@@ -1004,8 +1022,9 @@ func AdminClearUserBinding(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	}
 
 	recordManageAuditFor(ginCtx, user.Id, "user.binding_clear", map[string]interface{}{
-		"bindingType": bindingType,
-		"username":    user.Username,
+		"bindingType":         bindingType,
+		"username":            user.Username,
+		"verification_method": authorization.Method,
 	})
 
 	return dto.Msg("success")
@@ -1031,7 +1050,7 @@ func SelfClearBinding(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 
 	bindingType := strings.ToLower(strings.TrimSpace(c.PathParam("binding_type")))
 	if !selfUnbindableTypes[bindingType] {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 
 	user, err := model.GetUserById(userId, false)
@@ -1058,7 +1077,7 @@ func UpdateSelf(c fuego.ContextNoBody) (dto.ApiResponse, error) {
 	var requestData map[string]interface{}
 	err := dto.Decode(c, &requestData)
 	if err != nil {
-		return dto.FailAny(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailAny("Invalid parameters")
 	}
 
 	if sidebarModules, sidebarExists := requestData["sidebar_modules"]; sidebarExists {
@@ -1075,10 +1094,10 @@ func UpdateSelf(c fuego.ContextNoBody) (dto.ApiResponse, error) {
 		}
 
 		if err := model.UpdateUserSetting(user.Id, currentSetting); err != nil {
-			return dto.FailAny(common.TranslateMessage(ginCtx, "common.update_failed"))
+			return dto.FailAny("Update failed")
 		}
 
-		return dto.OkMsgAny(common.TranslateMessage(ginCtx, "common.update_success"), nil)
+		return dto.OkMsgAny("Update successful", nil)
 	}
 
 	if language, langExists := requestData["language"]; langExists {
@@ -1095,26 +1114,26 @@ func UpdateSelf(c fuego.ContextNoBody) (dto.ApiResponse, error) {
 		}
 
 		if err := model.UpdateUserSetting(user.Id, currentSetting); err != nil {
-			return dto.FailAny(common.TranslateMessage(ginCtx, "common.update_failed"))
+			return dto.FailAny("Update failed")
 		}
 
-		return dto.OkMsgAny(common.TranslateMessage(ginCtx, "common.update_success"), nil)
+		return dto.OkMsgAny("Update successful", nil)
 	}
 
 	var user model.User
 	requestDataBytes, err := common.Marshal(requestData)
 	if err != nil {
-		return dto.FailAny(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailAny("Invalid parameters")
 	}
 	if err = common.Unmarshal(requestDataBytes, &user); err != nil {
-		return dto.FailAny(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailAny("Invalid parameters")
 	}
 
 	if user.Password == "" {
 		user.Password = "$I_LOVE_U"
 	}
 	if err := common.Validate.Struct(&user); err != nil {
-		return dto.FailAny(common.TranslateMessage(ginCtx, "common.invalid_input"))
+		return dto.FailAny("Invalid input")
 	}
 
 	cleanUser := model.User{
@@ -1175,7 +1194,7 @@ func checkUpdatePassword(ginCtx *gin.Context, originalPassword string, newPasswo
 	}
 
 	if !common.ValidatePasswordAndHash(originalPassword, currentUser.Password) && currentUser.Password != "" {
-		err = fmt.Errorf("%s", common.TranslateMessage(ginCtx, "user.original_password_error"))
+		err = fmt.Errorf("%s", "Original password is incorrect")
 		return
 	}
 	if newPassword == "" {
@@ -1196,15 +1215,21 @@ func DeleteUser(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	}
 	myRole := dto.UserRole(c)
 	if myRole <= originUser.Role {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "user.no_permission_higher_level"))
+		return dto.FailMsg("No permission to update users of same or higher permission level")
 	}
-	err = model.HardDeleteUserById(id)
+	authorization, failure := checkAdminUserProof(dto.GinCtx(c), service.VerificationScopeAdminUserDelete, service.AdminUserContext{UserID: originUser.Id})
+	if authorization == nil {
+		return dto.FailMsg(failure)
+	}
+	revokedAccessTokens, err := model.HardDeleteUserById(id)
 	if err != nil {
 		return dto.FailMsg(err.Error())
 	}
 	recordManageAuditFor(dto.GinCtx(c), originUser.Id, "user.delete", map[string]interface{}{
-		"username": originUser.Username,
-		"id":       originUser.Id,
+		"username":              originUser.Username,
+		"id":                    originUser.Id,
+		"verification_method":   authorization.Method,
+		"revoked_access_tokens": revokedAccessTokens,
 	})
 	return dto.Msg("")
 }
@@ -1214,11 +1239,10 @@ func DeleteSelf(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	user, _ := model.GetUserById(id, false)
 
 	if user.Role == common.RoleRootUser {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "user.cannot_delete_root_user"))
+		return dto.FailMsg("Cannot delete super administrator account")
 	}
 
-	err := model.DeleteUserById(id)
-	if err != nil {
+	if _, err := model.DeleteUserById(id); err != nil {
 		return dto.FailMsg(err.Error())
 	}
 	return dto.Msg("")
@@ -1229,17 +1253,29 @@ func CreateUser(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error
 	user, err := c.Body()
 	user.Username = strings.TrimSpace(user.Username)
 	if err != nil || user.Username == "" || user.Password == "" {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 	if err := common.Validate.Struct(&user); err != nil {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.input_invalid", map[string]any{"Error": err.Error()}))
+		return dto.FailMsg(common.NewMessage("Invalid input {{Error}}", map[string]any{"Error": err.Error()}).Error())
+	}
+	if !common.IsValidateRole(user.Role) {
+		return dto.FailMsg("Invalid parameters")
 	}
 	if user.DisplayName == "" {
 		user.DisplayName = user.Username
 	}
 	myRole := dto.UserRole(c)
 	if user.Role >= myRole {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.cannot_create_higher_level"))
+		return dto.FailMsg("Cannot create users with permission level equal to or higher than yourself")
+	}
+	auditParams := map[string]any{"role": user.Role}
+	// Creating an administrator grants privilege just like promoting one.
+	if user.Role >= common.RoleAdminUser {
+		authorization, failure := checkAdminUserProof(ginCtx, service.VerificationScopeAdminUserCreate, service.AdminUserCreateContext{Role: user.Role})
+		if authorization == nil {
+			return dto.FailMsg(failure)
+		}
+		auditParams["verification_method"] = authorization.Method
 	}
 	cleanUser := model.User{
 		Username:    user.Username,
@@ -1265,10 +1301,8 @@ func CreateUser(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error
 	}
 	cleanUser.FinishInsert(0)
 
-	recordManageAuditFor(ginCtx, cleanUser.Id, "user.create", map[string]interface{}{
-		"username": cleanUser.Username,
-		"role":     cleanUser.Role,
-	})
+	auditParams["username"] = cleanUser.Username
+	recordManageAuditFor(ginCtx, cleanUser.Id, "user.create", auditParams)
 	return dto.Msg("")
 }
 
@@ -1294,85 +1328,92 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 	req, err := c.Body()
 
 	if err != nil {
-		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.ManageUserData]("Invalid parameters")
 	}
 	// A zero id turns the struct lookup below into an unconditioned query that
 	// resolves to whichever row sorts first.
 	if req.Id <= 0 {
-		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.ManageUserData]("Invalid parameters")
 	}
 	var user model.User
 	if err := model.DB.Unscoped().Where("id = ?", req.Id).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.not_exists"))
+			return dto.Fail[dto.ManageUserData]("User does not exist")
 		}
-		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "common.database_error"))
+		return dto.Fail[dto.ManageUserData]("Database error, please contact the administrator")
 	}
 	// Balance changes need a live account; the unscoped lookup exists so
 	// enable/delete can still reach soft-deleted rows.
 	if req.Action == "add_quota" && user.DeletedAt.Valid {
-		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.not_exists"))
+		return dto.Fail[dto.ManageUserData]("User does not exist")
 	}
 	myRole := dto.UserRole(c)
 	if !canManageTargetRole(myRole, user.Role) {
-		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.no_permission_higher_level"))
+		return dto.Fail[dto.ManageUserData]("No permission to update users of same or higher permission level")
 	}
 	// The bot's service credential reaches this route for exactly one action.
 	// Without this the token would still be able to delete or promote accounts,
 	// which is most of what taking the token off root was meant to prevent.
 	if middleware.AuthenticatedViaBotToken(ginCtx) && req.Action != botAllowedManageAction {
-		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.no_permission_higher_level"))
+		return dto.Fail[dto.ManageUserData]("No permission to update users of same or higher permission level")
 	}
 	// A bearer secret with no second factor must not decide who keeps their
 	// account. AuthenticatedViaPAT excludes the bot and sync service tokens, so
 	// this narrows human PATs only.
 	if patDeniedManageActions[req.Action] && middleware.AuthenticatedViaPAT(ginCtx) {
-		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, i18n.MsgAuthInsufficientPrivilege))
+		return dto.Fail[dto.ManageUserData]("Unauthorized, insufficient privileges")
 	}
 	switch req.Action {
 	case "disable":
 		user.Status = common.UserStatusDisabled
 		if user.Role == common.RoleRootUser {
-			return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.cannot_disable_root_user"))
+			return dto.Fail[dto.ManageUserData]("Cannot disable super administrator user")
 		}
 	case "enable":
 		user.Status = common.UserStatusEnabled
 	case "delete":
 		if user.Role == common.RoleRootUser {
-			return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.cannot_delete_root_user"))
+			return dto.Fail[dto.ManageUserData]("Cannot delete super administrator account")
 		}
-		if err := user.Delete(); err != nil {
+		authorization, failure := checkAdminUserProof(ginCtx, service.VerificationScopeAdminUserDelete, service.AdminUserContext{UserID: user.Id})
+		if authorization == nil {
+			return dto.Fail[dto.ManageUserData](failure)
+		}
+		revokedAccessTokens, err := user.Delete()
+		if err != nil {
 			return dto.Fail[dto.ManageUserData](err.Error())
 		}
 		// Cached relay tokens outlive the row until their TTL; drop them now so a
 		// deleted account cannot keep relaying.
 		if err := model.InvalidateUserTokensCache(user.Id); err != nil {
-			common.SysLog(fmt.Sprintf("failed to invalidate tokens cache for user %d: %s", user.Id, err.Error()))
+			common.SysLog(common.LogText("failed to invalidate tokens cache for user %d: %s", user.Id, err.Error()))
 		}
 		recordManageAuditFor(ginCtx, user.Id, "user.manage", map[string]interface{}{
-			"action":   req.Action,
-			"username": user.Username,
-			"id":       user.Id,
+			"action":                req.Action,
+			"username":              user.Username,
+			"id":                    user.Id,
+			"verification_method":   authorization.Method,
+			"revoked_access_tokens": revokedAccessTokens,
 		})
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 	case "promote":
 		if user.Role >= common.RoleAdminUser {
-			return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.already_admin"))
+			return dto.Fail[dto.ManageUserData]("This user is already an administrator")
 		}
 		nextRole := common.RoleModUser
 		if user.Role >= common.RoleModUser {
 			nextRole = common.RoleAdminUser
 		}
 		if !canManageTargetRole(myRole, nextRole) {
-			return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.cannot_create_higher_level"))
+			return dto.Fail[dto.ManageUserData]("Cannot create users with permission level equal to or higher than yourself")
 		}
 		user.Role = nextRole
 	case "demote":
 		if user.Role == common.RoleRootUser {
-			return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.cannot_demote_root_user"))
+			return dto.Fail[dto.ManageUserData]("Cannot demote super administrator user")
 		}
 		if user.Role <= common.RoleCommonUser {
-			return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, "user.already_common"))
+			return dto.Fail[dto.ManageUserData]("This user is already a common user")
 		}
 		if user.Role >= common.RoleAdminUser {
 			user.Role = common.RoleModUser
@@ -1383,7 +1424,7 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		switch req.Mode {
 		case "add":
 			if req.Value <= 0 {
-				return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, i18n.MsgUserQuotaChangeZero))
+				return dto.Fail[dto.ManageUserData]("Quota change amount cannot be zero")
 			}
 			if err := common.ValidateWalletQuota(req.Value); err != nil {
 				return dto.Fail[dto.ManageUserData](err.Error())
@@ -1399,7 +1440,7 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 			})
 		case "subtract":
 			if req.Value <= 0 {
-				return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, i18n.MsgUserQuotaChangeZero))
+				return dto.Fail[dto.ManageUserData]("Quota change amount cannot be zero")
 			}
 			if err := common.ValidateWalletQuota(req.Value); err != nil {
 				return dto.Fail[dto.ManageUserData](err.Error())
@@ -1426,7 +1467,7 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 				"to":   logger.LogQuota(req.Value),
 			})
 		default:
-			return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, i18n.MsgInvalidParams))
+			return dto.Fail[dto.ManageUserData]("Invalid parameters")
 		}
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 	case "set_block_free":
@@ -1438,7 +1479,7 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		}
 		adminName := ginCtx.GetString("username")
 		model.RecordLog(user.Id, model.LogTypeManage,
-			fmt.Sprintf("admin (%v) set block-free-models-when-balance-zero to %v for user", adminName, req.Value == 1))
+			common.NewMessage("admin ({{admin}}) set block-free-models-when-balance-zero to {{value}} for user", map[string]any{"admin": adminName, "value": req.Value == 1}))
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 	case "set_unlimited_free":
 		s := user.GetSetting()
@@ -1449,7 +1490,7 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		}
 		adminName := ginCtx.GetString("username")
 		model.RecordLog(user.Id, model.LogTypeManage,
-			fmt.Sprintf("admin (%v) set unlimited-free-models to %v for user", adminName, req.Value == 1))
+			common.NewMessage("admin ({{admin}}) set unlimited-free-models to {{value}} for user", map[string]any{"admin": adminName, "value": req.Value == 1}))
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 	case "set_moderation_exempt":
 		s := user.GetSetting()
@@ -1460,7 +1501,7 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		}
 		adminName := ginCtx.GetString("username")
 		model.RecordLog(user.Id, model.LogTypeManage,
-			fmt.Sprintf("admin (%v) set moderation-exempt to %v for user", adminName, req.Value == 1))
+			common.NewMessage("admin ({{admin}}) set moderation-exempt to {{value}} for user", map[string]any{"admin": adminName, "value": req.Value == 1}))
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 	case "set_free_rate_limit_window_pct":
 		// Carries a real number, unlike the boolean grants above: the value is the
@@ -1474,7 +1515,7 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		}
 		adminName := ginCtx.GetString("username")
 		model.RecordLog(user.Id, model.LogTypeManage,
-			fmt.Sprintf("admin (%v) set free-rate-limit-window-pct to %v for user", adminName, pct))
+			common.NewMessage("admin ({{admin}}) set free-rate-limit-window-pct to {{value}} for user", map[string]any{"admin": adminName, "value": pct}))
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 	case "set_usable_groups":
 		// Per-user usable-group grants (private routing groups). Keep only
@@ -1496,12 +1537,16 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		}
 		adminName := ginCtx.GetString("username")
 		model.RecordLog(user.Id, model.LogTypeManage,
-			fmt.Sprintf("admin (%v) set usable groups to [%v] for user", adminName, strings.Join(groups, ", ")))
+			common.NewMessage("admin ({{admin}}) set usable groups to [{{groups}}] for user", map[string]any{"admin": adminName, "groups": strings.Join(groups, ", ")}))
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 	default:
-		return dto.Fail[dto.ManageUserData](common.TranslateMessage(ginCtx, i18n.MsgInvalidParams))
+		return dto.Fail[dto.ManageUserData]("Invalid parameters")
 	}
 
+	authorization, failure := checkAdminUserProof(ginCtx, service.VerificationScopeAdminUserManage, service.AdminUserManageContext{UserID: user.Id, Action: req.Action})
+	if authorization == nil {
+		return dto.Fail[dto.ManageUserData](failure)
+	}
 	if req.Action == "demote" {
 		if err := model.DB.Transaction(func(tx *gorm.DB) error {
 			if err := user.UpdateWithTx(tx, false); err != nil {
@@ -1530,12 +1575,13 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 	// explicit invalidation; deleting the user hash here would discard the
 	// freshly published auth-version floor.
 	if err := model.InvalidateUserTokensCache(user.Id); err != nil {
-		common.SysLog(fmt.Sprintf("failed to invalidate tokens cache for user %d: %s", user.Id, err.Error()))
+		common.SysLog(common.LogText("failed to invalidate tokens cache for user %d: %s", user.Id, err.Error()))
 	}
 	recordManageAuditFor(ginCtx, user.Id, "user.manage", map[string]interface{}{
-		"action":   req.Action,
-		"username": user.Username,
-		"id":       user.Id,
+		"action":              req.Action,
+		"username":            user.Username,
+		"id":                  user.Id,
+		"verification_method": authorization.Method,
 	})
 	return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 }
@@ -1570,10 +1616,10 @@ func GrantDiscordQuota(c fuego.ContextWithBody[dto.GrantDiscordQuotaRequest]) (*
 	ginCtx := dto.GinCtx(c)
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[dto.GrantDiscordQuotaData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.GrantDiscordQuotaData]("Invalid parameters")
 	}
 	if req.DiscordId == "" || req.Quota <= 0 || req.Quota > maxDiscordGrantQuota {
-		return dto.Fail[dto.GrantDiscordQuotaData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.GrantDiscordQuotaData]("Invalid parameters")
 	}
 
 	if !model.IsDiscordIdAlreadyTaken(req.DiscordId) {
@@ -1619,7 +1665,7 @@ func GrantDiscordQuota(c fuego.ContextWithBody[dto.GrantDiscordQuotaRequest]) (*
 
 	adminName := ginCtx.GetString("username")
 	model.RecordLog(user.Id, model.LogTypeManage,
-		fmt.Sprintf("admin (%v) granted quota %v to a Discord-linked user%s", adminName, logger.LogQuota(req.Quota), grantLabel(req)))
+		common.NewMessage("admin ({{admin}}) granted quota {{quota}} to a Discord-linked user{{label}}", map[string]any{"admin": adminName, "quota": logger.LogQuota(req.Quota), "label": grantLabel(req)}))
 
 	return dto.Ok(dto.GrantDiscordQuotaData{UserId: user.Id, Linked: true})
 }
@@ -1629,13 +1675,12 @@ func GrantDiscordQuota(c fuego.ContextWithBody[dto.GrantDiscordQuotaRequest]) (*
 // checked under a row lock so concurrent transfers cannot overspend. Like
 // GrantDiscordQuota, the caller (the Discord bot) owns idempotency/audit.
 func TransferDiscordQuota(c fuego.ContextWithBody[dto.TransferDiscordQuotaRequest]) (*dto.Response[dto.TransferDiscordQuotaData], error) {
-	ginCtx := dto.GinCtx(c)
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[dto.TransferDiscordQuotaData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.TransferDiscordQuotaData]("Invalid parameters")
 	}
 	if req.FromDiscordId == "" || req.ToDiscordId == "" || req.Quota <= 0 || req.FromDiscordId == req.ToDiscordId {
-		return dto.Fail[dto.TransferDiscordQuotaData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.TransferDiscordQuotaData]("Invalid parameters")
 	}
 
 	if !model.IsDiscordIdAlreadyTaken(req.FromDiscordId) {
@@ -1673,9 +1718,9 @@ func TransferDiscordQuota(c fuego.ContextWithBody[dto.TransferDiscordQuotaReques
 	}
 
 	model.RecordLog(fromUser.Id, model.LogTypeManage,
-		fmt.Sprintf("transferred quota %v to a Discord-linked user", logger.LogQuota(req.Quota)))
+		common.NewMessage("transferred quota {{quota}} to a Discord-linked user", map[string]any{"quota": logger.LogQuota(req.Quota)}))
 	model.RecordLog(toUser.Id, model.LogTypeManage,
-		fmt.Sprintf("received quota %v from a Discord-linked user", logger.LogQuota(req.Quota)))
+		common.NewMessage("received quota {{quota}} from a Discord-linked user", map[string]any{"quota": logger.LogQuota(req.Quota)}))
 
 	return dto.Ok(dto.TransferDiscordQuotaData{
 		FromUserId: fromUser.Id, ToUserId: toUser.Id,
@@ -1687,7 +1732,7 @@ func EmailBind(c fuego.ContextWithParams[dto.EmailBindParams]) (dto.MessageRespo
 	ginCtx := dto.GinCtx(c)
 	p, _ := dto.ParseParams[dto.EmailBindParams](c)
 	if !common.VerifyCodeWithKey(p.Email, p.Code, common.EmailVerificationPurpose) {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.verification_code_error"))
+		return dto.FailMsg("Verification code is incorrect or has expired")
 	}
 	id := ginCtx.GetInt("id")
 	if id == 0 {
@@ -1759,12 +1804,12 @@ func getTopUpLock(userID int) *topUpTryLock {
 func TopUp(c fuego.ContextWithBody[dto.TopUpRequest]) (*dto.Response[int], error) {
 	ginCtx := dto.GinCtx(c)
 	if !operation_setting.IsPaymentComplianceConfirmed() {
-		return dto.Fail[int](common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+		return dto.Fail[int]("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
 	id := dto.UserID(c)
 	lock := getTopUpLock(id)
 	if !lock.TryLock() {
-		return dto.Fail[int](common.TranslateMessage(ginCtx, "user.topup_processing"))
+		return dto.Fail[int]("Top-up is processing, please try again later")
 	}
 	defer lock.Unlock()
 	req, err := c.Body()
@@ -1775,65 +1820,64 @@ func TopUp(c fuego.ContextWithBody[dto.TopUpRequest]) (*dto.Response[int], error
 	if err != nil {
 		// 不向用户暴露兑换失败的细分原因，避免攻击者根据错误类型判断兑换码状态。
 		logger.LogError(ginCtx, fmt.Sprintf("failed to redeem key %s for user %d: %s", req.Key, id, err.Error()))
-		return dto.Fail[int](common.TranslateMessage(ginCtx, i18n.MsgRedeemFailed))
+		return dto.Fail[int]("Redemption failed, please try again later")
 	}
 	return dto.Ok(quota)
 }
 
 func UpdateUserSetting(c fuego.ContextWithBody[dto.UpdateUserSettingRequest]) (dto.MessageResponse, error) {
-	ginCtx := dto.GinCtx(c)
 	req, err := c.Body()
 	if err != nil {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 
 	if req.QuotaWarningType != types.NotifyTypeEmail && req.QuotaWarningType != types.NotifyTypeWebhook && req.QuotaWarningType != types.NotifyTypeBark && req.QuotaWarningType != types.NotifyTypeGotify {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "setting.invalid_type"))
+		return dto.FailMsg("Invalid warning type")
 	}
 
 	if req.QuotaWarningThreshold <= 0 {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "quota.threshold_gt_zero"))
+		return dto.FailMsg("Warning threshold must be greater than 0")
 	}
 
 	if req.QuotaWarningType == types.NotifyTypeWebhook {
 		if req.WebhookUrl == "" {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "setting.webhook_empty"))
+			return dto.FailMsg("Webhook URL cannot be empty")
 		}
 		if _, err := url.ParseRequestURI(req.WebhookUrl); err != nil {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "setting.webhook_invalid"))
+			return dto.FailMsg("Invalid Webhook URL")
 		}
 	}
 
 	if req.QuotaWarningType == types.NotifyTypeEmail && req.NotificationEmail != "" {
 		if !strings.Contains(req.NotificationEmail, "@") {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "setting.email_invalid"))
+			return dto.FailMsg("Invalid email address")
 		}
 	}
 
 	if req.QuotaWarningType == types.NotifyTypeBark {
 		if req.BarkUrl == "" {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "setting.bark_url_empty"))
+			return dto.FailMsg("Bark push URL cannot be empty")
 		}
 		if _, err := url.ParseRequestURI(req.BarkUrl); err != nil {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "setting.bark_url_invalid"))
+			return dto.FailMsg("Invalid Bark push URL")
 		}
 		if !strings.HasPrefix(req.BarkUrl, "https://") && !strings.HasPrefix(req.BarkUrl, "http://") {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "setting.url_must_http"))
+			return dto.FailMsg("URL must start with http:// or https://")
 		}
 	}
 
 	if req.QuotaWarningType == types.NotifyTypeGotify {
 		if req.GotifyUrl == "" {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "setting.gotify_url_empty"))
+			return dto.FailMsg("Gotify server URL cannot be empty")
 		}
 		if req.GotifyToken == "" {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "setting.gotify_token_empty"))
+			return dto.FailMsg("Gotify token cannot be empty")
 		}
 		if _, err := url.ParseRequestURI(req.GotifyUrl); err != nil {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "setting.gotify_url_invalid"))
+			return dto.FailMsg("Invalid Gotify server URL")
 		}
 		if !strings.HasPrefix(req.GotifyUrl, "https://") && !strings.HasPrefix(req.GotifyUrl, "http://") {
-			return dto.FailMsg(common.TranslateMessage(ginCtx, "setting.url_must_http"))
+			return dto.FailMsg("URL must start with http:// or https://")
 		}
 	}
 
@@ -1896,10 +1940,10 @@ func UpdateUserSetting(c fuego.ContextWithBody[dto.UpdateUserSettingRequest]) (d
 
 	// 更新用户设置
 	if err := model.UpdateUserSetting(user.Id, settings); err != nil {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.update_failed"))
+		return dto.FailMsg("Update failed")
 	}
 
-	return dto.Msg(common.TranslateMessage(ginCtx, "setting.saved"))
+	return dto.Msg("Settings updated")
 }
 
 // UpdateTimeoutPreference stores the caller's opt-in first-token limits. Both
@@ -1910,10 +1954,9 @@ func UpdateUserSetting(c fuego.ContextWithBody[dto.UpdateUserSettingRequest]) (d
 // UserSetting carries admin grants and UI prefs this request knows nothing
 // about, and reconstructing it would silently clear them.
 func UpdateTimeoutPreference(c fuego.ContextWithBody[dto.TimeoutPreferenceRequest]) (*dto.Response[dto.TimeoutPreferenceData], error) {
-	ginCtx := dto.GinCtx(c)
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[dto.TimeoutPreferenceData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.TimeoutPreferenceData]("Invalid parameters")
 	}
 
 	perAttempt := types.ClampFirstTokenSeconds(req.MaxFirstTokenSeconds)
@@ -1932,7 +1975,7 @@ func UpdateTimeoutPreference(c fuego.ContextWithBody[dto.TimeoutPreferenceReques
 	current.MaxFirstTokenSeconds = perAttempt
 	current.MaxChainFirstTokenSeconds = chain
 	if err := model.UpdateUserSetting(user.Id, current); err != nil {
-		return dto.Fail[dto.TimeoutPreferenceData](common.TranslateMessage(ginCtx, "common.update_failed"))
+		return dto.Fail[dto.TimeoutPreferenceData]("Update failed")
 	}
 
 	return dto.Ok(dto.TimeoutPreferenceData{

@@ -80,7 +80,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
       cell: ({ row, table }) => {
         const { pageIndex, pageSize } = table.getState().pagination
         return (
-          <span className='text-muted-foreground tabular-nums text-xs'>
+          <span className='text-muted-foreground text-xs tabular-nums'>
             {pageIndex * pageSize + row.index + 1}
           </span>
         )
@@ -271,7 +271,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
             )}
             {inviterId > 0 && (
               <LongText className='text-muted-foreground'>
-                {t('Inviter')} ID: {inviterId}
+                {t('Inviter ID: {{id}}', { id: inviterId })}
               </LongText>
             )}
           </div>

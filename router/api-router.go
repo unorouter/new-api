@@ -176,9 +176,16 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.PutB(self, "/self/timeout", controller.UpdateTimeoutPreference)
 		dto.Delete(self, "/self", controller.DeleteSelf)
 		dto.Get(selfCred, "/token", controller.GenerateAccessToken)
-		selfCred.GinGet("/token/status", controller.GetAccessTokenStatus, dto.GinResp[dto.ApiResponse]())
-		selfCred.GinPost("/token", controller.GenerateAccessTokenVerified, dto.GinResp[dto.ApiResponse]())
-		selfCred.GinDelete("/token", controller.RevokeAccessToken, dto.GinResp[dto.ApiResponse]())
+		accessTokenGroup := selfGroup.Group("/access_tokens", middleware.SessionOnly())
+		accessTokens := dto.NewRouter(engine, accessTokenGroup, "User", secDashboard())
+		accessTokenWrites := dto.NewRouter(engine, accessTokenGroup.Group("", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("access-token")), "User", secDashboard())
+		accessTokens.GinGet("", controller.ListAccessTokens, dto.GinResp[dto.ApiResponse]())
+		accessTokens.GinGet("/catalog", controller.GetAccessTokenCatalog, dto.GinResp[dto.ApiResponse]())
+		accessTokens.GinGet("/scopes", controller.GetAccessTokenScopes, dto.GinResp[dto.ApiResponse]())
+		accessTokenWrites.GinPost("", controller.CreateAccessToken, dto.GinResp[dto.ApiResponse]())
+		accessTokenWrites.GinPatch("/:id", controller.UpdateAccessToken, option.Path("id", "Access token ID"), dto.GinResp[dto.ApiResponse]())
+		accessTokenWrites.GinDelete("/legacy", controller.RevokeLegacyAccessToken, dto.GinResp[dto.ApiResponse]())
+		accessTokenWrites.GinDelete("/:id", controller.DeleteAccessToken, option.Path("id", "Access token ID"), dto.GinResp[dto.ApiResponse]())
 		self.GinGet("/passkey", controller.PasskeyStatus, dto.GinResp[dto.Response[dto.PasskeyStatusData]]())
 		self.GinPost("/passkey/register/begin", controller.PasskeyRegisterBegin, dto.GinResp[dto.Response[dto.PasskeyOptionsData]]())
 		self.GinPost("/passkey/register/finish", controller.PasskeyRegisterFinish, dto.GinResp[dto.MessageResponse]())
@@ -447,10 +454,10 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// permission it required before, so a restricted admin cannot reach a
 		// sensitive write by virtue of being an admin at all.
 		channelGroup := apiRouter.Group("/channel", middleware.SyncAuth(common.RoleAdminUser))
-		chReadG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelRead))
-		chOpG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelOperate), middleware.NoPAT())
-		chWriteG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelWrite), middleware.NoPAT())
-		chSensG := channelGroup.Group("", middleware.RequirePermission(authz.ChannelSensitiveWrite), middleware.NoPAT())
+		chReadG := newPermissionGroup(channelGroup, authz.ChannelRead)
+		chOpG := newPermissionGroup(channelGroup, authz.ChannelOperate, middleware.NoPAT())
+		chWriteG := newPermissionGroup(channelGroup, authz.ChannelWrite, middleware.NoPAT())
+		chSensG := newPermissionGroup(channelGroup, authz.ChannelSensitiveWrite, middleware.NoPAT())
 
 		chReadG.GET("/default_base_urls", controller.GetChannelDefaultBaseURLs)
 		chReadG.GET("/:id/vllm/status", controller.GetVLLMChannelStatus)
@@ -644,10 +651,12 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 			taskPluginRoute.POST("/:key/dryrun", controller.DryRunTaskPlugin)
 			taskPluginRoute.DELETE("/:key/versions/:version", controller.DeleteTaskPluginVersion)
 		}
+		middleware.DeclareAccessTokenPermissionRoute("GET", "/api/task_plugin_options", authz.TaskPluginBind)
 		apiRouter.GET("/task_plugin_options", middleware.AdminAuth(), middleware.RequirePermission(authz.TaskPluginBind), controller.GetTaskPluginOptions)
 		taskPluginRoute.GET("/:key/icon", controller.GetTaskPluginIcon)
 		// Audit log reads: moderators and admins holding the audit permission see
 		// everything but root, a user sees their own rows.
+		middleware.DeclareAccessTokenPermissionRoute("GET", "/api/audit", authz.AuditRead)
 		apiRouter.GET("/audit", middleware.DisableCache(), middleware.ModAuth(), middleware.RequirePermission(authz.AuditRead), controller.GetAuditLogs)
 		apiRouter.GET("/audit/self", middleware.DisableCache(), middleware.UserAuth(), controller.GetAuditLogs)
 

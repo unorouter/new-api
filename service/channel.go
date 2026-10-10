@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -683,10 +684,20 @@ func ChannelFailureWindow(channelId int) (failures int, successes int) {
 func shouldCloseActiveWebSocketsAfterDisable(channelId int) bool {
 	channel, err := model.GetChannelById(channelId, true)
 	if err != nil {
-		common.SysLog(fmt.Sprintf("failed to check channel status before closing active websockets: channel_id=%d, error=%v", channelId, err))
+		common.SysLog(common.LogText("failed to check channel status before closing active websockets: channel_id=%d, error=%v", channelId, err))
 		return true
 	}
 	return channel.Status != common.ChannelStatusEnabled
+}
+
+// RootUserLanguage returns the saved language of the root user, who receives
+// channel notices; it is empty when the root user saved none.
+func RootUserLanguage() string {
+	root := model.GetRootUser()
+	if root == nil {
+		return ""
+	}
+	return root.GetSetting().Language
 }
 
 // disable & notify
@@ -705,8 +716,10 @@ func DisableChannel(channelError types.ChannelError, reason string, opts ...mode
 		CloseActiveWebSocketsForChannel(channelError.ChannelId, ChannelDisabledCloseReason)
 	}
 	if success && operation_setting.GetMonitorSetting().ChannelStatusNotifyEnabled {
-		subject := fmt.Sprintf("Channel \"%s\" (#%d) has been disabled", channelError.ChannelName, channelError.ChannelId)
-		content := fmt.Sprintf("Channel \"%s\" (#%d) has been disabled. Reason: %s", channelError.ChannelName, channelError.ChannelId, reason)
+		lang := RootUserLanguage()
+		params := map[string]any{"Name": channelError.ChannelName, "Id": channelError.ChannelId, "Reason": reason}
+		subject := i18n.Translate(lang, i18n.MsgChannelNotifyDisabledSubject, params)
+		content := i18n.Translate(lang, i18n.MsgChannelNotifyDisabledContent, params)
 		NotifyRootUser(formatNotifyType(channelError.ChannelId, common.ChannelStatusAutoDisabled), subject, content)
 	}
 }
@@ -714,8 +727,10 @@ func DisableChannel(channelError types.ChannelError, reason string, opts ...mode
 func EnableChannel(channelId int, usingKey string, channelName string, opts ...model.ChannelStatusChangeOpt) {
 	success := model.UpdateChannelStatus(channelId, usingKey, common.ChannelStatusEnabled, "", opts...)
 	if success && operation_setting.GetMonitorSetting().ChannelStatusNotifyEnabled {
-		subject := fmt.Sprintf("Channel \"%s\" (#%d) has been enabled", channelName, channelId)
-		content := fmt.Sprintf("Channel \"%s\" (#%d) has been enabled", channelName, channelId)
+		lang := RootUserLanguage()
+		params := map[string]any{"Name": channelName, "Id": channelId}
+		subject := i18n.Translate(lang, i18n.MsgChannelNotifyEnabledSubject, params)
+		content := i18n.Translate(lang, i18n.MsgChannelNotifyEnabledContent, params)
 		NotifyRootUser(formatNotifyType(channelId, common.ChannelStatusEnabled), subject, content)
 	}
 }

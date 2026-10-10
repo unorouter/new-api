@@ -8,7 +8,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -132,7 +131,7 @@ func UpdateSubscriptionPreference(c fuego.ContextWithBody[dto.BillingPreferenceR
 	userId := dto.UserID(c)
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[dto.BillingPreferenceData](common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.Fail[dto.BillingPreferenceData]("Invalid parameters")
 	}
 	pref := common.NormalizeBillingPreference(req.BillingPreference)
 
@@ -151,19 +150,19 @@ func UpdateSubscriptionPreference(c fuego.ContextWithBody[dto.BillingPreferenceR
 func SubscriptionRequestBalancePay(c fuego.ContextWithBody[SubscriptionBalancePayRequest]) (dto.MessageResponse, error) {
 	ginCtx := dto.GinCtx(c)
 	if !requirePaymentCompliance(ginCtx) {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+		return dto.FailMsg("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
 
 	userId := ginCtx.GetInt("id")
 	req, err := c.Body()
 	if err != nil || req.PlanId <= 0 {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 
 	if held, err := model.HasActiveUserSubscriptionForPlan(userId, req.PlanId); err != nil {
 		return dto.FailMsg(err.Error())
 	} else if held {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgSubscriptionAlreadyActive))
+		return dto.FailMsg("You already hold this plan and it is still active. A plan can be held once at a time; you can add a different plan next to it.")
 	}
 	if err := model.PurchaseSubscriptionWithBalance(userId, req.PlanId); err != nil {
 		return dto.FailMsg(err.Error())
@@ -189,23 +188,22 @@ func AdminListSubscriptionPlans(c fuego.ContextNoBody) (*dto.Response[[]Subscrip
 }
 
 func AdminCreateSubscriptionPlan(c fuego.ContextWithBody[AdminUpsertSubscriptionPlanRequest]) (*dto.Response[model.SubscriptionPlan], error) {
-	ginCtx := dto.GinCtx(c)
 	if !operation_setting.IsPaymentComplianceConfirmed() {
-		return dto.Fail[model.SubscriptionPlan](common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+		return dto.Fail[model.SubscriptionPlan]("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[model.SubscriptionPlan](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[model.SubscriptionPlan]("Invalid parameters")
 	}
 	req.Plan.Id = 0
 	if strings.TrimSpace(req.Plan.Title) == "" {
-		return dto.Fail[model.SubscriptionPlan](common.TranslateMessage(dto.GinCtx(c), "subscription.title_empty"))
+		return dto.Fail[model.SubscriptionPlan]("Subscription plan title cannot be empty")
 	}
 	if req.Plan.PriceAmount < 0 {
-		return dto.Fail[model.SubscriptionPlan](common.TranslateMessage(dto.GinCtx(c), "subscription.price_negative"))
+		return dto.Fail[model.SubscriptionPlan]("Price cannot be negative")
 	}
 	if req.Plan.PriceAmount > 9999 {
-		return dto.Fail[model.SubscriptionPlan](common.TranslateMessage(dto.GinCtx(c), "subscription.price_max"))
+		return dto.Fail[model.SubscriptionPlan]("Price cannot exceed 9999")
 	}
 	if req.Plan.Currency == "" {
 		req.Plan.Currency = "USD"
@@ -224,26 +222,26 @@ func AdminCreateSubscriptionPlan(c fuego.ContextWithBody[AdminUpsertSubscription
 		req.Plan.DurationValue = 1
 	}
 	if req.Plan.MaxPurchasePerUser < 0 {
-		return dto.Fail[model.SubscriptionPlan](common.TranslateMessage(dto.GinCtx(c), "subscription.purchase_limit_negative"))
+		return dto.Fail[model.SubscriptionPlan]("Purchase limit cannot be negative")
 	}
 	if req.Plan.TotalAmount < 0 {
-		return dto.Fail[model.SubscriptionPlan](common.TranslateMessage(dto.GinCtx(c), "subscription.quota_negative"))
+		return dto.Fail[model.SubscriptionPlan]("Total quota cannot be negative")
 	}
 	req.Plan.UpgradeGroup = strings.TrimSpace(req.Plan.UpgradeGroup)
 	if req.Plan.UpgradeGroup != "" {
 		if _, ok := ratio_setting.GetGroupRatioCopy()[req.Plan.UpgradeGroup]; !ok {
-			return dto.Fail[model.SubscriptionPlan](common.TranslateMessage(dto.GinCtx(c), "subscription.group_not_exists"))
+			return dto.Fail[model.SubscriptionPlan]("Upgrade group does not exist")
 		}
 	}
 	req.Plan.DowngradeGroup = strings.TrimSpace(req.Plan.DowngradeGroup)
 	if req.Plan.DowngradeGroup != "" {
 		if _, ok := ratio_setting.GetGroupRatioCopy()[req.Plan.DowngradeGroup]; !ok {
-			return dto.Fail[model.SubscriptionPlan](common.TranslateMessage(dto.GinCtx(c), "subscription.group_not_exists"))
+			return dto.Fail[model.SubscriptionPlan]("Upgrade group does not exist")
 		}
 	}
 	req.Plan.QuotaResetPeriod = model.NormalizeResetPeriod(req.Plan.QuotaResetPeriod)
 	if req.Plan.QuotaResetPeriod == model.SubscriptionResetCustom && req.Plan.QuotaResetCustomSeconds <= 0 {
-		return dto.Fail[model.SubscriptionPlan](common.TranslateMessage(dto.GinCtx(c), "subscription.reset_cycle_gt_zero"))
+		return dto.Fail[model.SubscriptionPlan]("Custom reset cycle must be greater than 0 seconds")
 	}
 	if err := model.DB.Create(&req.Plan).Error; err != nil {
 		return dto.Fail[model.SubscriptionPlan](err.Error())
@@ -253,26 +251,25 @@ func AdminCreateSubscriptionPlan(c fuego.ContextWithBody[AdminUpsertSubscription
 }
 
 func AdminUpdateSubscriptionPlan(c fuego.ContextWithBody[AdminUpsertSubscriptionPlanRequest]) (dto.MessageResponse, error) {
-	ginCtx := dto.GinCtx(c)
 	if !operation_setting.IsPaymentComplianceConfirmed() {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+		return dto.FailMsg("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
 	id, err := c.PathParamIntErr("id")
 	if err != nil || id <= 0 {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_id"))
+		return dto.FailMsg("Invalid ID")
 	}
 	req, err := c.Body()
 	if err != nil {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 	if strings.TrimSpace(req.Plan.Title) == "" {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "subscription.title_empty"))
+		return dto.FailMsg("Subscription plan title cannot be empty")
 	}
 	if req.Plan.PriceAmount < 0 {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "subscription.price_negative"))
+		return dto.FailMsg("Price cannot be negative")
 	}
 	if req.Plan.PriceAmount > 9999 {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "subscription.price_max"))
+		return dto.FailMsg("Price cannot exceed 9999")
 	}
 	req.Plan.Id = id
 	if req.Plan.Currency == "" {
@@ -286,26 +283,26 @@ func AdminUpdateSubscriptionPlan(c fuego.ContextWithBody[AdminUpsertSubscription
 		req.Plan.DurationValue = 1
 	}
 	if req.Plan.MaxPurchasePerUser < 0 {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "subscription.purchase_limit_negative"))
+		return dto.FailMsg("Purchase limit cannot be negative")
 	}
 	if req.Plan.TotalAmount < 0 {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "subscription.quota_negative"))
+		return dto.FailMsg("Total quota cannot be negative")
 	}
 	req.Plan.UpgradeGroup = strings.TrimSpace(req.Plan.UpgradeGroup)
 	if req.Plan.UpgradeGroup != "" {
 		if _, ok := ratio_setting.GetGroupRatioCopy()[req.Plan.UpgradeGroup]; !ok {
-			return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "subscription.group_not_exists"))
+			return dto.FailMsg("Upgrade group does not exist")
 		}
 	}
 	req.Plan.DowngradeGroup = strings.TrimSpace(req.Plan.DowngradeGroup)
 	if req.Plan.DowngradeGroup != "" {
 		if _, ok := ratio_setting.GetGroupRatioCopy()[req.Plan.DowngradeGroup]; !ok {
-			return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "subscription.group_not_exists"))
+			return dto.FailMsg("Upgrade group does not exist")
 		}
 	}
 	req.Plan.QuotaResetPeriod = model.NormalizeResetPeriod(req.Plan.QuotaResetPeriod)
 	if req.Plan.QuotaResetPeriod == model.SubscriptionResetCustom && req.Plan.QuotaResetCustomSeconds <= 0 {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "subscription.reset_cycle_gt_zero"))
+		return dto.FailMsg("Custom reset cycle must be greater than 0 seconds")
 	}
 
 	txErr := model.DB.Transaction(func(tx *gorm.DB) error {
@@ -350,17 +347,16 @@ func AdminUpdateSubscriptionPlan(c fuego.ContextWithBody[AdminUpsertSubscription
 }
 
 func AdminUpdateSubscriptionPlanStatus(c fuego.ContextWithBody[dto.AdminUpdateSubscriptionPlanStatusRequest]) (dto.MessageResponse, error) {
-	ginCtx := dto.GinCtx(c)
 	if !operation_setting.IsPaymentComplianceConfirmed() {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+		return dto.FailMsg("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
 	id, err := c.PathParamIntErr("id")
 	if err != nil || id <= 0 {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_id"))
+		return dto.FailMsg("Invalid ID")
 	}
 	req, err := c.Body()
 	if err != nil || req.Enabled == nil {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 	if err := model.DB.Model(&model.SubscriptionPlan{}).Where("id = ?", id).Update("enabled", *req.Enabled).Error; err != nil {
 		return dto.FailMsg(err.Error())
@@ -370,19 +366,26 @@ func AdminUpdateSubscriptionPlanStatus(c fuego.ContextWithBody[dto.AdminUpdateSu
 }
 
 func AdminBindSubscription(c fuego.ContextWithBody[dto.AdminBindSubscriptionRequest]) (dto.MessageResponse, error) {
-	ginCtx := dto.GinCtx(c)
 	if !operation_setting.IsPaymentComplianceConfirmed() {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+		return dto.FailMsg("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
 	req, err := c.Body()
 	if err != nil || req.UserId <= 0 || req.PlanId <= 0 {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 	msg, err := model.AdminBindSubscription(req.UserId, req.PlanId, "")
 	if err != nil {
 		return dto.FailMsg(err.Error())
 	}
-	return dto.Msg(msg)
+	return dto.Msg(subscriptionNotice(msg))
+}
+
+// subscriptionNotice tells the admin how the user's group changes, when it does.
+func subscriptionNotice(notice *common.Message) string {
+	if notice == nil {
+		return ""
+	}
+	return notice.Error()
 }
 
 // ---- Admin: user subscription management ----
@@ -390,7 +393,7 @@ func AdminBindSubscription(c fuego.ContextWithBody[dto.AdminBindSubscriptionRequ
 func AdminListUserSubscriptions(c fuego.ContextNoBody) (*dto.Response[[]model.SubscriptionSummary], error) {
 	userId, err := c.PathParamIntErr("id")
 	if err != nil || userId <= 0 {
-		return dto.Fail[[]model.SubscriptionSummary](common.TranslateMessage(dto.GinCtx(c), "subscription.invalid_user_id"))
+		return dto.Fail[[]model.SubscriptionSummary]("Invalid user ID")
 	}
 	subs, err := model.GetAllUserSubscriptions(userId)
 	if err != nil {
@@ -415,31 +418,33 @@ func recordSubscriptionResetUserLogs(c *gin.Context, result *model.SubscriptionR
 	if result == nil || result.ResetCount == 0 {
 		return
 	}
-	content := fmt.Sprintf("Admin reset subscription plan %s (ID: %d) quota", result.PlanTitle, result.PlanId)
+	const action = "subscription.user_quota_reset"
+	params := map[string]any{"plan_id": result.PlanId, "plan_title": result.PlanTitle}
+	operation := model.AuditOperation{Action: action, Params: params}
+	content := auditContentEN(action, params)
 	for _, userId := range result.AffectedUserIds {
-		model.RecordLogWithAdminInfo(userId, model.LogTypeManage, content, adminInfo, nil, c)
+		model.RecordLogWithAdminInfo(userId, model.LogTypeManage, content, adminInfo, &operation, c)
 	}
 }
 
 // AdminCreateUserSubscription creates a new user subscription from a plan (no payment).
 func AdminCreateUserSubscription(c fuego.ContextWithBody[dto.AdminCreateUserSubscriptionRequest]) (*dto.Response[dto.SubscriptionActionData], error) {
-	ginCtx := dto.GinCtx(c)
 	if !operation_setting.IsPaymentComplianceConfirmed() {
-		return dto.Fail[dto.SubscriptionActionData](common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+		return dto.Fail[dto.SubscriptionActionData]("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
 	userId, err := c.PathParamIntErr("id")
 	if err != nil || userId <= 0 {
-		return dto.Fail[dto.SubscriptionActionData](common.TranslateMessage(ginCtx, "subscription.invalid_user_id"))
+		return dto.Fail[dto.SubscriptionActionData]("Invalid user ID")
 	}
 	req, err := c.Body()
 	if err != nil || req.PlanId <= 0 {
-		return dto.Fail[dto.SubscriptionActionData](common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
+		return dto.Fail[dto.SubscriptionActionData]("Invalid parameters")
 	}
 	msg, err := model.AdminBindSubscription(userId, req.PlanId, "")
 	if err != nil {
 		return dto.Fail[dto.SubscriptionActionData](err.Error())
 	}
-	return dto.Ok(dto.SubscriptionActionData{Message: msg})
+	return dto.Ok(dto.SubscriptionActionData{Message: subscriptionNotice(msg)})
 }
 
 // AdminResetUserSubscriptionsByPlan resets a user's subscriptions for a plan (admin).
@@ -447,11 +452,11 @@ func AdminResetUserSubscriptionsByPlan(c fuego.ContextWithBody[AdminResetSubscri
 	ginCtx := dto.GinCtx(c)
 	userId, err := c.PathParamIntErr("id")
 	if err != nil || userId <= 0 {
-		return dto.Fail[*model.SubscriptionResetResult](common.TranslateMessage(ginCtx, "subscription.invalid_user_id"))
+		return dto.Fail[*model.SubscriptionResetResult]("Invalid user ID")
 	}
 	req, err := c.Body()
 	if err != nil || req.PlanId <= 0 {
-		return dto.Fail[*model.SubscriptionResetResult](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[*model.SubscriptionResetResult]("Invalid parameters")
 	}
 	advanceResetTime := resolveAdvanceResetTime(req.AdvanceResetTime)
 	result, err := model.AdminResetUserSubscriptionsByPlan(userId, req.PlanId, advanceResetTime)
@@ -475,11 +480,11 @@ func AdminResetPlanSubscriptions(c fuego.ContextWithBody[AdminResetSubscriptionR
 	ginCtx := dto.GinCtx(c)
 	planId, err := c.PathParamIntErr("id")
 	if err != nil || planId <= 0 {
-		return dto.Fail[*model.SubscriptionResetResult](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[*model.SubscriptionResetResult]("Invalid parameters")
 	}
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[*model.SubscriptionResetResult](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[*model.SubscriptionResetResult]("Invalid parameters")
 	}
 	advanceResetTime := resolveAdvanceResetTime(req.AdvanceResetTime)
 	result, err := model.AdminResetPlanSubscriptions(planId, advanceResetTime)
@@ -503,13 +508,13 @@ func AdminResetPlanSubscriptions(c fuego.ContextWithBody[AdminResetSubscriptionR
 func AdminInvalidateUserSubscription(c fuego.ContextNoBody) (*dto.Response[dto.SubscriptionActionData], error) {
 	subId, err := c.PathParamIntErr("id")
 	if err != nil || subId <= 0 {
-		return dto.Fail[dto.SubscriptionActionData](common.TranslateMessage(dto.GinCtx(c), "subscription.invalid_id"))
+		return dto.Fail[dto.SubscriptionActionData]("Invalid subscription ID")
 	}
 	msg, err := model.AdminInvalidateUserSubscription(subId)
 	if err != nil {
 		return dto.Fail[dto.SubscriptionActionData](err.Error())
 	}
-	return dto.Ok(dto.SubscriptionActionData{Message: msg})
+	return dto.Ok(dto.SubscriptionActionData{Message: subscriptionNotice(msg)})
 }
 
 // GetUserSubscriptionOrders returns the caller's subscription payment history.
@@ -529,11 +534,11 @@ func GetUserSubscriptionOrders(c fuego.ContextNoBody) (*dto.Response[dto.PageDat
 func AdminDeleteUserSubscription(c fuego.ContextNoBody) (*dto.Response[dto.SubscriptionActionData], error) {
 	subId, err := c.PathParamIntErr("id")
 	if err != nil || subId <= 0 {
-		return dto.Fail[dto.SubscriptionActionData](common.TranslateMessage(dto.GinCtx(c), "subscription.invalid_id"))
+		return dto.Fail[dto.SubscriptionActionData]("Invalid subscription ID")
 	}
 	msg, err := model.AdminDeleteUserSubscription(subId)
 	if err != nil {
 		return dto.Fail[dto.SubscriptionActionData](err.Error())
 	}
-	return dto.Ok(dto.SubscriptionActionData{Message: msg})
+	return dto.Ok(dto.SubscriptionActionData{Message: subscriptionNotice(msg)})
 }

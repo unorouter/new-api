@@ -190,5 +190,5 @@ func ResetModelRatio(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	if err != nil {
 		return dto.FailMsg(err.Error())
 	}
-	return dto.Msg(common.TranslateMessage(dto.GinCtx(c), "model.reset_success"))
+	return dto.Msg("Model ratio reset successful")
 }

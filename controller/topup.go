@@ -284,7 +284,7 @@ func validateTopUpQuota(amount int64) (int, error) {
 	if maxAmount > 0 && amount > maxAmount {
 		return 0, fmt.Errorf("a single top-up cannot exceed %d", maxAmount)
 	}
-	return 0, errors.New("invalid top-up amount")
+	return 0, common.NewMessage("Invalid top-up amount")
 }
 
 // checkCreditedQuota mirrors checkTopUpQuota for gateways that price the order
@@ -317,10 +317,9 @@ func rejectInvalidTopUpQuota(c *gin.Context, userId int, amount int64) bool {
 }
 
 func RequestEpay(c fuego.ContextWithBody[dto.EpayRequest]) (*dto.Response[dto.EpayPayResponse], error) {
-	ginCtx := dto.GinCtx(c)
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.EpayPayResponse]("Invalid parameters")
 	}
 	if req.Amount < getMinTopup() {
 		return dto.Fail[dto.EpayPayResponse](fmt.Sprintf("Top-up amount cannot be less than %v", getMinTopup()))
@@ -340,7 +339,7 @@ func RequestEpay(c fuego.ContextWithBody[dto.EpayRequest]) (*dto.Response[dto.Ep
 	}
 
 	if !operation_setting.ContainsPayMethod(req.PaymentMethod) {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.method_not_exists"))
+		return dto.Fail[dto.EpayPayResponse]("Payment method does not exist")
 	}
 
 	callBackAddress := service.GetCallbackAddress()
@@ -350,7 +349,7 @@ func RequestEpay(c fuego.ContextWithBody[dto.EpayRequest]) (*dto.Response[dto.Ep
 	tradeNo = fmt.Sprintf("USR%dNO%s", id, tradeNo)
 	client := GetEpayClient()
 	if client == nil {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.not_configured"))
+		return dto.Fail[dto.EpayPayResponse]("Payment information has not been configured by administrator")
 	}
 	uri, params, err := client.Purchase(&epay.PurchaseArgs{
 		Type:           req.PaymentMethod,
@@ -362,7 +361,7 @@ func RequestEpay(c fuego.ContextWithBody[dto.EpayRequest]) (*dto.Response[dto.Ep
 		ReturnUrl:      returnUrl,
 	})
 	if err != nil {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.start_failed"))
+		return dto.Fail[dto.EpayPayResponse]("Failed to start payment")
 	}
 	amount := req.Amount
 	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
@@ -382,7 +381,7 @@ func RequestEpay(c fuego.ContextWithBody[dto.EpayRequest]) (*dto.Response[dto.Ep
 	}
 	err = topUp.Insert()
 	if err != nil {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.create_failed"))
+		return dto.Fail[dto.EpayPayResponse]("Failed to create order")
 	}
 	return dto.Ok(dto.EpayPayResponse{Params: params, Url: uri})
 }
@@ -528,10 +527,9 @@ func EpayNotify(c *gin.Context) {
 }
 
 func RequestAmount(c fuego.ContextWithBody[dto.AmountRequest]) (*dto.Response[string], error) {
-	ginCtx := dto.GinCtx(c)
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[string](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[string]("Invalid parameters")
 	}
 
 	if req.Amount < getMinTopup() {
@@ -599,7 +597,7 @@ func AdminCompleteTopUp(c fuego.ContextWithBody[dto.AdminCompleteTopupRequest]) 
 	ginCtx := dto.GinCtx(c)
 	req, err := c.Body()
 	if err != nil || req.TradeNo == "" {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 
 	// 订单级互斥，防止并发补单

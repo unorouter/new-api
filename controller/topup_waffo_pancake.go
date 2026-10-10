@@ -136,7 +136,7 @@ func SaveWaffoPancake(c *gin.Context) {
 		req.StoreID,
 		req.ProductID,
 	); err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf(
+		logger.LogError(c.Request.Context(), common.LogText(
 			"Waffo Pancake failed to save config store_id=%q product_id=%q error=%q",
 			req.StoreID, req.ProductID, err.Error(),
 		))
@@ -186,7 +186,7 @@ func CreateWaffoPancakePair(c *gin.Context) {
 	)
 	if err != nil {
 		orphan := result != nil && result.OrphanStore
-		logger.LogError(c.Request.Context(), fmt.Sprintf(
+		logger.LogError(c.Request.Context(), common.LogText(
 			"Waffo Pancake failed to create store and product orphan_store=%t store_id=%q error=%q",
 			orphan, func() string {
 				if result == nil {
@@ -230,7 +230,7 @@ func ListWaffoPancakeCatalog(c *gin.Context) {
 	}
 	catalog, err := service.ListWaffoPancakeCatalog(c.Request.Context(), merchantID, privateKey)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf(
+		logger.LogError(c.Request.Context(), common.LogText(
 			"Waffo Pancake failed to fetch store and product catalog error=%q", err.Error(),
 		))
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "Failed to fetch catalog"})
@@ -281,7 +281,7 @@ func CreateWaffoPancakeSubscriptionProduct(c *gin.Context) {
 		setting.WaffoPancakeReturnURL,
 	)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf(
+		logger.LogError(c.Request.Context(), common.LogText(
 			"Waffo Pancake failed to create plan product store_id=%q name=%q amount=%q error=%q",
 			storeID, req.Name, req.Amount, err.Error(),
 		))
@@ -310,7 +310,7 @@ func ListWaffoPancakeSubscriptionProductOptions(c *gin.Context) {
 	}
 	catalog, err := service.ListWaffoPancakeCatalog(c.Request.Context(), merchantID, privateKey)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf(
+		logger.LogError(c.Request.Context(), common.LogText(
 			"Waffo Pancake failed to fetch subscription product list store_id=%q error=%q", storeID, err.Error(),
 		))
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "Failed to fetch product list"})
@@ -440,8 +440,8 @@ func WaffoPancakeWebhook(c *gin.Context) {
 	// We then enforce event.mode == expectedEnv to catch mis-registrations.
 	expectedEnv := strings.TrimSpace(c.Param("env"))
 	if expectedEnv != "test" && expectedEnv != "prod" {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf(
-			"Waffo Pancake webhook invalid path env segment env=%q path=%q client_ip=%s",
+		logger.LogWarn(c.Request.Context(), common.LogText(
+			"Waffo Pancake webhook invalid env path segment env=%q path=%q client_ip=%s",
 			expectedEnv, c.Request.RequestURI, c.ClientIP(),
 		))
 		c.String(http.StatusNotFound, "unknown env")
@@ -466,8 +466,8 @@ func WaffoPancakeWebhook(c *gin.Context) {
 	}
 
 	if !strings.EqualFold(strings.TrimSpace(event.Mode), expectedEnv) {
-		logger.LogError(c.Request.Context(), fmt.Sprintf(
-			"Waffo Pancake webhook environment mismatch expected=%q actual_mode=%q event_id=%s order_id=%s client_ip=%s",
+		logger.LogError(c.Request.Context(), common.LogText(
+			"Waffo Pancake webhook env mismatch expected=%q actual_mode=%q event_id=%s order_id=%s client_ip=%s",
 			expectedEnv, event.Mode, event.ID, event.Data.OrderID, c.ClientIP(),
 		))
 		c.String(http.StatusOK, "OK")
@@ -488,7 +488,7 @@ func WaffoPancakeWebhook(c *gin.Context) {
 	if isSubscription {
 		tradeNo, err := service.ResolveWaffoPancakeSubscriptionTradeNo(event)
 		if err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf(
+			logger.LogError(c.Request.Context(), common.LogText(
 				"Waffo Pancake webhook failed to resolve subscription order event_id=%s order_id=%s buyer_identity=%q client_ip=%s error=%q",
 				event.ID, event.Data.OrderID, event.Data.MerchantProvidedBuyerIdentity, c.ClientIP(), err.Error(),
 			))
@@ -512,7 +512,7 @@ func WaffoPancakeWebhook(c *gin.Context) {
 		// LogError (not LogWarn): covers order-not-found and buyer-identity
 		// mismatch — both warrant human attention. 200 OK so Waffo doesn't
 		// retry a permanently-unresolvable webhook.
-		logger.LogError(c.Request.Context(), fmt.Sprintf(
+		logger.LogError(c.Request.Context(), common.LogText(
 			"Waffo Pancake webhook failed to resolve order event_id=%s order_id=%s buyer_identity=%q client_ip=%s error=%q",
 			event.ID, event.Data.OrderID, event.Data.MerchantProvidedBuyerIdentity, c.ClientIP(), err.Error(),
 		))

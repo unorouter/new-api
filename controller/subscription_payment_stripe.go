@@ -11,7 +11,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -42,11 +41,11 @@ func applyStripeManagedPayments(params *stripe.CheckoutSessionParams) {
 func SubscriptionRequestStripePay(c fuego.ContextWithBody[dto.SubscriptionStripePayRequest]) (*dto.Response[dto.StripePayLinkData], error) {
 	ginCtx := dto.GinCtx(c)
 	if !operation_setting.IsPaymentComplianceConfirmed() {
-		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+		return dto.Fail[dto.StripePayLinkData]("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
 	req, err := c.Body()
 	if err != nil || req.PlanId <= 0 {
-		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.StripePayLinkData]("Invalid parameters")
 	}
 
 	plan, err := model.GetSubscriptionPlanById(req.PlanId)
@@ -54,16 +53,16 @@ func SubscriptionRequestStripePay(c fuego.ContextWithBody[dto.SubscriptionStripe
 		return dto.Fail[dto.StripePayLinkData](err.Error())
 	}
 	if !plan.Enabled {
-		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "subscription.not_enabled"))
+		return dto.Fail[dto.StripePayLinkData]("Subscription plan is not enabled")
 	}
 	if plan.StripePriceId == "" {
-		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "payment.price_id_not_configured"))
+		return dto.Fail[dto.StripePayLinkData]("StripePriceId is not configured for this plan")
 	}
 	if !strings.HasPrefix(setting.StripeApiSecret, "sk_") && !strings.HasPrefix(setting.StripeApiSecret, "rk_") {
 		return dto.Fail[dto.StripePayLinkData]("Invalid Stripe API key")
 	}
 	if setting.StripeWebhookSecret == "" {
-		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "payment.webhook_not_configured"))
+		return dto.Fail[dto.StripePayLinkData]("Webhook is not configured")
 	}
 
 	userId := dto.UserID(c)
@@ -72,13 +71,13 @@ func SubscriptionRequestStripePay(c fuego.ContextWithBody[dto.SubscriptionStripe
 		return dto.Fail[dto.StripePayLinkData](err.Error())
 	}
 	if user == nil {
-		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "user.not_exists"))
+		return dto.Fail[dto.StripePayLinkData]("User does not exist")
 	}
 
 	if held, err := model.HasActiveUserSubscriptionForPlan(userId, plan.Id); err != nil {
 		return dto.Fail[dto.StripePayLinkData](err.Error())
 	} else if held {
-		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, i18n.MsgSubscriptionAlreadyActive))
+		return dto.Fail[dto.StripePayLinkData]("You already hold this plan and it is still active. A plan can be held once at a time; you can add a different plan next to it.")
 	}
 
 	if plan.MaxPurchasePerUser > 0 {
@@ -87,7 +86,7 @@ func SubscriptionRequestStripePay(c fuego.ContextWithBody[dto.SubscriptionStripe
 			return dto.Fail[dto.StripePayLinkData](err.Error())
 		}
 		if count >= int64(plan.MaxPurchasePerUser) {
-			return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "subscription.purchase_max"))
+			return dto.Fail[dto.StripePayLinkData]("Purchase limit for this plan has been reached")
 		}
 	}
 
@@ -97,7 +96,7 @@ func SubscriptionRequestStripePay(c fuego.ContextWithBody[dto.SubscriptionStripe
 	payLink, err := genStripeSubscriptionLink(ginCtx, referenceId, user.StripeCustomer, user.Email, plan.StripePriceId)
 	if err != nil {
 		log.Println("failed to get Stripe Checkout payment link", err)
-		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "payment.start_failed"))
+		return dto.Fail[dto.StripePayLinkData]("Failed to start payment")
 	}
 
 	order := &model.SubscriptionOrder{
@@ -111,7 +110,7 @@ func SubscriptionRequestStripePay(c fuego.ContextWithBody[dto.SubscriptionStripe
 		Status:          common.TopUpStatusPending,
 	}
 	if err := order.Insert(); err != nil {
-		return dto.Fail[dto.StripePayLinkData](common.TranslateMessage(ginCtx, "payment.create_failed"))
+		return dto.Fail[dto.StripePayLinkData]("Failed to create order")
 	}
 
 	return dto.Ok(dto.StripePayLinkData{PayLink: payLink})

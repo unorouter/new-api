@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -68,7 +67,7 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	} else if held {
-		common.ApiErrorMsg(c, common.TranslateMessage(c, i18n.MsgSubscriptionAlreadyActive))
+		common.ApiErrorMsg(c, "You already hold this plan and it is still active. A plan can be held once at a time; you can add a different plan next to it.")
 		return
 	}
 

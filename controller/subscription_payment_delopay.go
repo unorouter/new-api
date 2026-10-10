@@ -7,7 +7,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -22,7 +21,7 @@ import (
 func SubscriptionRequestDeloPayPay(c fuego.ContextWithBody[dto.SubscriptionDeloPayPayRequest]) (*dto.Response[dto.DeloPayPayData], error) {
 	ginCtx := dto.GinCtx(c)
 	if !operation_setting.IsPaymentComplianceConfirmed() {
-		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+		return dto.Fail[dto.DeloPayPayData]("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
 	if !setting.DeloPaySubscriptionEnabled {
 		return dto.Fail[dto.DeloPayPayData]("Payment channel is not supported")
@@ -32,7 +31,7 @@ func SubscriptionRequestDeloPayPay(c fuego.ContextWithBody[dto.SubscriptionDeloP
 	}
 	req, err := c.Body()
 	if err != nil || req.PlanId <= 0 {
-		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.DeloPayPayData]("Invalid parameters")
 	}
 
 	plan, err := model.GetSubscriptionPlanById(req.PlanId)
@@ -40,19 +39,19 @@ func SubscriptionRequestDeloPayPay(c fuego.ContextWithBody[dto.SubscriptionDeloP
 		return dto.Fail[dto.DeloPayPayData](err.Error())
 	}
 	if !plan.Enabled {
-		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, "subscription.not_enabled"))
+		return dto.Fail[dto.DeloPayPayData]("Subscription plan is not enabled")
 	}
 
 	userId := dto.UserID(c)
 	user, err := model.GetUserById(userId, false)
 	if err != nil || user == nil {
-		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, "user.not_exists"))
+		return dto.Fail[dto.DeloPayPayData]("User does not exist")
 	}
 
 	if held, err := model.HasActiveUserSubscriptionForPlan(userId, plan.Id); err != nil {
 		return dto.Fail[dto.DeloPayPayData](err.Error())
 	} else if held {
-		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, i18n.MsgSubscriptionAlreadyActive))
+		return dto.Fail[dto.DeloPayPayData]("You already hold this plan and it is still active. A plan can be held once at a time; you can add a different plan next to it.")
 	}
 
 	if plan.MaxPurchasePerUser > 0 {
@@ -61,7 +60,7 @@ func SubscriptionRequestDeloPayPay(c fuego.ContextWithBody[dto.SubscriptionDeloP
 			return dto.Fail[dto.DeloPayPayData](err.Error())
 		}
 		if count >= int64(plan.MaxPurchasePerUser) {
-			return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, "subscription.purchase_max"))
+			return dto.Fail[dto.DeloPayPayData]("Purchase limit for this plan has been reached")
 		}
 	}
 
@@ -73,7 +72,7 @@ func SubscriptionRequestDeloPayPay(c fuego.ContextWithBody[dto.SubscriptionDeloP
 	payLink, _, err := createDeloPayPayment(referenceId, applyDeloPayFeeSurcharge(plan.PriceAmount), plan.Title, paymentReturnPath(ginCtx, "/console/subscription"), deloPayCustomerFor(user))
 	if err != nil {
 		log.Println("failed to get DeloPay subscription payment link:", err)
-		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, "payment.start_failed"))
+		return dto.Fail[dto.DeloPayPayData]("Failed to start payment")
 	}
 
 	order := &model.SubscriptionOrder{
@@ -88,7 +87,7 @@ func SubscriptionRequestDeloPayPay(c fuego.ContextWithBody[dto.SubscriptionDeloP
 		InvoiceUrl:      payLink,
 	}
 	if err := order.Insert(); err != nil {
-		return dto.Fail[dto.DeloPayPayData](common.TranslateMessage(ginCtx, "payment.create_failed"))
+		return dto.Fail[dto.DeloPayPayData]("Failed to create order")
 	}
 
 	return dto.Ok(dto.DeloPayPayData{PayLink: payLink})

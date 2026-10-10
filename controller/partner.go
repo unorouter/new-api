@@ -2,12 +2,10 @@ package controller
 
 import (
 	"errors"
-	"strconv"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -51,20 +49,20 @@ func PartnerCreateRedemption(c fuego.ContextWithBody[dto.PartnerRedemptionReques
 		return dto.Fail[dto.PartnerRedemptionData](err.Error())
 	}
 	if !operation_setting.IsPaymentComplianceConfirmed() {
-		return dto.Fail[dto.PartnerRedemptionData](common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+		return dto.Fail[dto.PartnerRedemptionData]("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
 	req, err := c.Body()
 	if err != nil {
 		return dto.Fail[dto.PartnerRedemptionData](err.Error())
 	}
 	if n := utf8.RuneCountInString(req.Name); n == 0 || n > 20 {
-		return dto.Fail[dto.PartnerRedemptionData](common.TranslateMessage(ginCtx, i18n.MsgRedemptionNameLength))
+		return dto.Fail[dto.PartnerRedemptionData]("Redemption code name length must be between 1-20")
 	}
 	if req.Quota <= 0 {
 		return dto.Fail[dto.PartnerRedemptionData]("redemption quota must be positive")
 	}
-	if valid, msg := validateExpiredTime(ginCtx, req.ExpiredTime); !valid {
-		return dto.Fail[dto.PartnerRedemptionData](msg)
+	if err := validateExpiredTime(req.ExpiredTime); err != nil {
+		return dto.Fail[dto.PartnerRedemptionData](err.Error())
 	}
 
 	key, err := model.CreateFundedRedemption(userId, req.Name, req.Quota, req.ExpiredTime)
@@ -162,8 +160,8 @@ func PartnerGrantQuota(c fuego.ContextWithBody[dto.PartnerGrantRequest]) (*dto.R
 
 	// Both sides get a row: the sender sees what left, the recipient sees what
 	// arrived, mirroring TransferDiscordQuota.
-	model.RecordLog(userId, model.LogTypeManage, "Granted "+logger.LogQuota(req.Quota)+" to user "+strconv.Itoa(req.UserId))
-	model.RecordLog(req.UserId, model.LogTypeTopup, "Received "+logger.LogQuota(req.Quota)+" from a partner account")
+	model.RecordLog(userId, model.LogTypeManage, common.NewMessage("Granted {{quota}} to user {{user_id}}", map[string]any{"quota": logger.FormatQuota(req.Quota), "user_id": req.UserId}))
+	model.RecordLog(req.UserId, model.LogTypeTopup, common.NewMessage("Received {{quota}} from a partner account", map[string]any{"quota": logger.FormatQuota(req.Quota)}))
 
 	// The irreversible one: balance leaves for an account the caller names, and
 	// nothing here can claw it back. The RecordLog rows above are the partner's

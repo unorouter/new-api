@@ -66,7 +66,8 @@ func fetchCodexChannelWhamData(c fuego.ContextNoBody, fetch codexWhamFetchFunc, 
 		return dto.CodexUsageData{Success: false, Message: "codex channel: account_id is required"}, nil
 	}
 
-	client, err := service.GetHttpClientWithProxy(ch.GetSetting().Proxy)
+	setting := ch.GetSetting()
+	client, err := service.GetHttpClientWithProxySettings(setting.Proxy, setting)
 	if err != nil {
 		return dto.CodexUsageData{Success: false, Message: err.Error()}, nil
 	}
@@ -85,7 +86,7 @@ func fetchCodexChannelWhamData(c fuego.ContextNoBody, fetch codexWhamFetchFunc, 
 		refreshCtx, refreshCancel := context.WithTimeout(reqCtx, 10*time.Second)
 		defer refreshCancel()
 
-		res, refreshErr := service.RefreshCodexOAuthTokenWithProxy(refreshCtx, oauthKey.RefreshToken, ch.GetSetting().Proxy)
+		res, refreshErr := service.RefreshCodexOAuthTokenWithProxy(refreshCtx, oauthKey.RefreshToken, setting.Proxy)
 		if refreshErr == nil {
 			oauthKey.AccessToken = res.AccessToken
 			oauthKey.RefreshToken = res.RefreshToken

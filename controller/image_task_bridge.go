@@ -200,7 +200,7 @@ func waitImageTask(c *gin.Context, outcome *taskSubmissionOutcome, requestedMode
 // configured wait bound that elapsed while the task kept running.
 func imageTaskWaitEnded(c *gin.Context, taskID string, waitContext context.Context) *types.NewAPIError {
 	if c.Request.Context().Err() != nil {
-		logger.LogDebug(c, fmt.Sprintf("image task client disconnected; task=%s", taskID))
+		logger.LogDebug(c, "image task client disconnected; task=%s", taskID)
 		return nil
 	}
 	if errors.Is(waitContext.Err(), context.DeadlineExceeded) {

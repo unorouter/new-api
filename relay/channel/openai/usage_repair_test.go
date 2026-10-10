@@ -6,6 +6,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/tokenkit"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,10 +68,7 @@ func TestUsageRepairCountsStubbedCompletionTokens(t *testing.T) {
 			if tc.completionStubbed {
 				counted := 0
 				for _, choice := range resp.Choices {
-					counted += service.CountTextToken(
-						choice.Message.StringContent()+choice.Message.GetReasoningContent(),
-						"gpt-4o",
-					)
+					counted += tokenkit.Count("gpt-4o", choice.Message.StringContent()+choice.Message.GetReasoningContent())
 				}
 				assert.Positive(t, counted, "a reply with text must bill more than zero completion tokens")
 			}

@@ -6,7 +6,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -15,13 +14,12 @@ import (
 )
 
 func SubscriptionRequestCreemPay(c fuego.ContextWithBody[dto.SubscriptionCreemPayRequest]) (*dto.Response[dto.CreemPayData], error) {
-	ginCtx := dto.GinCtx(c)
 	if !operation_setting.IsPaymentComplianceConfirmed() {
-		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+		return dto.Fail[dto.CreemPayData]("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
 	req, err := c.Body()
 	if err != nil || req.PlanId <= 0 {
-		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.CreemPayData]("Invalid parameters")
 	}
 
 	plan, err := model.GetSubscriptionPlanById(req.PlanId)
@@ -29,13 +27,13 @@ func SubscriptionRequestCreemPay(c fuego.ContextWithBody[dto.SubscriptionCreemPa
 		return dto.Fail[dto.CreemPayData](err.Error())
 	}
 	if !plan.Enabled {
-		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "subscription.not_enabled"))
+		return dto.Fail[dto.CreemPayData]("Subscription plan is not enabled")
 	}
 	if plan.CreemProductId == "" {
 		return dto.Fail[dto.CreemPayData]("Product configuration error")
 	}
 	if setting.CreemWebhookSecret == "" && !setting.CreemTestMode {
-		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.webhook_not_configured"))
+		return dto.Fail[dto.CreemPayData]("Webhook is not configured")
 	}
 
 	userId := dto.UserID(c)
@@ -44,13 +42,13 @@ func SubscriptionRequestCreemPay(c fuego.ContextWithBody[dto.SubscriptionCreemPa
 		return dto.Fail[dto.CreemPayData](err.Error())
 	}
 	if user == nil {
-		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "user.not_exists"))
+		return dto.Fail[dto.CreemPayData]("User does not exist")
 	}
 
 	if held, err := model.HasActiveUserSubscriptionForPlan(userId, plan.Id); err != nil {
 		return dto.Fail[dto.CreemPayData](err.Error())
 	} else if held {
-		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, i18n.MsgSubscriptionAlreadyActive))
+		return dto.Fail[dto.CreemPayData]("You already hold this plan and it is still active. A plan can be held once at a time; you can add a different plan next to it.")
 	}
 
 	if plan.MaxPurchasePerUser > 0 {
@@ -59,7 +57,7 @@ func SubscriptionRequestCreemPay(c fuego.ContextWithBody[dto.SubscriptionCreemPa
 			return dto.Fail[dto.CreemPayData](err.Error())
 		}
 		if count >= int64(plan.MaxPurchasePerUser) {
-			return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "subscription.purchase_max"))
+			return dto.Fail[dto.CreemPayData]("Purchase limit for this plan has been reached")
 		}
 	}
 
@@ -78,7 +76,7 @@ func SubscriptionRequestCreemPay(c fuego.ContextWithBody[dto.SubscriptionCreemPa
 		Status:          common.TopUpStatusPending,
 	}
 	if err := order.Insert(); err != nil {
-		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.create_failed"))
+		return dto.Fail[dto.CreemPayData]("Failed to create order")
 	}
 
 	// Reuse Creem checkout generator by building a lightweight product reference.
@@ -104,7 +102,7 @@ func SubscriptionRequestCreemPay(c fuego.ContextWithBody[dto.SubscriptionCreemPa
 	checkoutUrl, err := genCreemLink(referenceId, product, user.Email, user.Username, 0)
 	if err != nil {
 		log.Printf("failed to get Creem payment link: %s", err.Error())
-		return dto.Fail[dto.CreemPayData](common.TranslateMessage(ginCtx, "payment.start_failed"))
+		return dto.Fail[dto.CreemPayData]("Failed to start payment")
 	}
 
 	return dto.Ok(dto.CreemPayData{

@@ -60,7 +60,7 @@ func TestAIHordeSubmitUsesChannelModelMapping(t *testing.T) {
 }
 
 func TestAIHordeParseTaskResultStatuses(t *testing.T) {
-	ctx := map[string]any{"taskId": "t1", "upstreamTaskId": "t1"}
+	ctx := map[string]any{"taskId": "t1", "upstreamTaskId": "t1", "model": "grok-video-3"}
 
 	faulted := callPlugin(t, "aihorde", "parseTaskResult", ctx, map[string]any{"faulted": true, "message": "boom"}).(map[string]any)
 	assert.Equal(t, "FAILURE", faulted["status"])
@@ -121,7 +121,7 @@ func TestXaiSubmitNormalizesResolution(t *testing.T) {
 }
 
 func TestXaiParseTaskResultStatuses(t *testing.T) {
-	ctx := map[string]any{"taskId": "t1", "upstreamTaskId": "t1"}
+	ctx := map[string]any{"taskId": "t1", "upstreamTaskId": "t1", "model": "grok-video-3"}
 
 	completed := callPlugin(t, "xai", "parseTaskResult", ctx, map[string]any{
 		"id": "t1", "status": "completed", "video_url": "https://cdn.example/v.mp4",

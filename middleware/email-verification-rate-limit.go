@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
@@ -36,10 +35,7 @@ func redisEmailVerificationRateLimiter(c *gin.Context) {
 		waitSeconds = ttlSeconds
 	}
 
-	c.JSON(http.StatusTooManyRequests, gin.H{
-		"success": false,
-		"message": fmt.Sprintf("Sending too frequently, please wait %d seconds before trying again", waitSeconds),
-	})
+	common.ApiErrorStatus(c, http.StatusTooManyRequests, common.NewMessage("Please wait {{seconds}} seconds before requesting another verification code.", map[string]any{"seconds": waitSeconds}))
 	c.Abort()
 }
 
@@ -47,10 +43,7 @@ func memoryEmailVerificationRateLimiter(c *gin.Context) {
 	key := EmailVerificationRateLimitMark + ":" + c.ClientIP()
 
 	if !inMemoryRateLimiter.Request(key, EmailVerificationMaxRequests, EmailVerificationDuration) {
-		c.JSON(http.StatusTooManyRequests, gin.H{
-			"success": false,
-			"message": "Sending too frequently, please try again later",
-		})
+		common.ApiErrorStatus(c, http.StatusTooManyRequests, common.NewMessage("Please wait before requesting another verification code."))
 		c.Abort()
 		return
 	}

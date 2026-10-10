@@ -15,7 +15,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -465,7 +464,7 @@ func GetChannelKey(c fuego.ContextNoBody) (*dto.Response[dto.ChannelKeyData], er
 	// 获取渠道信息（包含密钥）
 	channel, err := model.GetChannelById(channelId, true)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return dto.Fail[dto.ChannelKeyData](common.TranslateMessage(dto.GinCtx(c), i18n.MsgChannelNotExists))
+		return dto.Fail[dto.ChannelKeyData]("Channel does not exist")
 	}
 	if err != nil {
 		// The raw driver error names hosts and columns; keep it in the log only.
@@ -675,7 +674,7 @@ func getVertexArrayKeys(c *gin.Context, keys string) ([]string, error) {
 		case string:
 			keyStr = strings.TrimSpace(v)
 		default:
-			bytes, err := json.Marshal(v)
+			bytes, err := common.Marshal(v)
 			if err != nil {
 				return nil, fmt.Errorf("Vertex AI key JSON encoding failed: %w", err)
 			}
@@ -990,13 +989,13 @@ func UpdateChannel(c fuego.ContextWithBody[PatchChannel]) (*dto.Response[PatchCh
 	// permission even though the route itself only demands ChannelWrite.
 	if channelHasSensitiveChangesTyped(&channel, originChannel) {
 		if !authz.Can(dto.UserID(c), dto.UserRole(c), authz.ChannelSensitiveWrite) {
-			return dto.Fail[PatchChannel](common.TranslateMessage(dto.GinCtx(c), i18n.MsgAuthInsufficientPrivilege))
+			return dto.Fail[PatchChannel]("Unauthorized, insufficient privileges")
 		}
 		// Repointing base_url walks around the hardened /channel/:id/key route: the
 		// key is never read back, it is forwarded to whatever host the next relay
 		// request goes to. A bearer secret with no second factor must not do that.
 		if middleware.AuthenticatedViaPAT(dto.GinCtx(c)) {
-			return dto.Fail[PatchChannel](common.TranslateMessage(dto.GinCtx(c), i18n.MsgAuthInsufficientPrivilege))
+			return dto.Fail[PatchChannel]("Unauthorized, insufficient privileges")
 		}
 	}
 	originProxy := originChannel.GetSetting().Proxy
@@ -1319,7 +1318,7 @@ func GetTagModels(c fuego.ContextWithParams[dto.GetTagModelsParams]) (*dto.Respo
 // POST /api/channel/copy/:id
 // Optional query params:
 //
-//	suffix         - string appended to the original name (default "_复制")
+//	suffix         - string appended to the original name (default "_copy")
 //	reset_balance  - bool, when true will reset balance & used_quota to 0 (default true)
 func CopyChannel(c fuego.ContextWithParams[dto.CopyChannelParams]) (*dto.Response[dto.CopyChannelData], error) {
 	p, _ := dto.ParseParams[dto.CopyChannelParams](c)

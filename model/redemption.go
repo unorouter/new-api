@@ -2,7 +2,6 @@ package model
 
 import (
 	"errors"
-	"fmt"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
@@ -181,11 +180,11 @@ func Redeem(key string, userId int) (quota int, err error) {
 		return creditTopUpQuota(tx, userId, redemption.Quota, nil)
 	})
 	if err != nil {
-		common.SysError("redemption failed: " + err.Error())
+		common.SysError(common.LogText("redemption failed: %s", err.Error()))
 		return 0, ErrRedeemFailed
 	}
-	syncCreditUserQuotaCache(userId, redemption.Quota, "redemption")
-	RecordLog(userId, LogTypeTopup, fmt.Sprintf("Topped up %s via redemption code, code ID %d", logger.LogQuota(redemption.Quota), redemption.Id))
+	syncCreditUserQuotaCache(userId, redemption.Quota, common.LogText("redemption"))
+	RecordLog(userId, LogTypeTopup, common.NewMessage("Topped up {{quota}} with a redemption code, code ID {{id}}", map[string]any{"quota": logger.FormatQuota(redemption.Quota), "id": redemption.Id}))
 	return redemption.Quota, nil
 }
 
@@ -291,12 +290,12 @@ func CreateFundedRedemption(creatorId int, name string, quota int, expiredTime i
 		// Give the money back: the partner must never be charged for a card that
 		// does not exist. Single row, so this compensation cannot be partial.
 		if refundErr := IncreaseUserQuota(creatorId, quota, true); refundErr != nil {
-			common.SysError(fmt.Sprintf("failed to refund reserved quota after redemption insert failed user_id=%d quota=%d: %v", creatorId, quota, refundErr))
+			common.SysError(common.LogText("failed to refund reserved quota after redemption insert failed user_id=%d quota=%d: %v", creatorId, quota, refundErr))
 		}
 		return "", err
 	}
 
-	RecordLog(creatorId, LogTypeManage, fmt.Sprintf("Created gift card %s from balance, code ID %d", logger.LogQuota(quota), redemption.Id))
+	RecordLog(creatorId, LogTypeManage, common.NewMessage("Created gift card {{quota}} from balance, code ID {{id}}", map[string]any{"quota": logger.FormatQuota(quota), "id": redemption.Id}))
 	return redemption.Key, nil
 }
 
@@ -342,10 +341,10 @@ func VoidFundedRedemption(creatorId int, redemptionId int) (int, error) {
 	// Outside the transaction, mirroring how Redeem credits after commit.
 	// IncreaseUserQuota guards the wallet ceiling and syncs the cache itself.
 	if err := IncreaseUserQuota(creatorId, quota, true); err != nil {
-		common.SysError(fmt.Sprintf("failed to refund voided redemption user_id=%d redemption_id=%d quota=%d: %v", creatorId, redemptionId, quota, err))
+		common.SysError(common.LogText("failed to refund voided redemption user_id=%d redemption_id=%d quota=%d: %v", creatorId, redemptionId, quota, err))
 		return 0, err
 	}
-	RecordLog(creatorId, LogTypeManage, fmt.Sprintf("Voided gift card, refunded %s, code ID %d", logger.LogQuota(quota), redemptionId))
+	RecordLog(creatorId, LogTypeManage, common.NewMessage("Voided gift card, refunded {{quota}}, code ID {{id}}", map[string]any{"quota": logger.FormatQuota(quota), "id": redemptionId}))
 	return quota, nil
 }
 

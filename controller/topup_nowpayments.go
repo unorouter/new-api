@@ -65,10 +65,9 @@ func nowPaymentsApiBase() string {
 }
 
 func RequestNowPaymentsAmount(c fuego.ContextWithBody[dto.NowPaymentsPayRequest]) (*dto.Response[string], error) {
-	ginCtx := dto.GinCtx(c)
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[string](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[string]("Invalid parameters")
 	}
 	if req.Amount < getNowPaymentsMinTopup() {
 		return dto.Fail[string](fmt.Sprintf("Top-up amount cannot be less than %v", getNowPaymentsMinTopup()))
@@ -91,7 +90,7 @@ func RequestNowPaymentsPay(c fuego.ContextWithBody[dto.NowPaymentsPayRequest]) (
 	ginCtx := dto.GinCtx(c)
 	req, err := c.Body()
 	if err != nil {
-		return dto.Fail[dto.NowPaymentsPayData](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.NowPaymentsPayData]("Invalid parameters")
 	}
 	if req.PaymentMethod != PaymentMethodNowPayments {
 		return dto.Fail[dto.NowPaymentsPayData]("Payment channel is not supported")
@@ -127,7 +126,7 @@ func RequestNowPaymentsPay(c fuego.ContextWithBody[dto.NowPaymentsPayRequest]) (
 	payLink, err := genNowPaymentsInvoice(ginCtx, referenceId, invoicePrice, req.SuccessURL, req.CancelURL, fmt.Sprintf("new-api topup %d units", req.Amount))
 	if err != nil {
 		log.Println("failed to get NowPayments payment link:", err)
-		return dto.Fail[dto.NowPaymentsPayData](common.TranslateMessage(ginCtx, "payment.start_failed"))
+		return dto.Fail[dto.NowPaymentsPayData]("Failed to start payment")
 	}
 
 	topUp := &model.TopUp{
@@ -142,7 +141,7 @@ func RequestNowPaymentsPay(c fuego.ContextWithBody[dto.NowPaymentsPayRequest]) (
 		InvoiceUrl:      payLink,
 	}
 	if err = topUp.Insert(); err != nil {
-		return dto.Fail[dto.NowPaymentsPayData](common.TranslateMessage(ginCtx, "payment.create_failed"))
+		return dto.Fail[dto.NowPaymentsPayData]("Failed to create order")
 	}
 	return dto.Ok(dto.NowPaymentsPayData{PayLink: payLink})
 }

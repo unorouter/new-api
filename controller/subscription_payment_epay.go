@@ -10,7 +10,6 @@ import (
 	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -20,13 +19,12 @@ import (
 )
 
 func SubscriptionRequestEpay(c fuego.ContextWithBody[dto.SubscriptionEpayPayRequest]) (*dto.Response[dto.EpayPayResponse], error) {
-	ginCtx := dto.GinCtx(c)
 	if !operation_setting.IsPaymentComplianceConfirmed() {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, i18n.MsgPaymentComplianceRequired))
+		return dto.Fail[dto.EpayPayResponse]("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
 	req, err := c.Body()
 	if err != nil || req.PlanId <= 0 {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.Fail[dto.EpayPayResponse]("Invalid parameters")
 	}
 
 	plan, err := model.GetSubscriptionPlanById(req.PlanId)
@@ -34,20 +32,20 @@ func SubscriptionRequestEpay(c fuego.ContextWithBody[dto.SubscriptionEpayPayRequ
 		return dto.Fail[dto.EpayPayResponse](err.Error())
 	}
 	if !plan.Enabled {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "subscription.not_enabled"))
+		return dto.Fail[dto.EpayPayResponse]("Subscription plan is not enabled")
 	}
 	if plan.PriceAmount < 0.01 {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.amount_too_low"))
+		return dto.Fail[dto.EpayPayResponse]("Plan amount is too low")
 	}
 	if !operation_setting.ContainsPayMethod(req.PaymentMethod) {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.method_not_exists"))
+		return dto.Fail[dto.EpayPayResponse]("Payment method does not exist")
 	}
 
 	userId := dto.UserID(c)
 	if held, err := model.HasActiveUserSubscriptionForPlan(userId, plan.Id); err != nil {
 		return dto.Fail[dto.EpayPayResponse](err.Error())
 	} else if held {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, i18n.MsgSubscriptionAlreadyActive))
+		return dto.Fail[dto.EpayPayResponse]("You already hold this plan and it is still active. A plan can be held once at a time; you can add a different plan next to it.")
 	}
 
 	if plan.MaxPurchasePerUser > 0 {
@@ -56,18 +54,18 @@ func SubscriptionRequestEpay(c fuego.ContextWithBody[dto.SubscriptionEpayPayRequ
 			return dto.Fail[dto.EpayPayResponse](err.Error())
 		}
 		if count >= int64(plan.MaxPurchasePerUser) {
-			return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "subscription.purchase_max"))
+			return dto.Fail[dto.EpayPayResponse]("Purchase limit for this plan has been reached")
 		}
 	}
 
 	callBackAddress := service.GetCallbackAddress()
 	returnUrl, err := url.Parse(callBackAddress + "/api/subscription/epay/return")
 	if err != nil {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.callback_error"))
+		return dto.Fail[dto.EpayPayResponse]("Callback URL configuration error")
 	}
 	notifyUrl, err := url.Parse(callBackAddress + "/api/subscription/epay/notify")
 	if err != nil {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.callback_error"))
+		return dto.Fail[dto.EpayPayResponse]("Callback URL configuration error")
 	}
 
 	tradeNo := fmt.Sprintf("%s%d", common.GetRandomString(6), time.Now().Unix())
@@ -75,7 +73,7 @@ func SubscriptionRequestEpay(c fuego.ContextWithBody[dto.SubscriptionEpayPayRequ
 
 	client := GetEpayClient()
 	if client == nil {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.not_configured"))
+		return dto.Fail[dto.EpayPayResponse]("Payment information has not been configured by administrator")
 	}
 
 	order := &model.SubscriptionOrder{
@@ -89,7 +87,7 @@ func SubscriptionRequestEpay(c fuego.ContextWithBody[dto.SubscriptionEpayPayRequ
 		Status:          common.TopUpStatusPending,
 	}
 	if err := order.Insert(); err != nil {
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.create_failed"))
+		return dto.Fail[dto.EpayPayResponse]("Failed to create order")
 	}
 	uri, params, err := client.Purchase(&epay.PurchaseArgs{
 		Type:           req.PaymentMethod,
@@ -102,7 +100,7 @@ func SubscriptionRequestEpay(c fuego.ContextWithBody[dto.SubscriptionEpayPayRequ
 	})
 	if err != nil {
 		_ = model.ExpireSubscriptionOrder(tradeNo, model.PaymentProviderEpay)
-		return dto.Fail[dto.EpayPayResponse](common.TranslateMessage(ginCtx, "payment.start_failed"))
+		return dto.Fail[dto.EpayPayResponse]("Failed to start payment")
 	}
 	return dto.Ok(dto.EpayPayResponse{Params: params, Url: uri})
 }

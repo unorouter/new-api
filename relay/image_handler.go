@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/tokenkit"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/sjson"
@@ -197,7 +198,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	// instead, the same way the chat path does when an upstream omits usage.
 	imageUsage := usage.(*dto.Usage)
 	if service.IsStubTokenCount(imageUsage.PromptTokens) {
-		imageUsage.PromptTokens = service.CountTextToken(request.Prompt, request.Model)
+		imageUsage.PromptTokens = tokenkit.Count(request.Model, request.Prompt)
 	}
 	if imageUsage.TotalTokens == 0 {
 		imageUsage.TotalTokens = imageUsage.PromptTokens + imageUsage.CompletionTokens
@@ -208,16 +209,16 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		quality = "standard"
 	}
 
-	var logContent []string
+	var logContent []*common.Message
 
 	if len(request.Size) > 0 {
-		logContent = append(logContent, fmt.Sprintf("Size %s", request.Size))
+		logContent = append(logContent, common.NewMessage("Size {{size}}", map[string]any{"size": request.Size}))
 	}
 	if len(quality) > 0 {
-		logContent = append(logContent, fmt.Sprintf("Quality %s", quality))
+		logContent = append(logContent, common.NewMessage("Quality {{quality}}", map[string]any{"quality": quality}))
 	}
 	if imageN > 0 {
-		logContent = append(logContent, fmt.Sprintf("Count %d", imageN))
+		logContent = append(logContent, common.NewMessage("Image count {{count}}", map[string]any{"count": imageN}))
 	}
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), logContent)

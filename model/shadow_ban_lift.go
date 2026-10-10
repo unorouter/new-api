@@ -36,6 +36,6 @@ func LiftShadowBan(userId int, reason string) {
 		}
 	}
 	if lifted {
-		RecordLog(userId, LogTypeManage, "free-model shadow ban lifted: "+reason)
+		RecordLog(userId, LogTypeManage, common.NewMessage("free-model shadow ban lifted: {{reason}}", map[string]any{"reason": reason}))
 	}
 }

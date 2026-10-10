@@ -2,7 +2,6 @@ package model
 
 import (
 	"errors"
-	"fmt"
 	"math/rand"
 	"time"
 
@@ -98,7 +97,7 @@ func UserCheckin(userId int) (*Checkin, error) {
 	// Above the engine branch: every other way a balance grows writes a topup row,
 	// and a check-in that raises one with nothing to reconcile against is how a
 	// balance becomes unexplainable after the fact.
-	RecordLog(userId, LogTypeTopup, fmt.Sprintf("Check-in reward, quota: %s", logger.LogQuota(quotaAwarded)))
+	RecordLog(userId, LogTypeTopup, common.NewMessage("Check-in reward, amount added: {{quota}}", map[string]any{"quota": logger.FormatQuota(quotaAwarded)}))
 	return result, nil
 }
 

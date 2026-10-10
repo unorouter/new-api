@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
@@ -510,8 +511,9 @@ func TestBuildUpstreamModelUpdateTaskNotificationContent_OmitOverflowDetails(t *
 		})
 	}
 
+	require.NoError(t, i18n.Init())
 	content := buildUpstreamModelUpdateTaskNotificationContent(
-		"en",
+		i18n.LangEn,
 		24,
 		12,
 		56,
@@ -530,10 +532,14 @@ func TestBuildUpstreamModelUpdateTaskNotificationContent_OmitOverflowDetails(t *
 		},
 	)
 
-	require.Contains(t, content, "4 more channels omitted")
-	require.Contains(t, content, "(1 more omitted)")
-	require.Contains(t, content, "failed channel IDs (showing 10/12)")
-	require.Contains(t, content, "(2 more omitted)")
+	require.Contains(t, content, i18n.Translate(i18n.LangEn, i18n.MsgChannelUpstreamUpdateMoreChannels, map[string]any{"Count": 4}))
+	require.Contains(t, content, i18n.Translate(i18n.LangEn, i18n.MsgChannelUpstreamUpdateMoreOmitted, map[string]any{"Count": 1}))
+	require.Contains(t, content, i18n.Translate(i18n.LangEn, i18n.MsgChannelUpstreamUpdateFailedChannels, map[string]any{
+		"Shown": 10,
+		"Total": 12,
+		"Ids":   "1, 2, 3, 4, 5, 6, 7, 8, 9, 10",
+	}))
+	require.Contains(t, content, i18n.Translate(i18n.LangEn, i18n.MsgChannelUpstreamUpdateMoreOmitted, map[string]any{"Count": 2}))
 }
 
 func TestShouldSendUpstreamModelUpdateNotification(t *testing.T) {

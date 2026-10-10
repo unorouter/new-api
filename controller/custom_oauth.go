@@ -380,7 +380,7 @@ func GetUserOAuthBindingsByAdmin(c fuego.ContextNoBody) (*dto.Response[[]dto.Use
 
 // UnbindCustomOAuth unbinds a custom OAuth provider from the current user
 func UnbindCustomOAuth(c *gin.Context) {
-	identity, ok := middleware.GetSessionAuthIdentity(c)
+	identity, ok := middleware.GetStepUpIdentity(c)
 	if !ok {
 		writeSecurityOperationError(c, service.ErrAuthTokenInvalid)
 		return
@@ -432,13 +432,23 @@ func UnbindCustomOAuthByAdmin(c fuego.ContextNoBody) (dto.MessageResponse, error
 	}
 
 	providerId, err := c.PathParamIntErr("provider_id")
-	if err != nil {
+	if err != nil || providerId <= 0 {
 		return dto.FailMsg("Invalid provider ID")
+	}
+	authorization, failure := checkAdminUserProof(dto.GinCtx(c), service.VerificationScopeAdminUserBindingClear, service.AdminUserBindingContext{UserID: userId, ProviderID: providerId})
+	if authorization == nil {
+		return dto.FailMsg(failure)
 	}
 
 	if err := model.DeleteUserOAuthBinding(userId, providerId); err != nil {
 		return dto.FailMsg(err.Error())
 	}
 
+	recordManageAuditFor(dto.GinCtx(c), userId, "user.binding_clear", map[string]interface{}{
+		"bindingType":         "custom_oauth",
+		"provider_id":         providerId,
+		"username":            targetUser.Username,
+		"verification_method": authorization.Method,
+	})
 	return dto.Msg("Operation successful")
 }

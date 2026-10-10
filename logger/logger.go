@@ -51,7 +51,7 @@ func SetupLogger() {
 	if *common.LogDir != "" {
 		ok := setupLogLock.TryLock()
 		if !ok {
-			log.Println("setup log is already working")
+			log.Println(common.LogText("setup log is already working"))
 			return
 		}
 		defer func() {
@@ -60,7 +60,7 @@ func SetupLogger() {
 		logPath := filepath.Join(*common.LogDir, fmt.Sprintf("oneapi-%s.log", time.Now().Format("20060102150405")))
 		fd, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
-			log.Fatal("failed to open log file")
+			log.Fatal(common.LogText("failed to open log file"))
 		}
 		currentLogPathMu.Lock()
 		oldFile := currentLogFile
@@ -124,12 +124,11 @@ func LogError(ctx context.Context, msg string) {
 	logHelper(ctx, loggerError, msg)
 }
 
+// LogDebug formats msg with common.LogText only when debug logging is on, so
+// callers pass the format and its arguments instead of a formatted string.
 func LogDebug(ctx context.Context, msg string, args ...any) {
 	if common.DebugEnabled {
-		if len(args) > 0 {
-			msg = fmt.Sprintf(msg, args...)
-		}
-		logHelper(ctx, loggerDebug, msg)
+		logHelper(ctx, loggerDebug, common.LogText(msg, args...))
 	}
 }
 
@@ -158,6 +157,7 @@ func logHelper(ctx context.Context, level string, msg string) {
 	}
 }
 
+// LogQuota formats a quota for a server log line.
 func LogQuota(quota int) string {
 	// 新逻辑：根据额度展示类型输出
 	q := float64(quota)
@@ -165,7 +165,7 @@ func LogQuota(quota int) string {
 	case operation_setting.QuotaDisplayTypeCNY:
 		usd := q / common.QuotaPerUnit
 		cny := usd * operation_setting.USDExchangeRate
-		return fmt.Sprintf("¥%.6f quota", cny)
+		return common.LogText("¥%.6f quota", cny)
 	case operation_setting.QuotaDisplayTypeCustom:
 		usd := q / common.QuotaPerUnit
 		rate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
@@ -177,11 +177,11 @@ func LogQuota(quota int) string {
 			rate = 1
 		}
 		v := usd * rate
-		return fmt.Sprintf("%s%.6f quota", symbol, v)
+		return common.LogText("%s%.6f quota", symbol, v)
 	case operation_setting.QuotaDisplayTypeTokens:
-		return fmt.Sprintf("%d quota points", quota)
+		return common.LogText("%d quota points", quota)
 	default: // USD
-		return fmt.Sprintf("＄%.6f quota", q/common.QuotaPerUnit)
+		return common.LogText("＄%.6f quota", q/common.QuotaPerUnit)
 	}
 }
 
@@ -218,7 +218,7 @@ func LogJson(ctx context.Context, msg string, obj any) {
 	}
 	jsonStr, err := common.Marshal(obj)
 	if err != nil {
-		LogError(ctx, fmt.Sprintf("json marshal failed: %s", err.Error()))
+		LogError(ctx, common.LogText("json marshal failed: %s", err.Error()))
 		return
 	}
 	LogDebug(ctx, "%s | %s", msg, jsonStr)

@@ -33,7 +33,7 @@ type Router struct {
 // NewRouter creates a Router with shared defaults for a group of routes.
 func NewRouter(engine *fuego.Engine, group gin.IRouter, tag string, security ...func(*fuego.BaseRoute)) *Router {
 	base := ""
-	if rg, ok := group.(*gin.RouterGroup); ok {
+	if rg, ok := group.(interface{ BasePath() string }); ok {
 		base = rg.BasePath()
 	}
 	return &Router{engine: engine, group: group, tag: tag, basePath: base, security: security}
@@ -350,6 +350,15 @@ func (r *Router) GinPut(path string, handler gin.HandlerFunc, opts ...func(*fueg
 		return
 	}
 	fuegogin.PutGin(r.engine, r.group, path, handler, r.ginOpts("PUT", path, handler, opts)...)
+}
+
+// GinPatch registers a raw gin handler PATCH route.
+func (r *Router) GinPatch(path string, handler gin.HandlerFunc, opts ...func(*fuego.BaseRoute)) {
+	if r.engine == nil {
+		fuegogin.PatchGin(noopEngine, r.group, path, handler)
+		return
+	}
+	fuegogin.PatchGin(r.engine, r.group, path, handler, r.ginOpts("PATCH", path, handler, opts)...)
 }
 
 // GinDelete registers a raw gin handler DELETE route.

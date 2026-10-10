@@ -24,7 +24,6 @@ func GetSetup(c fuego.ContextNoBody) (*dto.Response[dto.SetupData], error) {
 }
 
 func PostSetup(c fuego.ContextWithBody[dto.SetupRequest]) (dto.MessageResponse, error) {
-	ginCtx := dto.GinCtx(c)
 	if constant.Setup {
 		return dto.FailMsg("System has already been initialized")
 	}
@@ -33,7 +32,7 @@ func PostSetup(c fuego.ContextWithBody[dto.SetupRequest]) (dto.MessageResponse, 
 
 	req, err := c.Body()
 	if err != nil {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+		return dto.FailMsg("Invalid parameters")
 	}
 
 	if !rootExists {
