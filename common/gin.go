@@ -76,6 +76,11 @@ func GetRequestBody(c *gin.Context) (io.Seeker, error) {
 		return nil, err
 	}
 
+	if err := reserveLargeBody(c, storage.Size()); err != nil {
+		storage.Close()
+		return nil, err
+	}
+
 	// 缓存存储对象
 	c.Set(KeyBodyStorage, storage)
 
@@ -97,6 +102,7 @@ func GetBodyStorage(c *gin.Context) (BodyStorage, error) {
 
 // CleanupBodyStorage 清理请求体存储（应在请求结束时调用）
 func CleanupBodyStorage(c *gin.Context) {
+	releaseLargeBody(c)
 	if storage, exists := c.Get(KeyBodyStorage); exists && storage != nil {
 		if bs, ok := storage.(BodyStorage); ok {
 			bs.Close()
