@@ -82,7 +82,7 @@ spec:
           # pinned by this repo's GHCR workflow (deploy job); ArgoCD rolls it out.
           # NEVER set this back to :latest -- a floating tag never changes the manifest, so
           # ArgoCD sees no diff and the deploy silently does not happen.
-          image: ghcr.io/unorouter/new-api:77544da7defe38cb2d58d9a484e47abd3d185175@sha256:2a5b69e7519122beaf548482f62bbb57633796e926e70b6e2268af6218c521ef
+          image: ghcr.io/unorouter/new-api:7f949c295072e9603e5b1442e049b7a468623f05@sha256:9a83fe8f4e2de978ca9861c929968b3dc36bd5c9711b1f3bb9af3387d7bfa8a4
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: [ALL] }
@@ -231,7 +231,7 @@ spec:
           # pinned by this repo's GHCR workflow (deploy job); ArgoCD rolls it out.
           # NEVER set this back to :latest -- a floating tag never changes the manifest, so
           # ArgoCD sees no diff and the deploy silently does not happen.
-          image: ghcr.io/unorouter/new-api:77544da7defe38cb2d58d9a484e47abd3d185175@sha256:2a5b69e7519122beaf548482f62bbb57633796e926e70b6e2268af6218c521ef
+          image: ghcr.io/unorouter/new-api:7f949c295072e9603e5b1442e049b7a468623f05@sha256:9a83fe8f4e2de978ca9861c929968b3dc36bd5c9711b1f3bb9af3387d7bfa8a4
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: [ALL] }
