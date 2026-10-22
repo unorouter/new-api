@@ -388,7 +388,7 @@ func WithOpenAIError(openAIError OpenAIError, statusCode int, ops ...NewAPIError
 	}
 	// OpenRouter
 	if len(openAIError.Metadata) > 0 {
-		openAIError.Message = fmt.Sprintf("%s (%s)", openAIError.Message, openAIError.Metadata)
+		openAIError.Message = fmt.Sprintf("%s (%s)", openAIError.Message, openRouterErrorDetail(openAIError.Metadata))
 		e.Metadata = openAIError.Metadata
 		e.RelayError = openAIError
 		e.Err = errors.New(openAIError.Message)
@@ -868,4 +868,34 @@ func IsRecordErrorLog(e *NewAPIError) bool {
 		return true
 	}
 	return *e.recordErrorLog
+}
+
+// openRouterErrorDetail is the provider's own text from OpenRouter's error
+// metadata. The whole object repeated it beside a hint to add an OpenRouter
+// key, which means nothing to our users.
+func openRouterErrorDetail(metadata json.RawMessage) string {
+	var meta struct {
+		Raw          json.RawMessage `json:"raw"`
+		ProviderName string          `json:"provider_name"`
+	}
+	if kitutil.Unmarshal(metadata, &meta) != nil || len(meta.Raw) == 0 {
+		return string(metadata)
+	}
+	detail := string(meta.Raw)
+	var raw string
+	if kitutil.Unmarshal(meta.Raw, &raw) == nil {
+		detail = raw
+		var upstream struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if kitutil.Unmarshal([]byte(raw), &upstream) == nil && upstream.Error.Message != "" {
+			detail = upstream.Error.Message
+		}
+	}
+	if meta.ProviderName == "" {
+		return detail
+	}
+	return meta.ProviderName + ": " + detail
 }
