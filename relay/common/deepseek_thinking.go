@@ -76,7 +76,7 @@ func EnsureDeepSeekReasoningContentClaude(request *dto.ClaudeRequest) {
 
 // ApplyDeepSeekV4OpenAIRequestRules normalizes an OpenAI-shape outbound
 // request for DeepSeek V4 models. It downcasts image_url blocks to a
-// text placeholder (V4 is text-only), maps the xhigh reasoning_effort
+// text placeholder on the text-only Pro models, maps the xhigh reasoning_effort
 // alias to max, and floors max_tokens at the upstream-required minimum
 // for Think Max mode.
 //
@@ -97,7 +97,12 @@ func ApplyDeepSeekV4OpenAIRequestRules(request *dto.GeneralOpenAIRequest) error 
 	if request == nil || !IsDeepSeekV4ThinkingModel(request.Model) {
 		return nil
 	}
-	stripImagesForTextOnlyModel(request)
+	// Flash and V4.1 read images (checked upstream 2026-10-22: a solid colour
+	// is named correctly and billed as image tokens); stripping them there
+	// silently answered every vision request blind.
+	if isDeepSeekV4TextOnlyModel(request.Model) {
+		stripImagesForTextOnlyModel(request)
+	}
 	// Same backfill as the Claude path: a tool-call turn without the field 400s.
 	for i := range request.Messages {
 		msg := &request.Messages[i]
@@ -110,6 +115,10 @@ func ApplyDeepSeekV4OpenAIRequestRules(request *dto.GeneralOpenAIRequest) error 
 	}
 	floorDeepSeekV4MaxTokens(request)
 	return nil
+}
+
+func isDeepSeekV4TextOnlyModel(modelName string) bool {
+	return strings.HasPrefix(modelName, "deepseek-v4-pro")
 }
 
 // deepSeekV4MaxModelLen is the minimum max_tokens DeepSeek V4 needs in
