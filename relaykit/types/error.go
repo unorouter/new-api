@@ -221,6 +221,9 @@ func (e *NewAPIError) ToOpenAIError(upstreamURLs ...string) OpenAIError {
 		}
 	}
 	result.Message = kitutil.MaskSensitiveInfo(result.Message, upstreamURLs...)
+	// The message already carries the upstream metadata, masked; the raw copy
+	// named the relay behind the channel and its unmasked links.
+	result.Metadata = nil
 	if result.Message == "" {
 		result.Message = string(e.errorType)
 	}
