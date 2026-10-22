@@ -75,8 +75,7 @@ func EnsureDeepSeekReasoningContentClaude(request *dto.ClaudeRequest) {
 }
 
 // ApplyDeepSeekV4OpenAIRequestRules normalizes an OpenAI-shape outbound
-// request for DeepSeek V4 models. It downcasts image_url blocks to a
-// text placeholder on the text-only Pro models, maps the xhigh reasoning_effort
+// request for DeepSeek V4 models. It maps the xhigh reasoning_effort
 // alias to max, and floors max_tokens at the upstream-required minimum
 // for Think Max mode.
 //
@@ -97,12 +96,6 @@ func ApplyDeepSeekV4OpenAIRequestRules(request *dto.GeneralOpenAIRequest) error 
 	if request == nil || !IsDeepSeekV4ThinkingModel(request.Model) {
 		return nil
 	}
-	// Flash and V4.1 read images (checked upstream 2026-10-22: a solid colour
-	// is named correctly and billed as image tokens); stripping them there
-	// silently answered every vision request blind.
-	if isDeepSeekV4TextOnlyModel(request.Model) {
-		stripImagesForTextOnlyModel(request)
-	}
 	// Same backfill as the Claude path: a tool-call turn without the field 400s.
 	for i := range request.Messages {
 		msg := &request.Messages[i]
@@ -115,10 +108,6 @@ func ApplyDeepSeekV4OpenAIRequestRules(request *dto.GeneralOpenAIRequest) error 
 	}
 	floorDeepSeekV4MaxTokens(request)
 	return nil
-}
-
-func isDeepSeekV4TextOnlyModel(modelName string) bool {
-	return strings.HasPrefix(modelName, "deepseek-v4-pro")
 }
 
 // deepSeekV4MaxModelLen is the minimum max_tokens DeepSeek V4 needs in
@@ -157,13 +146,13 @@ func floorDeepSeekV4MaxTokens(request *dto.GeneralOpenAIRequest) {
 	}
 }
 
-// stripImagesForTextOnlyModel walks each message's content array and
+// StripImageInputs walks each message's content array and
 // replaces every image_url block with a single placeholder text block
 // telling the model an image was attached but cannot be processed.
 // This is visible to the model (so it can mention the limitation in
 // its reply) and to the user (because the model's reply will reflect
 // it). Plain string content is left alone since it can't carry images.
-func stripImagesForTextOnlyModel(request *dto.GeneralOpenAIRequest) {
+func StripImageInputs(request *dto.GeneralOpenAIRequest) {
 	const placeholder = "[image attached: this model does not support image inputs, content omitted]"
 	for i := range request.Messages {
 		msg := &request.Messages[i]

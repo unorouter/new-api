@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -151,11 +152,14 @@ func GetModelSupportEndpointTypes(model string) []constant.EndpointType {
 	return make([]constant.EndpointType, 0)
 }
 
-// ModelLimits carries the context window + output cap parsed from a model's
-// metadata JSON, for OpenAI-compatible clients that read them off /v1/models.
+// ModelLimits carries the context window, output cap and image input support
+// parsed from a model's synced metadata JSON.
 type ModelLimits struct {
 	ContextLength   int
 	MaxOutputTokens int
+	// Only an explicit modality list without "image" sets this: a model whose
+	// metadata says nothing keeps receiving images as the client sent them.
+	RejectsImages bool
 }
 
 var (
@@ -173,16 +177,23 @@ func buildModelLimitsMap(pricings []Pricing) {
 			continue
 		}
 		var meta struct {
-			ContextWindow   int `json:"contextWindow"`
-			MaxOutputTokens int `json:"maxOutputTokens"`
+			ContextWindow   int      `json:"contextWindow"`
+			MaxOutputTokens int      `json:"maxOutputTokens"`
+			InputModalities []string `json:"inputModalities"`
+			SupportsVision  bool     `json:"supportsVision"`
 		}
 		if err := common.UnmarshalJsonStr(p.Metadata, &meta); err != nil {
 			continue
 		}
-		if meta.ContextWindow == 0 && meta.MaxOutputTokens == 0 {
+		limits := ModelLimits{
+			ContextLength:   meta.ContextWindow,
+			MaxOutputTokens: meta.MaxOutputTokens,
+			RejectsImages:   len(meta.InputModalities) > 0 && !slices.Contains(meta.InputModalities, "image") && !meta.SupportsVision,
+		}
+		if limits == (ModelLimits{}) {
 			continue
 		}
-		next[p.ModelName] = ModelLimits{ContextLength: meta.ContextWindow, MaxOutputTokens: meta.MaxOutputTokens}
+		next[p.ModelName] = limits
 	}
 	modelLimitsLock.Lock()
 	modelLimitsMap = next

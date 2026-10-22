@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/ai360"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
@@ -496,6 +497,11 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	// path produce the request shape DeepSeek V4 upstreams expect.
 	if err := relaycommon.ApplyDeepSeekV4OpenAIRequestRules(request); err != nil {
 		return nil, err
+	}
+	// A provider 400s or ignores an image the model cannot read; the placeholder
+	// tells the model one was sent. Synced metadata decides, never the model name.
+	if model.GetCachedModelLimits(info.OriginModelName).RejectsImages {
+		relaycommon.StripImageInputs(request)
 	}
 
 	return request, nil
