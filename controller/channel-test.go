@@ -1330,8 +1330,13 @@ func testChannelForCycle(ctx context.Context, channel *model.Channel, testUserID
 
 	shouldBanChannel := false
 	newAPIError := result.newAPIError
+	// A spent quota window (pacing, hourly or daily cap) means the lane answered
+	// and is merely metered; the relay already sits it out for the window. Lanes
+	// sharing one key trip each other's pacing inside a single test cycle, so
+	// treating it as a failure kept LiteRouter's only live lane off for hours.
+	windowed := newAPIError != nil && service.ClassifyUpstreamError(newAPIError).Window > 0
 	// request error disables the channel
-	if newAPIError != nil {
+	if newAPIError != nil && !windowed {
 		shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
 		// PROD-ONLY (fork): mirror the relay-side skip for non-recoverable modalities.
 		if shouldBanChannel && shouldSkipDisableForModality(testModel, result.newAPIError) {
@@ -1363,7 +1368,11 @@ func testChannelForCycle(ctx context.Context, channel *model.Channel, testUserID
 	}
 
 	// enable channel
-	if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
+	enableErr := newAPIError
+	if windowed {
+		enableErr = nil
+	}
+	if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(enableErr, channel.Status) {
 		// A flapping channel passes the tiny recovery probe but dies again under
 		// real traffic; hold it disabled with exponential cooldown instead of
 		// re-enabling it every probe cycle (each flap leaks user-visible errors).
