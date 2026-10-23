@@ -33,6 +33,10 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeConvertRequestFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 	info.AppendRequestConversion(types.RelayFormatOpenAI)
+	// IsStream is rewritten from each upstream's reply below; a failed attempt
+	// that streamed left it set, and the retry then sent SSE pings and events
+	// to a client that asked for one JSON body.
+	info.IsStream = info.ClientWantsStream
 
 	savedRelayMode := info.RelayMode
 	savedRequestURLPath := info.RequestURLPath
@@ -80,7 +84,7 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 
 	httpResp := resp.(*http.Response)
-	clientStream := info.IsStream
+	clientStream := info.ClientWantsStream
 	upstreamStream := isResponsesEventStreamContentType(httpResp.Header.Get("Content-Type"))
 	info.IsStream = clientStream || upstreamStream
 	if httpResp.StatusCode != http.StatusOK {
