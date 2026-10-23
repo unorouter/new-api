@@ -39,6 +39,7 @@ func seedTerminationFixture(t *testing.T, userGroup string, sub *UserSubscriptio
 		Status:          "success",
 		TradeNo:         "sub_ref_termination",
 		PaymentProvider: "creem",
+		CompleteTime:    sub.StartTime,
 	}
 	require.NoError(t, DB.Create(&order).Error)
 
@@ -287,4 +288,45 @@ func TestTerminateUserSubscriptionByCreemMatchesOnProviderIdAlone(t *testing.T) 
 	})
 	require.NoError(t, err)
 	assert.Equal(t, subId, gotSub)
+}
+
+// A stale expiry for a finished Creem month must not end a later month the
+// user paid for elsewhere (2026-10-22: a September Creem expiry ended a DeloPay
+// subscription bought on October 9, 13 days in).
+func TestTerminateUserSubscriptionByCreemSkipsMonthAnotherOrderOpened(t *testing.T) {
+	now := time.Now().Unix()
+	oldStart := now - 45*86400
+	userId, _ := seedTerminationFixture(t, "default", &UserSubscription{
+		PlanId:      1,
+		Status:      "expired",
+		Source:      "order",
+		AmountTotal: 5000000,
+		StartTime:   oldStart,
+		EndTime:     oldStart + 30*86400,
+	})
+	current := UserSubscription{
+		UserId:      userId,
+		PlanId:      1,
+		Status:      "active",
+		Source:      "order",
+		AmountTotal: 5000000,
+		AmountUsed:  1200000,
+		StartTime:   now - 13*86400,
+		EndTime:     now + 17*86400,
+	}
+	require.NoError(t, DB.Create(&current).Error)
+
+	_, gotSub, err := TerminateUserSubscriptionByCreem(CreemTerminationInput{
+		ReferenceId:     "sub_ref_termination",
+		CreemCustomerId: "cus_termination",
+		Reason:          "subscription.expired",
+	})
+	require.NoError(t, err)
+	assert.Zero(t, gotSub)
+
+	var after UserSubscription
+	require.NoError(t, DB.First(&after, current.Id).Error)
+	assert.Equal(t, "active", after.Status)
+	assert.Equal(t, current.EndTime, after.EndTime)
+	assert.Equal(t, int64(1200000), after.AmountUsed)
 }

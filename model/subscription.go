@@ -2107,8 +2107,9 @@ func TerminateUserSubscriptionByCreem(in CreemTerminationInput) (int, int, error
 // when the reference names one, the plan that order was for: the original order
 // is authoritative, creem_customer / creem_product_id are the fallbacks for
 // events that carry no reference id.
-func resolveCreemSubscriptionUser(tx *gorm.DB, in CreemTerminationInput) (int, int, error) {
+func resolveCreemSubscriptionUser(tx *gorm.DB, in CreemTerminationInput) (int, int, *SubscriptionOrder, error) {
 	userId, planId := 0, 0
+	var refOrder *SubscriptionOrder
 	if in.ReferenceId != "" {
 		var order SubscriptionOrder
 		refCol := "`trade_no`"
@@ -2117,6 +2118,7 @@ func resolveCreemSubscriptionUser(tx *gorm.DB, in CreemTerminationInput) (int, i
 		}
 		if err := tx.Where(refCol+" = ?", in.ReferenceId).First(&order).Error; err == nil {
 			userId, planId = order.UserId, order.PlanId
+			refOrder = &order
 		}
 	}
 	if userId == 0 && in.CreemCustomerId != "" {
@@ -2132,10 +2134,14 @@ func resolveCreemSubscriptionUser(tx *gorm.DB, in CreemTerminationInput) (int, i
 		}
 	}
 	if userId == 0 {
-		return 0, 0, ErrSubscriptionOrderNotFound
+		return 0, 0, nil, ErrSubscriptionOrderNotFound
 	}
-	return userId, planId, nil
+	return userId, planId, refOrder, nil
 }
+
+// creemOrderStartSlack is how far an order's completion may sit from the start
+// of the subscription it opened; both are stamped in the same webhook.
+const creemOrderStartSlack int64 = 300
 
 // creemPaidSubscriptionTx reports whether Creem is what paid for this
 // subscription. A wallet purchase and an admin grant are recorded with their own
@@ -2150,10 +2156,14 @@ func creemPaidSubscriptionTx(tx *gorm.DB, sub *UserSubscription) (bool, error) {
 		// admin grants, wallet purchases and anything else Creem never billed.
 		return false, nil
 	}
+	// The Creem order must be the one that opened THIS row. Any Creem order of
+	// the same plan made a DeloPay month look Creem's, and on 2026-10-22 a stale
+	// expiry for a customer's September Creem subscription ended it.
 	var count int64
 	err := tx.Model(&SubscriptionOrder{}).
-		Where("user_id = ? AND plan_id = ? AND payment_provider = ? AND status = ?",
-			sub.UserId, sub.PlanId, PaymentProviderCreem, common.TopUpStatusSuccess).
+		Where("user_id = ? AND plan_id = ? AND payment_provider = ? AND complete_time BETWEEN ? AND ?",
+			sub.UserId, sub.PlanId, PaymentProviderCreem,
+			sub.StartTime-creemOrderStartSlack, sub.StartTime+creemOrderStartSlack).
 		Count(&count).Error
 	if err != nil {
 		return false, err
@@ -2186,7 +2196,7 @@ func resolveCreemTerminationTarget(tx *gorm.DB, in CreemTerminationInput) (int, 
 		}
 	}
 
-	userId, planId, err := resolveCreemSubscriptionUser(tx, in)
+	userId, planId, refOrder, err := resolveCreemSubscriptionUser(tx, in)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -2204,6 +2214,11 @@ func resolveCreemTerminationTarget(tx *gorm.DB, in CreemTerminationInput) (int, 
 	}
 	var matched *UserSubscription
 	for i := range candidates {
+		// The event names its checkout: only the row that checkout opened is its.
+		if refOrder != nil && (refOrder.CompleteTime < candidates[i].StartTime-creemOrderStartSlack ||
+			refOrder.CompleteTime > candidates[i].StartTime+creemOrderStartSlack) {
+			continue
+		}
 		paid, err := creemPaidSubscriptionTx(tx, &candidates[i])
 		if err != nil {
 			return userId, nil, err
