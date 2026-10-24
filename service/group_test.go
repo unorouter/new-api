@@ -36,9 +36,11 @@ func TestGetTokenAutoGroups(t *testing.T) {
 
 func TestResolveTokenGroupForModel(t *testing.T) {
 	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(
-		`{"default":"d","cheap":"c","mid":"m","pricey":"p","auto":"a"}`))
+		`{"default":"d","cheap":"c","mid":"m","pricey":"p","auto":"a",`+
+			`"r1-deepseek-v3.2":"r1","r2-deepseek-v3.2":"r2","r3-gpt-5.5":"r3","a":"a","b":"b"}`))
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(
-		`{"default":1,"cheap":0.02,"mid":0.5,"pricey":3.9}`))
+		`{"default":1,"cheap":0.02,"mid":0.5,"pricey":3.9,`+
+			`"r1-deepseek-v3.2":1,"r2-deepseek-v3.2":1,"r3-gpt-5.5":1,"a":1,"b":1}`))
 
 	mapping := ParseTokenGroupMapping(
 		`{"deepseek-v3.2":{"groups":["r1-deepseek-v3.2","r2-deepseek-v3.2"]},` +

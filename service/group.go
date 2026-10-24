@@ -296,6 +296,11 @@ func ResolveTokenGroupForModel(mapping map[string]TokenPinEntry, userGroup, mode
 		if _, dup := seen[g]; dup {
 			continue
 		}
+		// Checked at save too, but a group unpublished since then must stop serving
+		// the tokens that pinned it before.
+		if g != "auto" && !IsUserSelectableGroup(userGroup, g) {
+			continue
+		}
 		seen[g] = struct{}{}
 		cleaned = append(cleaned, g)
 	}
