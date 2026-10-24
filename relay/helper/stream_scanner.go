@@ -179,16 +179,29 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			pingTimeout := time.NewTimer(maxPingDuration)
 			defer pingTimeout.Stop()
 
+			// A ping is only for silence. Sent between live chunks it reached
+			// JanitorAI mid reasoning, and its parser broke on it (2026-10-24).
+			lastSize := -1
 			for {
 				select {
 				case <-pingTicker.C:
 					var err error
+					skipped := false
 					func() {
 						writeMutex.Lock()
 						defer writeMutex.Unlock()
+						if size := c.Writer.Size(); size != lastSize {
+							lastSize = size
+							skipped = true
+							return
+						}
 						ExtendWriteDeadline(c)
 						err = PingData(c)
+						lastSize = c.Writer.Size()
 					}()
+					if skipped {
+						continue
+					}
 					if err != nil {
 						logger.LogError(c, common.LogText("ping data error: %s", err.Error()))
 						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonPingFail, err)
