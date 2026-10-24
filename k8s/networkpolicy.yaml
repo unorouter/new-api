@@ -57,6 +57,9 @@ spec:
               app: new-api-sync-full
         - podSelector:
             matchLabels:
+              app: new-api-sync-weekly
+        - podSelector:
+            matchLabels:
               app: unorouter-mcp
       ports:
         - protocol: TCP
