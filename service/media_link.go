@@ -61,7 +61,7 @@ var requestURLPattern = regexp.MustCompile(`https?:(?:\\/|/)(?:[^\s"'<>()\\]|\\/
 // generate it, so it stays unwrapped and keeps working where frontends only
 // embed their own hosts. Computed once per request.
 func requestLinks(c *gin.Context) aimark.KnownLink {
-	if c == nil {
+	if c == nil || c.Request == nil {
 		return nil
 	}
 	if value, ok := c.Get(requestLinksKey); ok {

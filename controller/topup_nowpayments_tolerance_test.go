@@ -25,8 +25,9 @@ func TestWithinUnderpaymentTolerance(t *testing.T) {
 		{name: "tiny shortfall credits", pay: 20.20, actual: 20.183446, expected: true},
 		{name: "overpayment credits", pay: 20.00, actual: 20.50, expected: true},
 		{name: "exact amount credits", pay: 20.00, actual: 20.00, expected: true},
-		{name: "shortfall at the 10 percent edge credits", pay: 100.00, actual: 90.00, expected: true},
-		{name: "shortfall beyond tolerance stays pending", pay: 100.00, actual: 89.99, expected: false},
+		{name: "shortfall at the 2 percent edge credits", pay: 100.00, actual: 98.00, expected: true},
+		{name: "shortfall beyond tolerance stays pending", pay: 100.00, actual: 97.99, expected: false},
+		{name: "the old 10 percent shortfall stays pending", pay: 100.00, actual: 90.00, expected: false},
 		{name: "half payment stays pending", pay: 20.00, actual: 10.00, expected: false},
 		// Nothing arrived, or no invoice to compare against: never credit.
 		{name: "zero paid stays pending", pay: 20.00, actual: 0, expected: false},
