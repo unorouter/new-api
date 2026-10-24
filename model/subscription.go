@@ -2073,8 +2073,13 @@ func TerminateUserSubscriptionByCreem(in CreemTerminationInput) (int, int, error
 			if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
 				refCol = `"trade_no"`
 			}
+			// The chargeback rate alert counts disputed orders; "cancelled" would hide one among refunds.
+			orderStatus := status
+			if in.Reason == "dispute.created" {
+				orderStatus = common.TopUpStatusDisputed
+			}
 			if err := tx.Model(&SubscriptionOrder{}).Where(refCol+" = ?", in.ReferenceId).
-				Update("status", status).Error; err != nil {
+				Update("status", orderStatus).Error; err != nil {
 				return err
 			}
 		}
