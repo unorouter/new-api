@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -266,6 +267,11 @@ func perModelRateLimit(c *gin.Context) bool {
 		return true
 	}
 	limited, found := setting.ResolveRateLimitedModel(mr.Model)
+	if !found {
+		// Channel lookup strips @key:value modifiers and reasoning suffixes; without the
+		// same fallback here `x:free@temperature:0.7` was served as x:free with no bucket.
+		limited, found = setting.ResolveRateLimitedModel(ratio_setting.RoutingMatchModelName(mr.Model))
+	}
 	if !found {
 		return true
 	}

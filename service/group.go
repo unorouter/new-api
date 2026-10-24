@@ -308,6 +308,11 @@ func ResolveTokenGroupForModel(mapping map[string]TokenPinEntry, userGroup, mode
 			if _, dup := seen[g]; dup {
 				continue
 			}
+			// A band is expanded at request time over every group serving the model, so
+			// it must apply the same ACL an X-Group header gets, or it reaches withheld groups.
+			if !IsUserSelectableGroup(userGroup, g) {
+				continue
+			}
 			ratio := GetUserGroupRatio(userGroup, g)
 			if entry.Min != nil && ratio < *entry.Min {
 				continue
