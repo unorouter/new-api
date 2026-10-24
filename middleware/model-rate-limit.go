@@ -262,6 +262,11 @@ func perModelRateLimit(c *gin.Context) bool {
 			return true
 		}
 		mr = *req
+		// Same fallback as the distributor: /v1/engines/:model/embeddings may carry the
+		// model only in the path, which left the request with no limit at all.
+		if mr.Model == "" && strings.HasSuffix(path, "embeddings") {
+			mr.Model = c.Param("model")
+		}
 	}
 	if mr.Model == "" {
 		return true

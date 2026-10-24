@@ -154,6 +154,18 @@ func Distribute() func(c *gin.Context) {
 					if mappedGroup == "" && publicName != "" {
 						mappedGroup = service.ResolveTokenGroupForModel(mapping, accountGroup, publicName, "", candidatesFor(modelRequest.Model))
 					}
+					// The pin must follow the name routing serves: x@temperature:1, x-thinking
+					// and a case or separator variant are all served as x, so they get x's pin.
+					servedName := ratio_setting.RoutingMatchModelName(modelRequest.Model)
+					if variant, ok := model.ResolveModelNameVariant(servedName); ok {
+						servedName = variant
+					}
+					if servedName == modelRequest.Model || servedName == matchName {
+						servedName = ""
+					}
+					if mappedGroup == "" && servedName != "" {
+						mappedGroup = service.ResolveTokenGroupForModel(mapping, accountGroup, servedName, "", candidatesFor(servedName))
+					}
 					if mappedGroup != "" {
 						usingGroup = mappedGroup
 						common.SetContextKey(c, constant.ContextKeyUsingGroup, mappedGroup)
@@ -161,7 +173,8 @@ func Distribute() func(c *gin.Context) {
 						common.SetContextKey(c, constant.ContextKeyTokenGroupMappingApplied, true)
 					} else if service.TokenPinsModel(mapping, modelRequest.Model) ||
 						service.TokenPinsModel(mapping, matchName) ||
-						(publicName != "" && service.TokenPinsModel(mapping, publicName)) {
+						(publicName != "" && service.TokenPinsModel(mapping, publicName)) ||
+						(servedName != "" && service.TokenPinsModel(mapping, servedName)) {
 						// Nothing the pin allows is enabled right now. Falling through here
 						// dropped the pin and billed the caller on the open chain, so a price
 						// ceiling stopped existing exactly when every lane under it went down.
