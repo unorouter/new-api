@@ -217,6 +217,10 @@ var FreeRetryTimes = 3
 // without one covering its providers, and to business customers outright.
 var ConsentEnforcementEnabled = false
 
+// ConsentEnforcedSince holds accounts created at or after this unix time to
+// the consent rules before the global switch reaches older ones; 0 is off.
+var ConsentEnforcedSince int64 = 0
+
 // consentEnforcedModels turns the consent refusal on for these models only,
 // so enforcement can go on in waves before the global switch.
 var consentEnforcedModels atomic.Pointer[[]string]

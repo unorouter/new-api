@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"maps"
 	"strconv"
 	"strings"
@@ -216,6 +217,7 @@ func InitOptionMap() {
 	common.OptionMap["FreeRetryTimes"] = strconv.Itoa(common.FreeRetryTimes)
 	common.OptionMap["ConsentEnforcementEnabled"] = strconv.FormatBool(common.ConsentEnforcementEnabled)
 	common.OptionMap["ConsentEnforcedModels"] = "[]"
+	common.OptionMap["ConsentEnforcedSince"] = strconv.FormatInt(common.ConsentEnforcedSince, 10)
 	common.OptionMap["MaxTotalRelayAttempts"] = strconv.Itoa(common.MaxTotalRelayAttempts)
 	common.OptionMap["DataExportInterval"] = strconv.Itoa(common.DataExportInterval)
 	common.OptionMap["DataExportDefaultTime"] = common.DataExportDefaultTime
@@ -334,6 +336,11 @@ func validateOptionValue(key string, value string) error {
 	if key == "ConsentEnforcedModels" {
 		var models []string
 		return common.UnmarshalJsonStr(value, &models)
+	}
+	if key == "ConsentEnforcedSince" {
+		if since, err := strconv.ParseInt(value, 10, 64); err != nil || since < 0 {
+			return errors.New("ConsentEnforcedSince must be a unix time, 0 to switch it off")
+		}
 	}
 	return nil
 }
@@ -817,6 +824,8 @@ func updateOptionMap(key string, value string) (err error) {
 		common.FreeRetryTimes, _ = strconv.Atoi(value)
 	case "ConsentEnforcedModels":
 		err = common.SetConsentEnforcedModels(value)
+	case "ConsentEnforcedSince":
+		common.ConsentEnforcedSince, _ = strconv.ParseInt(value, 10, 64)
 	case "MaxTotalRelayAttempts":
 		if n, convErr := strconv.Atoi(value); convErr == nil && n > 0 {
 			common.MaxTotalRelayAttempts = n
