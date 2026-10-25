@@ -99,7 +99,7 @@ var upstreamRules = []upstreamRule{
 	// 2026-09-25 our own balance at a reseller ran out and a counted rule kept every lane on it in
 	// rotation for five hours while each request walked several of them. A lane that
 	// only flapped comes back through the scheduled retest.
-	{markers: []string{"可用额度不足", "您已超过输入 tokens 配额"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true, Provider: true}, userMessage: "This provider ran out of credit on their side. That is on us, not you: retry and the request goes to another provider."},
+	{markers: []string{"可用额度不足", "您已超过输入 tokens 配额", "Account quota is insufficient"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true, Provider: true}, userMessage: "This provider ran out of credit on their side. That is on us, not you: retry and the request goes to another provider."},
 	// The upstream balance is gone (a reseller adds "and will not recover soon"),
 	// or our account there is banned.
 	{markers: []string{"上游账户余额不足", "账号处于封禁状态", "insufficient balance", "no credits available", "may have insufficient balance", "insufficient free or premium credits", "balance is exhausted (0 tokens remaining)", "credits remaining, not enough to fulfill this request"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider can no longer take requests from us. We have taken it out of rotation, so please retry."},
