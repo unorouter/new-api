@@ -619,6 +619,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		relayInfo.LastError = newAPIError
+		// The rest of a shared-filter shard series would refuse the same prompt.
+		if types.IsUpstreamModerationError(newAPIError) {
+			for _, id := range model.SharedFilterSiblingIDs(channel.Id) {
+				triedChannels[id] = true
+			}
+		}
 
 		willRetry := shouldRetry(c, newAPIError, retryBudget-retryParam.GetRetry())
 		decision := service.DecideRelayRetry(c, newAPIError, retryBudget-retryParam.GetRetry())
