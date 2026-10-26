@@ -224,6 +224,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			if userMessage, ok := service.UpstreamUserMessage(newAPIError); ok {
 				newAPIError.SetMessage(userMessage)
 			}
+			// An upstream that refuses with an empty body left the client a message
+			// that was only our request id.
+			if strings.TrimSpace(newAPIError.Error()) == "" {
+				if newAPIError.StatusCode == http.StatusTooManyRequests {
+					newAPIError.SetMessage("Every provider for this model is busy right now. Nothing is used up on your side. Try again in a moment or switch models.")
+				} else {
+					newAPIError.SetMessage(fmt.Sprintf("The provider failed with status %d and gave no reason. Nothing is used up on your side. Try again or switch models.", newAPIError.StatusCode))
+				}
+			}
 			// A 402 from an upstream is that lane's billing problem. Clients render
 			// 402 as the customer being out of credits, so it leaves as a 503.
 			if newAPIError.StatusCode == http.StatusPaymentRequired && newAPIError.GetErrorType() != types.ErrorTypeNewAPIError {
@@ -245,7 +254,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			if c.Writer.Written() {
 				if isCommittedSSE(c, relayFormat) {
 					newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.MaskSensitiveErrorWithStatusCode(), requestId))
-					_ = helper.ObjectData(c, gin.H{"error": newAPIError.ToOpenAIError()})
+					// Shaped as a chunk, as OpenRouter sends it: clients that read
+					// choices on every event (JanitorAI) crashed on a bare error object
+					// and showed "[object Object]".
+					_ = helper.ObjectData(c, gin.H{
+						"id":      "chatcmpl-" + requestId,
+						"object":  "chat.completion.chunk",
+						"created": time.Now().Unix(),
+						"model":   common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
+						"choices": []gin.H{{"index": 0, "delta": gin.H{}, "finish_reason": "error"}},
+						"error":   newAPIError.ToOpenAIError(),
+					})
 					helper.Done(c)
 				}
 				// Keepalive padding already committed a 200; the error still goes out as
