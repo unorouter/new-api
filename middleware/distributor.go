@@ -999,7 +999,7 @@ func ConsentRefusal(c *gin.Context, requestedModel string) *ConsentRefusalError 
 	enforced = enforced || common.ConsentEnforcedModel(scope.Model, requestedModel)
 	if enforced && scope.Required && !userSetting.FreeConsentDelegated {
 		userId := c.GetInt("id")
-		switch model.ConsentAccessFor(userId, "", scope.Model, scope.Providers) {
+		switch model.ConsentAccessFor(userId, "", scope.Providers) {
 		case model.ConsentAccessBusiness:
 			return &ConsentRefusalError{Message: i18n.T(c, i18n.MsgDistributorConsentBusiness), Code: "consent_business"}
 		case model.ConsentAccessNeedsConsent:
@@ -1023,7 +1023,7 @@ const consentRequiredListLimit = 5
 
 func consentRequiredError(c *gin.Context, userId int, scope model.ConsentScope) *ConsentRefusalError {
 	link := system_setting.UserLinkBase() + "/consents?model=" + url.QueryEscape(scope.Model)
-	missing, err := model.MissingConsentProviders(userId, "", scope.Model, scope.Providers)
+	missing, err := model.MissingConsentProviders(userId, "", scope.Providers)
 	if err != nil || len(missing) == 0 {
 		return &ConsentRefusalError{Message: i18n.T(c, i18n.MsgDistributorConsentRequiredGeneric, map[string]any{"Model": scope.Model, "Url": link}), Code: "consent_required"}
 	}

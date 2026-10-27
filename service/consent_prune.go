@@ -8,8 +8,8 @@ import (
 	"github.com/QuantumNous/new-api/model"
 )
 
-// StartFreeConsentPruner runs on the master node only, once a day.
-func StartFreeConsentPruner() {
+// StartConsentPruner runs on the master node only, once a day.
+func StartConsentPruner() {
 	if !common.IsMasterNode {
 		return
 	}
@@ -34,11 +34,11 @@ func StartFreeConsentPruner() {
 			}
 			n, err := model.PruneFreeConsents(time.Now())
 			if err != nil {
-				common.SysError("free consent prune failed: " + err.Error())
+				common.SysError("archived model consent prune failed: " + err.Error())
 				continue
 			}
 			if n > 0 {
-				common.SysLog(fmt.Sprintf("pruned %d free consent records past the proof period", n))
+				common.SysLog(fmt.Sprintf("pruned %d archived model consent records past the proof period", n))
 			}
 		}
 	}()

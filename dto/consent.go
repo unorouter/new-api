@@ -1,31 +1,5 @@
 package dto
 
-// FreeConsentItem is one active consent to a :free model.
-type FreeConsentItem struct {
-	Model     string `json:"model"`
-	Locale    string `json:"locale"`
-	CreatedAt int64  `json:"created_at"`
-	// False once a provider the consent did not cover serves the model.
-	Covers bool `json:"covers"`
-}
-
-// FreeConsentListData is the response data for GET /api/user/self/free-consents.
-type FreeConsentListData struct {
-	Consents []FreeConsentItem `json:"consents"`
-}
-
-// FreeConsentGrantRequest records a consent; Text is the dialog exactly as shown.
-type FreeConsentGrantRequest struct {
-	Model  string `json:"model" validate:"required,max=255"`
-	Locale string `json:"locale" validate:"max=16"`
-	Text   string `json:"text" validate:"required,max=20000"`
-}
-
-// FreeConsentRevokeRequest ends the consent for one model.
-type FreeConsentRevokeRequest struct {
-	Model string `json:"model" validate:"required,max=255"`
-}
-
 // OwnPurposeObjectionData is the caller's Art. 21 GDPR objection to providers
 // that use inputs for their own purposes.
 type OwnPurposeObjectionData struct {
@@ -36,6 +10,13 @@ type OwnPurposeObjectionData struct {
 type OwnPurposeObjectionRequest struct {
 	Objection *bool `json:"objection"`
 }
+
+type ProviderConsentStatus string
+
+const (
+	ProviderConsentGiven   ProviderConsentStatus = "given"
+	ProviderConsentMissing ProviderConsentStatus = "missing"
+)
 
 // ProviderConsentItem is one provider that needs a consent, by its public alias.
 type ProviderConsentItem struct {
@@ -60,11 +41,9 @@ type ProviderConsentItem struct {
 	ActiveChannelCount int                        `json:"active_channel_count"`
 	ModelDetails       []ProviderConsentModelItem `json:"model_details"`
 	// Some channel of this provider is enabled.
-	Active bool `json:"active"`
-	// given, missing, or with ?model also model_consent: only an earlier model
-	// consent covers this provider for that model.
-	Status  string `json:"status"`
-	GivenAt int64  `json:"given_at,omitempty"`
+	Active  bool                  `json:"active"`
+	Status  ProviderConsentStatus `json:"status" validate:"oneof=given missing"`
+	GivenAt int64                 `json:"given_at,omitempty"`
 }
 
 type ProviderConsentModelItem struct {

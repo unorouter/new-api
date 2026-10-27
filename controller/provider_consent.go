@@ -14,7 +14,7 @@ import (
 const guestOnlyBFF = "guest consent routes are limited to the chat service"
 
 func listProviderConsents(c dto.FuegoCtx, guest bool) (*dto.Response[dto.ProviderConsentListData], error) {
-	userId, guestId, ok := freeConsentSubject(c, guest)
+	userId, guestId, ok := consentSubject(c, guest)
 	if !ok {
 		return dto.Fail[dto.ProviderConsentListData](guestOnlyBFF)
 	}
@@ -31,7 +31,7 @@ func listProviderConsents(c dto.FuegoCtx, guest bool) (*dto.Response[dto.Provide
 	for _, p := range catalog {
 		byProvider[p.Provider] = p
 	}
-	item := func(p model.ConsentProvider, status string) dto.ProviderConsentItem {
+	item := func(p model.ConsentProvider, status dto.ProviderConsentStatus) dto.ProviderConsentItem {
 		models := p.Models
 		if models == nil {
 			models = []string{}
@@ -56,7 +56,7 @@ func listProviderConsents(c dto.FuegoCtx, guest bool) (*dto.Response[dto.Provide
 			entry.ModelDetails = append(entry.ModelDetails, dto.ProviderConsentModelItem{Name: name, Active: activeChannels > 0, Channels: p.ModelChannels[name], ActiveChannels: activeChannels})
 		}
 		if at, ok := givenAt[p.Alias]; ok {
-			entry.Status = "given"
+			entry.Status = dto.ProviderConsentGiven
 			entry.GivenAt = at
 		}
 		return entry
@@ -66,7 +66,7 @@ func listProviderConsents(c dto.FuegoCtx, guest bool) (*dto.Response[dto.Provide
 	if modelName == "" {
 		items := make([]dto.ProviderConsentItem, 0, len(catalog))
 		for _, p := range catalog {
-			items = append(items, item(p, "missing"))
+			items = append(items, item(p, dto.ProviderConsentMissing))
 		}
 		sortProviderConsentItems(items)
 		return dto.Ok(dto.ProviderConsentListData{Providers: items})
@@ -76,13 +76,9 @@ func listProviderConsents(c dto.FuegoCtx, guest bool) (*dto.Response[dto.Provide
 	// follows the lanes now serving the model, as the relay checks it.
 	scope := model.RecordedConsentScope(modelName)
 	current := model.ConsentScopeFor(modelName)
-	covered := !current.Required || model.ConsentAccessFor(userId, guestId, current.Model, current.Providers) == model.ConsentAccessAllowed
+	covered := !current.Required || model.ConsentAccessFor(userId, guestId, current.Providers) == model.ConsentAccessAllowed
 	items := []dto.ProviderConsentItem{}
 	if scope.Required {
-		modelCovered, err := model.ModelConsentProviders(userId, guestId, scope.Model)
-		if err != nil {
-			return dto.Fail[dto.ProviderConsentListData](err.Error())
-		}
 		aliases := model.ProviderAliasesFor(scope.Providers)
 		for _, provider := range scope.Providers {
 			p, ok := byProvider[provider]
@@ -93,11 +89,7 @@ func listProviderConsents(c dto.FuegoCtx, guest bool) (*dto.Response[dto.Provide
 				}
 				p = model.ConsentProvider{Provider: provider, Alias: alias.Alias, Country: alias.Country}
 			}
-			status := "missing"
-			if modelCovered[provider] {
-				status = "model_consent"
-			}
-			entry := item(p, status)
+			entry := item(p, dto.ProviderConsentMissing)
 			entry.Active = p.ActiveModelChannels[scope.Model] > 0
 			items = append(items, entry)
 		}
@@ -139,7 +131,7 @@ func sortProviderConsentItems(items []dto.ProviderConsentItem) {
 }
 
 func grantProviderConsents(c fuego.ContextWithBody[dto.ProviderConsentGrantRequest], guest bool) (*dto.Response[dto.ProviderConsentGrantData], error) {
-	userId, guestId, ok := freeConsentSubject(c, guest)
+	userId, guestId, ok := consentSubject(c, guest)
 	if !ok {
 		return dto.Fail[dto.ProviderConsentGrantData](guestOnlyBFF)
 	}
@@ -223,7 +215,7 @@ func grantProviderConsents(c fuego.ContextWithBody[dto.ProviderConsentGrantReque
 }
 
 func revokeProviderConsent(c fuego.ContextWithBody[dto.ProviderConsentRevokeRequest], guest bool) (*dto.Response[dto.MessageResponse], error) {
-	userId, guestId, ok := freeConsentSubject(c, guest)
+	userId, guestId, ok := consentSubject(c, guest)
 	if !ok {
 		return dto.Fail[dto.MessageResponse](guestOnlyBFF)
 	}

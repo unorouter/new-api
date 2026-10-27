@@ -353,9 +353,6 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/user/self/own-purpose-objection":     accessTokenScopeRule("profile:read"),
 	"PUT /api/user/self/own-purpose-objection":     accessTokenScopeRule("profile:write"),
 	// A consent has to come from the person, never from a delegated token.
-	"GET /api/user/self/free-consents":        accessTokenSessionRule,
-	"POST /api/user/self/free-consents":       accessTokenSessionRule,
-	"DELETE /api/user/self/free-consents":     accessTokenSessionRule,
 	"GET /api/user/self/provider-consents":    accessTokenSessionRule,
 	"POST /api/user/self/provider-consents":   accessTokenSessionRule,
 	"DELETE /api/user/self/provider-consents": accessTokenSessionRule,

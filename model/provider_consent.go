@@ -28,8 +28,10 @@ type ProviderAlias struct {
 	CreatedAt int64  `json:"created_at" gorm:"bigint;not null"`
 }
 
-// ProviderConsent documents a consent to one provider, kept and pruned like
-// FreeConsent. Text is the dialog exactly as shown.
+// ProviderConsent documents a consent to one provider under Art. 4 No. 11 GDPR.
+// Text is the dialog exactly as shown, because the consent is only provable
+// together with what the person agreed to. Exactly one of UserId and GuestId is
+// set; a guest is a browser identified by the chat BFF's guest cookie.
 type ProviderConsent struct {
 	Id        int    `json:"id" gorm:"primaryKey"`
 	UserId    int    `json:"user_id" gorm:"index:idx_provider_consent_user;not null;default:0"`
@@ -470,7 +472,7 @@ func ProviderAliasByName(alias string) (ProviderAlias, bool) {
 
 // ActiveProviderConsents lists the subject's unrevoked provider consents.
 func ActiveProviderConsents(userId int, guestId string) ([]ProviderConsent, error) {
-	where, arg := freeConsentScope(userId, guestId)
+	where, arg := consentWhere(userId, guestId)
 	var consents []ProviderConsent
 	err := DB.Where(where, arg).Order("created_at desc").Find(&consents).Error
 	return consents, err
@@ -486,7 +488,7 @@ func GrantProviderConsents(userId int, guestId string, aliases []ProviderAlias, 
 		return errors.New("no provider to consent to")
 	}
 	now := common.GetTimestamp()
-	where, arg := freeConsentScope(userId, guestId)
+	where, arg := consentWhere(userId, guestId)
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		for _, alias := range aliases {
 			if err := tx.Model(&ProviderConsent{}).Where(where, arg).Where("alias = ?", alias.Alias).Update("revoked_at", now).Error; err != nil {
@@ -498,21 +500,21 @@ func GrantProviderConsents(userId int, guestId string, aliases []ProviderAlias, 
 		}
 		return nil
 	})
-	freeConsentCache.Delete(freeConsentSubject(userId, guestId))
+	consentCache.Delete(consentSubject(userId, guestId))
 	return err
 }
 
 // RevokeProviderConsent ends the consent for one alias; the record stays as proof.
 func RevokeProviderConsent(userId int, guestId string, alias string) error {
-	where, arg := freeConsentScope(userId, guestId)
+	where, arg := consentWhere(userId, guestId)
 	err := DB.Model(&ProviderConsent{}).Where(where, arg).Where("alias = ?", alias).Update("revoked_at", common.GetTimestamp()).Error
-	freeConsentCache.Delete(freeConsentSubject(userId, guestId))
+	consentCache.Delete(consentSubject(userId, guestId))
 	return err
 }
 
-// PruneProviderConsents applies the proof period of PruneFreeConsents.
+// PruneProviderConsents applies the proof period of the archived model consents.
 func PruneProviderConsents(now time.Time) (int64, error) {
-	cutoff := now.AddDate(-freeConsentProofYears, 0, 0)
+	cutoff := now.AddDate(-consentProofYears, 0, 0)
 	res := DB.Where(
 		"(revoked_at > 0 AND revoked_at < ?)"+
 			" OR (revoked_at = 0 AND guest_id <> '' AND created_at < ?)"+
@@ -523,23 +525,6 @@ func PruneProviderConsents(now time.Time) (int64, error) {
 	return res.RowsAffected, res.Error
 }
 
-// ModelConsentProviders is the union of the provider sets the subject's active
-// model consents for this model covered.
-func ModelConsentProviders(userId int, guestId string, modelName string) (map[string]bool, error) {
-	where, arg := freeConsentScope(userId, guestId)
-	var consents []FreeConsent
-	if err := DB.Where(where, arg).Where("model = ?", modelName).Find(&consents).Error; err != nil {
-		return nil, err
-	}
-	covered := map[string]bool{}
-	for _, consent := range consents {
-		for _, p := range consent.providerSet() {
-			covered[p] = true
-		}
-	}
-	return covered, nil
-}
-
 // MissingConsentProvider is a provider the subject still needs to consent to,
 // by its public names.
 type MissingConsentProvider struct {
@@ -548,34 +533,23 @@ type MissingConsentProvider struct {
 	Country string
 }
 
-// MissingConsentProviders lists the providers of a model that neither an
-// active provider consent nor a model consent covers, in the given order.
-func MissingConsentProviders(userId int, guestId string, modelName string, providers []string) ([]MissingConsentProvider, error) {
-	subject := freeConsentSubject(userId, guestId)
-	entry, ok := loadFreeConsentEntry(subject)
-	if !ok {
-		var err error
-		if entry, err = buildFreeConsentEntry(userId, guestId); err != nil {
-			return nil, err
-		}
-		freeConsentCache.Store(subject, entry)
+// MissingConsentProviders lists the providers of a model that no active
+// provider consent covers, in the given order. A provider without an alias is
+// left out: it cannot be consented to until the sync assigns one.
+func MissingConsentProviders(userId int, guestId string, providers []string) ([]MissingConsentProvider, error) {
+	entry, err := consentEntryFor(userId, guestId, providers)
+	if err != nil {
+		return nil, err
 	}
 	aliases := ProviderAliasesFor(providers)
 	labels := map[string]string{}
 	for _, p := range ConsentProviders() {
 		labels[p.Alias] = p.Label
 	}
-	stored := entry.models[modelName]
 	var out []MissingConsentProvider
 	for _, p := range providers {
-		if stored[p] {
-			continue
-		}
 		alias, ok := aliases[p]
-		if !ok {
-			continue
-		}
-		if entry.aliases[alias.Alias] {
+		if !ok || entry.aliases[alias.Alias] {
 			continue
 		}
 		label := labels[alias.Alias]

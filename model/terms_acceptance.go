@@ -71,7 +71,7 @@ func LatestTermsAcceptance(userId int) (*TermsAcceptance, error) {
 // PruneTermsAcceptances drops the records of accounts deleted longer ago than
 // the proof period of the consents.
 func PruneTermsAcceptances(now time.Time) (int64, error) {
-	cutoff := now.AddDate(-freeConsentProofYears, 0, 0)
+	cutoff := now.AddDate(-consentProofYears, 0, 0)
 	res := DB.Where(
 		"user_id IN (SELECT id FROM users WHERE deleted_at IS NOT NULL AND deleted_at < ?)"+
 			" OR (created_at < ? AND NOT EXISTS (SELECT 1 FROM users WHERE users.id = terms_acceptances.user_id))",

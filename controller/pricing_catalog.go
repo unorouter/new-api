@@ -835,7 +835,7 @@ func GetPricingModelGroups(c fuego.ContextNoBody) (dto.PricingModelGroupsData, e
 		return empty, nil
 	}
 	groups, groupRatio, chain, providers := modelGroups(c, pricing)
-	// An offline model still needs its seat countries, for the free model consent
+	// An offline model still needs its seat countries, for the provider consent
 	// a user can give before it is back, so fall back to its disabled groups.
 	if len(groups) == 0 {
 		groups, providers = model.OfflineModelGroups(pricing.ModelName)

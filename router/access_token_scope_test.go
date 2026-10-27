@@ -35,9 +35,6 @@ var accessTokenExemptRoutes = []string{
 	"GET /api/user/groups",
 
 	// Guest consent and objection routes accept only the chat BFF.
-	"GET /api/user/guest/free-consents",
-	"POST /api/user/guest/free-consents",
-	"DELETE /api/user/guest/free-consents",
 	"GET /api/user/guest/own-purpose-objection",
 	"PUT /api/user/guest/own-purpose-objection",
 	"GET /api/user/guest/provider-consents",
