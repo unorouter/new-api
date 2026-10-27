@@ -1,14 +1,11 @@
 package model
 
 import (
-	"errors"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // FreeConsent is an archived per-model consent from before provider consents.
@@ -159,18 +156,4 @@ func PruneFreeConsents(now time.Time) (int64, error) {
 		cutoff.Unix(), cutoff.Add(-guestIdLifetime).Unix(), cutoff, cutoff.Unix(),
 	).Delete(&FreeConsent{})
 	return res.RowsAffected, res.Error
-}
-
-// MigrateConsentEnforcementOption copies the switch from its earlier key once;
-// the old row stays and is no longer read.
-func MigrateConsentEnforcementOption() error {
-	var old Option
-	err := DB.Where(&Option{Key: "FreeConsentEnforcementEnabled"}).First(&old).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&Option{Key: "ConsentEnforcementEnabled", Value: old.Value}).Error
 }

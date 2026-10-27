@@ -997,7 +997,7 @@ func ConsentRefusal(c *gin.Context, requestedModel string) *ConsentRefusalError 
 	}
 	scope := model.ConsentScopeFor(requestedModel)
 	enforced = enforced || common.ConsentEnforcedModel(scope.Model, requestedModel)
-	if enforced && scope.Required && !userSetting.FreeConsentDelegated {
+	if enforced && scope.Required && !userSetting.GuestConsentDelegated {
 		userId := c.GetInt("id")
 		switch model.ConsentAccessFor(userId, "", scope.Providers) {
 		case model.ConsentAccessBusiness:

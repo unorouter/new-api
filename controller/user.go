@@ -672,7 +672,7 @@ var patDeniedManageActions = map[string]bool{
 	"set_block_free":                 true,
 	"set_unlimited_free":             true,
 	"set_moderation_exempt":          true,
-	"set_free_consent_delegated":     true,
+	"set_guest_consent_delegated":    true,
 	"set_consent_enforced":           true,
 	"set_free_rate_limit_window_pct": true,
 	"set_usable_groups":              true,
@@ -1615,16 +1615,16 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		model.RecordLog(user.Id, model.LogTypeManage,
 			common.NewMessage("admin ({{admin}}) set unlimited-free-models to {{value}} for user", map[string]any{"admin": adminName, "value": req.Value == 1}))
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
-	case "set_free_consent_delegated":
+	case "set_guest_consent_delegated":
 		s := user.GetSetting()
-		s.FreeConsentDelegated = req.Value == 1
+		s.GuestConsentDelegated = req.Value == 1
 		user.SetSetting(s)
 		if err := user.Update(false); err != nil {
 			return dto.Fail[dto.ManageUserData](err.Error())
 		}
 		adminName := ginCtx.GetString("username")
 		model.RecordLog(user.Id, model.LogTypeManage,
-			common.NewMessage("admin ({{admin}}) set free-consent-delegated to {{value}} for user", map[string]any{"admin": adminName, "value": req.Value == 1}))
+			common.NewMessage("admin ({{admin}}) set guest-consent-delegated to {{value}} for user", map[string]any{"admin": adminName, "value": req.Value == 1}))
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 	case "set_consent_enforced":
 		s := user.GetSetting()

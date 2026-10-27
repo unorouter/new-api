@@ -798,11 +798,10 @@ func modelGroups(c fuego.ContextNoBody, pricing model.Pricing) ([]string, map[st
 	return pricing.EnableGroup, groupRatio, chain, model.GroupPoliciesFor(pricing.EnableGroup)
 }
 
-// ownPurposeSummary is nil for a paid model whose providers neither use inputs
-// for their own purposes nor need a consent, so most catalog rows carry no extra
-// key. A :free model always has one, for the notice and its country flags.
+// ownPurposeSummary is nil for a model whose providers neither use inputs for
+// their own purposes nor need a consent, so most catalog rows carry no extra key.
 func ownPurposeSummary(scope model.ConsentScope) *dto.OwnPurposeSummary {
-	if !scope.TrainsOrRetains && !scope.Required && !scope.Free {
+	if !scope.TrainsOrRetains && !scope.Required {
 		return nil
 	}
 	countries := scope.SeatCountries

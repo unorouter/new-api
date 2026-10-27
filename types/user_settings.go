@@ -21,7 +21,7 @@ type UserSetting struct {
 	UsableGroups                     []string `json:"usable_groups,omitempty"`                        // 该用户额外可用的分组（私有分组授权，按用户ID生效，叠加在全局可用分组之上）
 	UnlimitedFreeModels              bool     `json:"unlimited_free_models,omitempty"`                // 管理员授予：免除免费模型的按模型限流
 	ModerationExempt                 bool     `json:"moderation_exempt,omitempty"`                    // 管理员授予：免除图像/视频生成提示词审核
-	FreeConsentDelegated             bool     `json:"free_consent_delegated,omitempty"`               // 管理员授予：免费模型同意由聊天 BFF 按访客检查（访客密钥所属账户）
+	GuestConsentDelegated            bool     `json:"free_consent_delegated,omitempty"`               // 管理员授予：同意由聊天 BFF 按访客检查（访客密钥所属账户）
 	ConsentEnforced                  bool     `json:"consent_enforced,omitempty"`                     // 管理员设置：全局开关关闭时也对该账户强制同意检查（分批上线）
 	FreeRateLimitWindowPct           int      `json:"free_rate_limit_window_pct,omitempty"`           // 免费模型限流窗口缩短百分比（0 = 不缩短）
 	MaxFirstTokenSeconds             int      `json:"max_first_token_seconds,omitempty"`              // 单次尝试等待首字节的上限，秒（0 = 使用全局值）

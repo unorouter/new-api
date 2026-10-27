@@ -11,7 +11,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/notify"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
@@ -291,7 +290,6 @@ type ConsentScope struct {
 	Countries []string
 	// Seat countries of every provider of the model, own-purpose or not.
 	SeatCountries []string
-	Free          bool
 	// Some group can serve the model without an own-purpose provider, so an
 	// objection under Art. 21 GDPR still leaves it usable.
 	ServableWithoutOwnPurpose bool
@@ -316,9 +314,6 @@ func consentScope(state *groupDataPolicySnapshot, modelName string, groups []str
 			countries[c] = true
 		}
 	}
-	// Folded too: the distributor routes "glm-5.3-flash:fre_e" to the :free model.
-	free := notify.IsFreeModel(modelName) || strings.HasSuffix(common.ModelNameFoldKey(modelName), ":free")
-	scope.Free = free
 	seats := map[string]bool{}
 	for _, group := range expandGroups(state, groups) {
 		recipients := state.recipients[group]
