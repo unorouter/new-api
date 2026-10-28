@@ -22,6 +22,7 @@ const (
 	ContextKeyTokenModelLimit          ContextKey = "token_model_limit"
 	ContextKeyTokenCrossGroupRetry     ContextKey = "token_cross_group_retry"
 	ContextKeyTokenReasoningEffort     ContextKey = "token_reasoning_effort"
+	ContextKeyTokenPromptCache         ContextKey = "token_prompt_cache"
 	ContextKeyTokenGroupMapping        ContextKey = "token_group_mapping"
 	ContextKeyTokenGroupMappingApplied ContextKey = "token_group_mapping_applied"
 	ContextKeyTokenAutoGroups          ContextKey = "token_auto_groups"

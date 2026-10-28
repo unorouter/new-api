@@ -66,7 +66,7 @@ if redis.call('EXISTS', KEYS[2]) == 1 then
   return 0
 end
 if redis.call('EXISTS', KEYS[1]) == 1 then
-  redis.call('EXPIRE', KEYS[1], ARGV[20])
+  redis.call('EXPIRE', KEYS[1], ARGV[21])
   return 2
 end
 redis.call('HSET', KEYS[1],
@@ -76,8 +76,8 @@ redis.call('HSET', KEYS[1],
   'AllowIps', ARGV[11], 'Group', ARGV[12], 'CrossGroupRetry', ARGV[13],
   'AutoGroups', ARGV[14], 'RemainQuota', ARGV[15], 'UsedQuota', ARGV[16],
   'GroupMapping', ARGV[17], 'AllowUserQuotaQuery', ARGV[18],
-  'DefaultReasoningEffort', ARGV[19])
-redis.call('EXPIRE', KEYS[1], ARGV[20])
+  'DefaultReasoningEffort', ARGV[19], 'PromptCache', ARGV[20])
+redis.call('EXPIRE', KEYS[1], ARGV[21])
 return 1`
 
 	return common.RDB.Eval(context.Background(), script, []string{
@@ -91,6 +91,7 @@ return 1`
 		token.GroupMapping,
 		strconv.FormatBool(token.AllowUserQuotaQuery),
 		token.DefaultReasoningEffort,
+		token.PromptCache,
 		tokenCacheTTLSeconds(),
 	).Int()
 }

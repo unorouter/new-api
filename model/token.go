@@ -31,6 +31,9 @@ type Token struct {
 	// DefaultReasoningEffort fills in a reasoning level on requests that send none
 	// (Janitor and most chat frontends never do). Empty leaves requests untouched.
 	DefaultReasoningEffort string `json:"default_reasoning_effort" gorm:"type:varchar(16);default:''"`
+	// PromptCache is "on" (mark requests for providers with explicit caching),
+	// "off" (defeat every prefix cache) or "" (requests untouched).
+	PromptCache string `json:"prompt_cache" gorm:"type:varchar(8);default:''"`
 	// GroupMapping pins specific groups per model (JSON {"model":["group",...]});
 	// unmapped models keep the token's base group behavior (usually auto).
 	GroupMapping string         `json:"group_mapping" gorm:"type:text"`
@@ -359,7 +362,7 @@ func (token *Token) Update() (err error) {
 	}
 	return DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "group_mapping", "auto_groups",
-		"allow_user_quota_query", "default_reasoning_effort").Updates(token).Error
+		"allow_user_quota_query", "default_reasoning_effort", "prompt_cache").Updates(token).Error
 }
 
 // UpdateModelLimitsOnly writes model_limits and nothing else. Token.Update()

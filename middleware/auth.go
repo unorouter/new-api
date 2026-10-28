@@ -1069,6 +1069,9 @@ func SetupContextForToken(c *gin.Context, token *model.Token) error {
 	if token.DefaultReasoningEffort != "" {
 		common.SetContextKey(c, constant.ContextKeyTokenReasoningEffort, token.DefaultReasoningEffort)
 	}
+	if token.PromptCache != "" {
+		common.SetContextKey(c, constant.ContextKeyTokenPromptCache, token.PromptCache)
+	}
 	if token.AutoGroups != "" {
 		autoGroups, err := token.GetAutoGroups()
 		if err != nil {

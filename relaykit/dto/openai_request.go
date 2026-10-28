@@ -708,6 +708,12 @@ func (m *Message) SetMediaContent(content []MediaContent) {
 	m.parsedContent = content
 }
 
+// SetContent replaces the content in whatever shape it has and drops the parsed copy.
+func (m *Message) SetContent(content any) {
+	m.Content = content
+	m.parsedContent = nil
+}
+
 func (m *Message) IsStringContent() bool {
 	_, ok := m.Content.(string)
 	if ok {
@@ -768,10 +774,14 @@ func (m *Message) ParseContent() []MediaContent {
 		switch contentType {
 		case ContentTypeText:
 			if text, ok := contentItem["text"].(string); ok {
-				contentList = append(contentList, MediaContent{
+				part := MediaContent{
 					Type: ContentTypeText,
 					Text: text,
-				})
+				}
+				if cacheControl, ok := contentItem["cache_control"]; ok && cacheControl != nil {
+					part.CacheControl, _ = kitutil.Marshal(cacheControl)
+				}
+				contentList = append(contentList, part)
 			}
 
 		case ContentTypeImageURL:

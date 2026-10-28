@@ -96,3 +96,8 @@ middleware/auth.go :: constant.ContextKeyTokenReasoningEffort
 model/channel_shard_filter_prod.go :: func SharedFilterSiblingIDs
 controller/relay.go :: model.SharedFilterSiblingIDs(channel.Id)
 service/upstream_class.go :: "Account quota is insufficient"
+# a key's prompt cache mode marks or busts provider prefix caches (key settings selector)
+model/token.go :: PromptCache string `json:"prompt_cache"
+relay/helper/token_prompt_cache.go :: func ApplyTokenPromptCache
+controller/relay.go :: helper.ApplyTokenPromptCache(c, request)
+middleware/auth.go :: constant.ContextKeyTokenPromptCache

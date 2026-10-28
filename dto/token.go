@@ -40,6 +40,8 @@ type CreateTokenRequest struct {
 	AllowUserQuotaQuery *bool `json:"allow_user_quota_query"`
 	// low, medium, high or max; "" clears it; nil on update keeps the stored value.
 	DefaultReasoningEffort *string `json:"default_reasoning_effort"`
+	// on, off or "" (auto); nil on update keeps the stored value.
+	PromptCache *string `json:"prompt_cache"`
 }
 
 // UpdateTokenRequest is the request body for PUT /api/token/.
@@ -63,6 +65,8 @@ type UpdateTokenRequest struct {
 	AllowUserQuotaQuery *bool `json:"allow_user_quota_query"`
 	// low, medium, high or max; "" clears it; nil on update keeps the stored value.
 	DefaultReasoningEffort *string `json:"default_reasoning_effort"`
+	// on, off or "" (auto); nil on update keeps the stored value.
+	PromptCache *string `json:"prompt_cache"`
 }
 
 // GuestTokenLimitsRequest is the body for PUT /api/token/guest-model-limits.

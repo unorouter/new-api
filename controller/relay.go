@@ -325,6 +325,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	helper.ApplyTokenReasoningDefault(c, request)
+	helper.ApplyTokenPromptCache(c, request)
 
 	relayInfo, err := relaycommon.GenRelayInfo(c, relayFormat, request, ws)
 	if err != nil {
