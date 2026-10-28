@@ -39,6 +39,11 @@ type ChannelSettings struct {
 	// (general_setting.force_upstream_streaming_enabled) still forces it for all
 	// channels; this is the per-channel opt-in.
 	ForceUpstreamStream bool `json:"force_upstream_stream,omitempty"`
+	// UpstreamCostMarkup bills a request at the upstream's reported cost times
+	// this whenever that is more than its token price. For marketplaces (si, ih)
+	// that pick a seller per request: seller and cache prices vary, so a fixed
+	// lane price lost money on 22k of 50k si requests in one day. Zero is off.
+	UpstreamCostMarkup float64 `json:"upstream_cost_markup,omitempty"`
 	// MaxConcurrency caps in-flight requests on this channel and MaxRPS its
 	// request rate; a saturated channel is passed over like a cooled one. Zero
 	// means unlimited. AI Horde documents 2 req/s and 30 parallel per key and

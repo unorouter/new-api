@@ -64,6 +64,9 @@ type textQuotaSummary struct {
 	AudioInputPrice        float64
 	ToolSurchargeItems     []ToolSurchargeItem
 	ToolCallSurchargeQuota decimal.Decimal
+	// BilledFromUpstreamCost: the upstream's reported cost times the channel markup
+	// beat the token price and set the charge.
+	BilledFromUpstreamCost bool
 	FixedPriceBilling      bool
 }
 
@@ -356,6 +359,18 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		if !ratio.IsZero() && quotaCalculateDecimal.LessThanOrEqual(decimal.Zero) {
 			quotaCalculateDecimal = decimal.NewFromInt(1)
 		}
+		// A marketplace lane is priced on an expected seller, but each request goes to
+		// whichever seller is cheapest then, and sellers bill cached tokens at up to the
+		// full input price. Its reported cost times the markup is the floor.
+		if relayInfo.ChannelMeta != nil && relayInfo.ChannelSetting.UpstreamCostMarkup > 0 && relayInfo.UpstreamCostUSD > 0 {
+			floor := decimal.NewFromFloat(relayInfo.UpstreamCostUSD).
+				Mul(decimal.NewFromFloat(relayInfo.ChannelSetting.UpstreamCostMarkup)).
+				Mul(dQuotaPerUnit)
+			if floor.GreaterThan(quotaCalculateDecimal) {
+				quotaCalculateDecimal = floor
+				summary.BilledFromUpstreamCost = true
+			}
+		}
 		quota, clamp := common.QuotaFromDecimalChecked(quotaCalculateDecimal)
 		summary.Quota = quota
 		noteQuotaClamp(relayInfo, clamp)
@@ -558,6 +573,12 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)
+	if relayInfo.UpstreamCostUSD > 0 {
+		other.SetAdmin("upstream_cost_usd", relayInfo.UpstreamCostUSD)
+		if summary.BilledFromUpstreamCost {
+			other.SetAdmin("billed_from_upstream_cost", true)
+		}
+	}
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,

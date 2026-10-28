@@ -5,11 +5,22 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/tidwall/gjson"
 )
 
 func applyUsagePostProcessing(info *relaycommon.RelayInfo, usage *dto.Usage, responseBody []byte) {
 	if info == nil || usage == nil {
 		return
+	}
+	// si reports whole micro-dollars, ih (like OpenRouter) a USD float.
+	if info.ChannelMeta != nil && info.ChannelSetting.UpstreamCostMarkup > 0 {
+		if micro := gjson.GetBytes(responseBody, "usage.buyer_cost_micro"); micro.Exists() {
+			info.UpstreamCostUSD = micro.Float() / 1e6
+		} else if cost := gjson.GetBytes(responseBody, "usage.cost"); cost.Exists() {
+			info.UpstreamCostUSD = cost.Float()
+		} else if cost, ok := usage.Cost.(float64); ok {
+			info.UpstreamCostUSD = cost
+		}
 	}
 
 	switch info.ChannelType {
