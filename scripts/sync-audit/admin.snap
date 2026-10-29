@@ -16,7 +16,6 @@ model/log.go: if role >= common.RoleRootUser {
 model/main.go: Role: common.RoleRootUser,
 model/usedata_flow.go: case role >= common.RoleRootUser:
 model/user.go: // DB.Model(&User{}).Where("role = ?", common.RoleRootUser).Select("email").Find(&email)
-model/user.go: DB.Where("role = ?", common.RoleRootUser).First(&user)
 model/user.go: err := DB.Where("role = ?", common.RoleRootUser).First(&user).Error
 model/user.go: func IsAdmin(userId int) bool {
 model/user.go: if err := tx.Model(&User{}).Where("id = ? AND role <> ?", userId, common.RoleRootUser).Update("status", common.UserStatusDisabled).Error; err != nil {
@@ -46,3 +45,4 @@ service/security_verification.go: if scope == VerificationScopeAccountDelete && 
 service/security_verification.go: if scope == VerificationScopeChannelKeyRead && state.Role != common.RoleRootUser {
 service/security_verification.go: if strings.HasPrefix(scope, verificationScopeAdminUserPrefix) && state.Role < common.RoleAdminUser {
 service/user_notify.go: Where("status = ? AND role >= ?", common.UserStatusEnabled, common.RoleAdminUser).
+service/user_notify.go: return role == common.RoleRootUser
