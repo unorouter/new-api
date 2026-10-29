@@ -1203,7 +1203,7 @@ func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
 		}
 	}()
 
-	var resolvedUserId, resolvedSubId int
+	var resolvedUserId, resolvedSubId, resolvedOrderId int
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		// 1) Resolve the plan + user. Prefer the original order (authoritative
 		//    plan + user), fall back to creem_customer / creem_product_id.
@@ -1306,9 +1306,11 @@ func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
 					return err
 				}
 			}
-			if err := recordCreemRenewalOrderTx(tx, userId, planId, in); err != nil {
+			renewalOrderId, err := recordCreemRenewalOrderTx(tx, userId, planId, in)
+			if err != nil {
 				return err
 			}
+			resolvedOrderId = renewalOrderId
 			resolvedUserId, resolvedSubId = userId, created.Id
 			return nil
 		}
@@ -1347,9 +1349,11 @@ func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
 		if err := tx.Save(&sub).Error; err != nil {
 			return err
 		}
-		if err := recordCreemRenewalOrderTx(tx, userId, planId, in); err != nil {
+		renewalOrderId, err := recordCreemRenewalOrderTx(tx, userId, planId, in)
+		if err != nil {
 			return err
 		}
+		resolvedOrderId = renewalOrderId
 		resolvedUserId, resolvedSubId = userId, sub.Id
 		return nil
 	})
@@ -1368,6 +1372,14 @@ func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
 	if resolvedUserId > 0 {
 		clearFreeBlockOnGrant(resolvedUserId)
 		refreshSubscriptionUserGroupCache(resolvedUserId, "creem subscription renewal")
+	}
+	// Only the first charge went through CompleteSubscriptionOrder, so inviters were
+	// paid once per subscriber and never on a renewal. Keyed on the renewal order
+	// under its own method: order and top_up ids share a range.
+	if resolvedUserId > 0 && resolvedOrderId > 0 {
+		if err := CreditReferralCommission(resolvedUserId, in.Money, "creem_renewal", resolvedOrderId); err != nil {
+			common.SysLog(fmt.Sprintf("subscription renewal referral commission failed for user %d: %v", resolvedUserId, err))
+		}
 	}
 	return resolvedUserId, resolvedSubId, nil
 }
@@ -1391,11 +1403,11 @@ func hasPendingSubscriptionOrderTx(tx *gorm.DB, userId, planId int) (bool, error
 // is the Creem transaction id, so a webhook retry that slips past the Redis
 // dedup still cannot double-insert (unique constraint). Best-effort on the
 // order id: renewals are identified by transaction, not our reference.
-func recordCreemRenewalOrderTx(tx *gorm.DB, userId, planId int, in CreemRenewalInput) error {
+func recordCreemRenewalOrderTx(tx *gorm.DB, userId, planId int, in CreemRenewalInput) (int, error) {
 	if in.LastTransactionId == "" {
 		// No stable idempotency key for the ledger row; skip rather than risk a
 		// duplicate. The subscription itself is already extended.
-		return nil
+		return 0, nil
 	}
 	tradeNo := "creem_renewal:" + in.LastTransactionId
 	now := common.GetTimestamp()
@@ -1412,11 +1424,12 @@ func recordCreemRenewalOrderTx(tx *gorm.DB, userId, planId int, in CreemRenewalI
 		ProviderPayload: in.ProviderPayload,
 	}
 	// Ignore duplicate-key: a retry that reaches here is a no-op ledger write.
+	var stored SubscriptionOrder
 	if err := tx.Where("trade_no = ?", tradeNo).
-		Attrs(order).FirstOrCreate(&SubscriptionOrder{}).Error; err != nil {
-		return err
+		Attrs(order).FirstOrCreate(&stored).Error; err != nil {
+		return 0, err
 	}
-	return nil
+	return stored.Id, nil
 }
 
 func buildSubscriptionResetResult(plan *SubscriptionPlan, subs []UserSubscription, advanceResetTime bool) *SubscriptionResetResult {
