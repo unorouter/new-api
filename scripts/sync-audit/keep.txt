@@ -101,3 +101,11 @@ model/token.go :: PromptCache string `json:"prompt_cache"
 relay/helper/token_prompt_cache.go :: func ApplyTokenPromptCache
 controller/relay.go :: helper.ApplyTokenPromptCache(c, request)
 middleware/auth.go :: constant.ContextKeyTokenPromptCache
+# low balance reminders stay opt-in with one mail per drop; upstream's are on until a user opts out
+service/quota.go :: !common.QuotaRemindEnabled || !userSetting.QuotaWarningEnabled
+service/quota.go :: acquireQuotaWarnLatch(relayInfo.UserId)
+types/user_settings.go :: QuotaWarningEnabled              bool
+# notification settings start from the stored settings, so consent and reward flags survive a save
+controller/user.go :: settings := user.GetSetting()
+# the prod channel notification switch still gates channel notices
+service/channel.go :: operation_setting.GetMonitorSetting().ChannelStatusNotifyEnabled

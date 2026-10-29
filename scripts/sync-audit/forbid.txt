@@ -4,3 +4,12 @@ middleware/auth.go :: strings.Split(key, "-")
 # the prod gates in controller/relay.go (moderation, free tier ban, context window, retry
 # classes). Port those before the route is registered.
 router/relay-router.go :: controller.ResponsesWebSocket
+# RouteTaskPluginEndpoint picks a channel before Distribute applies token group mapping, price
+# ceiling pins and the X-Group header, so a pinned key could be served outside its pin.
+router/task-plugin-protocol-router.go :: middleware.RouteTaskPluginEndpoint()
+# no security mail on login link or unlink and password change (owner decision 2026-09-23)
+controller/oauth.go :: NotifyAccountSecurityChange
+controller/wechat.go :: NotifyAccountSecurityChange
+controller/custom_oauth.go :: NotifyAccountSecurityChange
+controller/login_verification.go :: NotifyAccountSecurityChange
+controller/user.go :: MsgSecurityEventPasswordUpdated
