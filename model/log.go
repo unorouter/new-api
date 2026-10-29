@@ -141,8 +141,10 @@ func GetLogByRequestId(requestId string) (*Log, error) {
 	if requestId == "" {
 		return nil, nil
 	}
+	// A retried request writes an error row per failed attempt next to its one
+	// consume row, so the billed row is picked here rather than whichever came first.
 	var logs []*Log
-	err := LOG_DB.Where("logs.request_id = ?", requestId).Limit(1).Find(&logs).Error
+	err := LOG_DB.Where("logs.request_id = ?", requestId).Limit(20).Find(&logs).Error
 	if err != nil {
 		common.SysError("failed to get log by request id: " + err.Error())
 		return nil, errors.New("failed to query log")
@@ -150,8 +152,15 @@ func GetLogByRequestId(requestId string) (*Log, error) {
 	if len(logs) == 0 {
 		return nil, nil
 	}
-	populateChannelNames(logs)
-	return logs[0], nil
+	pick := logs[0]
+	for _, l := range logs {
+		if l.Type == LogTypeConsume {
+			pick = l
+			break
+		}
+	}
+	populateChannelNames([]*Log{pick})
+	return pick, nil
 }
 
 func populateChannelNames(logs []*Log) {
