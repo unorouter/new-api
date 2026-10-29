@@ -183,7 +183,7 @@ func UsageFromChatUsage(src *dto.Usage) *dto.Usage {
 	}
 	// Always objects, zeros included: OpenAI emits both on every response and
 	// a strict client deserializes null as a failure after every message.
-	inputDetails := src.PromptTokensDetails
+	inputDetails := src.PromptTokensDetails.Clone()
 	usage.InputTokensDetails = &inputDetails
 	usage.CompletionTokenDetails = src.CompletionTokenDetails
 	outputDetails := src.CompletionTokenDetails

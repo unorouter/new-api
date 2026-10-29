@@ -547,25 +547,28 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		logger.LogError(c, common.LogText("failed to record log: %s", err.Error()))
 	}
 	if common.DataExportEnabled {
-		totalTokens := params.PromptTokens + params.CompletionTokens
 		otherSnapshot := params.Other.Snapshot()
-		if cacheTokens, ok := otherSnapshot["cache_tokens"].(int); ok {
-			totalTokens += cacheTokens
-		}
+		cacheReadTokens, _ := otherSnapshot["cache_tokens"].(int)
+		// The settlement path already normalizes the cache creation total.
+		// Do not add the 5m/1h breakdown again or infer tokens from prices.
+		cacheWriteTokens, _ := otherSnapshot["cache_write_tokens"].(int)
+		totalTokens := params.PromptTokens + params.CompletionTokens + cacheReadTokens
 		if cacheCreationTokens, ok := otherSnapshot["cache_creation_tokens"].(int); ok {
 			totalTokens += cacheCreationTokens
 		}
 		LogQuotaData(QuotaDataLogParams{
-			UserID:    userId,
-			Username:  username,
-			ModelName: params.ModelName,
-			Quota:     params.Quota,
-			CreatedAt: createdAt,
-			TokenUsed: totalTokens,
-			UseGroup:  params.Group,
-			TokenID:   params.TokenId,
-			ChannelID: params.ChannelId,
-			NodeName:  common.NodeName,
+			UserID:              userId,
+			Username:            username,
+			ModelName:           params.ModelName,
+			Quota:               params.Quota,
+			CreatedAt:           createdAt,
+			TokenUsed:           totalTokens,
+			CacheReadTokens:     int64(cacheReadTokens),
+			CacheCreationTokens: int64(cacheWriteTokens),
+			UseGroup:            params.Group,
+			TokenID:             params.TokenId,
+			ChannelID:           params.ChannelId,
+			NodeName:            common.NodeName,
 		})
 	}
 }

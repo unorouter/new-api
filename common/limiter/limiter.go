@@ -107,15 +107,8 @@ func (rl *RedisLimiter) Allow(ctx context.Context, key string, opts ...Option) (
 	}
 
 	// 执行限流
-	result, err := rl.client.EvalSha(
-		ctx,
-		rl.limitScriptSHA,
-		[]string{key},
-		config.Requested,
-		config.Rate,
-		config.Capacity,
-	).Int()
-
+	result, err := rl.eval(ctx, rl.limitScriptSHA, rateLimitScript,
+		[]string{key}, config.Requested, config.Rate, config.Capacity).Int()
 	if err != nil {
 		return false, fmt.Errorf("rate limit failed: %w", err)
 	}

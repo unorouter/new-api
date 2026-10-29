@@ -2,7 +2,6 @@ package claude
 
 import (
 	"cmp"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -20,7 +18,6 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	openaicompat "github.com/QuantumNous/new-api/service/openaicompat"
 	"github.com/QuantumNous/new-api/setting/model_setting"
-	"github.com/QuantumNous/new-api/setting/reasoning"
 
 	"github.com/gin-gonic/gin"
 )
@@ -45,408 +42,6 @@ func maybeMarkClaudeRefusal(c *gin.Context, info *relaycommon.RelayInfo, stopRea
 		info.PerformanceBusinessRejection = true
 		common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "claude_stop_reason=refusal")
 	}
-}
-
-func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRequest) (*dto.ClaudeRequest, error) {
-	claudeTools := make([]any, 0, len(textRequest.Tools))
-
-	for _, tool := range textRequest.Tools {
-		if params, ok := tool.Function.Parameters.(map[string]any); ok {
-			claudeTool := dto.Tool{
-				Name:        tool.Function.Name,
-				Description: tool.Function.Description,
-			}
-			claudeTool.InputSchema = make(map[string]interface{})
-			if params["type"] != nil {
-				claudeTool.InputSchema["type"] = params["type"].(string)
-			}
-			claudeTool.InputSchema["properties"] = params["properties"]
-			claudeTool.InputSchema["required"] = params["required"]
-			for s, a := range params {
-				if s == "type" || s == "properties" || s == "required" {
-					continue
-				}
-				claudeTool.InputSchema[s] = a
-			}
-			claudeTools = append(claudeTools, &claudeTool)
-		}
-	}
-
-	// Web search tool
-	// https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/web-search-tool
-	if textRequest.WebSearchOptions != nil {
-		webSearchTool := dto.ClaudeWebSearchTool{
-			Type: "web_search_20250305",
-			Name: "web_search",
-		}
-
-		// 处理 user_location
-		if textRequest.WebSearchOptions.UserLocation != nil {
-			anthropicUserLocation := &dto.ClaudeWebSearchUserLocation{
-				Type: "approximate", // 固定为 "approximate"
-			}
-
-			// 解析 UserLocation JSON
-			var userLocationMap map[string]interface{}
-			if err := common.Unmarshal(textRequest.WebSearchOptions.UserLocation, &userLocationMap); err == nil {
-				// 检查是否有 approximate 字段
-				if approximateData, ok := userLocationMap["approximate"].(map[string]interface{}); ok {
-					if timezone, ok := approximateData["timezone"].(string); ok && timezone != "" {
-						anthropicUserLocation.Timezone = timezone
-					}
-					if country, ok := approximateData["country"].(string); ok && country != "" {
-						anthropicUserLocation.Country = country
-					}
-					if region, ok := approximateData["region"].(string); ok && region != "" {
-						anthropicUserLocation.Region = region
-					}
-					if city, ok := approximateData["city"].(string); ok && city != "" {
-						anthropicUserLocation.City = city
-					}
-				}
-			}
-
-			webSearchTool.UserLocation = anthropicUserLocation
-		}
-
-		// 处理 search_context_size 转换为 max_uses
-		if textRequest.WebSearchOptions.SearchContextSize != "" {
-			switch textRequest.WebSearchOptions.SearchContextSize {
-			case "low":
-				webSearchTool.MaxUses = WebSearchMaxUsesLow
-			case "medium":
-				webSearchTool.MaxUses = WebSearchMaxUsesMedium
-			case "high":
-				webSearchTool.MaxUses = WebSearchMaxUsesHigh
-			}
-		}
-
-		claudeTools = append(claudeTools, &webSearchTool)
-	}
-
-	claudeRequest := dto.ClaudeRequest{
-		Model:         textRequest.Model,
-		StopSequences: nil,
-		Temperature:   textRequest.Temperature,
-		Tools:         claudeTools,
-	}
-	if maxTokens := textRequest.GetMaxTokens(); maxTokens > 0 {
-		claudeRequest.MaxTokens = common.GetPointer(maxTokens)
-	}
-	if textRequest.TopP != nil {
-		claudeRequest.TopP = common.GetPointer(*textRequest.TopP)
-	}
-	if textRequest.TopK != nil {
-		claudeRequest.TopK = common.GetPointer(*textRequest.TopK)
-	}
-	if textRequest.IsStream(nil) {
-		claudeRequest.Stream = common.GetPointer(true)
-	}
-
-	// 处理 tool_choice 和 parallel_tool_calls
-	if textRequest.ToolChoice != nil || textRequest.ParallelToolCalls != nil {
-		claudeToolChoice := mapToolChoice(textRequest.ToolChoice, textRequest.ParallelToolCalls)
-		if claudeToolChoice != nil {
-			claudeRequest.ToolChoice = claudeToolChoice
-		}
-	}
-
-	if claudeRequest.MaxTokens == nil || *claudeRequest.MaxTokens == 0 {
-		defaultMaxTokens := uint(model_setting.GetClaudeSettings().GetDefaultMaxTokens(textRequest.Model))
-		claudeRequest.MaxTokens = &defaultMaxTokens
-	}
-
-	if baseModel, effortLevel, ok := reasoning.TrimEffortSuffixWithSuffixes(textRequest.Model, reasoning.EffortSuffixes); ok && effortLevel != "" &&
-		(strings.HasPrefix(textRequest.Model, "claude-opus-4-6") ||
-			strings.HasPrefix(textRequest.Model, "claude-opus-4-7") ||
-			strings.HasPrefix(textRequest.Model, "claude-opus-4-8")) {
-		claudeRequest.Model = baseModel
-		claudeRequest.Thinking = &dto.Thinking{
-			Type: "adaptive",
-		}
-		claudeRequest.OutputConfig = json.RawMessage(fmt.Sprintf(`{"effort":"%s"}`, effortLevel))
-		if strings.HasPrefix(baseModel, "claude-opus-4-7") ||
-			strings.HasPrefix(baseModel, "claude-opus-4-8") {
-			// Opus 4.7/4.8 reject non-default temperature/top_p/top_k with 400
-			// and defaults display to "omitted"; restore the 4.6 visible summary.
-			claudeRequest.Thinking.Display = "summarized"
-			claudeRequest.Temperature = nil
-			claudeRequest.TopP = nil
-			claudeRequest.TopK = nil
-		} else {
-			claudeRequest.TopP = nil
-			claudeRequest.Temperature = common.GetPointer[float64](1.0)
-		}
-	} else if model_setting.GetClaudeSettings().ThinkingAdapterEnabled &&
-		strings.HasSuffix(textRequest.Model, "-thinking") {
-
-		trimmedModel := strings.TrimSuffix(textRequest.Model, "-thinking")
-		if strings.HasPrefix(trimmedModel, "claude-opus-4-7") ||
-			strings.HasPrefix(trimmedModel, "claude-opus-4-8") {
-			// Opus 4.7/4.8 reject thinking.type="enabled"; use adaptive at high effort.
-			claudeRequest.Thinking = &dto.Thinking{Type: "adaptive", Display: "summarized"}
-			claudeRequest.OutputConfig = json.RawMessage(`{"effort":"high"}`)
-			claudeRequest.Temperature = nil
-			claudeRequest.TopP = nil
-			claudeRequest.TopK = nil
-		} else {
-			// 因为BudgetTokens 必须大于1024
-			if claudeRequest.MaxTokens == nil || *claudeRequest.MaxTokens < 1280 {
-				claudeRequest.MaxTokens = common.GetPointer[uint](1280)
-			}
-
-			// BudgetTokens 为 max_tokens 的 80%
-			claudeRequest.Thinking = &dto.Thinking{
-				Type:         "enabled",
-				BudgetTokens: common.GetPointer[int](int(float64(*claudeRequest.MaxTokens) * model_setting.GetClaudeSettings().ThinkingAdapterBudgetTokensPercentage)),
-			}
-			// TODO: 临时处理
-			// https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#important-considerations-when-using-extended-thinking
-			claudeRequest.TopP = nil
-			claudeRequest.Temperature = common.GetPointer[float64](1.0)
-		}
-		if !model_setting.ShouldPreserveThinkingSuffix(textRequest.Model) {
-			claudeRequest.Model = trimmedModel
-		}
-	}
-
-	if textRequest.ReasoningEffort != "" {
-		switch textRequest.ReasoningEffort {
-		case "low":
-			claudeRequest.Thinking = &dto.Thinking{
-				Type:         "enabled",
-				BudgetTokens: common.GetPointer[int](1280),
-			}
-		case "medium":
-			claudeRequest.Thinking = &dto.Thinking{
-				Type:         "enabled",
-				BudgetTokens: common.GetPointer[int](2048),
-			}
-		case "high":
-			claudeRequest.Thinking = &dto.Thinking{
-				Type:         "enabled",
-				BudgetTokens: common.GetPointer[int](4096),
-			}
-		}
-	}
-
-	// 指定了 reasoning 参数,覆盖 budgetTokens
-	if textRequest.Reasoning != nil {
-		var reasoning openrouter.RequestReasoning
-		if err := common.Unmarshal(textRequest.Reasoning, &reasoning); err != nil {
-			return nil, err
-		}
-
-		budgetTokens := reasoning.MaxTokens
-		if budgetTokens > 0 {
-			claudeRequest.Thinking = &dto.Thinking{
-				Type:         "enabled",
-				BudgetTokens: &budgetTokens,
-			}
-		}
-	}
-
-	if textRequest.Stop != nil {
-		// stop maybe string/array string, convert to array string
-		switch textRequest.Stop.(type) {
-		case string:
-			claudeRequest.StopSequences = []string{textRequest.Stop.(string)}
-		case []interface{}:
-			stopSequences := make([]string, 0)
-			for _, stop := range textRequest.Stop.([]interface{}) {
-				stopSequences = append(stopSequences, stop.(string))
-			}
-			claudeRequest.StopSequences = stopSequences
-		}
-	}
-	formatMessages := make([]dto.Message, 0)
-	lastMessage := dto.Message{
-		Role: "tool",
-	}
-	for i, message := range textRequest.Messages {
-		if message.Role == "" {
-			textRequest.Messages[i].Role = "user"
-		}
-		fmtMessage := dto.Message{
-			Role:    message.Role,
-			Content: message.Content,
-		}
-		if message.Role == "tool" {
-			fmtMessage.ToolCallId = message.ToolCallId
-		}
-		if message.Role == "assistant" && message.ToolCalls != nil {
-			fmtMessage.ToolCalls = message.ToolCalls
-		}
-		if lastMessage.Role == message.Role && lastMessage.Role != "tool" {
-			if lastMessage.IsStringContent() && message.IsStringContent() {
-				fmtMessage.SetStringContent(strings.Trim(fmt.Sprintf("%s %s", lastMessage.StringContent(), message.StringContent()), "\""))
-				// delete last message
-				formatMessages = formatMessages[:len(formatMessages)-1]
-			}
-		}
-		if fmtMessage.Content == nil || (fmtMessage.IsStringContent() && fmtMessage.StringContent() == "") {
-			fmtMessage.SetStringContent("...")
-		}
-		formatMessages = append(formatMessages, fmtMessage)
-		lastMessage = fmtMessage
-	}
-
-	claudeMessages := make([]dto.ClaudeMessage, 0)
-	isFirstMessage := true
-	// 初始化system消息数组，用于累积多个system消息
-	var systemMessages []dto.ClaudeMediaMessage
-
-	for _, message := range formatMessages {
-		if message.Role == "system" {
-			// 根据Claude API规范，system字段使用数组格式更有通用性
-			if message.IsStringContent() {
-				if text := message.StringContent(); text != "" {
-					systemMessages = append(systemMessages, dto.ClaudeMediaMessage{
-						Type: "text",
-						Text: common.GetPointer[string](text),
-					})
-				}
-			} else {
-				// 支持复合内容的system消息（虽然不常见，但需要考虑完整性）
-				for _, ctx := range message.ParseContent() {
-					if ctx.Type == "text" && ctx.Text != "" {
-						systemMessages = append(systemMessages, dto.ClaudeMediaMessage{
-							Type: "text",
-							Text: common.GetPointer[string](ctx.Text),
-						})
-					}
-					// 未来可以在这里扩展对图片等其他类型的支持
-				}
-			}
-		} else {
-			if isFirstMessage {
-				isFirstMessage = false
-				if message.Role != "user" {
-					// fix: first message is assistant, add user message
-					claudeMessage := dto.ClaudeMessage{
-						Role: "user",
-						Content: []dto.ClaudeMediaMessage{
-							{
-								Type: "text",
-								Text: common.GetPointer[string]("..."),
-							},
-						},
-					}
-					claudeMessages = append(claudeMessages, claudeMessage)
-				}
-			}
-			claudeMessage := dto.ClaudeMessage{
-				Role: message.Role,
-			}
-			if message.Role == "tool" {
-				if len(claudeMessages) > 0 && claudeMessages[len(claudeMessages)-1].Role == "user" {
-					lastMessage := claudeMessages[len(claudeMessages)-1]
-					if content, ok := lastMessage.Content.(string); ok {
-						lastMessage.Content = []dto.ClaudeMediaMessage{
-							{
-								Type: "text",
-								Text: common.GetPointer[string](content),
-							},
-						}
-					}
-					lastMessage.Content = append(lastMessage.Content.([]dto.ClaudeMediaMessage), dto.ClaudeMediaMessage{
-						Type:      "tool_result",
-						ToolUseId: message.ToolCallId,
-						Content:   message.Content,
-					})
-					claudeMessages[len(claudeMessages)-1] = lastMessage
-					continue
-				} else {
-					claudeMessage.Role = "user"
-					claudeMessage.Content = []dto.ClaudeMediaMessage{
-						{
-							Type:      "tool_result",
-							ToolUseId: message.ToolCallId,
-							Content:   message.Content,
-						},
-					}
-				}
-			} else if message.IsStringContent() && message.ToolCalls == nil {
-				text := message.StringContent()
-				if text == "" {
-					text = "..."
-				}
-				claudeMessage.Content = text
-			} else {
-				claudeMediaMessages := make([]dto.ClaudeMediaMessage, 0)
-				for _, mediaMessage := range message.ParseContent() {
-					switch mediaMessage.Type {
-					case "text":
-						if mediaMessage.Text != "" {
-							claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
-								Type: "text",
-								Text: common.GetPointer[string](mediaMessage.Text),
-							})
-						}
-					default:
-						source := mediaMessage.ToFileSource()
-						if source == nil {
-							continue
-						}
-						base64Data, mimeType, err := service.GetBase64Data(c, source, "formatting image for Claude")
-						if err != nil {
-							return nil, fmt.Errorf("get file data failed: %s", err.Error())
-						}
-						claudeMediaMessage := dto.ClaudeMediaMessage{
-							Source: &dto.ClaudeMessageSource{
-								Type: "base64",
-							},
-						}
-						if strings.HasPrefix(mimeType, "application/pdf") {
-							claudeMediaMessage.Type = "document"
-						} else {
-							claudeMediaMessage.Type = "image"
-						}
-
-						claudeMediaMessage.Source.MediaType = mimeType
-						claudeMediaMessage.Source.Data = base64Data
-						claudeMediaMessages = append(claudeMediaMessages, claudeMediaMessage)
-						continue
-					}
-				}
-
-				if message.ToolCalls != nil {
-					for _, toolCall := range message.ParseToolCalls() {
-						inputObj := make(map[string]any)
-						if args := toolCall.Function.Arguments; args != "" {
-							if err := common.Unmarshal([]byte(args), &inputObj); err != nil {
-								common.SysLog("tool call function arguments is not a map[string]any: " + fmt.Sprintf("%v", toolCall.Function.Arguments))
-							}
-						}
-						claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
-							Type:  "tool_use",
-							Id:    toolCall.ID,
-							Name:  toolCall.Function.Name,
-							Input: inputObj,
-						})
-					}
-				}
-				claudeMessage.Content = claudeMediaMessages
-			}
-			claudeMessages = append(claudeMessages, claudeMessage)
-		}
-	}
-
-	// 设置累积的system消息
-	if len(systemMessages) > 0 {
-		claudeRequest.System = systemMessages
-	}
-
-	claudeRequest.Prompt = ""
-	claudeRequest.Messages = claudeMessages
-
-	// Anthropic removed assistant-message prefill from Claude 4.5/4.6, and the
-	// cloud deployments (Bedrock, Vertex) and their resellers reject it for
-	// every Claude model. Fold any trailing assistant turn into a user
-	// continuation here so every caller of this converter (aws, vertex, claude
-	// adaptors) picks up the fix automatically.
-	claudeRequest.Messages, claudeRequest.System = HandleUnsupportedAssistantPrefill(claudeRequest.Messages, claudeRequest.System)
-	return &claudeRequest, nil
 }
 
 func mapToolChoice(toolChoice any, parallelToolCalls *bool) *dto.ClaudeToolChoice {
@@ -721,10 +316,8 @@ func countClaudeStreamBillableTools(info *relaycommon.RelayInfo, claudeResponse 
 	if claudeResponse == nil {
 		return
 	}
-	if claudeResponse.Type == "content_block_start" &&
-		claudeResponse.ContentBlock != nil &&
-		claudeResponse.ContentBlock.Type == "tool_use" {
-		info.CountBillableToolCall(dto.BuildInCallToolUse, claudeResponse.ContentBlock.Name)
+	if claudeResponse.Type == "content_block_start" && claudeResponse.ContentBlock != nil {
+		countClaudeContentBlockTools(info, claudeResponse.ContentBlock)
 	}
 	if claudeResponse.Type == "message_delta" && claudeResponse.Usage != nil {
 		// message_delta usage is cumulative, so the last report wins.
@@ -732,16 +325,34 @@ func countClaudeStreamBillableTools(info *relaycommon.RelayInfo, claudeResponse 
 	}
 }
 
+// countClaudeContentBlockTools counts the billable tool calls of one content
+// block. On a channel whose upstream prices search itself
+// (WebSearchBillingKey), every web_search_tool_result that carries results
+// bills one search: usage.server_tool_use replaces that count when reported,
+// and it stands when a stream ends before message_delta.
+func countClaudeContentBlockTools(info *relaycommon.RelayInfo, block *dto.ClaudeMediaMessage) {
+	switch block.Type {
+	case "tool_use":
+		info.CountBillableToolCall(dto.BuildInCallToolUse, block.Name)
+	case "web_search_tool_result":
+		if _, delivered := block.Content.([]any); delivered && info.WebSearchBillingKey != "" {
+			info.CountBillableToolCall(dto.BuildInCallWebSearchCall, "")
+		}
+	}
+}
+
 // recordClaudeServerToolUse bills the server tool requests Anthropic reports
-// in usage.server_tool_use. web_fetch, code_execution, and tool_search have no
-// built-in price and bill only once an operator prices them.
+// in usage.server_tool_use. Searches and fetches use the channel's own keys
+// when its adaptor sets them; otherwise web_fetch, code_execution, and
+// tool_search have no built-in price and bill only once an operator prices
+// them.
 func recordClaudeServerToolUse(info *relaycommon.RelayInfo, serverToolUse *dto.ClaudeServerToolUse) {
 	if info == nil || serverToolUse == nil {
 		return
 	}
 	for name, count := range map[string]int{
 		cmp.Or(info.WebSearchBillingKey, dto.BuildInToolWebSearch): serverToolUse.WebSearchRequests,
-		"web_fetch":      serverToolUse.WebFetchRequests,
+		cmp.Or(info.WebFetchBillingKey, "web_fetch"):               serverToolUse.WebFetchRequests,
 		"code_execution": serverToolUse.CodeExecutionRequests,
 		"tool_search":    serverToolUse.ToolSearchRequests,
 	} {
@@ -927,14 +538,11 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		}
 	}
 
+	for i := range claudeResponse.Content {
+		countClaudeContentBlockTools(info, &claudeResponse.Content[i])
+	}
 	if claudeResponse.Usage != nil {
 		recordClaudeServerToolUse(info, claudeResponse.Usage.ServerToolUse)
-	}
-
-	for _, block := range claudeResponse.Content {
-		if block.Type == "tool_use" {
-			info.CountBillableToolCall(dto.BuildInCallToolUse, block.Name)
-		}
 	}
 
 	service.IOCopyBytesGracefully(c, httpResp, responseData)

@@ -99,7 +99,7 @@ func (w *keepaliveWriter) pad(c *gin.Context) bool {
 		w.ResponseWriter.Header().Set("Content-Type", "application/json")
 		w.ResponseWriter.WriteHeader(http.StatusOK)
 	}
-	ExtendWriteDeadline(c)
+	_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(time.Now().Add(streamWriteTimeout))
 	if _, err := w.ResponseWriter.Write([]byte(" ")); err != nil {
 		return false
 	}

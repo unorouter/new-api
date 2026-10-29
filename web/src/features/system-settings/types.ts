@@ -459,6 +459,11 @@ export type OperationsSettings = {
   'monitor_setting.channel_cooldown_base_seconds': number
   'monitor_setting.channel_cooldown_max_seconds': number
   'monitor_setting.provider_cooldown_seconds': number
+  QuotaRemindEnabled: boolean
+  EmailProvider: 'smtp' | 'resend'
+  ResendApiKey: string
+  ResendKeyConfigured: boolean
+  ResendFrom: string
   SMTPServer: string
   SMTPPort: string
   SMTPAccount: string
@@ -560,6 +565,7 @@ export type UpstreamConfig = {
 }
 
 export type FetchUpstreamRatiosRequest = {
+  include_unchanged?: boolean
   upstreams: UpstreamConfig[]
   timeout: number
 }

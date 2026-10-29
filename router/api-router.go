@@ -479,6 +479,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		chReadG.GET("/default_base_urls", controller.GetChannelDefaultBaseURLs)
 		chReadG.GET("/:id/vllm/status", controller.GetVLLMChannelStatus)
 		chReadG.GET("/:id/sglang/status", controller.GetSGLangChannelStatus)
+		chReadG.GET("/priority/order", controller.GetChannelPriorityOrder)
+		chWriteG.POST("/priority/reorder", controller.ReorderChannelPriority)
 
 		ch := dto.NewRouter(engine, chReadG, "Channel", secDashboard())
 		chOp := dto.NewRouter(engine, chOpG, "Channel", secDashboard())

@@ -84,6 +84,8 @@ type StatusData struct {
 	PasswordRegisterEnabled    bool        `json:"password_register_enabled"`
 	LogExportEnabled           bool        `json:"log_export_enabled"`
 	LogMaxRangeDays            int         `json:"log_max_range_days"`
+	QuotaRemindEnabled         bool        `json:"quota_remind_enabled"`
+	QuotaRemindThreshold       int         `json:"quota_remind_threshold"`
 	// Upstream returns this in the status payload; prod's typed DTO drops any
 	// field it does not declare, so the frontend never sees it without this.
 	PasswordLoginEncryptionEnabled bool                `json:"password_login_encryption_enabled"`

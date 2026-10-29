@@ -1986,8 +1986,9 @@ func UpdateUserSetting(c fuego.ContextWithBody[dto.UpdateUserSettingRequest]) (d
 		return dto.FailMsg("Invalid warning type")
 	}
 
-	if req.QuotaWarningThreshold <= 0 {
-		return dto.FailMsg("Warning threshold must be greater than 0")
+	// 0 means the site default threshold
+	if req.QuotaWarningThreshold < 0 {
+		return dto.FailMsg("Reminder threshold cannot be negative")
 	}
 
 	if req.QuotaWarningType == types.NotifyTypeWebhook {
@@ -2037,49 +2038,37 @@ func UpdateUserSetting(c fuego.ContextWithBody[dto.UpdateUserSettingRequest]) (d
 	if err != nil {
 		return dto.FailMsg(err.Error())
 	}
-	existingSettings := user.GetSetting()
-	upstreamModelUpdateNotifyEnabled := existingSettings.UpstreamModelUpdateNotifyEnabled
-	if user.Role >= common.RoleAdminUser && req.UpstreamModelUpdateNotifyEnabled != nil {
-		upstreamModelUpdateNotifyEnabled = *req.UpstreamModelUpdateNotifyEnabled
-	}
-
-	settings := types.UserSetting{
-		QuotaWarningEnabled:              req.QuotaWarningEnabled,
-		NotifyType:                       req.QuotaWarningType,
-		QuotaWarningThreshold:            req.QuotaWarningThreshold,
-		UpstreamModelUpdateNotifyEnabled: upstreamModelUpdateNotifyEnabled,
-		AcceptUnsetRatioModel:            req.AcceptUnsetModelRatioModel,
-		RecordIpLog:                      req.RecordIpLog,
-		// Not part of this request DTO; rebuilding the struct without them
-		// silently wiped admin grants and UI prefs on every notify-settings save.
-		SidebarModules:            existingSettings.SidebarModules,
-		BillingPreference:         existingSettings.BillingPreference,
-		Language:                  existingSettings.Language,
-		BlockFreeWhenNoQuota:      existingSettings.BlockFreeWhenNoQuota,
-		UsableGroups:              existingSettings.UsableGroups,
-		UnlimitedFreeModels:       existingSettings.UnlimitedFreeModels,
-		ModerationExempt:          existingSettings.ModerationExempt,
-		FreeRateLimitWindowPct:    existingSettings.FreeRateLimitWindowPct,
-		MaxFirstTokenSeconds:      existingSettings.MaxFirstTokenSeconds,
-		MaxChainFirstTokenSeconds: existingSettings.MaxChainFirstTokenSeconds,
-	}
-
-	if req.QuotaWarningType == types.NotifyTypeWebhook {
-		settings.WebhookUrl = req.WebhookUrl
-		if req.WebhookSecret != "" {
-			settings.WebhookSecret = req.WebhookSecret
+	// Start from the saved settings: fields this form does not manage (language,
+	// sidebar, billing preference, admin grants) keep their values.
+	settings := user.GetSetting()
+	settings.QuotaWarningEnabled = req.QuotaWarningEnabled
+	settings.NotifyType = req.QuotaWarningType
+	settings.QuotaWarningThreshold = req.QuotaWarningThreshold
+	settings.AcceptUnsetRatioModel = req.AcceptUnsetModelRatioModel
+	settings.RecordIpLog = req.RecordIpLog
+	if user.Role >= common.RoleAdminUser {
+		if req.UpstreamModelUpdateNotifyEnabled != nil {
+			settings.UpstreamModelUpdateNotifyEnabled = *req.UpstreamModelUpdateNotifyEnabled
+		}
+		if req.ChannelNotifyEnabled != nil {
+			settings.ChannelNotifyEnabled = req.ChannelNotifyEnabled
 		}
 	}
 
-	if req.QuotaWarningType == types.NotifyTypeEmail && req.NotificationEmail != "" {
+	// Only the selected method keeps its configuration.
+	settings.WebhookUrl, settings.WebhookSecret = "", ""
+	settings.NotificationEmail = ""
+	settings.BarkUrl = ""
+	settings.GotifyUrl, settings.GotifyToken, settings.GotifyPriority = "", "", 0
+	switch req.QuotaWarningType {
+	case types.NotifyTypeWebhook:
+		settings.WebhookUrl = req.WebhookUrl
+		settings.WebhookSecret = req.WebhookSecret
+	case types.NotifyTypeEmail:
 		settings.NotificationEmail = req.NotificationEmail
-	}
-
-	if req.QuotaWarningType == types.NotifyTypeBark {
+	case types.NotifyTypeBark:
 		settings.BarkUrl = req.BarkUrl
-	}
-
-	if req.QuotaWarningType == types.NotifyTypeGotify {
+	case types.NotifyTypeGotify:
 		settings.GotifyUrl = req.GotifyUrl
 		settings.GotifyToken = req.GotifyToken
 		if req.GotifyPriority < 0 || req.GotifyPriority > 10 {

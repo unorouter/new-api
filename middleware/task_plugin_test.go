@@ -178,15 +178,27 @@ export function parseTaskResult() { return {status: "SUCCESS"}; }
 	})
 }
 
-func TestPrepareTaskPluginNativeRouteRejectsMultipartBeforeDecoder(t *testing.T) {
+func TestPrepareTaskPluginNativeRoutePassesMultipartToDecoder(t *testing.T) {
 	plugin := compileTaskRoutePlugin(t, `
 export const meta = {
   apiVersion: 1, key: "route-multipart-test", name: "Multipart", version: "1.0.0",
   author: {name: "Test"},
   models: ["multipart-model"], fetchMode: "per_task",
-  routes: [{method: "POST", path: "/vendor/uploads", type: "submit", decode: "decodeUpload", render: "created"}],
+  routes: [
+    {method: "POST", path: "/vendor/uploads", type: "submit", decode: "decodeUpload", render: "created"},
+    {method: "POST", path: "/vendor/scoped", type: "submit", decode: "decodeUpload", render: "created", models: ["multipart-model"]},
+  ],
 };
-export const native = {decodeUpload: function() { throw new Error("decoder must not run"); }, created: function(ctx, task) { return task; }};
+export const native = {
+  decodeUpload: function(ctx) {
+    if (ctx.body.kind !== "multipart") throw new Error("multipart body expected");
+    return {kind: "submit", model: "multipart-model", requestBody: {
+      caption: ctx.body.fields.caption[0], tags: ctx.body.fields.tag.slice(),
+      files: ctx.body.files.map(function(file) { return [file.ref, file.filename, file.size]; }),
+    }};
+  },
+  created: function(ctx, task) { return task; },
+};
 export function buildSubmitRequest() { return {url: "https://example.com"}; }
 export function parseSubmitResponse() { return {taskId: "one"}; }
 export function buildQueryRequest() { return {url: "https://example.com"}; }
@@ -204,7 +216,9 @@ export function parseTaskResult() { return {status: "SUCCESS"}; }
 	require.NoError(t, writer.Close())
 
 	router := gin.New()
+	var taskRequest any
 	router.POST("/vendor/uploads", pinTaskPluginRoute(plugin, 0), PrepareTaskPluginRoute(), func(c *gin.Context) {
+		taskRequest, _ = c.Get("task_request")
 		c.Status(http.StatusNoContent)
 	})
 	request := httptest.NewRequest(http.MethodPost, "/vendor/uploads", bytes.NewReader(body.Bytes()))
@@ -213,7 +227,29 @@ export function parseTaskResult() { return {status: "SUCCESS"}; }
 
 	router.ServeHTTP(recorder, request)
 
+	require.Equal(t, http.StatusNoContent, recorder.Code, recorder.Body.String())
+	assert.Equal(t, map[string]any{
+		"caption": "hello",
+		"tags":    []any{"one", "two"},
+		"files":   []any{[]any{"request_file:media", "clip.bin", int64(11)}},
+	}, taskRequest)
+
+	form := httptest.NewRequest(http.MethodPost, "/vendor/uploads", strings.NewReader("caption=hello"))
+	form.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, form)
+	assert.Equal(t, http.StatusUnsupportedMediaType, recorder.Code, "submit routes still refuse url-encoded forms")
+
+	// A route scoped to models reads the model from a JSON body.
+	router.POST("/vendor/scoped", pinTaskPluginRoute(plugin, 1), PrepareTaskPluginRoute(), func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+	scoped := httptest.NewRequest(http.MethodPost, "/vendor/scoped", bytes.NewReader(body.Bytes()))
+	scoped.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, scoped)
 	assert.Equal(t, http.StatusUnsupportedMediaType, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "this route requires a JSON body")
 }
 
 func TestPrepareTaskPluginRouteModelScope(t *testing.T) {
@@ -402,7 +438,6 @@ func TestBuildTaskPluginRouteRequestRejectsUnsafeBodies(t *testing.T) {
 		{name: "invalid json UTF-8", contentType: "application/json", body: []byte{'{', '"', 'x', '"', ':', '"', 0xff, '"', '}'}, errorText: "valid UTF-8"},
 		{name: "invalid form UTF-8", contentType: "application/x-www-form-urlencoded", body: []byte("x=%FF"), errorText: "valid UTF-8"},
 		{name: "too many repeated form fields", contentType: "application/x-www-form-urlencoded", body: []byte(strings.Repeat("x=v&", maxTaskPluginFormFields) + "x=v"), errorText: "exceeds 256 fields"},
-		{name: "oversized form field", contentType: "application/x-www-form-urlencoded", body: []byte("x=" + strings.Repeat("a", maxTaskPluginFieldValueBytes+1)), errorText: "exceeds 1048576 bytes"},
 		{name: "missing multipart boundary", contentType: "multipart/form-data", body: []byte("body"), errorText: "boundary is required"},
 	}
 	for _, testCase := range tests {
@@ -456,12 +491,6 @@ func TestBuildTaskPluginRouteRequestRejectsUnsafeBodies(t *testing.T) {
 			_, err = part.Write([]byte{0xff})
 			require.NoError(t, err)
 		}, errorText: "valid UTF-8"},
-		{name: "oversized multipart field", build: func(t *testing.T, writer *multipart.Writer) {
-			part, err := writer.CreateFormField("field")
-			require.NoError(t, err)
-			_, err = part.Write([]byte(strings.Repeat("a", maxTaskPluginFieldValueBytes+1)))
-			require.NoError(t, err)
-		}, errorText: "exceeds 1048576 bytes"},
 		{name: "nested multipart", build: func(t *testing.T, writer *multipart.Writer) {
 			header := make(textproto.MIMEHeader)
 			header.Set("Content-Disposition", `form-data; name="nested"`)
@@ -505,6 +534,30 @@ func TestBuildTaskPluginRouteRequestRejectsUnsafeBodies(t *testing.T) {
 			require.ErrorContains(t, err, testCase.errorText)
 		})
 	}
+
+	t.Run("multipart fields are bounded by the request body limit only", func(t *testing.T) {
+		previous := constant.MaxRequestBodyMB
+		t.Cleanup(func() { constant.MaxRequestBodyMB = previous })
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		// A JSON request sent as a field, larger than the old 1 MiB field cap.
+		require.NoError(t, writer.WriteField("request", strings.Repeat("a", 2<<20)))
+		require.NoError(t, writer.Close())
+		send := func(limitMB int) (map[string]any, error) {
+			constant.MaxRequestBodyMB = limitMB
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/body", bytes.NewReader(body.Bytes()))
+			c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+			request, err := buildTaskPluginRouteRequest(c)
+			decoded, _ := request.Body.(map[string]any)
+			return decoded, err
+		}
+		decoded, err := send(4)
+		require.NoError(t, err)
+		assert.Len(t, decoded["fields"].(map[string][]string)["request"][0], 2<<20)
+		_, err = send(1)
+		require.ErrorContains(t, err, "request body exceeds 1 MB")
+	})
 
 	t.Run("oversized multipart file", func(t *testing.T) {
 		previous := constant.MaxFileDownloadMB

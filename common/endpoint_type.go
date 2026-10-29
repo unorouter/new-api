@@ -5,6 +5,13 @@ import "github.com/QuantumNous/new-api/constant"
 // GetEndpointTypesByChannelType returns preferred endpoints for a channel and model.
 // TypeSafe exposes only decisions; other channels may include OpenAI-compatible endpoints.
 func GetEndpointTypesByChannelType(channelType int, modelName string) []constant.EndpointType {
+	// The DeepSeek Search and Fetch routing names serve only their endpoint.
+	switch modelName {
+	case constant.DeepSeekSearchModel:
+		return []constant.EndpointType{constant.EndpointTypeDeepSeekToolsSearch}
+	case constant.DeepSeekFetchModel:
+		return []constant.EndpointType{constant.EndpointTypeDeepSeekToolsFetch}
+	}
 	var endpointTypes []constant.EndpointType
 	switch channelType {
 	case constant.ChannelTypeTypeSafe:

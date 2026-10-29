@@ -119,6 +119,8 @@ func GetStatus(c fuego.ContextNoBody) (*dto.Response[dto.StatusData], error) {
 		PasswordRegisterEnabled:   common.PasswordRegisterEnabled,
 		LogExportEnabled:          operation_setting.GetLogSetting().UserExportEnabled,
 		LogMaxRangeDays:           operation_setting.GetLogSetting().MaxRangeDays,
+		QuotaRemindEnabled:        common.QuotaRemindEnabled,
+		QuotaRemindThreshold:      common.QuotaRemindThreshold,
 		QN:                        "new-api",
 	}
 

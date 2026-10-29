@@ -55,7 +55,6 @@ const numericString = z.string().refine((value) => {
 const monitoringSchema = z
   .object({
     ChannelDisableThreshold: numericString,
-    QuotaRemindThreshold: numericString,
     AutomaticDisableChannelEnabled: z.boolean(),
     AutomaticEnableChannelEnabled: z.boolean(),
     AutomaticDisableKeywords: z.string(),
@@ -180,7 +179,6 @@ type MonitoringFormInput = z.input<typeof monitoringSchema>
 type MonitoringSettingsSectionProps = {
   defaultValues: {
     ChannelDisableThreshold: string
-    QuotaRemindThreshold: string
     AutomaticDisableChannelEnabled: boolean
     AutomaticEnableChannelEnabled: boolean
     AutomaticDisableKeywords: string
@@ -220,7 +218,6 @@ function normalizeLineEndings(value: string) {
 
 type NormalizedMonitoringValues = {
   ChannelDisableThreshold: string
-  QuotaRemindThreshold: string
   AutomaticDisableChannelEnabled: boolean
   AutomaticEnableChannelEnabled: boolean
   AutomaticDisableKeywords: string
@@ -257,7 +254,6 @@ const buildFormDefaults = (
   defaults: MonitoringSettingsSectionProps['defaultValues']
 ): MonitoringFormInput => ({
   ChannelDisableThreshold: defaults.ChannelDisableThreshold ?? '',
-  QuotaRemindThreshold: defaults.QuotaRemindThreshold ?? '',
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
@@ -324,7 +320,6 @@ const normalizeDefaults = (
   defaults: MonitoringSettingsSectionProps['defaultValues']
 ): NormalizedMonitoringValues => ({
   ChannelDisableThreshold: (defaults.ChannelDisableThreshold ?? '').trim(),
-  QuotaRemindThreshold: (defaults.QuotaRemindThreshold ?? '').trim(),
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
@@ -393,7 +388,6 @@ const normalizeFormValues = (
   values: MonitoringFormValues
 ): NormalizedMonitoringValues => ({
   ChannelDisableThreshold: values.ChannelDisableThreshold.trim(),
-  QuotaRemindThreshold: values.QuotaRemindThreshold.trim(),
   AutomaticDisableChannelEnabled: values.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: values.AutomaticEnableChannelEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
@@ -698,29 +692,6 @@ export function MonitoringSettingsSection({
                     {t(
                       'Stored for reference only. The scheduled probe no longer disables a channel for being slow, because a correct answer that took a while is not a fault.'
                     )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='QuotaRemindThreshold'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Quota reminder (tokens)')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      min={0}
-                      step={1}
-                      value={field.value}
-                      onChange={(event) => field.onChange(event.target.value)}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t('Send email alerts when a user falls below this quota')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

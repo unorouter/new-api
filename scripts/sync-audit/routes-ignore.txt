@@ -10,3 +10,6 @@
 "/status/batch"
 # the Responses WebSocket route, withheld: see forbid.txt
 "/responses"
+# DeepSeek Search and Fetch APIs: no lane serves deepseek-search or deepseek-fetch, and their built-in price is DeepSeek's cost
+"/tools/search"
+"/tools/fetch"

@@ -357,6 +357,8 @@ func TestDisabledArtifactStorePreservesPluginUpstreamContent(t *testing.T) {
 	task := setupGenericTaskTest(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "provider-key", r.Header.Get("x-goog-api-key"))
+		assert.Equal(t, "provider-key", r.Header.Get("X-API-Key"), "channel header overrides reach credentialed downloads")
+		assert.NotEqual(t, "ignored.example", r.Host)
 		assert.Equal(t, "bytes=0-13", r.Header.Get("Range"))
 		w.Header().Set("Content-Type", "video/mp4")
 		w.Header().Set("Content-Range", "bytes 0-13/14")
@@ -370,8 +372,9 @@ func TestDisabledArtifactStorePreservesPluginUpstreamContent(t *testing.T) {
 	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemoryCache })
 
 	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", task.ChannelId).Updates(map[string]any{
-		"type":     constant.ChannelTypeGemini,
-		"base_url": upstream.URL,
+		"type":            constant.ChannelTypeGemini,
+		"base_url":        upstream.URL,
+		"header_override": `{"X-API-Key":"{api_key}","Host":"ignored.example"}`,
 	}).Error)
 	require.NoError(t, model.UpdateChannelKey(task.ChannelId, "provider-key"))
 	task.Platform = constant.TaskPlatform("google")
@@ -445,6 +448,8 @@ func TestTaskArtifactContentFollowsHailuoRetrieveLink(t *testing.T) {
 	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", task.ChannelId).Updates(map[string]any{
 		"type":     constant.ChannelTypeMiniMax,
 		"base_url": upstream.URL,
+		// Neither utils.fetch nor the credentialless OSS link gets overrides.
+		"header_override": `{"Authorization":"Bearer override"}`,
 	}).Error)
 	require.NoError(t, model.UpdateChannelKey(task.ChannelId, "provider-key"))
 	task.Platform = constant.TaskPlatform("hailuo")
