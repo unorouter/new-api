@@ -176,11 +176,15 @@ describe('pricing controls', () => {
         expect(filterByQuotaType(models, quotaType)).toEqual(
           included ? [model] : []
         )
-        expect(
-          screen.getByRole('button', {
-            name: new RegExp(`^${label}\\s*${included ? 1 : 0}$`),
-          })
-        ).toBeVisible()
+        // An empty pricing category is hidden from the sidebar.
+        const button = screen.queryByRole('button', {
+          name: new RegExp(`^${label}\\s*${included ? 1 : 0}$`),
+        })
+        if (included) {
+          expect(button).toBeVisible()
+        } else {
+          expect(button).toBeNull()
+        }
       }
       expect(filterByQuotaType(models, 'all')).toEqual([model])
       expect(
