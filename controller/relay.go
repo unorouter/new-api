@@ -881,6 +881,9 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		// not that they mistyped the model name. Auto and composite tokens land
 		// here too: exhausting every group is a capacity condition, and answering
 		// it as a quota error told paying users to top up over a busy provider.
+		if common.GetContextKeyBool(c, constant.ContextKeyAutoGroupPriceCapped) {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("The low-cost providers for model \"%s\" are busy right now. The others serving it cost more than %g times as much, so this request was not sent to them and nothing was charged. Retry in a little while, or pin a pricier group on your key to allow them.", info.OriginModelName, common.AutoGroupFailoverMaxRatio), types.ErrorCodeGetChannelFailed, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+		}
 		if model.ModelHasAnyChannel(info.OriginModelName) {
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("All providers for model \"%s\" are busy right now (they hit their rate limit). This is not a spelling error. Please try again in a little while, or switch to another model.", info.OriginModelName), types.ErrorCodeGetChannelFailed, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
 		}

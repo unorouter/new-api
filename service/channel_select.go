@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -156,6 +157,16 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam, skipIDs ...map[int]bool) 
 				filters,
 				skipIDs...,
 			)
+			if channel != nil && param.TokenGroup == "auto" && common.AutoGroupFailoverMaxRatio > 0 {
+				ratio := ratio_setting.GetGroupRatio(autoGroup)
+				anchor, anchored := common.GetContextKey(param.Ctx, constant.ContextKeyAutoGroupAnchorRatio)
+				if !anchored {
+					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupAnchorRatio, ratio)
+				} else if a, ok := anchor.(float64); ok && a > 0 && ratio > a*common.AutoGroupFailoverMaxRatio {
+					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupPriceCapped, true)
+					channel = nil
+				}
+			}
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组

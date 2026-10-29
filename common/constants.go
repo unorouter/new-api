@@ -255,6 +255,12 @@ func ConsentEnforcedModel(names ...string) bool {
 // number of auto-groups serving the model rather than with RetryTimes.
 var MaxTotalRelayAttempts = 6
 
+// AutoGroupFailoverMaxRatio stops an auto key's failover at groups priced more than
+// this many times the first group the request drew from; 0 is off. A 99%-off lane
+// going down sent its users to lanes at up to 2000x its price without a word: 3,688
+// paid requests in a week jumped more than 10x.
+var AutoGroupFailoverMaxRatio float64 = 0
+
 //var RootUserEmail = ""
 
 var IsMasterNode bool

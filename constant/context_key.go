@@ -54,7 +54,11 @@ const (
 	ContextKeyAutoGroup           ContextKey = "auto_group"
 	ContextKeyAutoGroupIndex      ContextKey = "auto_group_index"
 	ContextKeyAutoGroupRetryIndex ContextKey = "auto_group_retry_index"
-	ContextKeyResolvedAutoGroups  ContextKey = "resolved_auto_groups"
+	// The ratio of the first auto group a request drew a channel from, and whether
+	// a pricier group was passed over because of AutoGroupFailoverMaxRatio.
+	ContextKeyAutoGroupAnchorRatio ContextKey = "auto_group_anchor_ratio"
+	ContextKeyAutoGroupPriceCapped ContextKey = "auto_group_price_capped"
+	ContextKeyResolvedAutoGroups   ContextKey = "resolved_auto_groups"
 	// Set only where a request admitted as free is re-priced onto a paid group
 	// mid-chain. Nothing else may infer failover: the auto list is not ordered by
 	// ratio, so a paid group at index 0 is the common case, not evidence of one.

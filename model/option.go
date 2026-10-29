@@ -219,6 +219,7 @@ func InitOptionMap() {
 	common.OptionMap["ConsentEnforcedModels"] = "[]"
 	common.OptionMap["ConsentEnforcedSince"] = strconv.FormatInt(common.ConsentEnforcedSince, 10)
 	common.OptionMap["MaxTotalRelayAttempts"] = strconv.Itoa(common.MaxTotalRelayAttempts)
+	common.OptionMap["AutoGroupFailoverMaxRatio"] = strconv.FormatFloat(common.AutoGroupFailoverMaxRatio, 'f', -1, 64)
 	common.OptionMap["DataExportInterval"] = strconv.Itoa(common.DataExportInterval)
 	common.OptionMap["DataExportDefaultTime"] = common.DataExportDefaultTime
 	common.OptionMap["DefaultCollapseSidebar"] = strconv.FormatBool(common.DefaultCollapseSidebar)
@@ -829,6 +830,10 @@ func updateOptionMap(key string, value string) (err error) {
 	case "MaxTotalRelayAttempts":
 		if n, convErr := strconv.Atoi(value); convErr == nil && n > 0 {
 			common.MaxTotalRelayAttempts = n
+		}
+	case "AutoGroupFailoverMaxRatio":
+		if f, convErr := strconv.ParseFloat(value, 64); convErr == nil && f >= 0 {
+			common.AutoGroupFailoverMaxRatio = f
 		}
 	case "DataExportInterval":
 		common.DataExportInterval, _ = strconv.Atoi(value)
