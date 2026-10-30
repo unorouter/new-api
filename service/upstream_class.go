@@ -226,13 +226,13 @@ var upstreamRules = []upstreamRule{
 	// Gemini web answers a guest 405 on about one call in seven per shard while
 	// busier shards see none; three in a row pulled half the gemini lanes on 2026-10-30.
 	{markers: []string{"upstream returned an empty answer", "free model capacity exhausted", "upstream returned http 405"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}, userMessage: "This model is at capacity right now. Nothing is used up on your side. Try again in a few moments."},
-	// Full slots refill as answers finish; on the rate gate they pulled 19 chatglm
-	// and most gemini lanes on 2026-10-30 while those shards were serving.
+	// Full slots refill as answers finish; on the rate gate they pulled most lanes
+	// of two shard series on 2026-10-30 while those shards were serving.
 	{markers: []string{"shard busy, retry on another shard", "shard exit at concurrent limit"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 30 * time.Second}, userMessage: "This model is at capacity right now. Nothing is used up on your side. Try again in a few moments."},
-	// Any host, rate limits and capacity: fail over, count nothing. AI Horde alone
+	// Any host, rate limits and capacity: fail over, count nothing. One host alone
 	// produced 190k of these in a week; each one disabled a lane the probe
 	// re-enabled five minutes later.
-	// A web guest throttle. As DisableNow it held 166 of 167 chatglm lanes off on
+	// A web guest throttle. As DisableNow it held 166 of 167 lanes of a series off on
 	// 2026-10-30 while 15 of 53 shards answered; the needed run of passing probes
 	// rarely lands at that rate. The proxy now answers it in under a second, so a
 	// short window fails over at once without the 2026-09-23 first byte stalls.

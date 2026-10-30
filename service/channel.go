@@ -343,7 +343,7 @@ const soleLaneDeadFloor = 100
 const soleLaneDeadRate = 0.9
 
 // Nothing through the fast window is dead too, whatever the slow one still
-// holds: dsg1 glm-5.3 served 0 of 2,500 for four hours on 2026-09-23 while its
+// holds: one glm-5.3 lane served 0 of 2,500 for four hours on 2026-09-23 while its
 // afternoon successes kept the 6h rate under soleLaneDeadRate.
 const soleLaneFastDeadFloor = 30
 

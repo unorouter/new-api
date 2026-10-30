@@ -1333,7 +1333,7 @@ func testChannelForCycle(ctx context.Context, channel *model.Channel, testUserID
 	// A spent quota window (pacing, hourly or daily cap) means the lane answered
 	// and is merely metered; the relay already sits it out for the window. Lanes
 	// sharing one key trip each other's pacing inside a single test cycle, so
-	// treating it as a failure kept LiteRouter's only live lane off for hours.
+	// treating it as a failure kept one provider's only live lane off for hours.
 	windowed := newAPIError != nil && service.ClassifyUpstreamError(newAPIError).Window > 0
 	// request error disables the channel
 	if newAPIError != nil && !windowed {

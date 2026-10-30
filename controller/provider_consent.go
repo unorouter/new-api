@@ -254,7 +254,7 @@ func RevokeGuestProviderConsent(c fuego.ContextWithBody[dto.ProviderConsentRevok
 }
 
 // textNames reports whether name occurs in text as a whole token: not glued to
-// an ASCII letter or digit on either side, so "pol" is not found in "policy".
+// an ASCII letter or digit on either side, so "ab" is not found in "abc".
 // Labels and aliases are ASCII, while the text around them may be in any script.
 func textNames(text, name string) bool {
 	if name == "" {

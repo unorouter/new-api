@@ -427,7 +427,7 @@ func ModelOtherProviders(modelName string, consentProviders []string) []OtherPro
 }
 
 // ProviderLabel names a provider by its lane tag prefixes without their
-// numbers: cfp1..cfp8 is "cfp", mcd1 with open1..open3 is "mcd, open". A
+// numbers: ab1..ab8 is "ab", cd1 with ef1..ef3 is "cd, ef". A
 // prefix shorter than two characters keeps the whole tag, so a7 stays "a7".
 func ProviderLabel(tags []string, alias string) string {
 	if len(tags) == 0 {

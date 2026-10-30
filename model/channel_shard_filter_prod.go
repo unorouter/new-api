@@ -6,9 +6,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 )
 
-// Shard series whose lanes all sit behind one upstream content filter: every cfp
-// shard fronts Cloudflare's playground and its Llama Guard, every chat shard the
-// same chatglm.cn guest endpoint. A refusal from one is the refusal from all.
+// Shard series whose lanes all sit behind one upstream content filter: every
+// shard of a series fronts the same endpoint. A refusal from one is the refusal from all.
 var sharedFilterShardSeries = []string{"cfp", "chat"}
 
 func shardSeries(name string) string {
