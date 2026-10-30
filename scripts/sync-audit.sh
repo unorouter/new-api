@@ -16,7 +16,8 @@ if [ "${1:-}" = --routes ]; then
   ref=${2:?upstream ref}
   paths() { grep -ohE '"/[A-Za-z0-9_:/.*-]*"' | sort -u; }
   up=$(for f in $(git ls-tree -r --name-only "$ref" router/ | grep '\.go$' | grep -v _test); do git show "$ref:$f"; done | paths)
-  ours=$(cat router/*.go | paths)
+  # HEAD, not the working tree: during a merge the conflict hunks carry upstream's paths
+  ours=$(for f in $(git ls-tree -r --name-only HEAD router/ | grep '\.go$' | grep -v _test); do git show "HEAD:$f"; done | paths)
   comm -23 <(echo "$up") <(echo "$ours") | grep -vxFf <(grep -v '^#' "$D/routes-ignore.txt") || true
   exit 0
 fi

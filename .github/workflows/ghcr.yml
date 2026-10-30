@@ -10,6 +10,8 @@ on:
     paths-ignore:
       - k8s/**
       - renovate.json
+      - scripts/**
+      - .github/workflows/sync-gate.yml
 
 concurrency:
   group: ghcr-${{ github.ref }}

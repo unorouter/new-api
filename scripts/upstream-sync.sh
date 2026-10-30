@@ -8,6 +8,9 @@
 #   scripts/upstream-sync.sh push      record the upstream ref, push the branch, CI runs Sync Gate
 #   scripts/upstream-sync.sh land      CI green? fast-forward main and push (this deploys)
 #   scripts/upstream-sync.sh summary   what upstream shipped in this sync
+#
+# Other sessions share the main checkout, so run it from a worktree detached at
+# origin/main: git worktree add --detach .claude/worktrees/sync origin/main
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REMOTE=new-api
@@ -91,7 +94,7 @@ PY2
 
 cmd_start() {
   [ -z "$(git status --porcelain)" ] || die "working tree is not clean"
-  [ "$(branch)" = main ] || die "start from main"
+  case "$(branch)" in main|HEAD) ;; *) die "start from main or a detached origin/main worktree" ;; esac
   git fetch -q origin main && git fetch -q "$REMOTE" main
   [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || die "main differs from origin/main: pull or push first"
   [ "$(git rev-list --count "HEAD..$UP")" -gt 0 ] || die "nothing new upstream"
@@ -156,7 +159,8 @@ cmd_check() {
   scripts/boot-smoke.sh binary "$bin"
   say "relay: same requests through main and through this branch"
   local wt main_bin; wt=$(mktemp -d); main_bin=$(mktemp)
-  git worktree add -q --detach "$wt" main
+  git fetch -q origin main
+  git worktree add -q --detach "$wt" origin/main
   mkdir -p "$wt/web/dist"; cp -r web/dist/. "$wt/web/dist/"
   (cd "$wt"; go build -o "$main_bin" .)
   git worktree remove --force "$wt"
@@ -231,7 +235,8 @@ cmd_land() {
   if ! git merge-base --is-ancestor origin/main HEAD; then
     die "main moved since start. Run: git merge origin/main && scripts/upstream-sync.sh check && git push, wait for green, land again"
   fi
-  git checkout -q main && git merge -q --ff-only "$b" && git push origin main
+  # push, not checkout: main may be checked out by another worktree
+  git push origin "HEAD:main"
   say "pushed. Done only when ArgoCD shows the new image:"
   echo "  kubectl -n services get pods -l app=new-api -o jsonpath='{range .items[*]}{.metadata.name}{\"  \"}{.spec.containers[0].image}{\"\\n\"}{end}'"
 }
@@ -243,5 +248,5 @@ cmd_summary() {
 
 case "${1:-}" in
   start|check|lost|rehearse|push|land|summary) "cmd_$1" ;;
-  *) sed -n '2,9p' "$0"; exit 1 ;;
+  *) sed -n '2,13p' "$0"; exit 1 ;;
 esac
