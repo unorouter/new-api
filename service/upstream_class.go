@@ -223,15 +223,18 @@ var upstreamRules = []upstreamRule{
 	// looks like from inside the tunnel. A capacity state of the shard, not a
 	// broken lane: 108 of these reached users in five minutes on 2026-09-21 while
 	// the generic 503 default counted every one and pulled the lane.
-	{markers: []string{"shard busy, retry on another shard", "upstream returned an empty answer", "shard exit at concurrent limit", "free model capacity exhausted"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}, userMessage: "This model is at capacity right now. Nothing is used up on your side. Try again in a few moments."},
+	{markers: []string{"upstream returned an empty answer", "free model capacity exhausted"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}, userMessage: "This model is at capacity right now. Nothing is used up on your side. Try again in a few moments."},
+	// Full slots refill as answers finish; on the rate gate they pulled 19 chatglm
+	// and most gemini lanes on 2026-10-30 while those shards were serving.
+	{markers: []string{"shard busy, retry on another shard", "shard exit at concurrent limit"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 30 * time.Second}, userMessage: "This model is at capacity right now. Nothing is used up on your side. Try again in a few moments."},
 	// Any host, rate limits and capacity: fail over, count nothing. AI Horde alone
 	// produced 190k of these in a week; each one disabled a lane the probe
 	// re-enabled five minutes later.
-	// A web guest throttle. Exempting it from disable (2026-09-21) left every
-	// lane on it enabled at 0 to 2% pass on 2026-09-23, each failure holding the
-	// caller for the whole first byte deadline; the scheduled test re-enables a
-	// lane once the throttle lifts.
-	{markers: []string{"请求过于频繁", "当前访客资源不足"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This model is rate limited right now. Nothing is used up on your side. Try again in a few moments."},
+	// A web guest throttle. As DisableNow it held 166 of 167 chatglm lanes off on
+	// 2026-10-30 while 15 of 53 shards answered; the needed run of passing probes
+	// rarely lands at that rate. The proxy now answers it in under a second, so a
+	// short window fails over at once without the 2026-09-23 first byte stalls.
+	{markers: []string{"请求过于频繁", "当前访客资源不足"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 3 * time.Minute}, userMessage: "This model is rate limited right now. Nothing is used up on your side. Try again in a few moments."},
 	{markers: []string{"per 1 second", "parallel requests (", "rate limit reached", "rate limit exceeded", "resource has been exhausted", "temporarily overloaded", "this model is busy right now", "rate_limit_exceeded", "并发上限", "总请求数限制", "上游返回频率限制", "上游文件上传额度已达到限制"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}, userMessage: "This model is rate limited right now. Nothing is used up on your side. Try again in a few moments."},
 	// Any host, the lane cannot serve this model's requests at all (unsupported
 	// parameter, wrong model id, audio model behind a chat route): deterministic
