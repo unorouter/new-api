@@ -1,6 +1,7 @@
 package model
 
 import (
+	"os"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -8,7 +9,7 @@ import (
 
 // Shard series whose lanes all sit behind one upstream content filter: every
 // shard of a series fronts the same endpoint. A refusal from one is the refusal from all.
-var sharedFilterShardSeries = []string{"cfp", "chat"}
+var sharedFilterShardSeries = strings.FieldsFunc(os.Getenv("SHARED_FILTER_SHARD_SERIES"), func(r rune) bool { return r == ',' })
 
 func shardSeries(name string) string {
 	head, _, _ := strings.Cut(name, "-")
