@@ -45,6 +45,7 @@ type ModelPriceHistory struct {
 
 type PriceDrop struct {
 	ModelName       string  `json:"model_name"`
+	Vendor          string  `json:"vendor"`
 	Day             string  `json:"day"`
 	Group           string  `json:"group"`
 	Ratio           float64 `json:"ratio"`
@@ -176,6 +177,10 @@ func buildPriceSnapshot() (any, error) {
 	all = append(all, todayRows...)
 
 	snap := summarizePrices(all, today)
+	meta := buildRankingModelMeta()
+	for i := range snap.drops {
+		snap.drops[i].Vendor = modelMeta(snap.drops[i].ModelName, meta).vendor
+	}
 	priceMu.Lock()
 	priceSnap, priceBuiltAt = snap, time.Now()
 	priceMu.Unlock()
