@@ -405,6 +405,7 @@ func InitResources() error {
 	service.StartAuthArtifactCleanup()
 	model.StartLogSpoolDrain()
 	service.StartNetworkReputation()
+	service.StartPriceHistory()
 
 	return nil
 }

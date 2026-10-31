@@ -62,6 +62,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		publicRankings := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightAnalytics)), "Rankings", secPublic())
 		dto.GetP(publicRankings, "/rankings", controller.GetRankings)
 		dto.GetP(publicRankings, "/rankings/model", controller.GetModelRanking)
+		dto.GetP(publicRankings, "/rankings/price-history", controller.GetModelPriceHistory)
+		dto.Get(publicRankings, "/rankings/price-drops", controller.GetPriceDrops)
 
 		// Aggregate platform totals and model health, both rendered to anonymous
 		// visitors on the public stats and status pages. Neither reads user context.

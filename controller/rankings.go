@@ -42,3 +42,26 @@ func GetModelRanking(c fuego.ContextWithParams[dto.GetModelRankingParams]) (*dto
 	}
 	return dto.Ok(result)
 }
+
+func GetModelPriceHistory(c fuego.ContextWithParams[dto.GetModelPriceHistoryParams]) (*dto.Response[*service.ModelPriceHistory], error) {
+	p, err := dto.ParseParams[dto.GetModelPriceHistoryParams](c)
+	if err != nil {
+		return dto.Fail[*service.ModelPriceHistory](err.Error())
+	}
+	if p.Model == "" {
+		return dto.Fail[*service.ModelPriceHistory]("model is required")
+	}
+	result, err := service.GetModelPriceHistory(p.Model)
+	if err != nil {
+		return dto.Fail[*service.ModelPriceHistory](err.Error())
+	}
+	return dto.Ok(result)
+}
+
+func GetPriceDrops(c fuego.ContextNoBody) (*dto.Response[*service.PriceDropsResponse], error) {
+	result, err := service.GetPriceDrops()
+	if err != nil {
+		return dto.Fail[*service.PriceDropsResponse](err.Error())
+	}
+	return dto.Ok(result)
+}

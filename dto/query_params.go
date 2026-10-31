@@ -189,6 +189,10 @@ type GetModelRankingParams struct {
 	Period string `query:"period" description:"Ranking period: today|week|month|year (default week)"`
 }
 
+type GetModelPriceHistoryParams struct {
+	Model string `query:"model" description:"Model name (required)"`
+}
+
 // ─── Perf Metrics ───────────────────────────────────────────────────
 
 type GetPerfMetricsSummaryParams struct {
