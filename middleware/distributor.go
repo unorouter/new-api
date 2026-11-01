@@ -1050,10 +1050,22 @@ func ownPurposeObjectedError(c *gin.Context, requestedModel string, scope model.
 	if len(named) == 0 {
 		return &ConsentRefusalError{Message: i18n.T(c, i18n.MsgDistributorOwnPurposeObjectedGeneric, map[string]any{"Model": requestedModel}), Code: "own_purpose_objected"}
 	}
+	// Param lets a client name the providers in its own language.
+	param := make([]objectedProvider, 0, len(named))
+	for _, p := range named {
+		param = append(param, objectedProvider{Label: p.Label, Country: p.Country})
+	}
+	raw, _ := common.Marshal(param)
 	return &ConsentRefusalError{
 		Message: i18n.T(c, i18n.MsgDistributorOwnPurposeObjected, map[string]any{"Model": requestedModel, "Providers": providerList(c, named)}),
 		Code:    "own_purpose_objected",
+		Param:   string(raw),
 	}
+}
+
+type objectedProvider struct {
+	Label   string `json:"label"`
+	Country string `json:"country"`
 }
 
 // providerList names up to consentRequiredListLimit providers with their
