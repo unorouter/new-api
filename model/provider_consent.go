@@ -525,42 +525,65 @@ func PruneProviderConsents(now time.Time) (int64, error) {
 	return res.RowsAffected, res.Error
 }
 
-// MissingConsentProvider is a provider the subject still needs to consent to,
-// by its public names.
-type MissingConsentProvider struct {
+// NamedProvider is a provider by its public names. Alias is empty for a
+// provider that needs no consent and so never got one.
+type NamedProvider struct {
 	Alias   string
 	Label   string
 	Country string
 }
 
-// MissingConsentProviders lists the providers of a model that no active
-// provider consent covers, in the given order. A provider without an alias is
-// left out: it cannot be consented to until the sync assigns one.
-func MissingConsentProviders(userId int, guestId string, providers []string) ([]MissingConsentProvider, error) {
-	entry, err := consentEntryFor(userId, guestId, providers)
-	if err != nil {
-		return nil, err
-	}
+// ProviderNames names the providers in the given order; one without a label
+// is left out rather than shown by its internal name.
+func ProviderNames(providers []string) []NamedProvider {
 	aliases := ProviderAliasesFor(providers)
 	labels := map[string]string{}
 	for _, p := range ConsentProviders() {
 		labels[p.Alias] = p.Label
 	}
-	var out []MissingConsentProvider
+	catalog := consentProviderCache.Load()
+	out := make([]NamedProvider, 0, len(providers))
 	for _, p := range providers {
-		alias, ok := aliases[p]
-		if !ok || entry.aliases[alias.Alias] {
-			continue
+		var named NamedProvider
+		if alias, ok := aliases[p]; ok {
+			named = NamedProvider{Alias: alias.Alias, Label: labels[alias.Alias], Country: alias.Country}
 		}
-		label := labels[alias.Alias]
-		if label == "" {
-			label = alias.Alias
+		if catalog != nil {
+			if lanes := catalog.all[p]; lanes != nil {
+				if named.Label == "" {
+					named.Label = ProviderLabel(lanes.Tags, named.Alias)
+				}
+				if named.Country == "" || named.Country == unknownAliasCountry {
+					named.Country = lanes.Country
+				}
+			}
 		}
-		country := alias.Country
-		if country == unknownAliasCountry {
-			country = ""
+		if named.Label == "" {
+			named.Label = named.Alias
 		}
-		out = append(out, MissingConsentProvider{Alias: alias.Alias, Label: label, Country: country})
+		if named.Country == unknownAliasCountry {
+			named.Country = ""
+		}
+		if named.Label != "" {
+			out = append(out, named)
+		}
+	}
+	return out
+}
+
+// MissingConsentProviders lists the providers of a model that no active
+// provider consent covers, in the given order. A provider without an alias is
+// left out: it cannot be consented to until the sync assigns one.
+func MissingConsentProviders(userId int, guestId string, providers []string) ([]NamedProvider, error) {
+	entry, err := consentEntryFor(userId, guestId, providers)
+	if err != nil {
+		return nil, err
+	}
+	var out []NamedProvider
+	for _, p := range ProviderNames(providers) {
+		if p.Alias != "" && !entry.aliases[p.Alias] {
+			out = append(out, p)
+		}
 	}
 	return out, nil
 }

@@ -1014,7 +1014,7 @@ func ConsentRefusal(c *gin.Context, requestedModel string) *ConsentRefusalError 
 		}
 	}
 	if userSetting.OwnPurposeObjection && requestedModel != "" && scope.TrainsOrRetains && !scope.ServableWithoutOwnPurpose {
-		return &ConsentRefusalError{Message: i18n.T(c, i18n.MsgDistributorOwnPurposeObjected, map[string]any{"Model": requestedModel}), Code: "own_purpose_objected"}
+		return ownPurposeObjectedError(c, requestedModel, scope)
 	}
 	return nil
 }
@@ -1034,17 +1034,37 @@ func consentRequiredError(c *gin.Context, userId int, scope model.ConsentScope) 
 	if err != nil || len(missing) == 0 {
 		return &ConsentRefusalError{Message: i18n.T(c, i18n.MsgDistributorConsentRequiredGeneric, map[string]any{"Model": scope.Model, "Url": link}), Code: "consent_required"}
 	}
+	aliases := make([]string, 0, len(missing))
+	for _, p := range missing {
+		aliases = append(aliases, p.Alias)
+	}
+	return &ConsentRefusalError{
+		Message: i18n.T(c, i18n.MsgDistributorConsentRequired, map[string]any{"Model": scope.Model, "Providers": providerList(c, missing), "Url": link}),
+		Code:    "consent_required",
+		Param:   strings.Join(aliases, ","),
+	}
+}
+
+func ownPurposeObjectedError(c *gin.Context, requestedModel string, scope model.ConsentScope) *ConsentRefusalError {
+	named := model.ProviderNames(scope.Providers)
+	if len(named) == 0 {
+		return &ConsentRefusalError{Message: i18n.T(c, i18n.MsgDistributorOwnPurposeObjectedGeneric, map[string]any{"Model": requestedModel}), Code: "own_purpose_objected"}
+	}
+	return &ConsentRefusalError{
+		Message: i18n.T(c, i18n.MsgDistributorOwnPurposeObjected, map[string]any{"Model": requestedModel, "Providers": providerList(c, named)}),
+		Code:    "own_purpose_objected",
+	}
+}
+
+// providerList names up to consentRequiredListLimit providers with their
+// country and counts the rest.
+func providerList(c *gin.Context, providers []model.NamedProvider) string {
 	lang := i18n.StatedLang(c)
 	if lang == "" {
 		lang = common.DefaultLanguage
 	}
 	names := make([]string, 0, consentRequiredListLimit)
-	aliases := make([]string, 0, len(missing))
-	for i, p := range missing {
-		aliases = append(aliases, p.Alias)
-		if i >= consentRequiredListLimit {
-			continue
-		}
+	for _, p := range providers[:min(len(providers), consentRequiredListLimit)] {
 		if p.Country == "" {
 			names = append(names, p.Label)
 			continue
@@ -1054,12 +1074,8 @@ func consentRequiredError(c *gin.Context, userId int, scope model.ConsentScope) 
 		names = append(names, i18n.T(c, i18n.MsgDistributorConsentProvider, map[string]any{"Label": label, "Country": i18n.CountryName(lang, p.Country)}))
 	}
 	list := strings.Join(names, i18n.T(c, i18n.MsgDistributorConsentProviderSeparator))
-	if extra := len(missing) - len(names); extra > 0 {
+	if extra := len(providers) - len(names); extra > 0 {
 		list += i18n.T(c, i18n.MsgDistributorConsentMore, map[string]any{"Count": extra})
 	}
-	return &ConsentRefusalError{
-		Message: i18n.T(c, i18n.MsgDistributorConsentRequired, map[string]any{"Model": scope.Model, "Providers": list, "Url": link}),
-		Code:    "consent_required",
-		Param:   strings.Join(aliases, ","),
-	}
+	return list
 }

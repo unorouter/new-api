@@ -34,6 +34,7 @@ const (
 	MsgDistributorConsentProviderSeparator     = "distributor.consent_provider_separator"
 	MsgDistributorConsentMore                  = "distributor.consent_more"
 	MsgDistributorOwnPurposeObjected           = "distributor.own_purpose_objected"
+	MsgDistributorOwnPurposeObjectedGeneric    = "distributor.own_purpose_objected_generic"
 	MsgDistributorModelNameRequired            = "distributor.model_name_required"
 	MsgDistributorInvalidPlayground            = "distributor.invalid_playground_request"
 	MsgDistributorGroupAccessDenied            = "distributor.group_access_denied"
