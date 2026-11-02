@@ -107,24 +107,28 @@ func ResponseGeminiChat2OpenAI(id string, created int64, response *dto.GeminiCha
 				content.Grow(inlineGrow)
 			}
 			appended := 0
-			writeSep := func() {
-				if appended > 0 {
+			prevText := false
+			// Consecutive text parts are one string split by the upstream, sometimes mid
+			// word; only a block such as an image or code gets its own line.
+			writeSep := func(text bool) {
+				if appended > 0 && !(text && prevText) {
 					content.WriteByte('\n')
 				}
 				appended++
+				prevText = text
 			}
 			var toolCalls []dto.ToolCallResponse
 			for _, part := range candidate.Content.Parts {
 				if part.InlineData != nil {
 					if strings.HasPrefix(part.InlineData.MimeType, "image") {
-						writeSep()
+						writeSep(false)
 						content.WriteString("![image](data:")
 						content.WriteString(part.InlineData.MimeType)
 						content.WriteString(";base64,")
 						content.WriteString(part.InlineData.Data)
 						content.WriteByte(')')
 					} else {
-						writeSep()
+						writeSep(false)
 						content.WriteString("[media](data:")
 						content.WriteString(part.InlineData.MimeType)
 						content.WriteString(";base64,")
@@ -140,19 +144,19 @@ func ResponseGeminiChat2OpenAI(id string, created int64, response *dto.GeminiCha
 					choice.Message.ReasoningContent = &part.Text
 				} else {
 					if part.ExecutableCode != nil {
-						writeSep()
+						writeSep(false)
 						content.WriteString("```")
 						content.WriteString(part.ExecutableCode.Language)
 						content.WriteByte('\n')
 						content.WriteString(part.ExecutableCode.Code)
 						content.WriteString("\n```")
 					} else if part.CodeExecutionResult != nil {
-						writeSep()
+						writeSep(false)
 						content.WriteString("```output\n")
 						content.WriteString(part.CodeExecutionResult.Output)
 						content.WriteString("\n```")
 					} else if part.Text != "\n" {
-						writeSep()
+						writeSep(true)
 						content.WriteString(part.Text)
 					}
 				}
@@ -208,11 +212,15 @@ func StreamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 			content.Grow(inlineGrow)
 		}
 		appended := 0
-		writeSep := func() {
-			if appended > 0 {
+		prevText := false
+		// Consecutive text parts are one string split by the upstream, sometimes mid
+		// word; only a block such as an image or code gets its own line.
+		writeSep := func(text bool) {
+			if appended > 0 && !(text && prevText) {
 				content.WriteByte('\n')
 			}
 			appended++
+			prevText = text
 		}
 		isTools := false
 		isThought := false
@@ -231,7 +239,7 @@ func StreamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 		for _, part := range candidate.Content.Parts {
 			if part.InlineData != nil {
 				if strings.HasPrefix(part.InlineData.MimeType, "image") {
-					writeSep()
+					writeSep(false)
 					content.WriteString("![image](data:")
 					content.WriteString(part.InlineData.MimeType)
 					content.WriteString(";base64,")
@@ -246,23 +254,23 @@ func StreamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 				}
 			} else if part.Thought {
 				isThought = true
-				writeSep()
+				writeSep(true)
 				content.WriteString(part.Text)
 			} else {
 				if part.ExecutableCode != nil {
-					writeSep()
+					writeSep(false)
 					content.WriteString("```")
 					content.WriteString(part.ExecutableCode.Language)
 					content.WriteByte('\n')
 					content.WriteString(part.ExecutableCode.Code)
 					content.WriteString("\n```\n")
 				} else if part.CodeExecutionResult != nil {
-					writeSep()
+					writeSep(false)
 					content.WriteString("```output\n")
 					content.WriteString(part.CodeExecutionResult.Output)
 					content.WriteString("\n```\n")
 				} else if part.Text != "\n" {
-					writeSep()
+					writeSep(true)
 					content.WriteString(part.Text)
 				}
 			}
