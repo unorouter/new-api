@@ -1831,7 +1831,9 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 		var subs []UserSubscription
 		if err := lockForUpdate(tx).
 			Where("user_id = ? AND status = ? AND end_time > ?", userId, "active", now).
-			Order("CASE WHEN next_reset_time > 0 THEN 0 ELSE 1 END asc, next_reset_time asc, end_time desc, id desc").
+			// Spend the allowance that is lost first: a plan in its last period has no
+			// next reset but expires before the others reset, so it goes first.
+			Order("CASE WHEN next_reset_time > 0 AND next_reset_time < end_time THEN next_reset_time ELSE end_time END asc, id asc").
 			Find(&subs).Error; err != nil {
 			return errors.New("no active subscription")
 		}
