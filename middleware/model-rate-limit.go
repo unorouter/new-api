@@ -390,7 +390,8 @@ func settlePerModelRequest(c *gin.Context) {
 	if key == "" || maxCount <= 0 {
 		return
 	}
-	failed := !modelRequestSucceeded(c)
+	// A response that already reached the client counts even when it ends failed.
+	failed := !modelRequestSucceeded(c) && !responseDelivered(c)
 	if common.RedisEnabled {
 		member := c.GetString(perModelRateLimitMemberMark)
 		if failed && member != "" {
@@ -412,6 +413,10 @@ func settlePerModelRequest(c *gin.Context) {
 func modelRequestSucceeded(c *gin.Context) bool {
 	status, _ := common.GetContextKeyType[*relaycommon.StreamStatus](c, constant.ContextKeyResponseStreamStatus)
 	return c.Writer.Status() < 400 && !status.ResponseFailed()
+}
+
+func responseDelivered(c *gin.Context) bool {
+	return c.Writer.Status() < 400 && c.Writer.Size() > 0
 }
 
 // ModelRequestRateLimit 模型请求限流中间件
