@@ -473,6 +473,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 			return
 		}
+		spent := relayInfo.UserUsedQuota > 0 || relayInfo.UserQuota > 0
+		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels &&
+			!service.FreeFairShareAdmit(relayInfo.UserId, relayInfo.OriginModelName,
+				service.FreeFairShareWeightPct(spent, relayInfo.UserHasIdentity, freeVerified)) {
+			newAPIError = types.NewErrorWithStatusCode(
+				errors.New(shadowBanRateLimitMessage(c, relayInfo.UserId, relayInfo.OriginModelName)),
+				types.ErrorCodeRateLimitExceeded, http.StatusTooManyRequests,
+				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			return
+		}
 		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels {
 			service.TrackFreeModelUsage(relayInfo.UserId, relayInfo.UserQuota, relayInfo.OriginModelName, freeVerified)
 		}
@@ -509,6 +519,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					relayInfo.OriginModelName, isMediaRelayMode(relayInfo.RelayMode),
 					service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail))
 			}
+		}
+		// Unlike the abuse counters above, capacity failures are the point here:
+		// they are how a congested lane is recognised, and a retry against one
+		// spends the caller's share.
+		if priceData.FreeModel && relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels && !isModerationRejection(newAPIError) {
+			capacityFailure := newAPIError != nil && (newAPIError.StatusCode == http.StatusTooManyRequests ||
+				newAPIError.StatusCode == http.StatusRequestTimeout || newAPIError.StatusCode >= 500)
+			service.RecordFreeFairShareAttempt(relayInfo.UserId, relayInfo.OriginModelName, capacityFailure)
 		}
 	}()
 

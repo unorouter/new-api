@@ -109,3 +109,7 @@ types/user_settings.go :: QuotaWarningEnabled              bool
 controller/user.go :: settings := user.GetSetting()
 # the prod channel notification switch still gates channel notices
 service/channel.go :: operation_setting.GetMonitorSetting().ChannelStatusNotifyEnabled
+controller/relay.go :: service.FreeFairShareAdmit
+controller/relay.go :: service.RecordFreeFairShareAttempt
+setting/operation_setting/quota_setting.go :: FreeFairShareMode
+model/user.go :: func (user *User) AccountHolderSetting

@@ -51,6 +51,15 @@ type QuotaSetting struct {
 	PaidProbeMaxDistinctModels int    `json:"paid_probe_max_distinct_models"`
 	PaidProbeMaxRefusals       int    `json:"paid_probe_max_refusals"`    // 同一窗口内被拒绝的付费请求总数上限（反复请求同一付费模型）；0=关闭
 	PaidProbeExemptUserIds     string `json:"paid_probe_exempt_user_ids"` // 逗号分隔的豁免用户 ID
+	// 拥堵免费模型的公平份额：模型拥堵时，账号在窗口内的尝试次数超过（窗口总尝试数 / 活跃账号数）乘以突发比例和信任权重，则按普通限流拒绝。不拥堵时不限制任何人。
+	// 0=关闭，1=仅记录，2=执行。仅在启用 Redis 时生效。
+	FreeFairShareMode          int `json:"free_fair_share_mode"`
+	FreeFairShareWindowMinutes int `json:"free_fair_share_window_minutes"` // 份额统计窗口（分钟）
+	FreeFairShareCongestedPct  int `json:"free_fair_share_congested_pct"`  // 最近约 10 分钟内容量类失败占比达到该值即视为拥堵
+	FreeFairShareMinAttempts   int `json:"free_fair_share_min_attempts"`   // 判定拥堵所需的最近约 10 分钟最少尝试数
+	FreeFairShareBurstPct      int `json:"free_fair_share_burst_pct"`      // 允许超出平均份额的比例（100=恰好平均份额）
+	FreeFairShareFloor         int `json:"free_fair_share_floor"`          // 窗口内不超过该尝试数的账号始终放行
+	FreeFairSharePaidPct       int `json:"free_fair_share_paid_pct"`       // 有过消费的账号的份额权重（百分比）
 }
 
 // 默认配置
@@ -85,6 +94,14 @@ var quotaSetting = QuotaSetting{
 	FreeAbuseCooccurBanDays:            7,
 	FreeAbuseUsernameDomainMinAccounts: 0,
 	FreeAbuseUsernameDomainAllowlist:   "gmail.com,googlemail.com,qq.com,outlook.com,hotmail.com,live.com,163.com,126.com,foxmail.com,yahoo.com,icloud.com,proton.me,protonmail.com,mail.ru,yandex.ru,duck.com,mozmail.com",
+
+	FreeFairShareMode:          0,
+	FreeFairShareWindowMinutes: 60,
+	FreeFairShareCongestedPct:  30,
+	FreeFairShareMinAttempts:   30,
+	FreeFairShareBurstPct:      150,
+	FreeFairShareFloor:         5,
+	FreeFairSharePaidPct:       400,
 }
 
 func init() {
