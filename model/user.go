@@ -255,6 +255,21 @@ func (user *User) GetSetting() types.UserSetting {
 	return setting
 }
 
+// AccountHolderSetting is the setting JSON shown to the account holder. The
+// free-model block is a shadow ban, so it must read like ordinary throttling.
+func (user *User) AccountHolderSetting() string {
+	setting := user.GetSetting()
+	if !setting.BlockFreeWhenNoQuota {
+		return user.Setting
+	}
+	setting.BlockFreeWhenNoQuota = false
+	settingBytes, err := common.Marshal(setting)
+	if err != nil {
+		return ""
+	}
+	return string(settingBytes)
+}
+
 func (user *User) SetSetting(setting types.UserSetting) {
 	settingBytes, err := common.Marshal(setting)
 	if err != nil {

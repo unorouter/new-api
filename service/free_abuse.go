@@ -329,5 +329,5 @@ func autoBlockUser(userId int) {
 		common.SysLog(fmt.Sprintf("failed to auto-block user %d for free-model abuse: %s", userId, err.Error()))
 		return
 	}
-	model.RecordLog(userId, model.LogTypeManage, common.NewMessage("auto-blocked free models for user due to free-model abuse with zero balance"))
+	model.RecordLogWithAdminInfo(userId, model.LogTypeManage, "auto-blocked free models for user due to free-model abuse with zero balance", nil, nil)
 }

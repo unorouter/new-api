@@ -874,7 +874,7 @@ func GetSelf(c fuego.ContextNoBody) (*dto.Response[dto.UserSelfData], error) {
 		AffCommissionMaxRecharges: common.ReferralCommissionMaxRecharges,
 		InviterId:                 user.InviterId,
 		LinuxDOId:                 user.LinuxDOId,
-		Setting:                   user.Setting,
+		Setting:                   user.AccountHolderSetting(),
 		StripeCustomer:            user.StripeCustomer,
 		CustomerType:              user.CustomerType,
 		CustomerTypeAt:            user.CustomerTypeAt,
@@ -939,7 +939,7 @@ func buildSelfUserData(user *model.User) map[string]any {
 		"aff_history_quota": user.AffHistoryQuota,
 		"inviter_id":        user.InviterId,
 		"linux_do_id":       user.LinuxDOId,
-		"setting":           user.Setting,
+		"setting":           user.AccountHolderSetting(),
 		"stripe_customer":   user.StripeCustomer,
 		"customer_type":     user.CustomerType,
 		"customer_type_at":  user.CustomerTypeAt,
@@ -1601,8 +1601,8 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 			return dto.Fail[dto.ManageUserData](err.Error())
 		}
 		adminName := ginCtx.GetString("username")
-		model.RecordLog(user.Id, model.LogTypeManage,
-			common.NewMessage("admin ({{admin}}) set block-free-models-when-balance-zero to {{value}} for user", map[string]any{"admin": adminName, "value": req.Value == 1}))
+		model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
+			fmt.Sprintf("admin (%s) set block-free-models-when-balance-zero to %t for user", adminName, req.Value == 1), nil, nil, ginCtx)
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 	case "set_unlimited_free":
 		s := user.GetSetting()
