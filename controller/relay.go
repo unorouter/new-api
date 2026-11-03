@@ -505,6 +505,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				relayInfo.Billing.Refund(c)
 			}
 			service.ChargeViolationFeeIfNeeded(c, relayInfo, newAPIError)
+			if priceData.FreeModel && relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels &&
+				(newAPIError.StatusCode == http.StatusRequestTimeout || newAPIError.StatusCode == http.StatusTooManyRequests || newAPIError.StatusCode >= 500) {
+				service.UntrackFreeModelUsage(relayInfo.UserId)
+			}
 			// Retry-spam signal: a free-model request that failed because the user
 			// hammered a disabled/nonexistent model counts toward the hourly
 			// free-error budget. A bot retries relentlessly; a human gives up.

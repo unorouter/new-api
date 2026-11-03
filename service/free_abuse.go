@@ -285,6 +285,21 @@ func recordDistinctModelSet(keyPrefix string, sets *struct {
 	return len(models)
 }
 
+// UntrackFreeModelUsage takes back the volume counts of a free request that
+// failed on capacity (408, 429, 5xx). A person resending to a full model is not
+// a bot, and those resends were what auto-blocked real accounts.
+func UntrackFreeModelUsage(userId int) {
+	if userId <= 0 || !common.RedisEnabled {
+		return
+	}
+	ctx := context.Background()
+	for _, key := range []string{fmt.Sprintf("freeAbuse:user:%d", userId), fmt.Sprintf("freeAbuseDay:user:%d", userId)} {
+		if n, err := common.RDB.Decr(ctx, key).Result(); err == nil && n < 0 {
+			common.RDB.Del(ctx, key)
+		}
+	}
+}
+
 // recordFreeUsage increments the per-user request counter for the current window
 // and reports whether the count has exceeded maxPerMin. Uses Redis when enabled
 // (cross-instance), otherwise an in-memory sliding window (single instance).
