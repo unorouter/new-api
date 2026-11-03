@@ -614,6 +614,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 
 		logUser := dto.NewRouter(engine, logGroup.Group("", middleware.UserAuth()), "Log", secDashboard())
 		dto.GetP(logUser, "/self/stat", controller.GetLogsSelfStat)
+		dto.GetP(logUser, "/self/perf", controller.GetSelfPerfMetrics)
 		dto.GetP(logUser, "/self", controller.GetUserLogs, dto.PageParams())
 		logUser.GinGet("/self/export", controller.ExportUserLogs, dto.GinResp[dto.ApiResponse]())
 

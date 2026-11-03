@@ -1018,3 +1018,34 @@ func DeleteOldLogBatch(ctx context.Context, targetTimestamp int64, limit int) (i
 	}
 	return result.RowsAffected, nil
 }
+
+// UserModelPerf is one model's outcome over a user's own requests. A retried
+// request writes an error row per failed attempt and one consume row, so
+// requests are counted by request_id rather than by row.
+type UserModelPerf struct {
+	ModelName string `gorm:"column:model_name"`
+	Requests  int64  `gorm:"column:requests"`
+	Successes int64  `gorm:"column:successes"`
+	OkRows    int64  `gorm:"column:ok_rows"`
+	OkSeconds int64  `gorm:"column:ok_seconds"`
+	OkTokens  int64  `gorm:"column:ok_tokens"`
+}
+
+func GetUserModelPerf(userId int, since int64) ([]UserModelPerf, error) {
+	var rows []UserModelPerf
+	err := LOG_DB.Table("logs").
+		Select(`model_name,
+			COUNT(DISTINCT request_id) AS requests,
+			COUNT(DISTINCT CASE WHEN type = ? THEN request_id END) AS successes,
+			COUNT(CASE WHEN type = ? THEN 1 END) AS ok_rows,
+			COALESCE(SUM(CASE WHEN type = ? THEN use_time ELSE 0 END), 0) AS ok_seconds,
+			COALESCE(SUM(CASE WHEN type = ? THEN completion_tokens ELSE 0 END), 0) AS ok_tokens`,
+			LogTypeConsume, LogTypeConsume, LogTypeConsume, LogTypeConsume).
+		Where("user_id = ? AND created_at >= ? AND type IN ? AND model_name <> ''",
+			userId, since, []int{LogTypeConsume, LogTypeError}).
+		Group("model_name").
+		Order("requests DESC").
+		Limit(50).
+		Scan(&rows).Error
+	return rows, err
+}
