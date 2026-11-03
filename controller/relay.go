@@ -865,8 +865,11 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		common.SetContextKey(c, constant.ContextKeyAutoGroup, selectGroup)
 	}
 	// Excluding the tried channels can empty the candidate set when the model has no
-	// untried sibling left; retrying the same channel still beats failing outright.
-	if !acquired && len(skipChannels) > 0 && len(skipChannels[0]) > 0 {
+	// untried sibling left; retrying the same channel still beats failing outright,
+	// except after a first-byte timeout, where it only makes the caller wait out
+	// the same deadline a second time.
+	firstByteTimeout := info.LastError != nil && info.LastError.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded
+	if !acquired && !firstByteTimeout && len(skipChannels) > 0 && len(skipChannels[0]) > 0 {
 		channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
 		if err == nil && channel != nil && !service.TryAcquireLane(channel) {
 			channel = nil
