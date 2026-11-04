@@ -42,6 +42,12 @@ spec:
           podSelector:
             matchLabels:
               app: cloudflared
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cloudflared
+          podSelector:
+            matchLabels:
+              app: cloudflared-api
         # Same-namespace callers: no namespaceSelector means `services`.
         - podSelector:
             matchLabels:
