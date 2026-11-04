@@ -192,7 +192,7 @@ var upstreamRules = []upstreamRule{
 	// every request until then is refused, and the lane is fine afterwards.
 	{markers: []string{"due to abuse prevention, your ip address has been put into timeout"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 5 * time.Minute}, userMessage: "This model's provider is full right now. Nothing is used up on your side. Retry and another provider will take it, or try again in a few minutes."},
 	// Our own proxy shards announce an exhausted hourly allowance this way.
-	{markers: []string{"shard exit at rph limit"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 15 * time.Minute}, userMessage: "This model is at its provider's hourly limit right now. Nothing is used up on your side. Retry and another provider will take it."},
+	{markers: []string{"shard exit at rph limit", "sign up for free to continue"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 15 * time.Minute}, userMessage: "This model is at its provider's hourly limit right now. Nothing is used up on your side. Retry and another provider will take it."},
 	{markers: operation_setting.QuarterHourWindowMarkers, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 15 * time.Minute}, userMessage: "This model is at its provider's hourly limit right now. Nothing is used up on your side. Retry and another provider will take it."},
 	// A free lane whose upstream keeps answering that free capacity is limited
 	// and paid credits lift it: a 429 in words, but one lane failed 583
