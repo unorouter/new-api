@@ -63,7 +63,17 @@ data:
           getent hosts "newapi-redis-ha-0.$DOMAIN" | awk '{ print $1; exit }'
           return
         fi
-        if [ "$m" != "$ME" ]; then echo "$m"; return; fi
+        # A replacement pod has a new IP, so the primary it replaces is still named for a moment:
+        # a replica of a dead address is invisible to Sentinel and would never be reconfigured.
+        if [ "$m" != "$ME" ]; then
+          if [ "$n" -ge 15 ] || timeout 3 redis-cli -t 1 -h "$m" info replication 2>/dev/null | grep -q role:master; then
+            echo "$m"
+            return
+          fi
+          n=$((n + 1))
+          sleep 1
+          continue
+        fi
         if [ "$n" -ge 15 ] || ! replica_has_data; then echo "$ME"; return; fi
         for i in 0 1 2; do
           timeout 3 redis-cli -t 1 -h "newapi-redis-ha-$i.$DOMAIN" -p 26379 sentinel failover newapi 2>/dev/null | grep -q OK && break
@@ -109,6 +119,15 @@ data:
         } > /sentinel/sentinel.conf
       fi
       exec redis-sentinel /sentinel/sentinel.conf
+      ;;
+    live)
+      # A replica must follow the primary Sentinel names. One left on a dead or demoted address is
+      # invisible to Sentinel and would stay empty for good, so fail and restart into the right one.
+      info=$(redis-cli -p 6379 info replication | tr -d '\r')
+      [ -n "$info" ] || exit 1
+      echo "$info" | grep -qx role:slave || exit 0
+      sm=$(timeout 3 redis-cli -p 26379 sentinel get-master-addr-by-name newapi 2>/dev/null | head -n1 || true)
+      [ -z "$sm" ] || echo "$info" | grep -qx "master_host:$sm"
       ;;
     prestop)
       # Hand the primary over before this pod goes, so a roll or drain is a switchover, not a
@@ -192,7 +211,8 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
           livenessProbe:
-            tcpSocket: { port: 6379 }
+            exec: { command: [sh, /scripts/run.sh, live] }
+            timeoutSeconds: 5
             initialDelaySeconds: 60
             periodSeconds: 10
             failureThreshold: 3
