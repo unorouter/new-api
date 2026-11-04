@@ -1,0 +1,249 @@
+# Gateway Redis: three pods, one per node, each running redis and a Sentinel. The gateway asks
+# the Sentinels for the primary (REDIS_SENTINEL_ADDRS), so losing the primary's node costs a few
+# seconds instead of the eviction delay plus a reschedule: on 2026-11-04 the single pod sat on a
+# partitioned node for 8 minutes and the gateway answered 500 to 28.6% of requests for 15.
+# It is a cache, nothing is persisted, and a failover may drop the last few writes.
+apiVersion: v1
+kind: Service
+metadata:
+  name: newapi-redis-ha
+  namespace: services
+spec:
+  clusterIP: None
+  # pod names must resolve before a pod is Ready: a starting pod looks up its peers by them
+  publishNotReadyAddresses: true
+  selector: { app: newapi-redis-ha }
+  ports:
+    - { name: redis, port: 6379, targetPort: 6379 }
+    - { name: sentinel, port: 26379, targetPort: 26379 }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: newapi-redis-ha
+  namespace: services
+data:
+  run.sh: |
+    #!/bin/sh
+    set -eu
+    DOMAIN="newapi-redis-ha.${POD_NAMESPACE}.svc.cluster.local"
+    ME="$POD_IP"
+
+    sentinel_master() {
+      for i in 0 1 2; do
+        out=$(timeout 3 redis-cli -t 1 -h "newapi-redis-ha-$i.$DOMAIN" -p 26379 sentinel get-master-addr-by-name newapi 2>/dev/null || true)
+        m=$(echo "$out" | head -n1)
+        if [ -n "$m" ]; then echo "$m"; return; fi
+      done
+    }
+
+    # a peer that replicated from this pod and holds data
+    replica_has_data() {
+      for i in 0 1 2; do
+        [ "newapi-redis-ha-$i" = "$POD_NAME" ] && continue
+        info=$(timeout 3 redis-cli -t 1 -h "newapi-redis-ha-$i.$DOMAIN" info replication 2>/dev/null | tr -d '\r' || true)
+        echo "$info" | grep -q "^master_host:$ME$" || continue
+        off=$(echo "$info" | sed -n 's/^master_repl_offset://p')
+        [ "${off:-0}" -gt 0 ] && return 0
+      done
+      return 1
+    }
+
+    # No Sentinel answering means a fresh set, which starts on pod 0. A Sentinel naming this pod
+    # while a replica holds its data means the pod restarted faster than the failover: have that
+    # replica promoted instead of coming back empty as primary and wiping the others. The failover
+    # is forced because Sentinel's own one, started within a second of the primary going down,
+    # finds no replica with fresh enough INFO, gives up and waits twice failover-timeout.
+    find_master() {
+      n=0
+      while :; do
+        m=$(sentinel_master)
+        if [ -z "$m" ]; then
+          until getent hosts "newapi-redis-ha-0.$DOMAIN" > /dev/null; do sleep 1; done
+          getent hosts "newapi-redis-ha-0.$DOMAIN" | awk '{ print $1; exit }'
+          return
+        fi
+        if [ "$m" != "$ME" ]; then echo "$m"; return; fi
+        if [ "$n" -ge 15 ] || ! replica_has_data; then echo "$ME"; return; fi
+        for i in 0 1 2; do
+          timeout 3 redis-cli -t 1 -h "newapi-redis-ha-$i.$DOMAIN" -p 26379 sentinel failover newapi 2>/dev/null | grep -q OK && break
+        done
+        n=$((n + 1))
+        sleep 2
+      done
+    }
+
+    case "$1" in
+    redis)
+      MASTER=$(find_master)
+      {
+        echo "port 6379"
+        echo "protected-mode no"
+        echo "dir /data"
+        echo "save \"\""
+        echo "appendonly no"
+        echo "maxmemory 384mb"
+        echo "maxmemory-policy volatile-lru"
+        echo "repl-diskless-sync-delay 0"
+        echo "replica-announce-ip $ME"
+        if [ "$MASTER" != "$ME" ]; then echo "replicaof $MASTER 6379"; fi
+      } > /data/redis.conf
+      exec redis-server /data/redis.conf
+      ;;
+    sentinel)
+      # Addresses are pod IPs, not names: Sentinel resolves names synchronously, and a slow DNS
+      # answer stalls its loop into TILT mode, which blocks failover for 30s. A restarted
+      # container keeps its rewritten config. The fixed myid keeps one identity per pod: a new id
+      # per pod start leaves dead entries that raise the vote count a failover needs.
+      if [ ! -s /sentinel/sentinel.conf ]; then
+        MASTER=$(find_master)
+        {
+          echo "port 26379"
+          echo "protected-mode no"
+          echo "sentinel myid $(printf %s "$POD_NAME" | sha1sum | cut -c1-40)"
+          echo "sentinel announce-ip $ME"
+          echo "sentinel monitor newapi $MASTER 6379 2"
+          echo "sentinel down-after-milliseconds newapi 3000"
+          echo "sentinel failover-timeout newapi 5000"
+          echo "sentinel parallel-syncs newapi 2"
+        } > /sentinel/sentinel.conf
+      fi
+      exec redis-sentinel /sentinel/sentinel.conf
+      ;;
+    prestop)
+      # Hand the primary over before this pod goes, so a roll or drain is a switchover, not a
+      # 3 second outage. The own Sentinel is already stopping, so ask a peer.
+      redis-cli -p 6379 info replication | grep -q role:master || exit 0
+      for i in 0 1 2; do
+        [ "newapi-redis-ha-$i" = "$POD_NAME" ] && continue
+        timeout 3 redis-cli -t 1 -h "newapi-redis-ha-$i.$DOMAIN" -p 26379 sentinel failover newapi | grep -q OK && break
+      done
+      n=0
+      while [ "$n" -lt 20 ] && [ "$(sentinel_master)" = "$ME" ]; do
+        sleep 0.5
+        n=$((n + 1))
+      done
+      ;;
+    esac
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: newapi-redis-ha
+  namespace: services
+spec:
+  serviceName: newapi-redis-ha
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: { app: newapi-redis-ha }
+  template:
+    metadata:
+      labels: { app: newapi-redis-ha }
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels: { app: newapi-redis-ha }
+              topologyKey: kubernetes.io/hostname
+      tolerations:
+        - { key: node.kubernetes.io/unreachable, operator: Exists, effect: NoExecute, tolerationSeconds: 15 }
+        - { key: node.kubernetes.io/not-ready, operator: Exists, effect: NoExecute, tolerationSeconds: 15 }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      priorityClassName: serving
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        # maxmemory-policy is volatile-lru, NOT allkeys-lru: auth:user:version:* has no TTL on
+        # purpose, it is the floor that makes a PAT revocation stick (model/user_auth_cache.go).
+        # 384mb against the 512Mi limit leaves room for RSS and the fork a replica sync takes.
+        - name: redis
+          image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+          command: [sh, /scripts/run.sh, redis]
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          ports:
+            - { name: redis, containerPort: 6379 }
+          lifecycle:
+            preStop:
+              exec: { command: [sh, /scripts/run.sh, prestop] }
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { memory: 512Mi }
+          readinessProbe:
+            exec:
+              command: [sh, -c, "redis-cli -p 6379 info replication | grep -qE 'role:master|master_link_status:up'"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket: { port: 6379 }
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: scripts, mountPath: /scripts }
+        - name: sentinel
+          image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+          command: [sh, /scripts/run.sh, sentinel]
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          ports:
+            - { name: sentinel, containerPort: 26379 }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          readinessProbe:
+            exec:
+              command: [sh, -c, "redis-cli -p 26379 ping | grep -q PONG"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket: { port: 26379 }
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - { name: sentinel, mountPath: /sentinel }
+            - { name: scripts, mountPath: /scripts }
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: sentinel
+          emptyDir: {}
+        - name: scripts
+          configMap: { name: newapi-redis-ha }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: newapi-redis-ha
+  namespace: services
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels: { app: newapi-redis-ha }
