@@ -327,6 +327,10 @@ spec:
       labels: { app: newapi-redis }
     spec:
       automountServiceAccountToken: false
+      # Default is 300s; a partitioned node held the only Redis for ~3 minutes on 2026-11-04.
+      tolerations:
+        - { key: node.kubernetes.io/unreachable, operator: Exists, effect: NoExecute, tolerationSeconds: 15 }
+        - { key: node.kubernetes.io/not-ready, operator: Exists, effect: NoExecute, tolerationSeconds: 15 }
       securityContext:
         runAsNonRoot: true
         runAsUser: 999
