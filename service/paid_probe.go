@@ -46,12 +46,9 @@ func TrackPaidProbe(userId int, modelName string) {
 	if err != nil {
 		return
 	}
-	refusals, err := common.RDB.Incr(ctx, key+":n").Result()
+	refusals, err := common.RedisIncrExpire(ctx, key+":n", paidProbeWindow)
 	if err != nil {
 		return
-	}
-	if refusals == 1 {
-		common.RDB.Expire(ctx, key+":n", paidProbeWindow)
 	}
 	if (limit <= 0 || distinct < int64(limit)) && (maxRefusals <= 0 || refusals < int64(maxRefusals)) {
 		return

@@ -1145,14 +1145,15 @@ func (user *User) Update(updatePassword bool) error {
 	}); err != nil {
 		return err
 	}
-	if err := updateUserCache(*user); err != nil {
-		return err
-	}
+	// Revoke even when the cache write fails, or a password change made while Redis is
+	// down leaves the old sessions alive.
+	cacheErr := updateUserCache(*user)
 	if user.AuthVersion > previousAuthVersion {
-		_, err := RevokeAllUserSessions(user.Id, "user_security_changed")
-		return err
+		if _, err := RevokeAllUserSessions(user.Id, "user_security_changed"); err != nil {
+			return err
+		}
 	}
-	return nil
+	return cacheErr
 }
 
 func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
@@ -1214,14 +1215,15 @@ func (user *User) Edit(updatePassword bool) error {
 	}); err != nil {
 		return err
 	}
-	if err := updateUserCache(*user); err != nil {
-		return err
-	}
+	// Revoke even when the cache write fails, or a password change made while Redis is
+	// down leaves the old sessions alive.
+	cacheErr := updateUserCache(*user)
 	if user.AuthVersion > previousAuthVersion {
-		_, err := RevokeAllUserSessions(user.Id, "user_security_changed")
-		return err
+		if _, err := RevokeAllUserSessions(user.Id, "user_security_changed"); err != nil {
+			return err
+		}
 	}
-	return nil
+	return cacheErr
 }
 
 func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
@@ -1366,12 +1368,15 @@ func (user *User) delete(identity *AuthSessionIdentity) (int64, error) {
 		return 0, err
 	}
 	if err := publishCommittedUserAuthVersion(user.Id, nextAuthVersion); err != nil {
-		return revokedAccessTokens, err
+		common.SysError(common.LogText("failed to publish auth tombstone after deleting user %d: %v", user.Id, err))
 	}
 	if _, err := RevokeAllUserSessions(user.Id, "user_deleted"); err != nil {
 		return revokedAccessTokens, err
 	}
-	return revokedAccessTokens, invalidateUserCache(user.Id)
+	if err := invalidateUserCache(user.Id); err != nil {
+		common.SysError(common.LogText("failed to invalidate user cache after deleting user %d: %v", user.Id, err))
+	}
+	return revokedAccessTokens, nil
 }
 
 func (user *User) HardDelete() (int64, error) {

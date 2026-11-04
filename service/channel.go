@@ -235,10 +235,7 @@ func bumpSlowSlot(kind string, fallback *sync.Map, channelId int) {
 	if common.RedisEnabled {
 		ctx := context.Background()
 		key := slowSlotKey(kind, channelId, slot)
-		if n, err := common.RDB.Incr(ctx, key).Result(); err == nil {
-			if n == 1 {
-				common.RDB.Expire(ctx, key, time.Duration(hours+1)*time.Hour)
-			}
+		if _, err := common.RedisIncrExpire(ctx, key, time.Duration(hours+1)*time.Hour); err == nil {
 			return
 		} else {
 			common.SysError("slow window Redis incr failed: " + err.Error())
@@ -386,11 +383,8 @@ func ResetRecoveryProbePasses(channelId int) {
 func bumpWindowCounter(key string, fallback *sync.Map, id any) int {
 	if common.RedisEnabled {
 		ctx := context.Background()
-		n, err := common.RDB.Incr(ctx, key).Result()
+		n, err := common.RedisIncrExpire(ctx, key, emptyResponseCounterTTL)
 		if err == nil {
-			if n == 1 {
-				common.RDB.Expire(ctx, key, emptyResponseCounterTTL)
-			}
 			return int(n)
 		}
 		common.SysError("window counter Redis incr failed: " + err.Error())
@@ -436,11 +430,8 @@ func readWindowCounter(key string, fallback *sync.Map, id any) int {
 func bumpFailureStreak(channelId int) int {
 	if common.RedisEnabled {
 		ctx := context.Background()
-		n, err := common.RDB.Incr(ctx, channelFailureStreakKey(channelId)).Result()
+		n, err := common.RedisIncrExpire(ctx, channelFailureStreakKey(channelId), emptyResponseCounterTTL)
 		if err == nil {
-			if n == 1 {
-				common.RDB.Expire(ctx, channelFailureStreakKey(channelId), emptyResponseCounterTTL)
-			}
 			return int(n)
 		}
 		common.SysError("failure streak Redis incr failed: " + err.Error())

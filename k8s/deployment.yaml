@@ -99,6 +99,12 @@ spec:
           env:
             - name: POD_UID
               valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+            # the primary comes from the Sentinels in k8s/redis.yaml; REDIS_CONN_STRING still
+            # enables Redis and supplies DB and credentials
+            - name: REDIS_SENTINEL_ADDRS
+              value: newapi-redis-ha-0.newapi-redis-ha.services.svc.cluster.local:26379,newapi-redis-ha-1.newapi-redis-ha.services.svc.cluster.local:26379,newapi-redis-ha-2.newapi-redis-ha.services.svc.cluster.local:26379
+            - name: REDIS_MASTER_NAME
+              value: newapi
             # collect hard near the 2Gi limit instead of being OOM killed (2026-10-10)
             - name: GOMEMLIMIT
               value: "1600MiB"
@@ -243,6 +249,12 @@ spec:
           env:
             - name: POD_UID
               valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+            # the primary comes from the Sentinels in k8s/redis.yaml; REDIS_CONN_STRING still
+            # enables Redis and supplies DB and credentials
+            - name: REDIS_SENTINEL_ADDRS
+              value: newapi-redis-ha-0.newapi-redis-ha.services.svc.cluster.local:26379,newapi-redis-ha-1.newapi-redis-ha.services.svc.cluster.local:26379,newapi-redis-ha-2.newapi-redis-ha.services.svc.cluster.local:26379
+            - name: REDIS_MASTER_NAME
+              value: newapi
             # collect hard near the 2Gi limit instead of being OOM killed (2026-10-10)
             - name: GOMEMLIMIT
               value: "1600MiB"

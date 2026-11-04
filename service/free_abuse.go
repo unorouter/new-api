@@ -171,13 +171,10 @@ func recordWindowedUsage(keyPrefix string, mem *common.InMemoryRateLimiter, user
 	if common.RedisEnabled {
 		ctx := context.Background()
 		key := fmt.Sprintf("%s:user:%d", keyPrefix, userId)
-		count, err := common.RDB.Incr(ctx, key).Result()
+		count, err := common.RedisIncrExpire(ctx, key, time.Duration(windowSeconds)*time.Second)
 		if err != nil {
 			common.SysLog(keyPrefix + " counter incr failed: " + err.Error())
 			return false
-		}
-		if count == 1 {
-			common.RDB.Expire(ctx, key, time.Duration(windowSeconds)*time.Second)
 		}
 		return count > int64(max)
 	}
@@ -307,13 +304,10 @@ func recordFreeUsage(userId int, maxPerMin int) bool {
 	if common.RedisEnabled {
 		ctx := context.Background()
 		key := fmt.Sprintf("freeAbuse:user:%d", userId)
-		count, err := common.RDB.Incr(ctx, key).Result()
+		count, err := common.RedisIncrExpire(ctx, key, freeAbuseWindowSeconds*time.Second)
 		if err != nil {
 			common.SysLog("free abuse counter incr failed: " + err.Error())
 			return false
-		}
-		if count == 1 {
-			common.RDB.Expire(ctx, key, freeAbuseWindowSeconds*time.Second)
 		}
 		return count > int64(maxPerMin)
 	}

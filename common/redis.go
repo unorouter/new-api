@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -37,20 +38,62 @@ func InitRedisClient() (err error) {
 		FatalLog(LogText("failed to parse Redis connection string: %s", err.Error()))
 	}
 	opt.PoolSize = GetEnvOrDefault("REDIS_POOL_SIZE", 10)
-	RDB = redis.NewClient(opt)
+	// Every caller degrades on a Redis error, so a dead or partitioned Redis must fail fast:
+	// the go-redis defaults (5s dial, 3s read, 3 retries) held each call for up to 13s.
+	timeout := time.Duration(GetEnvOrDefault("REDIS_TIMEOUT_MS", 300)) * time.Millisecond
+	opt.DialTimeout = timeout
+	opt.ReadTimeout = timeout
+	opt.WriteTimeout = timeout
+	opt.PoolTimeout = 2 * timeout
+	opt.MaxRetries = 1
+	if addrs := os.Getenv("REDIS_SENTINEL_ADDRS"); addrs != "" {
+		RDB = redis.NewFailoverClient(&redis.FailoverOptions{
+			MasterName:    GetEnvOrDefaultString("REDIS_MASTER_NAME", "mymaster"),
+			SentinelAddrs: strings.Split(addrs, ","),
+			Username:      opt.Username,
+			Password:      opt.Password,
+			DB:            opt.DB,
+			PoolSize:      opt.PoolSize,
+			DialTimeout:   opt.DialTimeout,
+			ReadTimeout:   opt.ReadTimeout,
+			WriteTimeout:  opt.WriteTimeout,
+			PoolTimeout:   opt.PoolTimeout,
+			MaxRetries:    opt.MaxRetries,
+		})
+		SysLog(LogText("Redis via Sentinel, master %s", GetEnvOrDefaultString("REDIS_MASTER_NAME", "mymaster")))
+	} else {
+		RDB = redis.NewClient(opt)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err = RDB.Ping(ctx).Result()
-	if err != nil {
-		FatalLog(LogText("Redis ping test failed: %s", err.Error()))
+	// Not fatal: a gateway that cannot start while Redis is down turns a degraded Redis into
+	// an outage on the next pod restart.
+	if err := RDB.Ping(ctx).Err(); err != nil {
+		SysError(LogText("Redis ping test failed, starting degraded: %s", err.Error()))
 	}
 	if DebugEnabled {
 		SysLog(LogText("Redis connected to %s", opt.Addr))
 		SysLog(LogText("Redis database: %d", opt.DB))
 	}
-	return err
+	return nil
+}
+
+// RedisIncrExpire increments key and arms its TTL in one transaction. EXPIRE NX keeps a
+// running window fixed and still repairs a counter whose separate EXPIRE was lost, which left
+// it counting forever.
+func RedisIncrExpire(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	var incr *redis.IntCmd
+	_, err := RDB.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		incr = pipe.Incr(ctx, key)
+		pipe.ExpireNX(ctx, key, ttl)
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return incr.Val(), nil
 }
 
 func ParseRedisOption() *redis.Options {
