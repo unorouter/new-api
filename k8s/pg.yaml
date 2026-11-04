@@ -273,6 +273,9 @@ spec:
       - hostssl all dbadmin all cert
     parameters:
       max_connections: "200"
+      # Grafana reads quota_data on the replicas, which autovacuum churns constantly;
+      # without feedback a query past 30s was cancelled (SQLSTATE 40001).
+      hot_standby_feedback: "on"
       # 3.3GB model_status_pings + 2.3M logs: default 128MB shared_buffers thrashed disk
       # on every status-page aggregation (83 SLOW SQL / 2h, user-visible page hangs)
       shared_buffers: "512MB"
