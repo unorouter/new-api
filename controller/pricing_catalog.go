@@ -574,25 +574,7 @@ const pricingCatalogTTL = 30 * time.Second
 // key wait for the one build. Keys must come from a bounded set, never from raw user input.
 func pricingCached[T any](c fuego.ContextNoBody, key string, build func() (T, error)) (T, error) {
 	group, known := pricingCallerGroup(c)
-	key = fmt.Sprintf("pricing:%s:%t:%s", group, known, key)
-	if cached, ok := statusPageCacheGet(key); ok {
-		if hit, ok := cached.(T); ok {
-			return hit, nil
-		}
-	}
-	built, err, _ := statusPageGroup.Do(key, func() (any, error) {
-		fresh, err := build()
-		if err != nil {
-			return nil, err
-		}
-		statusPageCacheSetTTL(key, fresh, pricingCatalogTTL)
-		return fresh, nil
-	})
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-	return built.(T), nil
+	return memoryCached(fmt.Sprintf("pricing:%s:%t:%s", group, known, key), pricingCatalogTTL, build)
 }
 
 func GetPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) {
@@ -714,41 +696,43 @@ func buildPricingCatalog(c fuego.ContextNoBody) (dto.PricingCatalogData, error) 
 // them price anything, so this carries no prices, metadata or description: a
 // third of the catalog's size.
 func GetPricingVendors(c fuego.ContextNoBody) (dto.PricingVendorsData, error) {
-	pricing, groupRatio := visiblePricing(c)
-	// No reliability: this route carries no prices or uptime, so building the full
-	// catalog context would run two aggregate queries it never reads.
-	ctx := catalogCtx{vendorByID: vendorsByID(), groupRatio: groupRatio}
+	return pricingCached(c, "vendors", func() (dto.PricingVendorsData, error) {
+		pricing, groupRatio := visiblePricing(c)
+		// No reliability: this route carries no prices or uptime, so building the full
+		// catalog context would run two aggregate queries it never reads.
+		ctx := catalogCtx{vendorByID: vendorsByID(), groupRatio: groupRatio}
 
-	out := make([]dto.PricingVendorModel, 0, len(pricing))
-	seen := make(map[string]struct{}, len(pricing))
-	names := make([]string, 0, len(ctx.vendorByID))
-	for _, m := range pricing {
-		d := ctx.derive(m)
-		vendorName := d.vendorName
-		if _, ok := seen[vendorName]; !ok {
-			seen[vendorName] = struct{}{}
-			names = append(names, vendorName)
+		out := make([]dto.PricingVendorModel, 0, len(pricing))
+		seen := make(map[string]struct{}, len(pricing))
+		names := make([]string, 0, len(ctx.vendorByID))
+		for _, m := range pricing {
+			d := ctx.derive(m)
+			vendorName := d.vendorName
+			if _, ok := seen[vendorName]; !ok {
+				seen[vendorName] = struct{}{}
+				names = append(names, vendorName)
+			}
+			tag := "Other"
+			if tags := catalogTags(m.Tags); len(tags) > 0 {
+				tag = tags[0]
+			}
+			out = append(out, dto.PricingVendorModel{
+				ModelName: m.ModelName,
+				Vendor:    vendorName,
+				Chat:      d.chat,
+				IsFree:    modelIsFree(m, groupRatio),
+				Tag:       tag,
+				ReleaseTs: d.md.ReleaseTs,
+			})
 		}
-		tag := "Other"
-		if tags := catalogTags(m.Tags); len(tags) > 0 {
-			tag = tags[0]
-		}
-		out = append(out, dto.PricingVendorModel{
-			ModelName: m.ModelName,
-			Vendor:    vendorName,
-			Chat:      d.chat,
-			IsFree:    modelIsFree(m, groupRatio),
-			Tag:       tag,
-			ReleaseTs: d.md.ReleaseTs,
+
+		collator := newCatalogCollator()
+		sort.SliceStable(names, func(i, j int) bool {
+			return collator.CompareString(names[i], names[j]) < 0
 		})
-	}
 
-	collator := newCatalogCollator()
-	sort.SliceStable(names, func(i, j int) bool {
-		return collator.CompareString(names[i], names[j]) < 0
+		return dto.PricingVendorsData{VendorNames: names, ModelVendors: out}, nil
 	})
-
-	return dto.PricingVendorsData{VendorNames: names, ModelVendors: out}, nil
 }
 
 // modelGroups resolves one model's servable groups, the ratios for just those
@@ -907,14 +891,16 @@ func buildPricingCatalogModel(c fuego.ContextNoBody, pricing model.Pricing) dto.
 // otherwise download the whole catalog to sum. Same group filter as the catalog, so the
 // totals always describe the same set of models the list would return.
 func GetPricingCounts(c fuego.ContextNoBody) (dto.PricingCatalogCounts, error) {
-	pricing, groupRatio := visiblePricing(c)
-	vendorByID := vendorsByID()
+	return pricingCached(c, "counts", func() (dto.PricingCatalogCounts, error) {
+		pricing, groupRatio := visiblePricing(c)
+		vendorByID := vendorsByID()
 
-	return countModels(len(pricing), func(yield func(bool, string)) {
-		for _, m := range pricing {
-			yield(modelIsFree(m, groupRatio), catalogVendorName(vendorByID, m.VendorID))
-		}
-	}), nil
+		return countModels(len(pricing), func(yield func(bool, string)) {
+			for _, m := range pricing {
+				yield(modelIsFree(m, groupRatio), catalogVendorName(vendorByID, m.VendorID))
+			}
+		}), nil
+	})
 }
 
 // countModels is the ONE counting rule, over the two facts it needs. Both callers

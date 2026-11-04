@@ -262,53 +262,60 @@ func cachedUptimes(modelNames []string) (map[string]float64, map[string]float64,
 
 // GET /api/model_status/components
 func GetModelStatusComponents(c fuego.ContextNoBody) (*dto.Response[[]ComponentDTO], error) {
-	comps, err := model.GetAllPublicModelStatusComponents()
-	if err != nil {
-		return dto.Fail[[]ComponentDTO](err.Error())
-	}
-	latest, err := model.LatestPingByModel()
-	if err != nil {
-		return dto.Fail[[]ComponentDTO](err.Error())
-	}
-	modelNames := make([]string, 0, len(comps))
-	componentIds := make([]int, 0, len(comps))
-	for _, comp := range comps {
-		modelNames = append(modelNames, comp.ModelName)
-		componentIds = append(componentIds, comp.Id)
-	}
+	// Every status page render and poll asks for this; uncached it was four queries per request.
+	items, err := cachedStatus("components", statusPageCacheTTL, func() ([]ComponentDTO, error) {
+		comps, err := model.GetAllPublicModelStatusComponents()
+		if err != nil {
+			return nil, err
+		}
+		latest, err := model.LatestPingByModel()
+		if err != nil {
+			return nil, err
+		}
+		modelNames := make([]string, 0, len(comps))
+		componentIds := make([]int, 0, len(comps))
+		for _, comp := range comps {
+			modelNames = append(modelNames, comp.ModelName)
+			componentIds = append(componentIds, comp.Id)
+		}
 
-	uptime24h, uptime30d, err := cachedUptimes(modelNames)
-	if err != nil {
-		return dto.Fail[[]ComponentDTO](err.Error())
-	}
-	openIncidents, err := model.OpenIncidentsByComponent(componentIds)
-	if err != nil {
-		return dto.Fail[[]ComponentDTO](err.Error())
-	}
+		uptime24h, uptime30d, err := cachedUptimes(modelNames)
+		if err != nil {
+			return nil, err
+		}
+		openIncidents, err := model.OpenIncidentsByComponent(componentIds)
+		if err != nil {
+			return nil, err
+		}
 
-	items := make([]ComponentDTO, 0, len(comps))
-	for _, comp := range comps {
-		dto := ComponentDTO{
-			Id:          comp.Id,
-			Name:        comp.ModelName,
-			Description: comp.Description,
-			GroupId:     comp.GroupId,
-			Status:      model.ModelStatusEmpty,
+		items := make([]ComponentDTO, 0, len(comps))
+		for _, comp := range comps {
+			dto := ComponentDTO{
+				Id:          comp.Id,
+				Name:        comp.ModelName,
+				Description: comp.Description,
+				GroupId:     comp.GroupId,
+				Status:      model.ModelStatusEmpty,
+			}
+			if p, ok := latest[comp.ModelName]; ok {
+				dto.Status = p.Status
+				dto.UpChannels = p.UpChannels
+				dto.TotalChannels = p.TotalChannels
+				dto.ProbeLatencyMs = p.LatencyMs
+				dto.SampledAt = p.Timestamp
+			}
+			dto.Uptime24h = uptime24h[comp.ModelName]
+			dto.Uptime30d = uptime30d[comp.ModelName]
+			if id, ok := openIncidents[comp.Id]; ok {
+				idCopy := id
+				dto.OpenIncidentId = &idCopy
+			}
+			items = append(items, dto)
 		}
-		if p, ok := latest[comp.ModelName]; ok {
-			dto.Status = p.Status
-			dto.UpChannels = p.UpChannels
-			dto.TotalChannels = p.TotalChannels
-			dto.ProbeLatencyMs = p.LatencyMs
-			dto.SampledAt = p.Timestamp
-		}
-		dto.Uptime24h = uptime24h[comp.ModelName]
-		dto.Uptime30d = uptime30d[comp.ModelName]
-		if id, ok := openIncidents[comp.Id]; ok {
-			idCopy := id
-			dto.OpenIncidentId = &idCopy
-		}
-		items = append(items, dto)
+		return items, nil
+	})
+	if err != nil {
+		return dto.Fail[[]ComponentDTO](err.Error())
 	}
 	return dtoOk(items)
 }

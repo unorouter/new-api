@@ -103,17 +103,31 @@ func GetPerfMetrics(c fuego.ContextWithParams[dto.GetPerfMetricsParams]) (*dto.R
 		hours = 24
 	}
 
-	result, err := perfmetrics.Query(perfmetrics.QueryParams{
-		Model:         p.Model,
-		Group:         p.Group,
-		Hours:         hours,
-		AllowedGroups: append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto"),
-	})
+	build := func() (perfmetrics.QueryResult, error) {
+		result, err := perfmetrics.Query(perfmetrics.QueryParams{
+			Model:         p.Model,
+			Group:         p.Group,
+			Hours:         hours,
+			AllowedGroups: append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto"),
+		})
+		if err != nil {
+			return result, err
+		}
+		attachGroupUptime(&result, p.Model, hours)
+		return result, nil
+	}
+	// Model, group and hours are free input, so only the model page's own shape is cached:
+	// a known model, every group, the default window.
+	_, known := model.GetPricingByModelName(p.Model)
+	var result perfmetrics.QueryResult
+	if known && p.Group == "" && hours == 24 {
+		result, err = memoryCached("perf:"+p.Model, time.Minute, build)
+	} else {
+		result, err = build()
+	}
 	if err != nil {
 		return dto.Fail[perfmetrics.QueryResult](err.Error())
 	}
-
-	attachGroupUptime(&result, p.Model, hours)
 	return dto.Ok(result)
 }
 

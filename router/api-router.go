@@ -29,7 +29,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Get(setup, "/setup", controller.GetSetup)
 		dto.PostB(setup, "/setup", controller.PostSetup)
 
-		system := dto.NewRouter(engine, apiRouter, "System", secPublic())
+		system := dto.NewRouter(engine, apiRouter.Group("", middleware.PublicCache(60)), "System", secPublic())
 		dto.Get(system, "/status", controller.GetStatus)
 		dto.Get(system, "/uptime/status", controller.GetUptimeKumaStatus)
 		dto.Get(system, "/notice", controller.GetNotice)
@@ -47,7 +47,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		publicAdminSystem := dto.NewRouter(engine, apiRouter.Group("", middleware.AdminAuth()), "System", secDashboard())
 		dto.Get(publicAdminSystem, "/status/test", controller.TestStatus)
 
-		publicPricing := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightPublic), middleware.TryUserAuth()), "Pricing", secPublic())
+		publicPricing := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightPublic), middleware.TryUserAuth(), middleware.PublicCache(60)), "Pricing", secPublic())
 		dto.Get(publicPricing, "/pricing", controller.GetPricing)
 		dto.Get(publicPricing, "/pricing/catalog", controller.GetPricingCatalog, dto.CatalogFullQuery(), dto.CatalogVendorQuery(), dto.CatalogEndpointQuery(), dto.CatalogTypeQuery(), dto.CatalogOfflineQuery())
 		dto.Get(publicPricing, "/pricing/vendors", controller.GetPricingVendors)
@@ -55,11 +55,11 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Get(publicPricing, "/pricing/model-groups", controller.GetPricingModelGroups, dto.ModelQuery())
 		dto.Get(publicPricing, "/pricing/catalog/model", controller.GetPricingCatalogModel, dto.ModelQuery())
 
-		publicPerfMetrics := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightAnalytics), middleware.TryUserAuth()), "PerfMetrics", secPublic())
+		publicPerfMetrics := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightAnalytics), middleware.TryUserAuth(), middleware.PublicCache(60)), "PerfMetrics", secPublic())
 		dto.GetP(publicPerfMetrics, "/perf-metrics/summary", controller.GetPerfMetricsSummary)
 		dto.GetP(publicPerfMetrics, "/perf-metrics", controller.GetPerfMetrics)
 
-		publicRankings := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightAnalytics)), "Rankings", secPublic())
+		publicRankings := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightAnalytics), middleware.PublicCache(60)), "Rankings", secPublic())
 		dto.GetP(publicRankings, "/rankings", controller.GetRankings)
 		dto.GetP(publicRankings, "/rankings/model", controller.GetModelRanking)
 		dto.GetP(publicRankings, "/rankings/price-history", controller.GetModelPriceHistory)
@@ -67,15 +67,16 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 
 		// Aggregate platform totals and model health, both rendered to anonymous
 		// visitors on the public stats and status pages. Neither reads user context.
-		publicStats := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightPublic), middleware.TryUserAuth()), "Stats", secPublic())
+		publicStats := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightPublic), middleware.TryUserAuth(), middleware.PublicCache(30)), "Stats", secPublic())
+		publicLogLookup := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightPublic), middleware.TryUserAuth()), "Stats", secPublic())
 		// Its own slot pool: every distinct hour is a fresh quota_data scan, and sharing
 		// the public pool let a flood of them turn the pricing and status pages into 429s.
-		publicDataSummary := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightAnalytics), middleware.TryUserAuth()), "Stats", secPublic())
+		publicDataSummary := dto.NewRouter(engine, apiRouter.Group("", middleware.InflightLimit(middleware.InflightAnalytics), middleware.TryUserAuth(), middleware.PublicCache(60)), "Stats", secPublic())
 		dto.GetP(publicDataSummary, "/data/summary", controller.GetQuotaDataSummary)
 		dto.Get(publicStats, "/model_status/components", controller.GetModelStatusComponents)
 		dto.GetP(publicStats, "/model_status/buckets", controller.GetModelStatusBuckets)
 		dto.GetP(publicStats, "/model_status/page_compact", controller.GetModelStatusPageCompact)
-		dto.GetP(publicStats, "/log/by-request", controller.GetLogByRequest)
+		dto.GetP(publicLogLookup, "/log/by-request", controller.GetLogByRequest)
 
 		publicEmailVerify := dto.NewRouter(engine, apiRouter.Group("", middleware.EmailVerificationRateLimit(), middleware.TurnstileCheck()), "Auth", secPublic())
 		dto.GetP(publicEmailVerify, "/verification", controller.SendEmailVerification, dto.TurnstileQuery())
@@ -221,7 +222,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// Payment methods and their minimums are operator settings, identical for
 		// every caller, and the public pricing page renders them before anyone
 		// logs in. Reads no user context, so it needs no session.
-		publicTopUp := dto.NewRouter(engine, userGroup.Group("", middleware.TryUserAuth()), "TopUp", secPublic())
+		publicTopUp := dto.NewRouter(engine, userGroup.Group("", middleware.TryUserAuth(), middleware.PublicCache(60)), "TopUp", secPublic())
 		dto.Get(publicTopUp, "/topup/info", controller.GetTopUpInfo)
 
 		selfTopUp := self.WithTag("TopUp")
@@ -349,7 +350,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		sub := dto.NewRouter(engine, subGroup, "Subscription", secDashboard())
 		// The plan catalog is the same for everyone and is what the public pricing
 		// page renders, so it carries no user context and needs no session.
-		subPublic := dto.NewRouter(engine, apiRouter.Group("/subscription", middleware.TryUserAuth()), "Subscription", secPublic())
+		subPublic := dto.NewRouter(engine, apiRouter.Group("/subscription", middleware.TryUserAuth(), middleware.PublicCache(60)), "Subscription", secPublic())
 		dto.Get(subPublic, "/plans", controller.GetSubscriptionPlans)
 
 		// Reads gated by `subscription:read` for OAuth agents; humans pass.

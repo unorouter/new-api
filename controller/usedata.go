@@ -3,6 +3,7 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -37,15 +38,23 @@ func GetQuotaDataSummary(c fuego.ContextWithParams[dto.GetQuotaSummaryParams]) (
 	// Anonymous and non-admin callers get the all-time public totals only: a free
 	// window or quota (billed revenue) would let anyone chart usage hour by hour.
 	admin := dto.GinCtx(c).GetInt("role") >= common.RoleAdminUser
-	if !admin {
-		p.StartTimestamp, p.EndTimestamp = 0, publicSummaryEnd
+	if admin {
+		summary, err := model.GetQuotaDataSummary(p.StartTimestamp, p.EndTimestamp)
+		if err != nil {
+			return dto.Fail[*model.QuotaDataSummary](err.Error())
+		}
+		return dto.Ok(summary)
 	}
-	summary, err := model.GetQuotaDataSummary(p.StartTimestamp, p.EndTimestamp)
+	// The Redis copy has no coalescing, so a burst during a Redis outage would scan quota_data once per request.
+	summary, err := memoryCached("quota_summary_public", time.Minute, func() (*model.QuotaDataSummary, error) {
+		s, err := model.GetQuotaDataSummary(0, publicSummaryEnd)
+		if err != nil {
+			return nil, err
+		}
+		return &model.QuotaDataSummary{Count: s.Count, TokenUsed: s.TokenUsed, AvgTpm: s.AvgTpm}, nil
+	})
 	if err != nil {
 		return dto.Fail[*model.QuotaDataSummary](err.Error())
-	}
-	if !admin {
-		return dto.Ok(&model.QuotaDataSummary{Count: summary.Count, TokenUsed: summary.TokenUsed, AvgTpm: summary.AvgTpm})
 	}
 	return dto.Ok(summary)
 }

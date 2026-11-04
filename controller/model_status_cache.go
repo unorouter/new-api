@@ -160,3 +160,33 @@ func statusRefreshSync[T any](key string, ttl time.Duration, build func() (T, er
 	statusStore(key, ttl, v)
 	return true
 }
+
+// memoryCached is cachedStatus without Redis, for payloads that are cheap to rebuild
+// or do not survive a JSON round trip. Keys must come from a bounded set.
+func memoryCached[T any](key string, ttl time.Duration, build func() (T, error)) (T, error) {
+	if cached, ok := statusPageCacheGet(key); ok {
+		if hit, ok := cached.(T); ok {
+			return hit, nil
+		}
+	}
+	built, err, _ := statusPageGroup.Do(key, func() (any, error) {
+		if cached, ok := statusPageCacheGet(key); ok {
+			return cached, nil
+		}
+		fresh, err := build()
+		if err != nil {
+			return nil, err
+		}
+		statusPageCacheSetTTL(key, fresh, ttl)
+		return fresh, nil
+	})
+	var zero T
+	if err != nil {
+		return zero, err
+	}
+	hit, ok := built.(T)
+	if !ok {
+		return zero, fmt.Errorf("cache entry %s has an unexpected type", key)
+	}
+	return hit, nil
+}

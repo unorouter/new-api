@@ -119,20 +119,24 @@ func GetUptimeKumaStatus(c fuego.ContextNoBody) (*dto.Response[[]dto.UptimeGroup
 		return dto.Ok([]dto.UptimeGroupResult{})
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request().Context(), requestTimeout)
-	defer cancel()
+	// Detached from the request: a caller that disconnects would cut the shared result short.
+	results, _ := memoryCached("uptime_kuma", time.Minute, func() ([]dto.UptimeGroupResult, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+		defer cancel()
 
-	client := &http.Client{Timeout: httpTimeout}
-	results := make([]dto.UptimeGroupResult, len(groups))
+		client := &http.Client{Timeout: httpTimeout}
+		results := make([]dto.UptimeGroupResult, len(groups))
 
-	g, gCtx := errgroup.WithContext(ctx)
-	for i, group := range groups {
-		g.Go(func() error {
-			results[i] = fetchGroupData(gCtx, client, group)
-			return nil
-		})
-	}
+		g, gCtx := errgroup.WithContext(ctx)
+		for i, group := range groups {
+			g.Go(func() error {
+				results[i] = fetchGroupData(gCtx, client, group)
+				return nil
+			})
+		}
 
-	g.Wait()
+		g.Wait()
+		return results, nil
+	})
 	return dto.Ok(results)
 }

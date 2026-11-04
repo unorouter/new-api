@@ -66,29 +66,31 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 }
 
 func GetPricing(c fuego.ContextNoBody) (dto.PricingData, error) {
-	pricing := model.GetPricing()
-	groupRatio := ratio_setting.GetGroupRatioCopy()
-	group := applyUserGroupRatio(c, groupRatio)
-	usableGroup := service.GetUserUsableGroups(group)
-	pricing = filterPricingByUsableGroups(pricing, usableGroup)
-	for group := range ratio_setting.GetGroupRatioCopy() {
-		if _, ok := usableGroup[group]; !ok {
-			delete(groupRatio, group)
+	return pricingCached(c, "legacy", func() (dto.PricingData, error) {
+		pricing := model.GetPricing()
+		groupRatio := ratio_setting.GetGroupRatioCopy()
+		group := applyUserGroupRatio(c, groupRatio)
+		usableGroup := service.GetUserUsableGroups(group)
+		pricing = filterPricingByUsableGroups(pricing, usableGroup)
+		for group := range ratio_setting.GetGroupRatioCopy() {
+			if _, ok := usableGroup[group]; !ok {
+				delete(groupRatio, group)
+			}
 		}
-	}
 
-	showOriginalPrice := operation_setting.ShowOriginalPriceEnabled
+		showOriginalPrice := operation_setting.ShowOriginalPriceEnabled
 
-	return dto.PricingData{
-		Success:           true,
-		Data:              toPricingModels(pricing, groupRatio),
-		Vendors:           toPricingVendors(model.GetVendors()),
-		GroupRatio:        groupRatio,
-		UsableGroup:       usableGroup,
-		SupportedEndpoint: toEndpointInfoMap(model.GetSupportedEndpointMap()),
-		AutoGroups:        service.GetUserAutoGroup(group),
-		ShowOriginalPrice: showOriginalPrice,
-	}, nil
+		return dto.PricingData{
+			Success:           true,
+			Data:              toPricingModels(pricing, groupRatio),
+			Vendors:           toPricingVendors(model.GetVendors()),
+			GroupRatio:        groupRatio,
+			UsableGroup:       usableGroup,
+			SupportedEndpoint: toEndpointInfoMap(model.GetSupportedEndpointMap()),
+			AutoGroups:        service.GetUserAutoGroup(group),
+			ShowOriginalPrice: showOriginalPrice,
+		}, nil
+	})
 }
 
 // A model is free when every price input is zero. Mirrors the two billing
