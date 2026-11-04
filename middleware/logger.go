@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -38,7 +39,7 @@ func SetUpLogger(server *gin.Engine) {
 			query := param.Request.URL.Query().Encode()
 			path = param.Request.URL.EscapedPath() + relaycommon.SanitizeURLForLog("?"+query)
 		}
-		return fmt.Sprintf("[GIN] %s | %s | %s | %3d | %13v | %15s | %7s %s\n",
+		line := fmt.Sprintf("[GIN] %s | %s | %s | %3d | %13v | %15s | %7s %s",
 			param.TimeStamp.Format("2006/01/02 - 15:04:05"),
 			tag,
 			requestID,
@@ -48,5 +49,26 @@ func SetUpLogger(server *gin.Engine) {
 			param.Method,
 			path,
 		)
+		return line + edgeFingerprint(param) + "\n"
 	}))
+}
+
+// The x-uno-* headers come from a Cloudflare request header transform, so only edge traffic carries them.
+func edgeFingerprint(param gin.LogFormatterParams) string {
+	h := param.Request.Header
+	httpVersion := h.Get("X-Uno-Http")
+	if httpVersion == "" {
+		return ""
+	}
+	userID := 0
+	if param.Keys != nil {
+		userID, _ = param.Keys["id"].(int)
+	}
+	ua := h.Get("User-Agent")
+	if len(ua) > 200 {
+		ua = ua[:200]
+	}
+	return fmt.Sprintf(" | fp c=%s l=%s e=%s h=%s asn=%s u=%d ua=%s",
+		h.Get("X-Uno-Tls-Ciphers"), h.Get("X-Uno-Tls-Hello-Len"), h.Get("X-Uno-Tls-Ext"), httpVersion,
+		h.Get("X-Uno-Asn"), userID, strconv.Quote(ua))
 }
