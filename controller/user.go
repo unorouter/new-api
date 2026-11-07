@@ -678,9 +678,12 @@ var patDeniedManageActions = map[string]bool{
 	"set_usable_groups":              true,
 }
 
-// botAllowedManageAction is the only /user/manage action the Discord bot's
+// botAllowedManageActions are the only /user/manage actions the Discord bot's
 // service token may invoke.
-const botAllowedManageAction = "set_free_rate_limit_window_pct"
+var botAllowedManageActions = map[string]bool{
+	"set_free_rate_limit_window_pct": true,
+	"reward_ip_clear":                true,
+}
 
 // maxDiscordGrantQuota bounds one discord_grant. The bot hands out cents for
 // votes and server tags (the largest legitimate grant on record is $1), so a
@@ -1477,7 +1480,7 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 	// The bot's service credential reaches this route for exactly one action.
 	// Without this the token would still be able to delete or promote accounts,
 	// which is most of what taking the token off root was meant to prevent.
-	if middleware.AuthenticatedViaBotToken(ginCtx) && req.Action != botAllowedManageAction {
+	if middleware.AuthenticatedViaBotToken(ginCtx) && !botAllowedManageActions[req.Action] {
 		return dto.Fail[dto.ManageUserData]("No permission to update users of same or higher permission level")
 	}
 	// A bearer secret with no second factor must not decide who keeps their
@@ -1662,6 +1665,25 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		model.RecordLog(user.Id, model.LogTypeManage,
 			common.NewMessage("admin ({{admin}}) set free-rate-limit-window-pct to {{value}} for user", map[string]any{"admin": adminName, "value": pct}))
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
+	case "reward_ip_clear":
+		// mode "check" only reports; value 1 sets the exemption. It never moves quota.
+		info, err := rewardIpCheck(&user)
+		if err != nil {
+			return dto.Fail[dto.ManageUserData](err.Error())
+		}
+		if req.Mode != "check" && req.Value == 1 && !info.Cleared {
+			s := user.GetSetting()
+			s.RewardIpCleared = true
+			user.SetSetting(s)
+			if err := user.Update(false); err != nil {
+				return dto.Fail[dto.ManageUserData](err.Error())
+			}
+			info.Cleared = true
+			adminName := ginCtx.GetString("username")
+			model.RecordLog(user.Id, model.LogTypeManage,
+				common.NewMessage("admin ({{admin}}) cleared the duplicate register IP block for user ({{earlier}} earlier accounts, {{rewarded}} rewarded)", map[string]any{"admin": adminName, "earlier": info.EarlierAccounts, "rewarded": info.EarlierRewarded}))
+		}
+		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status, RewardIp: info})
 	case "set_usable_groups":
 		// Per-user usable-group grants (private routing groups). Keep only
 		// non-empty groups that exist in GroupRatio so we never store junk.
@@ -2145,4 +2167,24 @@ func redirectWithExchangeCode(c *gin.Context, redirectURI string, code string) {
 			RedirectURL: parsed.String(),
 		},
 	})
+}
+
+func rewardIpCheck(user *model.User) (*dto.RewardIpCheckData, error) {
+	info := &dto.RewardIpCheckData{Cleared: user.GetSetting().RewardIpCleared}
+	ids, err := model.EarlierUsersWithRegisterIpHash(user.RegisterIpHash, user.Id)
+	if err != nil {
+		return nil, err
+	}
+	info.EarlierAccounts = len(ids)
+	for _, id := range ids {
+		if granted, err := model.HasDiscordBotGrant(id); err == nil && granted {
+			info.EarlierRewarded++
+		}
+		if user.Email != "" {
+			if other, err := model.GetUserById(id, true); err == nil && strings.EqualFold(other.Email, user.Email) {
+				info.EarlierWithEmail++
+			}
+		}
+	}
+	return info, nil
 }

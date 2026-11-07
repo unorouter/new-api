@@ -447,6 +447,16 @@ func HasEarlierUserWithRegisterIpHash(hash string, userId int) (bool, error) {
 	return count > 0, err
 }
 
+// EarlierUsersWithRegisterIpHash lists the older accounts (incl. soft-deleted) sharing this marker.
+func EarlierUsersWithRegisterIpHash(hash string, userId int) ([]int, error) {
+	if hash == "" {
+		return nil, nil
+	}
+	var ids []int
+	err := DB.Unscoped().Model(&User{}).Where("register_ip_hash = ? AND id < ?", hash, userId).Order("id").Limit(50).Pluck("id", &ids).Error
+	return ids, err
+}
+
 // HasDiscordBotGrant reports whether the Discord bot ever credited this user.
 func HasDiscordBotGrant(userId int) (bool, error) {
 	var count int64

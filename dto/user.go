@@ -58,8 +58,18 @@ type ManageRequest struct {
 
 // ManageUserData is the response data for POST /api/user/manage.
 type ManageUserData struct {
-	Role   int `json:"role"`
-	Status int `json:"status"`
+	Role     int                `json:"role"`
+	Status   int                `json:"status"`
+	RewardIp *RewardIpCheckData `json:"reward_ip,omitempty"`
+}
+
+// RewardIpCheckData describes the accounts that share a user's register IP, for
+// staff deciding whether a duplicate IP reward refusal is a shared VPN or an alt.
+type RewardIpCheckData struct {
+	Cleared          bool `json:"cleared"`
+	EarlierAccounts  int  `json:"earlier_accounts"`
+	EarlierRewarded  int  `json:"earlier_rewarded"`
+	EarlierWithEmail int  `json:"earlier_same_email"`
 }
 
 // GrantDiscordQuotaRequest is the request body for POST /api/user/discord_grant.
