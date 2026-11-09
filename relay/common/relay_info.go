@@ -246,6 +246,10 @@ type RelayInfo struct {
 	// the request boundary, independently of billing success or failure.
 	PerformanceOutputTokens      int64
 	PerformanceBusinessRejection bool
+	// PerformanceInputTokens counts every input token, cache reads and writes
+	// included, so cache read over it is the hit rate whatever the usage shape.
+	PerformanceInputTokens     int64
+	PerformanceCacheReadTokens int64
 
 	// convOptions caches the converter settings snapshot (see ConvOptions).
 	convOptions *convmeta.Options

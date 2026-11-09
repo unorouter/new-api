@@ -609,4 +609,13 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		Other:            other,
 	})
 	relayInfo.PerformanceOutputTokens = int64(summary.CompletionTokens)
+	if originUsage != nil {
+		inputTokens := summary.PromptTokens
+		// Claude-shaped usage reports prompt tokens without cache reads and writes.
+		if summary.IsClaudeUsageSemantic || isLegacyClaudeDerivedOpenAIUsage(relayInfo, billingUsage) {
+			inputTokens += summary.CacheTokens + cacheWriteTokens
+		}
+		relayInfo.PerformanceInputTokens = int64(max(inputTokens, summary.CacheTokens))
+		relayInfo.PerformanceCacheReadTokens = int64(summary.CacheTokens)
+	}
 }

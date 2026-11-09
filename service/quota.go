@@ -401,6 +401,8 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		Other:            other,
 	})
 	relayInfo.PerformanceOutputTokens = int64(usage.CompletionTokens)
+	relayInfo.PerformanceInputTokens = int64(usage.PromptTokens)
+	relayInfo.PerformanceCacheReadTokens = int64(usage.PromptTokensDetails.CachedTokens)
 }
 
 func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {

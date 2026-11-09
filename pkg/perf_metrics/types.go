@@ -16,6 +16,9 @@ type Sample struct {
 	Success      bool
 	OutputTokens int64
 	GenerationMs int64
+	// InputTokens counts every input token, cache reads and writes included.
+	InputTokens     int64
+	CacheReadTokens int64
 }
 
 type QueryParams struct {
@@ -51,8 +54,11 @@ type GroupResult struct {
 	// Share of the window the group's channels were enabled, from channel
 	// transition history rather than traffic. Nil when uptime could not be
 	// resolved, so the UI can tell "no data" from a real 0%.
-	UptimePercent *float64      `json:"uptime_percent,omitempty"`
-	Series        []BucketPoint `json:"series"`
+	UptimePercent *float64 `json:"uptime_percent,omitempty"`
+	// Cache read tokens over all input tokens. Nil when the group settled no
+	// input tokens in the window.
+	CacheHitPercent *float64      `json:"cache_hit_percent,omitempty"`
+	Series          []BucketPoint `json:"series"`
 }
 
 type QueryResult struct {
@@ -101,23 +107,39 @@ type bucketKey struct {
 }
 
 type counters struct {
-	requestCount   int64
-	successCount   int64
-	totalLatencyMs int64
-	ttftSumMs      int64
-	ttftCount      int64
-	outputTokens   int64
-	generationMs   int64
+	requestCount    int64
+	successCount    int64
+	totalLatencyMs  int64
+	ttftSumMs       int64
+	ttftCount       int64
+	outputTokens    int64
+	generationMs    int64
+	inputTokens     int64
+	cacheReadTokens int64
+}
+
+func (c *counters) merge(o counters) {
+	c.requestCount += o.requestCount
+	c.successCount += o.successCount
+	c.totalLatencyMs += o.totalLatencyMs
+	c.ttftSumMs += o.ttftSumMs
+	c.ttftCount += o.ttftCount
+	c.outputTokens += o.outputTokens
+	c.generationMs += o.generationMs
+	c.inputTokens += o.inputTokens
+	c.cacheReadTokens += o.cacheReadTokens
 }
 
 type atomicBucket struct {
-	requestCount   atomic.Int64
-	successCount   atomic.Int64
-	totalLatencyMs atomic.Int64
-	ttftSumMs      atomic.Int64
-	ttftCount      atomic.Int64
-	outputTokens   atomic.Int64
-	generationMs   atomic.Int64
+	requestCount    atomic.Int64
+	successCount    atomic.Int64
+	totalLatencyMs  atomic.Int64
+	ttftSumMs       atomic.Int64
+	ttftCount       atomic.Int64
+	outputTokens    atomic.Int64
+	generationMs    atomic.Int64
+	inputTokens     atomic.Int64
+	cacheReadTokens atomic.Int64
 }
 
 func (b *atomicBucket) add(sample Sample) {
@@ -136,29 +158,37 @@ func (b *atomicBucket) add(sample Sample) {
 		b.outputTokens.Add(sample.OutputTokens)
 		b.generationMs.Add(sample.GenerationMs)
 	}
+	if sample.InputTokens > 0 {
+		b.inputTokens.Add(sample.InputTokens)
+		b.cacheReadTokens.Add(sample.CacheReadTokens)
+	}
 }
 
 func (b *atomicBucket) snapshot() counters {
 	return counters{
-		requestCount:   b.requestCount.Load(),
-		successCount:   b.successCount.Load(),
-		totalLatencyMs: b.totalLatencyMs.Load(),
-		ttftSumMs:      b.ttftSumMs.Load(),
-		ttftCount:      b.ttftCount.Load(),
-		outputTokens:   b.outputTokens.Load(),
-		generationMs:   b.generationMs.Load(),
+		requestCount:    b.requestCount.Load(),
+		successCount:    b.successCount.Load(),
+		totalLatencyMs:  b.totalLatencyMs.Load(),
+		ttftSumMs:       b.ttftSumMs.Load(),
+		ttftCount:       b.ttftCount.Load(),
+		outputTokens:    b.outputTokens.Load(),
+		generationMs:    b.generationMs.Load(),
+		inputTokens:     b.inputTokens.Load(),
+		cacheReadTokens: b.cacheReadTokens.Load(),
 	}
 }
 
 func (b *atomicBucket) drain() counters {
 	return counters{
-		requestCount:   b.requestCount.Swap(0),
-		successCount:   b.successCount.Swap(0),
-		totalLatencyMs: b.totalLatencyMs.Swap(0),
-		ttftSumMs:      b.ttftSumMs.Swap(0),
-		ttftCount:      b.ttftCount.Swap(0),
-		outputTokens:   b.outputTokens.Swap(0),
-		generationMs:   b.generationMs.Swap(0),
+		requestCount:    b.requestCount.Swap(0),
+		successCount:    b.successCount.Swap(0),
+		totalLatencyMs:  b.totalLatencyMs.Swap(0),
+		ttftSumMs:       b.ttftSumMs.Swap(0),
+		ttftCount:       b.ttftCount.Swap(0),
+		outputTokens:    b.outputTokens.Swap(0),
+		generationMs:    b.generationMs.Swap(0),
+		inputTokens:     b.inputTokens.Swap(0),
+		cacheReadTokens: b.cacheReadTokens.Swap(0),
 	}
 }
 
@@ -183,5 +213,11 @@ func (b *atomicBucket) addCounters(c counters) {
 	}
 	if c.generationMs != 0 {
 		b.generationMs.Add(c.generationMs)
+	}
+	if c.inputTokens != 0 {
+		b.inputTokens.Add(c.inputTokens)
+	}
+	if c.cacheReadTokens != 0 {
+		b.cacheReadTokens.Add(c.cacheReadTokens)
 	}
 }
