@@ -60,12 +60,10 @@ var alwaysSkipRetryCodes = map[types.ErrorCode]struct{}{
 	"context_length_exceeded": {},
 	"context_too_long":        {},
 	"request_too_large":       {},
-	// Local/user quota exhaustion; never an upstream/channel fault. Only the
-	// namespaced local codes belong here. The bare "insufficient_quota" is
-	// intentionally omitted: OpenAI-format upstreams (e.g. W&B Inference) echo it
-	// when THEIR account quota is drained, which is a per-channel fault that must
-	// fail over to a sibling and auto-disable the dead channel.
-	"insufficient_user_quota":  {},
+	// Local quota exhaustion. "insufficient_quota" and "insufficient_user_quota" are
+	// left out: an OpenAI-format upstream or a new-api relay echoes them when OUR
+	// account there is drained, a channel fault that must fail over and disable the
+	// lane. Our own quota errors carry ErrOptionWithSkipRetry at every site.
 	"local:insufficient_quota": {},
 	// Local request-build failures (we could not convert/marshal the request for
 	// this model, e.g. "model does not support image generation", AWS/volcengine
