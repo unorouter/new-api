@@ -97,7 +97,7 @@ func zhipu4vImageHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 		case data.B64Image != "":
 			b64 = data.B64Image
 		default:
-			_, downloaded, err := service.GetImageFromUrl(url)
+			_, downloaded, err := service.GetImageFromUrl(c.Request.Context(), url)
 			if err != nil {
 				logger.LogError(c, common.LogText("zhipu_image_get_b64_failed: %s", err.Error()))
 				continue

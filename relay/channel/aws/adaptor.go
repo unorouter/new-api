@@ -60,7 +60,7 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 						source := types.NewURLFileSource(mediaMessage.Source.Url)
 						base64Data, mimeType, err := service.GetBase64Data(c, source, "formatting image for Claude")
 						if err != nil {
-							return nil, fmt.Errorf("get file base64 from url failed: %s", err.Error())
+							return nil, fmt.Errorf("get file base64 from url failed: %w", err)
 						}
 						mediaMessage.Source.MediaType = mimeType
 						mediaMessage.Source.Data = base64Data

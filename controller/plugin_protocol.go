@@ -47,7 +47,7 @@ type pluginProtocolBridgeDeps struct {
 	// inside the request, and b64_json responses download each image URL.
 	imagePollInterval time.Duration
 	pollTask          func(context.Context, *model.Task) error
-	downloadImage     func(url string) (mimeType string, base64Data string, err error)
+	downloadImage     func(ctx context.Context, url string) (mimeType string, base64Data string, err error)
 }
 
 // taskPluginImagePollInterval paces the in-request polling of asynchronous

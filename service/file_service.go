@@ -158,10 +158,16 @@ func loadFromURL(c *gin.Context, url string, reason ...string) (*types.CachedFil
 	// 下载文件
 	var maxFileSize = constant.MaxFileDownloadMB * 1024 * 1024
 
+	remainingBudget, err := reserveMediaFetch(c)
+	if err != nil {
+		return nil, err
+	}
+	readLimit := min(int64(maxFileSize), remainingBudget)
+
 	if common.DebugEnabled {
 		logger.LogDebug(c, "loadFromURL: initiating download")
 	}
-	resp, err := DoDownloadRequest(url, reason...)
+	resp, err := DoDownloadRequest(requestContext(c), url, reason...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download file from %s: %w", url, err)
 	}
@@ -175,12 +181,16 @@ func loadFromURL(c *gin.Context, url string, reason ...string) (*types.CachedFil
 	if common.DebugEnabled {
 		logger.LogDebug(c, "loadFromURL: reading response body")
 	}
-	fileBytes, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxFileSize+1)))
+	fileBytes, err := io.ReadAll(io.LimitReader(resp.Body, readLimit+1))
+	recordMediaFetchBytes(c, int64(len(fileBytes)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file content: %w", err)
 	}
 	if len(fileBytes) > maxFileSize {
 		return nil, fmt.Errorf("file size exceeds maximum allowed size: %dMB", constant.MaxFileDownloadMB)
+	}
+	if int64(len(fileBytes)) > readLimit {
+		return nil, newMediaFetchBudgetError(fmt.Sprintf("media URLs in a request may total at most %dMB", maxMediaFetchBytesPerRequest>>20))
 	}
 
 	// 转换为 base64

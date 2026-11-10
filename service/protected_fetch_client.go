@@ -30,6 +30,9 @@ type ssrfProtectedRoundTripper struct {
 	getProtection func() (*common.SSRFProtection, bool, error)
 	proxy         func(*http.Request) (*url.URL, error)
 
+	tlsHandshakeTimeout   time.Duration
+	responseHeaderTimeout time.Duration
+
 	mutex      sync.Mutex
 	transports map[string]*http.Transport
 }
@@ -57,6 +60,19 @@ func currentFetchProtection() (*common.SSRFProtection, bool, error) {
 
 func newProtectedFetchHTTPClient() *http.Client {
 	return newProtectedFetchHTTPClientWithDialer(nil, nil, nil)
+}
+
+// newMediaFetchHTTPClient fetches user supplied media URLs. Its limits do not follow
+// RELAY_TIMEOUT, which is 0 in production and would let a slow drip URL hold a
+// goroutine and its buffer forever.
+func newMediaFetchHTTPClient() *http.Client {
+	client := newProtectedFetchHTTPClient()
+	if roundTripper, ok := client.Transport.(*ssrfProtectedRoundTripper); ok {
+		roundTripper.tlsHandshakeTimeout = mediaFetchTLSHandshakeTimeout
+		roundTripper.responseHeaderTimeout = mediaFetchResponseHeaderTimeout
+	}
+	client.Timeout = mediaFetchTimeout
+	return client
 }
 
 func newProtectedFetchHTTPClientWithDialer(resolver ssrfResolver, dialContext func(ctx context.Context, network, address string) (net.Conn, error), getProtection func() (*common.SSRFProtection, bool, error)) *http.Client {
@@ -160,6 +176,9 @@ func (t *ssrfProtectedRoundTripper) newTransport(proxyURL *url.URL) *http.Transp
 		ForceAttemptHTTP2:   true,
 		Proxy:               proxyFunc,
 		DialContext:         dialContext,
+
+		TLSHandshakeTimeout:   t.tlsHandshakeTimeout,
+		ResponseHeaderTimeout: t.responseHeaderTimeout,
 	}
 	if common.TLSInsecureSkipVerify {
 		transport.TLSClientConfig = common.InsecureTLSConfig.Clone()

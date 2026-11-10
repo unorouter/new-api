@@ -64,7 +64,7 @@ func aliTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable), nil
 	}
 
-	audioResp, err := service.DoDownloadRequest(aliResp.Output.Audio.URL)
+	audioResp, err := service.DoDownloadRequest(c.Request.Context(), aliResp.Output.Audio.URL)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeDoRequestFailed), nil
 	}

@@ -23,6 +23,7 @@ import (
 var (
 	httpClient              *http.Client
 	ssrfProtectedHTTPClient *http.Client
+	mediaFetchHTTPClient    *http.Client
 	proxyClients            = proxyHTTPClientCache{
 		clients: make(map[string]*http.Client),
 		aliases: make(map[string]string),
@@ -169,6 +170,7 @@ func InitHttpClient() {
 	httpClient = newDirectHTTPClient(policy, nil)
 	proxyClients.store(clientCacheKey("", policy), httpClient)
 	ssrfProtectedHTTPClient = newProtectedFetchHTTPClient()
+	mediaFetchHTTPClient = newMediaFetchHTTPClient()
 }
 
 // GetHttpClient returns the general outbound client used by relay/provider
@@ -189,6 +191,17 @@ func GetSSRFProtectedHTTPClient() *http.Client {
 		return GetHttpClient()
 	}
 	return ssrfProtectedHTTPClient
+}
+
+// getMediaFetchHTTPClient follows GetSSRFProtectedHTTPClient but keeps the media
+// fetch deadline when protection is off.
+func getMediaFetchHTTPClient() *http.Client {
+	if fetchSetting := system_setting.GetFetchSetting(); fetchSetting != nil && !fetchSetting.EnableSSRFProtection {
+		client := *GetHttpClient()
+		client.Timeout = mediaFetchTimeout
+		return &client
+	}
+	return mediaFetchHTTPClient
 }
 
 func newProxyURLConfig(parsedURL *url.URL) *proxyURLConfig {

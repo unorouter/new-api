@@ -1680,7 +1680,7 @@ func TestServeTaskPluginImageProtocolRendersImmediateResultAndInlinesBase64(t *t
 			c, recorder := newImageProtocolTestContext(tc.responseFormat)
 			deps := pluginProtocolTestDeps()
 			downloads := 0
-			deps.downloadImage = func(url string) (string, string, error) {
+			deps.downloadImage = func(_ context.Context, url string) (string, string, error) {
 				downloads++
 				if tc.downloadErr != nil {
 					return "", "", tc.downloadErr

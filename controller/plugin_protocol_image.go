@@ -157,7 +157,7 @@ func serveTaskPluginImageProtocol(c *gin.Context, pinned pluginruntime.PinnedEnd
 			if existing, _ := item["b64_json"].(string); strings.TrimSpace(url) == "" || existing != "" {
 				continue
 			}
-			_, encoded, downloadErr := deps.downloadImage(url)
+			_, encoded, downloadErr := deps.downloadImage(c.Request.Context(), url)
 			if downloadErr != nil {
 				logger.LogWarn(c, common.LogText("task protocol image download failed; returning the upstream URL instead of b64_json: %s", common.MaskSensitiveInfo(downloadErr.Error(), common.UpstreamAddresses(c)...)))
 				continue

@@ -126,17 +126,9 @@ func CountRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *relayco
 		shouldFetchFiles = false
 	}
 
-	// One request carried no limit on URL parts, and each may be 64MB: past this many
-	// bytes the remaining files get the default estimate instead of a download.
-	const maxFetchedBytes = 128 << 20
-	var fetchedBytes int64
-
 	// 使用统一的文件服务获取文件类型
 	for _, file := range meta.Files {
 		if file.Source == nil {
-			continue
-		}
-		if file.Source.IsURL() && fetchedBytes >= maxFetchedBytes {
 			continue
 		}
 
@@ -147,15 +139,13 @@ func CountRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *relayco
 			// 而我们这里既然要计算 token，通常需要完整数据
 			cachedData, err := LoadFileSource(c, file.Source, "token_counter")
 			if err != nil {
-				if shouldFetchFiles {
+				// Past the request's media budget the file keeps the default estimate; a converter that needs it fails the request.
+				if shouldFetchFiles && !errors.Is(err, errMediaFetchBudgetExceeded) {
 					return 0, fmt.Errorf("error getting file type: %v", err)
 				}
 				continue
 			}
 			file.FileType = DetectFileType(cachedData.MimeType)
-			if file.Source.IsURL() {
-				fetchedBytes += cachedData.Size
-			}
 		}
 	}
 

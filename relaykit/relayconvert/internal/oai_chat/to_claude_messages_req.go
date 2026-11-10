@@ -286,7 +286,7 @@ func OpenAIChatRequestToClaudeMessages(c context.Context, info convmeta.Meta, te
 					if mediaMessage.Type != dto.ContentTypeInputAudio && mediaMessage.Type != dto.ContentTypeVideoUrl {
 						base64Data, mimeType, err := relaymedia.ResolveBase64Data(c, source, "formatting image for Claude")
 						if err != nil {
-							return nil, fmt.Errorf("get file data failed: %s", err.Error())
+							return nil, fmt.Errorf("get file data failed: %w", err)
 						}
 						block, reason = sharedclaude.MediaBlock(base64Data, mimeType, mediaMessage.Type == dto.ContentTypeImageURL)
 					}

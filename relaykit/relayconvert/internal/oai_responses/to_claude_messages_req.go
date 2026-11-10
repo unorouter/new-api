@@ -211,7 +211,7 @@ func responsesInputContentToClaudeMediaMessages(c context.Context, content any) 
 			if partType == "input_image" || partType == "input_file" {
 				base64Data, mimeType, err := relaymedia.ResolveBase64Data(c, source, "formatting Responses input for Claude")
 				if err != nil {
-					return nil, fmt.Errorf("get file data failed: %s", err.Error())
+					return nil, fmt.Errorf("get file data failed: %w", err)
 				}
 				block, reason = sharedclaude.MediaBlock(base64Data, mimeType, partType == "input_image")
 			}
