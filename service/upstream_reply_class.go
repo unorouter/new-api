@@ -33,6 +33,9 @@ var replyRules = []replyRule{
 	// A reseller's own failure text served as a 200 answer (one merchant's
 	// glm-5.3, a third of its replies on 2026-10-03).
 	{markers: []string{"please retry later, or reduce the request parameters/content"}},
+	// A scraped Google coding agent whose client build expired answers every
+	// prompt with its upgrade notice, whatever model the lane is sold as.
+	{markers: []string{"this version of antigravity is no longer supported"}},
 }
 
 const cannedReplyMaxRunes = 600
