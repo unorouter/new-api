@@ -221,6 +221,11 @@ type RelayInfo struct {
 	// makes an arbitrary user-supplied model priceable without knowing its cost in advance.
 	UpstreamCostUSD float64
 
+	// StreamedOutputBytes is the content, reasoning and tool text actually streamed,
+	// recorded only when the upstream reported its own usage: a seller that bills
+	// output it never sent shows as completion tokens far above these bytes.
+	StreamedOutputBytes int
+
 	// VendorToolUsage reads the upstream's own billed tool counts from a raw
 	// response body (non-stream) or the raw terminal stream frame. The channel
 	// adaptor's Init sets it for upstreams whose usage extension names a billed

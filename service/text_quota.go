@@ -587,6 +587,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)
+	if relayInfo.StreamedOutputBytes > 0 {
+		other.SetAdmin("streamed_output_bytes", relayInfo.StreamedOutputBytes)
+	}
 	if relayInfo.UpstreamCostUSD > 0 {
 		other.SetAdmin("upstream_cost_usd", relayInfo.UpstreamCostUSD)
 		if summary.BilledFromUpstreamCost {

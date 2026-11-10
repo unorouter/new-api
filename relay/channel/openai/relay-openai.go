@@ -353,6 +353,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	if !containStreamUsage {
 		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		usage.CompletionTokens += toolCount * 7
+	} else {
+		info.StreamedOutputBytes = responseTextBuilder.Len()
 	}
 
 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(usageFrame))
