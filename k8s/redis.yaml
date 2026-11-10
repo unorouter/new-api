@@ -126,7 +126,8 @@ data:
       info=$(redis-cli -p 6379 info replication | tr -d '\r')
       [ -n "$info" ] || exit 1
       echo "$info" | grep -qx role:slave || exit 0
-      sm=$(timeout 3 redis-cli -p 26379 sentinel get-master-addr-by-name newapi 2>/dev/null | head -n1 || true)
+      sm=$(timeout 3 redis-cli -p 26379 sentinel get-master-addr-by-name newapi 2>/dev/null || true)
+      sm=$(echo "$sm" | head -n1)
       [ -z "$sm" ] || echo "$info" | grep -qx "master_host:$sm"
       ;;
     prestop)
@@ -161,6 +162,9 @@ spec:
       labels: { app: newapi-redis-ha }
     spec:
       automountServiceAccountToken: false
+      # redis-server runs as PID 1 and never reaps: a probe child orphaned every 10 s piled up
+      # about 47k zombies and OOM killed both replicas at once (2026-11-10). The pause process reaps.
+      shareProcessNamespace: true
       terminationGracePeriodSeconds: 30
       affinity:
         podAntiAffinity:
