@@ -63,7 +63,6 @@ func GetStatus(c fuego.ContextNoBody) (*dto.Response[dto.StatusData], error) {
 		ServerAddress:            system_setting.ServerAddress,
 		TurnstileCheck:           common.TurnstileCheckEnabled,
 		ConsentEnforced:          common.ConsentEnforcementEnabled,
-		ConsentEnforcedModels:    common.ConsentEnforcedModels(),
 		TurnstileSiteKey:         common.TurnstileSiteKey,
 		TopUpLink:                common.TopUpLink,
 		DocsLink:                 operation_setting.GetGeneralSetting().DocsLink,

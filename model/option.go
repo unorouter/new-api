@@ -220,7 +220,6 @@ func InitOptionMap() {
 	common.OptionMap["RetryTimes"] = strconv.Itoa(common.RetryTimes)
 	common.OptionMap["FreeRetryTimes"] = strconv.Itoa(common.FreeRetryTimes)
 	common.OptionMap["ConsentEnforcementEnabled"] = strconv.FormatBool(common.ConsentEnforcementEnabled)
-	common.OptionMap["ConsentEnforcedModels"] = "[]"
 	common.OptionMap["ConsentEnforcedSince"] = strconv.FormatInt(common.ConsentEnforcedSince, 10)
 	common.OptionMap["MaxTotalRelayAttempts"] = strconv.Itoa(common.MaxTotalRelayAttempts)
 	common.OptionMap["AutoGroupFailoverMaxRatio"] = strconv.FormatFloat(common.AutoGroupFailoverMaxRatio, 'f', -1, 64)
@@ -358,10 +357,6 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
-	}
-	if key == "ConsentEnforcedModels" {
-		var models []string
-		return common.UnmarshalJsonStr(value, &models)
 	}
 	if key == "ConsentEnforcedSince" {
 		if since, err := strconv.ParseInt(value, 10, 64); err != nil || since < 0 {
@@ -850,8 +845,6 @@ func updateOptionMap(key string, value string) (err error) {
 		common.RetryTimes, _ = strconv.Atoi(value)
 	case "FreeRetryTimes":
 		common.FreeRetryTimes, _ = strconv.Atoi(value)
-	case "ConsentEnforcedModels":
-		err = common.SetConsentEnforcedModels(value)
 	case "ConsentEnforcedSince":
 		common.ConsentEnforcedSince, _ = strconv.ParseInt(value, 10, 64)
 	case "MaxTotalRelayAttempts":
