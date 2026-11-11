@@ -211,6 +211,11 @@ func sendWebPushEvent(evt notify.Event) {
 }
 
 func sendWebPushToSub(evt notify.Event, sub model.PushSubscription, urgency webpush.Urgency) {
+	// rows stored before the endpoint allowlist existed are dropped, never dialed
+	if !notify.ValidWebPushEndpoint(sub.Endpoint) {
+		_ = model.DeletePushSubscriptionByEndpointHash(sub.EndpointHash)
+		return
+	}
 	title, body := webPushText(evt)
 	payload, err := common.Marshal(map[string]interface{}{
 		"title": title,
@@ -231,6 +236,7 @@ func sendWebPushToSub(evt notify.Event, sub model.PushSubscription, urgency webp
 		TTL:             webPushTTLSeconds,
 		Urgency:         urgency,
 		Topic:           evt.Type,
+		HTTPClient:      getMediaFetchHTTPClient(),
 	})
 	if err != nil {
 		model.BumpPushSubscriptionFailure(sub.Id, webPushMaxFailures)

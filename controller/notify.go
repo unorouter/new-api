@@ -63,7 +63,7 @@ func SubscribeNotifyPush(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "invalid request"})
 		return
 	}
-	if !strings.HasPrefix(req.Endpoint, "https://") || len(req.Endpoint) > 2048 {
+	if !notify.ValidWebPushEndpoint(req.Endpoint) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "invalid endpoint"})
 		return
 	}
