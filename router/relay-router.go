@@ -238,7 +238,6 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 	r.GinGet("/files", controller.RelayNotImplemented, dto.GinResp[dto.RelayNotImplementedError]())
 	r.GinPost("/files", controller.RelayNotImplemented, dto.GinResp[dto.RelayNotImplementedError]())
 	r.GinDelete("/files/:id", controller.RelayNotImplemented, dto.GinResp[dto.RelayNotImplementedError]())
-	r.GinGet("/files/:id", controller.RelayNotImplemented, dto.GinResp[dto.RelayNotImplementedError]())
 	r.GinGet("/files/:id/content", controller.RelayNotImplemented, dto.GinResp[dto.RelayNotImplementedError]())
 	r.GinPost("/fine-tunes", controller.RelayNotImplemented, dto.GinResp[dto.RelayNotImplementedError]())
 	r.GinGet("/fine-tunes", controller.RelayNotImplemented, dto.GinResp[dto.RelayNotImplementedError]())
@@ -282,6 +281,14 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 		if strings.HasSuffix(c.Request.URL.Path, ":countTokens") {
 			controller.RelayNotFound(c)
 			c.Abort()
+		}
+	})
+	// Veo's :predictLongRunning goes to the plugin route that declares it (the
+	// google plugin's POST /v1beta/models/:model) before this group's auth,
+	// rate limit and channel selection; without one it stays with the relay.
+	relayGeminiRouter.Use(func(c *gin.Context) {
+		if strings.HasSuffix(c.Request.URL.Path, ":predictLongRunning") {
+			defaultPluginDispatcher.dispatch(c)
 		}
 	})
 	relayGeminiRouter.Use(middleware.RouteTag("relay"))

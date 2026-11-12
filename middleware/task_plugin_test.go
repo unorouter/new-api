@@ -65,6 +65,8 @@ decodeJob: function(ctx) {
   if (ctx.params.category !== "video") throw new Error("bad params");
   if (ctx.query.tag.length !== 2 || ctx.query.tag[0] !== "first" || ctx.query.tag[1] !== "second") throw new Error("bad query");
   if (ctx.body.kind !== "json" || !Array.isArray(ctx.body.value) || ctx.body.value[0] !== "prompt") throw new Error("bad body");
+  // Decoders read the client's headers, without its gateway credentials.
+  if (ctx.requestHeaders["X-Dashscope-Async"] !== "enable" || ctx.requestHeaders.Authorization !== undefined) throw new Error("bad headers");
 	return {kind: "submit", model: "resolved-model", action: "resolved-action", requestBody: {prompt: "normalized"}};
 },
 jobCreated: function(ctx, task) { return task; },
@@ -77,7 +79,8 @@ export function parseTaskResult() { return {status: "SUCCESS"}; }
 
 	router := gin.New()
 	reachedSubmit := false
-	router.POST("/vendor/jobs/:category", pinTaskPluginRoute(plugin, 0), PrepareTaskPluginRoute(), func(c *gin.Context) {
+	// The inner plugin router names wildcards by position.
+	router.POST("/vendor/jobs/:s2", pinTaskPluginRoute(plugin, 0), PrepareTaskPluginRoute(), func(c *gin.Context) {
 		reachedSubmit = true
 		requestContext, ok := c.MustGet(jsplugin.ContextKeyRouteRequest).(jsplugin.RouteRequestContext)
 		require.True(t, ok)
@@ -91,6 +94,8 @@ export function parseTaskResult() { return {status: "SUCCESS"}; }
 	})
 	request := httptest.NewRequest(http.MethodPost, "/vendor/jobs/video?tag=first&tag=second", strings.NewReader(`["prompt",2]`))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-DashScope-Async", "enable")
+	request.Header.Set("Authorization", "Bearer sk-gateway")
 	recorder := httptest.NewRecorder()
 
 	router.ServeHTTP(recorder, request)
@@ -1299,7 +1304,7 @@ export const native = {status: function(ctx, task) { return {id: task.task_id}; 
 	})
 
 	router := gin.New()
-	router.GET("/vendor/jobs/:id",
+	router.GET("/vendor/jobs/:s2",
 		pinTaskPluginRoute(plugin, 0),
 		func(c *gin.Context) {
 			c.Set("id", 7)

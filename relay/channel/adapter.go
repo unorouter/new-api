@@ -39,6 +39,12 @@ type DecisionsAdaptor interface {
 	ConvertDecisionsRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.DecisionsRequest) (any, error)
 }
 
+// ResponsesRequestFinalizer applies provider-specific rules to the effective
+// JSON request after channel parameter overrides. Passthrough bypasses this hook.
+type ResponsesRequestFinalizer interface {
+	FinalizeResponsesRequest(info *relaycommon.RelayInfo, body []byte) ([]byte, error)
+}
+
 type TaskAdaptor interface {
 	Init(info *relaycommon.RelayInfo)
 
@@ -117,6 +123,11 @@ type TaskContentRequest struct {
 	Headers        map[string]string
 	Body           []byte
 	Credentialless bool
+	// ContentPath, when set, locates the artifact's bytes as a base64 string
+	// in the JSON reply instead of the reply being the artifact; MimeType is
+	// then its media type.
+	ContentPath []any
+	MimeType    string
 }
 
 type TaskContentRequestProvider interface {

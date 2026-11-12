@@ -44,7 +44,7 @@ func setupTaskPluginBindChannelTest(t *testing.T) {
 	})
 }
 
-func postAddChannel(t *testing.T, userID, role int, body string) dto.MessageResponse {
+func postAddChannel(t *testing.T, userID, role int, body string) *dto.Response[dto.AddChannelResult] {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())

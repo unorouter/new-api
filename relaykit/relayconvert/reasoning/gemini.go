@@ -79,7 +79,7 @@ func GeminiSupportsThoughtVisibility(model string) bool {
 }
 
 // RenderGemini maps a portable intent onto the target model's thinkingConfig.
-// The capability table only maps and clamps: budgets become levels on Gemini 3,
+// The capability table only maps and clamps: budgets become levels on Gemini 3/4,
 // efforts become budgets on Gemini 2.5, out-of-range values are clamped, and
 // a model that cannot disable thinking is left at its own default. Every such
 // coercion is reported in Diagnostics. Errors are reserved for unknown effort
@@ -218,6 +218,10 @@ func RenderGemini(model string, intent Intent, maxOutputTokens *uint, adapterBud
 func geminiDefaultEffort(model string) Effort {
 	model = strings.ToLower(model)
 	switch {
+	case strings.HasPrefix(model, "gemini-4-argon-cyber-permissive"):
+		return EffortHigh
+	case strings.HasPrefix(model, "gemini-4-argon"):
+		return EffortMedium
 	case model == "gemini-flash-latest",
 		strings.HasPrefix(model, "gemini-3.5-flash") && !strings.HasPrefix(model, "gemini-3.5-flash-lite"),
 		strings.HasPrefix(model, "gemini-3.6-flash"):
@@ -238,7 +242,7 @@ func geminiDefaultEffort(model string) Effort {
 
 // NormalizeGeminiThinkingConfig rewrites a provider-native thinkingConfig in
 // place into the dialect the target model accepts: budgets become levels on
-// Gemini 3, levels become budgets on Gemini 2.5, out-of-range budgets are
+// Gemini 3/4, levels become budgets on Gemini 2.5, out-of-range budgets are
 // clamped, unsupported levels move to the nearest supported one, and models
 // without configurable thinking lose the config entirely. Models missing from
 // the capability table keep their config verbatim. The returned effort is the
@@ -511,7 +515,8 @@ func geminiLevelForEffort(model string, effort Effort) (string, error) {
 			return string(EffortLow), nil
 		}
 		return string(EffortHigh), nil
-	case strings.HasPrefix(model, "gemini-3.1-pro"), model == "gemini-pro-latest":
+	case strings.HasPrefix(model, "gemini-3.1-pro"), model == "gemini-pro-latest",
+		strings.HasPrefix(model, "gemini-4-argon"):
 		if effort == EffortMinimal {
 			return string(EffortLow), nil
 		}

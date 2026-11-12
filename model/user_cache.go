@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const userCacheSchemaVersion = 4
+const userCacheSchemaVersion = 5
 
 type UserBase struct {
 	Id        int    `json:"id"`
@@ -26,9 +26,21 @@ type UserBase struct {
 	UsedQuota int    `json:"used_quota"`
 	// A third-party login vouched for this account. A typed email is not that
 	// while email verification is off.
-	HasIdentity bool  `json:"has_identity"`
-	AuthVersion int64 `json:"-"`
-	CacheSchema int   `json:"-"`
+	HasIdentity    bool   `json:"has_identity"`
+	AuthVersion    int64  `json:"-"`
+	CacheSchema    int    `json:"-"`
+	CacheExpiresAt int64  `json:"-"`
+	CacheMAC       string `json:"-"`
+}
+
+func (user UserBase) cacheMAC() (string, error) {
+	user.Quota = 0
+	return authCacheMAC(getUserCacheKey(user.Id), struct {
+		User           UserBase
+		AuthVersion    int64
+		CacheSchema    int
+		CacheExpiresAt int64
+	}{user, user.AuthVersion, user.CacheSchema, user.CacheExpiresAt})
 }
 
 func (user *UserBase) WriteContext(c *gin.Context) {
@@ -136,6 +148,10 @@ func cacheGetUserBase(userId int) (*UserBase, error) {
 	if userCache.Id != userId || userCache.CacheSchema != userCacheSchemaVersion || userCache.AuthVersion <= 0 {
 		return nil, fmt.Errorf("user cache schema is stale")
 	}
+	mac, err := userCache.cacheMAC()
+	if err != nil || !validAuthCacheMAC(mac, userCache.CacheMAC, userCache.CacheExpiresAt) {
+		return nil, fmt.Errorf("user cache integrity check failed")
+	}
 	floor, err := getUserAuthVersionFloor(userId)
 	if err != nil {
 		return nil, err
@@ -206,74 +222,9 @@ func getUserSettingCache(userId int) (types.UserSetting, error) {
 	return cache.GetSetting(), nil
 }
 
-// RefreshUserGroupCache writes the database-authoritative group into an
-// existing user hash without changing the user's authentication version.
+// RefreshUserGroupCache publishes current user metadata after a group change.
 func RefreshUserGroupCache(userId int) error {
-	if !common.RedisEnabled {
-		return nil
-	}
-	if userId <= 0 {
-		return fmt.Errorf("invalid user id")
-	}
-	var authoritative User
-	if err := DB.Select("id", "auth_version", commonGroupCol).Where("id = ?", userId).First(&authoritative).Error; err != nil {
-		return err
-	}
-	// Group transitions intentionally keep the same authentication version. A
-	// refresh that read the previous group can therefore arrive after a newer
-	// refresh and still pass the auth-version fence. Re-read after every write
-	// and repair the cache when the authoritative group changed in between.
-	for range 3 {
-		if err := updateUserCacheFieldAtVersion(userId, "Group", authoritative.Group, authoritative.AuthVersion); err != nil {
-			return err
-		}
-
-		var verified User
-		if err := DB.Select("id", "auth_version", commonGroupCol).Where("id = ?", userId).First(&verified).Error; err != nil {
-			return err
-		}
-		if verified.AuthVersion == authoritative.AuthVersion && verified.Group == authoritative.Group {
-			return nil
-		}
-		authoritative = verified
-	}
-
-	// Preserve the freshest snapshot observed even when the row was too busy to
-	// stabilize within the bounded retries. Returning an error lets best-effort
-	// callers emit an operation-specific warning.
-	if err := updateUserCacheFieldAtVersion(userId, "Group", authoritative.Group, authoritative.AuthVersion); err != nil {
-		return err
-	}
-	return fmt.Errorf("user group changed repeatedly during cache refresh")
-}
-
-func updateUserEmailCache(userId int, email string) error {
-	return updateUserCacheField(userId, "Email", email)
-}
-
-func updateUserNameCache(userId int, username string) error {
-	return updateUserCacheField(userId, "Username", username)
-}
-
-func updateUserSettingCache(userId int, setting string) error {
-	return updateUserCacheField(userId, "Setting", setting)
-}
-
-// updateUserCacheField prevents individual cache refreshes from bypassing the
-// auth-version fence. It intentionally does nothing when the complete hash is
-// absent; the next GetUserCache call will repopulate it from the database.
-func updateUserCacheField(userId int, field string, value any) error {
-	if !common.RedisEnabled {
-		return nil
-	}
-	var user User
-	if err := DB.Select("id", "auth_version").Where("id = ?", userId).First(&user).Error; err != nil {
-		return err
-	}
-	if user.AuthVersion <= 0 {
-		return fmt.Errorf("invalid user auth version")
-	}
-	return updateUserCacheFieldAtVersion(userId, field, value, user.AuthVersion)
+	return PublishUserAuthCache(userId)
 }
 
 // GetUserLanguage returns the user's language preference from cache

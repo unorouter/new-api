@@ -26,7 +26,7 @@ import { PaymentSettingsSection } from '../integrations/payment-settings-section
 import { RatioSettingsCard } from '../models/ratio-settings-card'
 import type { BillingSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
-import { getQuotaDefaults } from './defaults'
+import { getQuotaDefaults, paymentDefaultValues } from './defaults'
 
 const getModelDefaults = (settings: BillingSettings) => ({
   ModelPrice: settings.ModelPrice,
@@ -123,71 +123,7 @@ const BILLING_SECTIONS = [
     titleKey: 'Payment Gateway',
     build: (settings: BillingSettings) => (
       <PaymentSettingsSection
-        defaultValues={{
-          PayAddress: settings.PayAddress,
-          EpayId: settings.EpayId,
-          EpayKey: settings.EpayKey,
-          Price: settings.Price,
-          MinTopUp: settings.MinTopUp,
-          CustomCallbackAddress: settings.CustomCallbackAddress,
-          PayMethods: settings.PayMethods,
-          AmountOptions: settings['payment_setting.amount_options'],
-          AmountDiscount: settings['payment_setting.amount_discount'],
-          StripeEnabled: settings.StripeEnabled ?? true,
-          StripeApiSecret: settings.StripeApiSecret,
-          StripeWebhookSecret: settings.StripeWebhookSecret,
-          StripePriceId: settings.StripePriceId,
-          StripeUnitPrice: settings.StripeUnitPrice,
-          StripeMinTopUp: settings.StripeMinTopUp,
-          StripePromotionCodesEnabled: settings.StripePromotionCodesEnabled,
-          StripeManagedPayments: settings.StripeManagedPayments ?? false,
-          StripeTextModerationEnabled:
-            settings.StripeTextModerationEnabled ?? false,
-          CreemEnabled: settings.CreemEnabled ?? true,
-          CreemApiKey: settings.CreemApiKey,
-          CreemWebhookSecret: settings.CreemWebhookSecret,
-          CreemTestMode: settings.CreemTestMode,
-          CreemFeeFixed: settings.CreemFeeFixed ?? 0,
-          CreemFeePercent: settings.CreemFeePercent ?? 0,
-          CreemFeeThreshold: settings.CreemFeeThreshold ?? 2,
-          CreemModerationEnabled: settings.CreemModerationEnabled ?? false,
-          ModerationApiKey: settings.ModerationApiKey ?? '',
-          ModerationBaseUrl:
-            settings.ModerationBaseUrl ?? 'https://api.openai.com',
-          ModerationModel: settings.ModerationModel ?? 'omni-moderation-latest',
-          ModerationProvidersText: settings.ModerationProvidersText ?? 'openai',
-          ModerationProvidersMedia:
-            settings.ModerationProvidersMedia ?? 'openai,creem',
-          ModerationCategoryThresholds:
-            settings.ModerationCategoryThresholds ?? '{}',
-          ModerationDefaultThreshold:
-            settings.ModerationDefaultThreshold ?? 0.8,
-          ModerationFailOpen: settings.ModerationFailOpen ?? true,
-          ModerationMaxInputChars: settings.ModerationMaxInputChars ?? 8000,
-          CreemProducts: settings.CreemProducts,
-          NowPaymentsEnabled: settings.NowPaymentsEnabled ?? false,
-          NowPaymentsApiKey: settings.NowPaymentsApiKey ?? '',
-          NowPaymentsIpnSecret: settings.NowPaymentsIpnSecret ?? '',
-          NowPaymentsSandbox: settings.NowPaymentsSandbox ?? false,
-          NowPaymentsUnitPrice: settings.NowPaymentsUnitPrice ?? 1.0,
-          NowPaymentsMinTopUp: settings.NowPaymentsMinTopUp ?? 1,
-          NowPaymentsFeePaidByUser: settings.NowPaymentsFeePaidByUser ?? true,
-          NowPaymentsIsFixedRate: settings.NowPaymentsIsFixedRate ?? true,
-          NowPaymentsSubscriptionEnabled:
-            settings.NowPaymentsSubscriptionEnabled ?? false,
-          DeloPayEnabled: settings.DeloPayEnabled ?? false,
-          DeloPayApiKey: settings.DeloPayApiKey ?? '',
-          DeloPayProfileId: settings.DeloPayProfileId ?? '',
-          DeloPayWebhookSecret: settings.DeloPayWebhookSecret ?? '',
-          DeloPayTestMode: settings.DeloPayTestMode ?? false,
-          DeloPayMinTopUp: settings.DeloPayMinTopUp ?? 1,
-          DeloPayFeeFixed: settings.DeloPayFeeFixed ?? 0,
-          DeloPayFeePercent: settings.DeloPayFeePercent ?? 0,
-          DeloPayFeeThreshold: settings.DeloPayFeeThreshold ?? 2,
-          DeloPaySubscriptionEnabled:
-            settings.DeloPaySubscriptionEnabled ?? false,
-          DeloPayCheckoutPane: settings.DeloPayCheckoutPane ?? 'paypal',
-        }}
+        defaultValues={paymentDefaultValues(settings)}
         waffoDefaultValues={{
           WaffoEnabled: settings.WaffoEnabled ?? false,
           WaffoApiKey: settings.WaffoApiKey ?? '',

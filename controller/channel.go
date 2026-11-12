@@ -100,7 +100,10 @@ func disableMultiKeyChannelIfUnavailable(channel *model.Channel) bool {
 }
 
 func restoreMultiKeyChannelIfAvailable(channel *model.Channel) {
-	if channel.Status != common.ChannelStatusManuallyDisabled || !hasEnabledMultiKey(channel) {
+	// Manual key disables and request-driven key failures both record the
+	// all-keys reason; any later manual channel disable replaces it.
+	disabled := channel.Status == common.ChannelStatusManuallyDisabled || channel.Status == common.ChannelStatusAutoDisabled
+	if !disabled || !hasEnabledMultiKey(channel) {
 		return
 	}
 	info := channel.GetOtherInfo()
@@ -600,6 +603,12 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		if regionMap["default"] == nil {
 			return fmt.Errorf("deployment region must contain a default field")
 		}
+
+		switch channel.GetOtherSettings().VertexAPIVersion {
+		case "", "v1", "v1beta1":
+		default:
+			return common.NewMessage("Vertex AI API version must be v1 or v1beta1")
+		}
 	}
 
 	// Codex OAuth key validation (optional, only when JSON object is provided)
@@ -658,17 +667,18 @@ type AddChannelRequest struct {
 	Channel                   *model.Channel        `json:"channel"`
 }
 
-func getVertexArrayKeys(c *gin.Context, keys string) ([]string, error) {
+func getVertexArrayKeys(keys string) ([]string, []int, error) {
 	if keys == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var keyArray []any
 	err := common.Unmarshal([]byte(keys), &keyArray)
 	if err != nil {
-		return nil, fmt.Errorf("Batch adding Vertex AI must use standard JSON array format, e.g. [{key1}, {key2}...], please check input: %w", err)
+		return nil, nil, fmt.Errorf("Batch adding Vertex AI must use standard JSON array format, e.g. [{key1}, {key2}...], please check input: %w", err)
 	}
 	cleanKeys := make([]string, 0, len(keyArray))
-	for _, key := range keyArray {
+	inputIndices := make([]int, 0, len(keyArray))
+	for i, key := range keyArray {
 		var keyStr string
 		switch v := key.(type) {
 		case string:
@@ -676,24 +686,25 @@ func getVertexArrayKeys(c *gin.Context, keys string) ([]string, error) {
 		default:
 			bytes, err := common.Marshal(v)
 			if err != nil {
-				return nil, fmt.Errorf("Vertex AI key JSON encoding failed: %w", err)
+				return nil, nil, fmt.Errorf("Vertex AI key JSON encoding failed: %w", err)
 			}
 			keyStr = string(bytes)
 		}
 		if keyStr != "" {
 			cleanKeys = append(cleanKeys, keyStr)
+			inputIndices = append(inputIndices, i)
 		}
 	}
 	if len(cleanKeys) == 0 {
-		return nil, fmt.Errorf("Batch Vertex AI keys cannot be empty")
+		return nil, nil, fmt.Errorf("Batch Vertex AI keys cannot be empty")
 	}
-	return cleanKeys, nil
+	return cleanKeys, inputIndices, nil
 }
 
-func AddChannel(c fuego.ContextWithBody[AddChannelRequest]) (dto.MessageResponse, error) {
+func AddChannel(c fuego.ContextWithBody[AddChannelRequest]) (*dto.Response[dto.AddChannelResult], error) {
 	addChannelRequest, err := c.Body()
 	if err != nil {
-		return dto.FailMsg(err.Error())
+		return dto.Fail[dto.AddChannelResult](err.Error())
 	}
 
 	ginCtx := dto.GinCtx(c)
@@ -702,7 +713,7 @@ func AddChannel(c fuego.ContextWithBody[AddChannelRequest]) (dto.MessageResponse
 	if addChannelRequest.Channel != nil &&
 		(addChannelRequest.Channel.Type == constant.ChannelTypeTaskPlugin || len(addChannelRequest.Channel.GetSetting().TaskPluginBindings()) > 0) &&
 		!authz.Can(ginCtx.GetInt("id"), ginCtx.GetInt("role"), authz.TaskPluginBind) {
-		return dto.FailMsg("task plugin channels require the task_plugin.bind permission")
+		return dto.Fail[dto.AddChannelResult]("task plugin channels require the task_plugin.bind permission")
 	}
 
 	baseURLFromPluginDefault := addChannelRequest.Channel != nil &&
@@ -710,30 +721,33 @@ func AddChannel(c fuego.ContextWithBody[AddChannelRequest]) (dto.MessageResponse
 		(addChannelRequest.Channel.BaseURL == nil || strings.TrimSpace(*addChannelRequest.Channel.BaseURL) == "")
 	// 使用统一的校验函数
 	if err := validateChannel(addChannelRequest.Channel, true); err != nil {
-		return dto.FailMsg(err.Error())
+		return dto.Fail[dto.AddChannelResult](err.Error())
 	}
 
 	addChannelRequest.Channel.CreatedTime = common.GetTimestamp()
 	keys := make([]string, 0)
+	inputIndices := make([]int, 0)
 	switch addChannelRequest.Mode {
 	case "multi_to_single":
 		addChannelRequest.Channel.ChannelInfo.IsMultiKey = true
 		addChannelRequest.Channel.ChannelInfo.MultiKeyMode = addChannelRequest.MultiKeyMode
 		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
-			array, err := getVertexArrayKeys(dto.GinCtx(c), addChannelRequest.Channel.Key)
+			array, indices, err := getVertexArrayKeys(addChannelRequest.Channel.Key)
 			if err != nil {
-				return dto.FailMsg(err.Error())
+				return dto.Fail[dto.AddChannelResult](err.Error())
 			}
 			addChannelRequest.Channel.ChannelInfo.MultiKeySize = len(array)
 			addChannelRequest.Channel.Key = strings.Join(array, "\n")
+			inputIndices = indices
 		} else {
 			cleanKeys := make([]string, 0)
-			for key := range strings.SplitSeq(addChannelRequest.Channel.Key, "\n") {
+			for i, key := range strings.Split(addChannelRequest.Channel.Key, "\n") {
 				if key == "" {
 					continue
 				}
 				key = strings.TrimSpace(key)
 				cleanKeys = append(cleanKeys, key)
+				inputIndices = append(inputIndices, i)
 			}
 			addChannelRequest.Channel.ChannelInfo.MultiKeySize = len(cleanKeys)
 			addChannelRequest.Channel.Key = strings.Join(cleanKeys, "\n")
@@ -742,21 +756,26 @@ func AddChannel(c fuego.ContextWithBody[AddChannelRequest]) (dto.MessageResponse
 	case "batch":
 		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
 			// multi json
-			keys, err = getVertexArrayKeys(dto.GinCtx(c), addChannelRequest.Channel.Key)
+			keys, inputIndices, err = getVertexArrayKeys(addChannelRequest.Channel.Key)
 			if err != nil {
-				return dto.FailMsg(err.Error())
+				return dto.Fail[dto.AddChannelResult](err.Error())
 			}
 		} else {
 			keys = strings.Split(addChannelRequest.Channel.Key, "\n")
+			for i := range keys {
+				inputIndices = append(inputIndices, i)
+			}
 		}
 	case "single":
 		keys = []string{addChannelRequest.Channel.Key}
+		inputIndices = []int{0}
 	default:
-		return dto.FailMsg("Add mode is not supported")
+		return dto.Fail[dto.AddChannelResult]("Add mode is not supported")
 	}
 
 	channels := make([]model.Channel, 0, len(keys))
-	for _, key := range keys {
+	channelInputIndices := make([][]int, 0, len(keys))
+	for i, key := range keys {
 		if key == "" {
 			continue
 		}
@@ -770,10 +789,15 @@ func AddChannel(c fuego.ContextWithBody[AddChannelRequest]) (dto.MessageResponse
 			localChannel.Name = fmt.Sprintf("%s %s", localChannel.Name, keyPrefix)
 		}
 		channels = append(channels, *localChannel)
+		if addChannelRequest.Mode == "multi_to_single" {
+			channelInputIndices = append(channelInputIndices, inputIndices)
+		} else {
+			channelInputIndices = append(channelInputIndices, []int{inputIndices[i]})
+		}
 	}
 	err = model.BatchInsertChannels(channels)
 	if err != nil {
-		return dto.FailMsg(err.Error())
+		return dto.Fail[dto.AddChannelResult](err.Error())
 	}
 	service.ResetProxyClientCache()
 	createAudit := map[string]any{
@@ -784,8 +808,20 @@ func AddChannel(c fuego.ContextWithBody[AddChannelRequest]) (dto.MessageResponse
 	if baseURLFromPluginDefault {
 		createAudit["base_url_source"] = "plugin_default"
 	}
-	recordManageAudit(dto.GinCtx(c), "channel.create", createAudit)
-	return dto.Msg("")
+	recordManageAudit(ginCtx, "channel.create", createAudit)
+	ids := make([]int, len(channels))
+	results := make([]dto.AddChannelInputResult, 0, len(inputIndices))
+	for i, channel := range channels {
+		ids[i] = channel.Id
+		for _, inputIndex := range channelInputIndices[i] {
+			results = append(results, dto.AddChannelInputResult{InputIndex: inputIndex, ChannelId: channel.Id})
+		}
+	}
+	data := dto.AddChannelResult{Ids: ids, Results: results}
+	if len(ids) == 1 {
+		data.Id = ids[0]
+	}
+	return dto.Ok(data)
 }
 
 func DeleteChannel(c fuego.ContextNoBody) (dto.MessageResponse, error) {
@@ -1051,7 +1087,7 @@ func UpdateChannel(c fuego.ContextWithBody[PatchChannel]) (*dto.Response[PatchCh
 				if channel.Type == constant.ChannelTypeVertexAi && channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
 					// 尝试解析新密钥为JSON数组
 					if strings.HasPrefix(strings.TrimSpace(channel.Key), "[") {
-						array, err := getVertexArrayKeys(dto.GinCtx(c), channel.Key)
+						array, _, err := getVertexArrayKeys(channel.Key)
 						if err != nil {
 							return dto.Fail[PatchChannel]("Append key parsing failed: " + err.Error())
 						}

@@ -37,8 +37,8 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/samber/lo"
-	"github.com/tidwall/gjson"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-fuego/fuego"
@@ -875,12 +875,12 @@ func isEmptyTestResponseBody(respBody []byte, isStream bool) bool {
 		if b[0] != '{' {
 			return false
 		}
-		choices := gjson.GetBytes(b, "choices")
+		choices := ojson.GetBytes(b, "choices")
 		if !choices.Exists() || !choices.IsArray() {
 			return false
 		}
-		return !chatChoiceHasOutput(gjson.GetBytes(b, "choices.0.message"), gjson.GetBytes(b, "choices.0.finish_reason").String()) &&
-			strings.TrimSpace(gjson.GetBytes(b, "choices.0.text").String()) == ""
+		return !chatChoiceHasOutput(ojson.GetBytes(b, "choices.0.message"), ojson.GetBytes(b, "choices.0.finish_reason").String()) &&
+			strings.TrimSpace(ojson.GetBytes(b, "choices.0.text").String()) == ""
 	}
 
 	sawChatChunk := false
@@ -893,20 +893,20 @@ func isEmptyTestResponseBody(respBody []byte, isStream bool) bool {
 		if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) || payload[0] != '{' {
 			continue
 		}
-		choices := gjson.GetBytes(payload, "choices")
+		choices := ojson.GetBytes(payload, "choices")
 		if !choices.Exists() || !choices.IsArray() {
 			continue
 		}
 		sawChatChunk = true
-		if chatChoiceHasOutput(gjson.GetBytes(payload, "choices.0.delta"), gjson.GetBytes(payload, "choices.0.finish_reason").String()) ||
-			strings.TrimSpace(gjson.GetBytes(payload, "choices.0.text").String()) != "" {
+		if chatChoiceHasOutput(ojson.GetBytes(payload, "choices.0.delta"), ojson.GetBytes(payload, "choices.0.finish_reason").String()) ||
+			strings.TrimSpace(ojson.GetBytes(payload, "choices.0.text").String()) != "" {
 			return false
 		}
 	}
 	return sawChatChunk
 }
 
-func chatChoiceHasOutput(message gjson.Result, finishReason string) bool {
+func chatChoiceHasOutput(message ojson.Result, finishReason string) bool {
 	if !message.Exists() {
 		return false
 	}
@@ -939,16 +939,16 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
 	if jsonBytes[0] != '{' && jsonBytes[0] != '[' {
 		return ""
 	}
-	errVal := gjson.GetBytes(jsonBytes, "error")
-	if !errVal.Exists() || errVal.Type == gjson.Null {
+	errVal := ojson.GetBytes(jsonBytes, "error")
+	if !errVal.Exists() || errVal.Type == ojson.Null {
 		return ""
 	}
 
-	message := gjson.GetBytes(jsonBytes, "error.message").String()
+	message := ojson.GetBytes(jsonBytes, "error.message").String()
 	if message == "" {
-		message = gjson.GetBytes(jsonBytes, "error.error.message").String()
+		message = ojson.GetBytes(jsonBytes, "error.error.message").String()
 	}
-	if message == "" && errVal.Type == gjson.String {
+	if message == "" && errVal.Type == ojson.String {
 		message = errVal.String()
 	}
 	if message == "" {

@@ -4,7 +4,7 @@ module github.com/QuantumNous/new-api
 go 1.26.10
 
 require (
-	github.com/Calcium-Ion/go-epay v0.0.5
+	github.com/Calcium-Ion/go-epay v0.0.6
 	github.com/abema/go-mp4 v1.4.1
 	github.com/andybalholm/brotli v1.2.0
 	github.com/anknown/ahocorasick v0.0.0-20190904063843-d75dbd5169c0
@@ -189,6 +189,7 @@ require (
 require (
 	github.com/Calcium-Ion/moejs v0.1.0-alpha.7
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
+	github.com/MoeForge/moego v0.1.0-alpha.1
 	github.com/QuantumNous/new-api/relaykit v0.0.0
 	github.com/QuantumNous/new-api/tokenkit v0.0.0
 	github.com/SherClockHolmes/webpush-go v1.4.0
@@ -196,7 +197,7 @@ require (
 	github.com/gin-contrib/sessions v0.0.5
 	github.com/go-fuego/fuego v0.20.0
 	github.com/go-fuego/fuego/extra/fuegogin v0.20.0
-	github.com/go-jose/go-jose/v4 v4.1.4
+	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/gorilla/sessions v1.4.0
 	github.com/zitadel/oidc/v3 v3.47.9
 )

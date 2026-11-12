@@ -404,6 +404,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		opt := dto.NewRouter(engine, optionGroup, "Option", secDashboard())
 		// Per-model pricing editor (expression pricing), raw gin like upstream.
 		optionGroup.GET("/model_pricing", controller.GetModelPricingConfig)
+		optionGroup.GET("/model_pricing/issues", controller.GetModelPricingIssues)
 		optionGroup.PATCH("/model_pricing", controller.UpdateModelPricingConfig)
 		optionGroup.POST("/model_pricing/convert", controller.PreviewModelPricingConversion)
 		optionGroup.POST("/model_pricing/preview", controller.PreviewModelPricing)

@@ -15,3 +15,16 @@ type ChannelBalanceResponse struct {
 	Balance     float64 `json:"balance,omitempty"`
 	RawResponse string  `json:"raw_response,omitempty"`
 }
+
+// AddChannelResult lists the channels POST /api/channel created; Id is set
+// when exactly one was created. Results maps each input key to its channel.
+type AddChannelResult struct {
+	Id      int                     `json:"id,omitempty"`
+	Ids     []int                   `json:"ids"`
+	Results []AddChannelInputResult `json:"results"`
+}
+
+type AddChannelInputResult struct {
+	InputIndex int `json:"input_index"`
+	ChannelId  int `json:"channel_id"`
+}

@@ -1,3 +1,6 @@
+import type { ComponentProps } from 'react'
+
+import type { PaymentSettingsSection } from '../integrations/payment-settings-section'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -44,7 +47,8 @@ export const defaultBillingSettings: BillingSettings = {
   'quota_setting.free_abuse_cooccur_window_seconds': 600,
   'quota_setting.free_abuse_cooccur_ban_days': 7,
   'quota_setting.free_abuse_username_domain_min_accounts': 0,
-  'quota_setting.free_abuse_username_domain_allowlist': 'gmail.com,googlemail.com,qq.com,outlook.com,hotmail.com,live.com,163.com,126.com,foxmail.com,yahoo.com,icloud.com,proton.me,protonmail.com,mail.ru,yandex.ru,duck.com,mozmail.com',
+  'quota_setting.free_abuse_username_domain_allowlist':
+    'gmail.com,googlemail.com,qq.com,outlook.com,hotmail.com,live.com,163.com,126.com,foxmail.com,yahoo.com,icloud.com,proton.me,protonmail.com,mail.ru,yandex.ru,duck.com,mozmail.com',
   'quota_setting.charge_on_error': false,
   'quota_setting.trust_quota_usd': 10,
   'quota_setting.pre_consume_multiplier': 1,
@@ -85,6 +89,9 @@ export const defaultBillingSettings: BillingSettings = {
   PayMethods: '',
   'payment_setting.amount_options': '',
   'payment_setting.amount_discount': '',
+  'payment_setting.epay_sign_type': 'MD5',
+  'payment_setting.epay_merchant_private_key': '',
+  'payment_setting.epay_platform_public_key': '',
   'payment_setting.compliance_confirmed': false,
   'payment_setting.compliance_terms_version': '',
   'payment_setting.compliance_confirmed_at': 0,
@@ -173,8 +180,7 @@ export const getQuotaDefaults = (settings: BillingSettings) => ({
   TopUpLink: settings.TopUpLink,
   quota_setting: {
     trust_quota_usd: settings['quota_setting.trust_quota_usd'],
-    pre_consume_multiplier:
-      settings['quota_setting.pre_consume_multiplier'],
+    pre_consume_multiplier: settings['quota_setting.pre_consume_multiplier'],
     enable_free_model_pre_consume:
       settings['quota_setting.enable_free_model_pre_consume'],
     enable_free_abuse_auto_block:
@@ -185,8 +191,7 @@ export const getQuotaDefaults = (settings: BillingSettings) => ({
       settings['quota_setting.free_abuse_max_distinct_models'],
     free_abuse_max_distinct_models_per_day:
       settings['quota_setting.free_abuse_max_distinct_models_per_day'],
-    free_abuse_max_per_day:
-      settings['quota_setting.free_abuse_max_per_day'],
+    free_abuse_max_per_day: settings['quota_setting.free_abuse_max_per_day'],
     free_abuse_max_errors_per_hour:
       settings['quota_setting.free_abuse_max_errors_per_hour'],
     free_abuse_max_media_err_models:
@@ -203,8 +208,7 @@ export const getQuotaDefaults = (settings: BillingSettings) => ({
       settings['quota_setting.free_abuse_burst_window_days'],
     free_abuse_unverified_pct:
       settings['quota_setting.free_abuse_unverified_pct'],
-    free_abuse_cooccur_mode:
-      settings['quota_setting.free_abuse_cooccur_mode'],
+    free_abuse_cooccur_mode: settings['quota_setting.free_abuse_cooccur_mode'],
     free_abuse_cooccur_ip_min_accounts:
       settings['quota_setting.free_abuse_cooccur_ip_min_accounts'],
     free_abuse_cooccur_fp_min_accounts:
@@ -222,3 +226,72 @@ export const getQuotaDefaults = (settings: BillingSettings) => ({
     charge_on_error: settings['quota_setting.charge_on_error'],
   },
 })
+
+export function paymentDefaultValues(
+  settings: BillingSettings
+): ComponentProps<typeof PaymentSettingsSection>['defaultValues'] {
+  return {
+    PayAddress: settings.PayAddress,
+    EpayId: settings.EpayId,
+    EpayKey: settings.EpayKey,
+    EpaySignType: settings['payment_setting.epay_sign_type'],
+    EpayMerchantPrivateKey:
+      settings['payment_setting.epay_merchant_private_key'],
+    EpayPlatformPublicKey: settings['payment_setting.epay_platform_public_key'],
+    Price: settings.Price,
+    MinTopUp: settings.MinTopUp,
+    CustomCallbackAddress: settings.CustomCallbackAddress,
+    PayMethods: settings.PayMethods,
+    AmountOptions: settings['payment_setting.amount_options'],
+    AmountDiscount: settings['payment_setting.amount_discount'],
+    StripeEnabled: settings.StripeEnabled ?? true,
+    StripeApiSecret: settings.StripeApiSecret,
+    StripeWebhookSecret: settings.StripeWebhookSecret,
+    StripePriceId: settings.StripePriceId,
+    StripeUnitPrice: settings.StripeUnitPrice,
+    StripeMinTopUp: settings.StripeMinTopUp,
+    StripePromotionCodesEnabled: settings.StripePromotionCodesEnabled,
+    StripeManagedPayments: settings.StripeManagedPayments ?? false,
+    StripeTextModerationEnabled: settings.StripeTextModerationEnabled ?? false,
+    CreemEnabled: settings.CreemEnabled ?? true,
+    CreemApiKey: settings.CreemApiKey,
+    CreemWebhookSecret: settings.CreemWebhookSecret,
+    CreemTestMode: settings.CreemTestMode,
+    CreemFeeFixed: settings.CreemFeeFixed ?? 0,
+    CreemFeePercent: settings.CreemFeePercent ?? 0,
+    CreemFeeThreshold: settings.CreemFeeThreshold ?? 2,
+    CreemModerationEnabled: settings.CreemModerationEnabled ?? false,
+    ModerationApiKey: settings.ModerationApiKey ?? '',
+    ModerationBaseUrl: settings.ModerationBaseUrl ?? 'https://api.openai.com',
+    ModerationModel: settings.ModerationModel ?? 'omni-moderation-latest',
+    ModerationProvidersText: settings.ModerationProvidersText ?? 'openai',
+    ModerationProvidersMedia:
+      settings.ModerationProvidersMedia ?? 'openai,creem',
+    ModerationCategoryThresholds: settings.ModerationCategoryThresholds ?? '{}',
+    ModerationDefaultThreshold: settings.ModerationDefaultThreshold ?? 0.8,
+    ModerationFailOpen: settings.ModerationFailOpen ?? true,
+    ModerationMaxInputChars: settings.ModerationMaxInputChars ?? 8000,
+    CreemProducts: settings.CreemProducts,
+    NowPaymentsEnabled: settings.NowPaymentsEnabled ?? false,
+    NowPaymentsApiKey: settings.NowPaymentsApiKey ?? '',
+    NowPaymentsIpnSecret: settings.NowPaymentsIpnSecret ?? '',
+    NowPaymentsSandbox: settings.NowPaymentsSandbox ?? false,
+    NowPaymentsUnitPrice: settings.NowPaymentsUnitPrice ?? 1.0,
+    NowPaymentsMinTopUp: settings.NowPaymentsMinTopUp ?? 1,
+    NowPaymentsFeePaidByUser: settings.NowPaymentsFeePaidByUser ?? true,
+    NowPaymentsIsFixedRate: settings.NowPaymentsIsFixedRate ?? true,
+    NowPaymentsSubscriptionEnabled:
+      settings.NowPaymentsSubscriptionEnabled ?? false,
+    DeloPayEnabled: settings.DeloPayEnabled ?? false,
+    DeloPayApiKey: settings.DeloPayApiKey ?? '',
+    DeloPayProfileId: settings.DeloPayProfileId ?? '',
+    DeloPayWebhookSecret: settings.DeloPayWebhookSecret ?? '',
+    DeloPayTestMode: settings.DeloPayTestMode ?? false,
+    DeloPayMinTopUp: settings.DeloPayMinTopUp ?? 1,
+    DeloPayFeeFixed: settings.DeloPayFeeFixed ?? 0,
+    DeloPayFeePercent: settings.DeloPayFeePercent ?? 0,
+    DeloPayFeeThreshold: settings.DeloPayFeeThreshold ?? 2,
+    DeloPaySubscriptionEnabled: settings.DeloPaySubscriptionEnabled ?? false,
+    DeloPayCheckoutPane: settings.DeloPayCheckoutPane ?? 'paypal',
+  }
+}
