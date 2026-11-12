@@ -71,7 +71,8 @@ req 14-models          GET  /v1/models
 req 15-dashboard-noauth GET /api/user/self '' 'Bearer none'
 
 sleep 3   # settlement and log writes are asynchronous
-sqlite3 -cmd ".timeout 30000" -separator ' | ' "$DB" "SELECT type, model_name, prompt_tokens, completion_tokens, quota, is_stream, channel_id FROM logs ORDER BY id;" > "$OUT/90-billing-logs.txt"
+# log rows are written asynchronously: compare them by content, not insert order
+sqlite3 -cmd ".timeout 30000" -separator ' | ' "$DB" "SELECT type, model_name, prompt_tokens, completion_tokens, quota, is_stream, channel_id FROM logs ORDER BY type, model_name, prompt_tokens, completion_tokens, quota, is_stream, channel_id;" > "$OUT/90-billing-logs.txt"
 sqlite3 -cmd ".timeout 30000" "$DB" "SELECT 'user quota ' || quota || ' used ' || used_quota || ' requests ' || request_count FROM users WHERE id=1; SELECT 'channel ' || id || ' status ' || status || ' used ' || used_quota FROM channels ORDER BY id;" > "$OUT/91-balances.txt"
 grep -hE '^panic:|\[FATAL\]' "$WORK/app.log" > "$OUT/92-panics.txt" || true
 echo "recorded $(ls "$OUT" | wc -l) files in $OUT"
