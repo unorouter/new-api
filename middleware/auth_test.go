@@ -190,6 +190,15 @@ func TestDashboardAuthRejectsRedisRoleTampering(t *testing.T) {
 				{name: "legacy token", raw: legacy},
 			} {
 				t.Run(credential.name, func(t *testing.T) {
+					// A personal token of an admin or root account is refused outright in prod.
+					if credential.raw != bundle.AccessToken && role >= common.RoleAdminUser {
+						for _, path := range []string{"/api/perf-metrics", "/api/user/", "/api/user/self"} {
+							response := middlewareBearerRequest(router, path, credential.raw)
+							assert.Equal(t, http.StatusForbidden, response.Code, response.Body.String())
+							assert.Contains(t, response.Body.String(), "PAT_NOT_ALLOWED")
+						}
+						return
+					}
 					cacheKey := fmt.Sprintf("user:%d", user.Id)
 					require.NoError(t, redisClient.HSet(t.Context(), cacheKey, "Role", role).Err())
 					response := middlewareBearerRequest(router, "/api/perf-metrics", credential.raw)

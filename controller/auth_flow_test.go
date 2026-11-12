@@ -1170,6 +1170,7 @@ func TestOAuthRegistrationPersistsInviter(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/api/oauth/github", nil)
 			provider := &oauth.GitHubProvider{}
 			identity := &oauth.OAuthUser{ProviderUserID: "inviter-test-" + tc.name, Username: "oauth-" + tc.name}
 			created, _, err := findOrCreateOAuthUser(ctx, provider, identity, &oauth.OAuthToken{}, tc.code, "", model.TermsShown{})

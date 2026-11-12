@@ -259,19 +259,6 @@ func SetRelayRouter(router *gin.Engine, engine *fuego.Engine) {
 	relayMjModeRouter.Use(middleware.SystemPerformanceCheck())
 	registerMjRouterGroup(dto.NewRouter(engine, relayMjModeRouter, "Midjourney", secToken()), relayMjModeRouter)
 
-	// ---- Suno relay routes ----
-	relaySunoRouter := router.Group("/suno")
-	relaySunoRouter.Use(middleware.RouteTag("relay"))
-	relaySunoRouter.Use(middleware.InflightLimit(middleware.InflightRelay))
-	relaySunoRouter.Use(middleware.SystemPerformanceCheck())
-	relaySunoRouter.Use(middleware.TokenAuth(), middleware.Distribute())
-	suno := dto.NewRouter(engine, relaySunoRouter, "Suno", secToken())
-	{
-		suno.GinPost("/submit/:action", controller.RelayTask, dto.GinResp[dto.TaskResponseDoc]())
-		suno.GinPost("/fetch", controller.RelayTaskFetch, dto.GinResp[dto.TaskResponseDoc]())
-		suno.GinGet("/fetch/:id", controller.RelayTaskFetch, dto.GinResp[dto.TaskResponseDoc]())
-	}
-
 	// ---- Gemini relay routes ----
 	relayGeminiRouter := router.Group("/v1beta")
 	// :countTokens is not implemented. Answer it like an unregistered route
