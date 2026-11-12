@@ -226,6 +226,13 @@ type RelayInfo struct {
 	// output it never sent shows as completion tokens far above these bytes.
 	StreamedOutputBytes int
 
+	// The request's own shape, the ceiling an honest upstream's usage stays under:
+	// a text-only prompt cannot bill far past our count, nor output past max_tokens.
+	RequestTextOnly  bool
+	RequestMaxTokens int
+	// Set when settlement capped an upstream usage report above that ceiling.
+	UsageCap *UsageCap
+
 	// VendorToolUsage reads the upstream's own billed tool counts from a raw
 	// response body (non-stream) or the raw terminal stream frame. The channel
 	// adaptor's Init sets it for upstreams whose usage extension names a billed
@@ -880,6 +887,21 @@ func (info *RelayInfo) SetEstimatePromptTokens(promptTokens int) {
 		return
 	}
 	info.estimatePromptTokens = promptTokens
+}
+
+type UsageCap struct {
+	PromptBilled     int `json:"prompt_billed,omitempty"`
+	PromptCapped     int `json:"prompt_capped,omitempty"`
+	CompletionBilled int `json:"completion_billed,omitempty"`
+	CompletionCapped int `json:"completion_capped,omitempty"`
+}
+
+func (info *RelayInfo) SetRequestShape(meta *types.TokenCountMeta) {
+	if info == nil || meta == nil {
+		return
+	}
+	info.RequestTextOnly = len(meta.Files) == 0
+	info.RequestMaxTokens = meta.MaxTokens
 }
 
 func (info *RelayInfo) GetEstimatePromptTokens() int {

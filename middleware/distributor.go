@@ -1028,8 +1028,7 @@ func tokenModelAllowed(c *gin.Context, requestedModel string) bool {
 // it may pass. An objection is honoured on every attempt of the request, before
 // any pin or affinity and whatever the switch says. A missing consent is
 // refused while ConsentEnforcementEnabled is on, for an account with
-// consent_enforced or created since ConsentEnforcedSince, or for a model in
-// ConsentEnforcedModels; the message names
+// consent_enforced or created since ConsentEnforcedSince; the message names
 // the providers still missing and Param carries their aliases. The guest key's
 // owner is delegated: the chat BFF checks each guest's own consent.
 func ConsentRefusal(c *gin.Context, requestedModel string) *ConsentRefusalError {
@@ -1039,11 +1038,10 @@ func ConsentRefusal(c *gin.Context, requestedModel string) *ConsentRefusalError 
 	enforced := common.ConsentEnforcementEnabled || userSetting.ConsentEnforced || (since > 0 && createdAt >= since)
 	if userSetting.OwnPurposeObjection {
 		service.GetChannelConstraints(c).AddFilter(taskdto.ChannelFilter{Kind: taskdto.FilterOwnPurposeObjection})
-	} else if !enforced && len(common.ConsentEnforcedModels()) == 0 {
+	} else if !enforced {
 		return nil
 	}
 	scope := model.ConsentScopeFor(requestedModel)
-	enforced = enforced || common.ConsentEnforcedModel(scope.Model, requestedModel)
 	if enforced && scope.Required && !userSetting.GuestConsentDelegated {
 		userId := c.GetInt("id")
 		switch model.ConsentAccessFor(userId, "", scope.Providers) {

@@ -423,6 +423,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	relayInfo.SetEstimatePromptTokens(tokens)
+	relayInfo.SetRequestShape(meta)
 
 	// A prompt past the model's window fails on every lane, and each lane it visits
 	// waits out a first-byte timeout and takes a failure for it. The margin covers
