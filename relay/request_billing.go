@@ -55,6 +55,7 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo) *types.N
 		return types.NewError(err, types.ErrorCodeCountTokenFailed)
 	}
 	info.SetEstimatePromptTokens(tokens)
+	info.SetRequestShape(meta)
 
 	priceData, err := helper.ModelPriceHelper(c, info, tokens, meta)
 	if err != nil {

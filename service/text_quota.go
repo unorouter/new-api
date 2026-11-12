@@ -445,7 +445,7 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []*common.Message) {
 	originUsage := usage
-	billingUsage := effectiveBillingUsage(usage)
+	billingUsage := capInflatedUsage(relayInfo, effectiveBillingUsage(usage))
 	if usage == nil {
 		extraContent = append(extraContent, common.NewMessage("Upstream returned no usage"))
 	}
@@ -587,6 +587,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)
+	if relayInfo.UsageCap != nil {
+		other.SetAdmin("usage_capped", relayInfo.UsageCap)
+	}
 	if relayInfo.StreamedOutputBytes > 0 {
 		other.SetAdmin("streamed_output_bytes", relayInfo.StreamedOutputBytes)
 	}
