@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-fuego/fuego"
+	"github.com/go-fuego/fuego/option"
 )
 
 func SetVideoRouter(router *gin.Engine, engine *fuego.Engine) {
@@ -45,8 +46,9 @@ func SetVideoRouter(router *gin.Engine, engine *fuego.Engine) {
 		// POST /video/generations is registered on videoSharedRouter above (the
 		// task-plugin dispatcher falls back to RelayTask), so it must not be
 		// registered here too: gin panics on a duplicate method+path.
-		video.GinGet("/video/generations/:task_id", controller.RelayTaskFetch, dto.GinResp[dto.TaskResponseDoc]())
-		video.GinPost("/videos/:video_id/remix", controller.RelayTask, dto.GinResp[dto.TaskResponseDoc]())
+		// Pinned: the derived id follows whichever route claims the handler name first, and the BFF client is generated from it.
+		video.GinGet("/video/generations/:task_id", controller.RelayTaskFetch, dto.GinResp[dto.TaskResponseDoc](), option.OperationID("getV1VideoGenerationsTaskId"))
+		video.GinPost("/videos/:video_id/remix", controller.RelayTask, dto.GinResp[dto.TaskResponseDoc](), option.OperationID("postV1VideosVideoIdRemix"))
 	}
 	// openai compatible API video routes
 	// docs: https://platform.openai.com/docs/api-reference/videos/create
