@@ -1,6 +1,3 @@
-import type { ComponentProps } from 'react'
-
-import type { PaymentSettingsSection } from '../integrations/payment-settings-section'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -19,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { ComponentProps } from 'react'
+
+import type { PaymentSettingsSection } from '../integrations/payment-settings-section'
 import type { BillingSettings } from '../types'
 
 export const defaultBillingSettings: BillingSettings = {
