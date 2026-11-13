@@ -23,19 +23,11 @@ type replyRule struct {
 // the text alone, like upstreamRules, and only on a short reply: a long answer
 // that happens to quote one of these sentences is the model talking.
 var replyRules = []replyRule{
-	// The upstream account behind the lane is banned and says so as the answer
-	// (a free lane, 2026-10-01).
 	{markers: []string{"flagged as having abnormal activity"}},
-	// A vendor terminal assistant resold as a chat model: it
-	// refuses anything off its own topic and names itself when asked
-	// (one merchant's deepseek-v4-pro, 2026-10-01).
 	{markers: append([]string{"如果您有服务器运维、云资源管理"}, operation_setting.CannedReplyMarkers...)},
-	// A reseller's own failure text served as a 200 answer (one merchant's
-	// glm-5.3, a third of its replies on 2026-10-03).
 	{markers: []string{"please retry later, or reduce the request parameters/content"}},
-	// A scraped Google coding agent whose client build expired answers every
-	// prompt with its upgrade notice, whatever model the lane is sold as.
 	{markers: []string{"this version of antigravity is no longer supported"}},
+	{markers: []string{"account restrictions for prohibited use policy"}},
 }
 
 const cannedReplyMaxRunes = 600
