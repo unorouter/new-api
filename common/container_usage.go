@@ -39,14 +39,17 @@ func newContainerUsage() *containerUsage {
 // cpuSaturation 返回相对容器可用 CPU 的使用率（百分比）。
 // 可用 CPU 取 cgroup 配额与可调度 CPU 的较小者：配额大于 cpuset 或节点核数时，
 // 按配额计算会让容器打满也无法触发保护。
+// 未设配额时按可调度 CPU 计算：宿主机口径会把同节点其它负载算成本进程过载。
 // ok=false 表示当前环境没有可用的 cgroup CPU 数据，调用方应回退到宿主机口径。
 func (u *containerUsage) cpuSaturation(now time.Time) (float64, bool) {
 	limitCores, ok := u.readCgroupCPUQuotaCores()
-	if !ok {
-		return 0, false
-	}
-	if u.schedulableCPUs > 0 {
+	switch {
+	case ok && u.schedulableCPUs > 0:
 		limitCores = min(limitCores, u.schedulableCPUs)
+	case !ok && u.schedulableCPUs > 0:
+		limitCores = u.schedulableCPUs
+	case !ok:
+		return 0, false
 	}
 	usageUsec, ok := u.readCgroupCPUUsageUsec()
 	if !ok {

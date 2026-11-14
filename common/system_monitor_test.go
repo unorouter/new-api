@@ -71,6 +71,26 @@ func TestContainerCPUSaturation(t *testing.T) {
 			usageAfter: "11000000000\n", // 纳秒：5 秒用 2 核
 			want:       100,
 		},
+		{
+			name:            "cgroup v2 unlimited uses schedulable CPUs",
+			schedulableCPUs: 4,
+			files:           map[string]string{"cpu.max": "max 100000\n", "cpu.stat": "usage_usec 1000000\n"},
+			usageFile:       "cpu.stat",
+			usageAfter:      "usage_usec 6000000\n", // 5 秒用 1 核，可调度 4 核
+			want:            25,
+		},
+		{
+			name:            "cgroup v1 unlimited uses schedulable CPUs",
+			schedulableCPUs: 4,
+			files: map[string]string{
+				"cpu/cpu.cfs_quota_us":  "-1\n",
+				"cpu/cpu.cfs_period_us": "100000\n",
+				"cpuacct/cpuacct.usage": "1000000000\n",
+			},
+			usageFile:  "cpuacct/cpuacct.usage",
+			usageAfter: "11000000000\n", // 纳秒：5 秒用 2 核，可调度 4 核
+			want:       50,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -87,14 +107,13 @@ func TestContainerCPUSaturation(t *testing.T) {
 	}
 }
 
-func TestContainerCPUSaturationFallsBackWithoutQuota(t *testing.T) {
+func TestContainerCPUSaturationFallsBackWithoutCgroup(t *testing.T) {
 	tests := []struct {
 		name  string
 		files map[string]string
 	}{
-		{name: "cgroup v2 unlimited", files: map[string]string{"cpu.max": "max 100000\n", "cpu.stat": "usage_usec 1000000\n"}},
-		{name: "cgroup v1 unlimited", files: map[string]string{"cpu/cpu.cfs_quota_us": "-1\n", "cpu/cpu.cfs_period_us": "100000\n", "cpuacct/cpuacct.usage": "1000\n"}},
 		{name: "no cgroup files"},
+		{name: "unlimited without usage file", files: map[string]string{"cpu.max": "max 100000\n"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -102,7 +121,7 @@ func TestContainerCPUSaturationFallsBackWithoutQuota(t *testing.T) {
 			base := time.Date(2026, 9, 11, 3, 0, 0, 0, time.UTC)
 			usage.cpuSaturation(base)
 			_, ok := usage.cpuSaturation(base.Add(5 * time.Second))
-			assert.False(t, ok, "没有配额时交由调用方回退宿主机口径")
+			assert.False(t, ok, "没有 cgroup 用量时交由调用方回退宿主机口径")
 		})
 	}
 }
