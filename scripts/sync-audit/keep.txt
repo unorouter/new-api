@@ -113,3 +113,8 @@ controller/relay.go :: service.FreeFairShareAdmit
 controller/relay.go :: service.RecordFreeFairShareAttempt
 setting/operation_setting/quota_setting.go :: FreeFairShareMode
 model/user.go :: func (user *User) AccountHolderSetting
+# Per-model pin failover order on API keys (token group_mapping "order": "custom")
+service/group.go :: func ResolveTokenPinForModel
+service/group.go :: constant.ContextKeyTokenGroupOrdered
+middleware/distributor.go :: constant.ContextKeyTokenGroupOrdered, mappedOrdered
+controller/token.go :: service.TokenPinOrderCustom

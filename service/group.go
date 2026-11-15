@@ -221,6 +221,15 @@ type TokenPinEntry struct {
 	Min    *float64 `json:"min,omitempty"`
 	Max    *float64 `json:"max,omitempty"`
 	Auto   bool     `json:"auto,omitempty"`
+	// Order "custom" tries Groups in the saved order instead of cheapest first.
+	Order string `json:"order,omitempty"`
+}
+
+const TokenPinOrderCustom = "custom"
+
+// IsCustomOrder reports whether the entry asks for its own failover order.
+func (e TokenPinEntry) IsCustomOrder() bool {
+	return e.Order == TokenPinOrderCustom
 }
 
 // HasBand reports whether the entry constrains price at all.
@@ -279,12 +288,21 @@ func ParseTokenGroupMapping(mappingJSON string) map[string]TokenPinEntry {
 // any lookup. An entry on auto returns the base group with its configuration
 // left stored but inert.
 func ResolveTokenGroupForModel(mapping map[string]TokenPinEntry, userGroup, model, baseGroup string, candidates func() []string) string {
+	group, _ := ResolveTokenPinForModel(mapping, userGroup, model, baseGroup, candidates)
+	return group
+}
+
+// ResolveTokenPinForModel is ResolveTokenGroupForModel plus whether the result
+// is in the user's own order. In that order the pinned groups keep their saved
+// sequence and band-only groups follow cheapest first, so GetTokenAutoGroups
+// must not re-sort the joined list.
+func ResolveTokenPinForModel(mapping map[string]TokenPinEntry, userGroup, model, baseGroup string, candidates func() []string) (string, bool) {
 	if len(mapping) == 0 {
-		return baseGroup
+		return baseGroup, false
 	}
 	entry, ok := mapping[model]
 	if !ok || entry.Auto {
-		return baseGroup
+		return baseGroup, false
 	}
 	cleaned := make([]string, 0, len(entry.Groups))
 	seen := make(map[string]struct{}, len(entry.Groups))
@@ -304,6 +322,7 @@ func ResolveTokenGroupForModel(mapping map[string]TokenPinEntry, userGroup, mode
 		seen[g] = struct{}{}
 		cleaned = append(cleaned, g)
 	}
+	pinned := len(cleaned)
 	if entry.HasBand() && candidates != nil {
 		for _, g := range candidates() {
 			g = strings.TrimSpace(g)
@@ -330,16 +349,25 @@ func ResolveTokenGroupForModel(mapping map[string]TokenPinEntry, userGroup, mode
 		}
 	}
 	if len(cleaned) == 0 {
-		return baseGroup
+		return baseGroup, false
 	}
-	return strings.Join(cleaned, ",")
+	ordered := entry.IsCustomOrder()
+	if ordered {
+		// Candidates arrive in no defined order (DISTINCT scan).
+		band := cleaned[pinned:]
+		sort.SliceStable(band, func(i, j int) bool {
+			return GetUserGroupRatio(userGroup, band[i]) < GetUserGroupRatio(userGroup, band[j])
+		})
+	}
+	return strings.Join(cleaned, ","), ordered
 }
 
 // GetTokenAutoGroups returns the ordered group list the channel-select engine
 // iterates for a token: the configured auto groups for "auto", or - for a
 // composite pinned group like "vip,discount" - the pinned groups the user may
 // actually use, cheapest ratio first (pinning exists so users avoid billing at
-// a pricier group, so the cheapest usable pinned group must be tried first).
+// a pricier group, so the cheapest usable pinned group must be tried first),
+// unless the key's pin set its own order (ContextKeyTokenGroupOrdered).
 func GetTokenAutoGroups(c *gin.Context, userGroup, tokenGroup string) []string {
 	if !IsCompositeTokenGroup(tokenGroup) {
 		return GetRequestAutoGroups(c, userGroup)
@@ -354,6 +382,9 @@ func GetTokenAutoGroups(c *gin.Context, userGroup, tokenGroup string) []string {
 			continue
 		}
 		groups = append(groups, g)
+	}
+	if c != nil && common.GetContextKeyBool(c, constant.ContextKeyTokenGroupOrdered) {
+		return groups
 	}
 	sort.SliceStable(groups, func(i, j int) bool {
 		return GetUserGroupRatio(userGroup, groups[i]) < GetUserGroupRatio(userGroup, groups[j])

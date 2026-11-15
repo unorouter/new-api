@@ -79,4 +79,5 @@ type tokenPinEntryShape struct {
 	Min    *float64 `json:"min,omitempty"`
 	Max    *float64 `json:"max,omitempty"`
 	Auto   bool     `json:"auto,omitempty"`
+	Order  string   `json:"order,omitempty"`
 }

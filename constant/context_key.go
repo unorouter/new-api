@@ -25,6 +25,7 @@ const (
 	ContextKeyTokenPromptCache         ContextKey = "token_prompt_cache"
 	ContextKeyTokenGroupMapping        ContextKey = "token_group_mapping"
 	ContextKeyTokenGroupMappingApplied ContextKey = "token_group_mapping_applied"
+	ContextKeyTokenGroupOrdered        ContextKey = "token_group_ordered"
 	ContextKeyTokenAutoGroups          ContextKey = "token_auto_groups"
 
 	/* channel related keys */

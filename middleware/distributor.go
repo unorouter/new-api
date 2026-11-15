@@ -140,9 +140,9 @@ func Distribute() func(c *gin.Context) {
 						}
 					}
 					matchName := ratio_setting.FormatMatchingModelName(modelRequest.Model)
-					mappedGroup := service.ResolveTokenGroupForModel(mapping, accountGroup, modelRequest.Model, "", candidatesFor(modelRequest.Model))
+					mappedGroup, mappedOrdered := service.ResolveTokenPinForModel(mapping, accountGroup, modelRequest.Model, "", candidatesFor(modelRequest.Model))
 					if mappedGroup == "" {
-						mappedGroup = service.ResolveTokenGroupForModel(mapping, accountGroup, matchName, "", candidatesFor(matchName))
+						mappedGroup, mappedOrdered = service.ResolveTokenPinForModel(mapping, accountGroup, matchName, "", candidatesFor(matchName))
 					}
 					// A catalog-hidden preview name is the same model the key pinned under its
 					// public name: SillyTavern still sends gemini-3.1-pro-preview while the pin
@@ -152,7 +152,7 @@ func Distribute() func(c *gin.Context) {
 						publicName = strings.Replace(modelRequest.Model, "-preview", "", 1)
 					}
 					if mappedGroup == "" && publicName != "" {
-						mappedGroup = service.ResolveTokenGroupForModel(mapping, accountGroup, publicName, "", candidatesFor(modelRequest.Model))
+						mappedGroup, mappedOrdered = service.ResolveTokenPinForModel(mapping, accountGroup, publicName, "", candidatesFor(modelRequest.Model))
 					}
 					// The pin must follow the name routing serves: x@temperature:1, x-thinking
 					// and a case or separator variant are all served as x, so they get x's pin.
@@ -164,13 +164,14 @@ func Distribute() func(c *gin.Context) {
 						servedName = ""
 					}
 					if mappedGroup == "" && servedName != "" {
-						mappedGroup = service.ResolveTokenGroupForModel(mapping, accountGroup, servedName, "", candidatesFor(servedName))
+						mappedGroup, mappedOrdered = service.ResolveTokenPinForModel(mapping, accountGroup, servedName, "", candidatesFor(servedName))
 					}
 					if mappedGroup != "" {
 						usingGroup = mappedGroup
 						common.SetContextKey(c, constant.ContextKeyUsingGroup, mappedGroup)
 						common.SetContextKey(c, constant.ContextKeyTokenGroup, mappedGroup)
 						common.SetContextKey(c, constant.ContextKeyTokenGroupMappingApplied, true)
+						common.SetContextKey(c, constant.ContextKeyTokenGroupOrdered, mappedOrdered)
 					} else if service.TokenPinsModel(mapping, modelRequest.Model) ||
 						service.TokenPinsModel(mapping, matchName) ||
 						(publicName != "" && service.TokenPinsModel(mapping, publicName)) ||
@@ -208,6 +209,7 @@ func Distribute() func(c *gin.Context) {
 					// the per-model GroupMapping pin: scope BOTH keys to the header.
 					common.SetContextKey(c, constant.ContextKeyTokenGroup, usingGroup)
 					common.SetContextKey(c, constant.ContextKeyTokenGroupMappingApplied, true)
+					common.SetContextKey(c, constant.ContextKeyTokenGroupOrdered, false)
 				}
 				// check path is /pg/chat/completions
 				if strings.HasPrefix(c.Request.URL.Path, "/pg/chat/completions") {

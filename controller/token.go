@@ -58,6 +58,13 @@ func sanitizeTokenGroupMapping(userId int, mappingJSON string) (string, error) {
 		if entry.Min != nil && entry.Max != nil && *entry.Min > *entry.Max {
 			return "", fmt.Errorf("model %q has a price band whose minimum exceeds its maximum", m)
 		}
+		switch entry.Order {
+		case "", "price":
+			entry.Order = ""
+		case service.TokenPinOrderCustom:
+		default:
+			return "", fmt.Errorf("model %q has an unknown failover order %q", m, entry.Order)
+		}
 		kept := make([]string, 0, len(entry.Groups))
 		for _, g := range entry.Groups {
 			g = strings.TrimSpace(g)
