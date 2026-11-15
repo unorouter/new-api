@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -98,7 +99,7 @@ func TrackFreeCooccurrence(c *gin.Context, userId int) {
 	}
 	banTTL := time.Duration(banDays) * 24 * time.Hour
 	bucket := time.Now().Unix() / int64(window)
-	ip := c.ClientIP()
+	ip := publicClientIP(c)
 	fp := ClientFingerprint(c)
 	network := registrationNetworkKey(ip)
 	if ip != "" && setting.FreeAbuseCooccurIpMinAccounts > 0 {
@@ -245,7 +246,7 @@ func trackWeakCooccurrence(c *gin.Context, userId, mode int) {
 	}
 	banTTL := time.Duration(banDays) * 24 * time.Hour
 	bucket := time.Now().Unix() / int64(window)
-	ip := c.ClientIP()
+	ip := publicClientIP(c)
 	fp := ClientFingerprint(c)
 	if ip != "" && setting.FreeAbuseCooccurIpMinAccounts > 0 {
 		trackCooccurrence("wip", ip, ip, userId, fp, bucket, window, setting.FreeAbuseCooccurIpMinAccounts, mode, banTTL)
@@ -253,4 +254,15 @@ func trackWeakCooccurrence(c *gin.Context, userId, mode int) {
 	if network := registrationNetworkKey(ip); network != "" && setting.FreeAbuseCooccurNetMinAccounts > 0 {
 		trackCooccurrence("wnet", network, network, userId, fp, bucket, window, setting.FreeAbuseCooccurNetMinAccounts, mode, banTTL)
 	}
+}
+
+// publicClientIP is empty for cluster and loopback addresses: those are our own
+// services calling on behalf of many users, never one host running many accounts.
+func publicClientIP(c *gin.Context) string {
+	ip := c.ClientIP()
+	parsed := net.ParseIP(ip)
+	if parsed == nil || parsed.IsPrivate() || parsed.IsLoopback() || parsed.IsLinkLocalUnicast() {
+		return ""
+	}
+	return ip
 }
