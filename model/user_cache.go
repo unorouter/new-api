@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const userCacheSchemaVersion = 5
+const userCacheSchemaVersion = 6
 
 type UserBase struct {
 	Id        int    `json:"id"`
@@ -26,11 +26,13 @@ type UserBase struct {
 	UsedQuota int    `json:"used_quota"`
 	// A third-party login vouched for this account. A typed email is not that
 	// while email verification is off.
-	HasIdentity    bool   `json:"has_identity"`
-	AuthVersion    int64  `json:"-"`
-	CacheSchema    int    `json:"-"`
-	CacheExpiresAt int64  `json:"-"`
-	CacheMAC       string `json:"-"`
+	HasIdentity bool `json:"has_identity"`
+	// A login other than Google vouched for it.
+	HasStrongIdentity bool   `json:"has_strong_identity"`
+	AuthVersion       int64  `json:"-"`
+	CacheSchema       int    `json:"-"`
+	CacheExpiresAt    int64  `json:"-"`
+	CacheMAC          string `json:"-"`
 }
 
 func (user UserBase) cacheMAC() (string, error) {
@@ -52,6 +54,7 @@ func (user *UserBase) WriteContext(c *gin.Context) {
 	common.SetContextKey(c, constant.ContextKeyUserSetting, user.GetSetting())
 	common.SetContextKey(c, constant.ContextKeyUserCreatedAt, user.CreatedAt)
 	common.SetContextKey(c, constant.ContextKeyUserHasIdentity, user.HasIdentity)
+	common.SetContextKey(c, constant.ContextKeyUserHasStrongIdentity, user.HasStrongIdentity)
 	common.SetContextKey(c, constant.ContextKeyUserUsedQuota, user.UsedQuota)
 	common.SetContextKey(c, constant.ContextKeyUserRole, user.Role)
 }

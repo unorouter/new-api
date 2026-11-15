@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -197,4 +198,59 @@ func cooccurrenceShadowBanned(userId int) bool {
 	}
 	n, err := common.RDB.Exists(context.Background(), cooccurBanKey(userId)).Result()
 	return err == nil && n > 0
+}
+
+// FreeFarmBanned tracks a zero-balance account's free request and reports whether
+// the farm verdict shadow bans it. Accounts with no proof at all go through the
+// classic tracker. An account whose only proof is a Google login or a mainstream
+// email, that never paid and calls from a script, goes through a second tracker on
+// its own keys: farms moved to bulk Google accounts once those exempted them. The
+// client fingerprint stays out of that tracker, because one app's library is shared
+// by hundreds of real people who signed in with Google.
+func FreeFarmBanned(c *gin.Context, userId int, verified, strongIdentity bool, usedQuota int) bool {
+	if !verified {
+		TrackFreeCooccurrence(c, userId)
+		return FreeModelsShadowBanned(userId)
+	}
+	if usedQuota > 0 || strongIdentity || !scriptedClient(c) {
+		return false
+	}
+	mode := operation_setting.GetQuotaSetting().FreeAbuseCooccurWeakMode
+	trackWeakCooccurrence(c, userId, mode)
+	if mode != cooccurModeEnforce {
+		return false
+	}
+	n, err := common.RDB.Exists(context.Background(), cooccurBanKey(userId)).Result()
+	return err == nil && n > 0
+}
+
+// scriptedClient is a request without browser headers. The JanitorAI app is a
+// native client used by real people, so it counts as a browser here.
+func scriptedClient(c *gin.Context) bool {
+	return ClientFingerprint(c) != "" && !strings.HasPrefix(c.Request.UserAgent(), "JanitorAIApp/")
+}
+
+func trackWeakCooccurrence(c *gin.Context, userId, mode int) {
+	if userId <= 0 || mode == cooccurModeOff || !common.RedisEnabled {
+		return
+	}
+	setting := operation_setting.GetQuotaSetting()
+	window := setting.FreeAbuseCooccurWindowSeconds
+	if window <= 0 {
+		window = 600
+	}
+	banDays := setting.FreeAbuseCooccurBanDays
+	if banDays <= 0 {
+		banDays = 7
+	}
+	banTTL := time.Duration(banDays) * 24 * time.Hour
+	bucket := time.Now().Unix() / int64(window)
+	ip := c.ClientIP()
+	fp := ClientFingerprint(c)
+	if ip != "" && setting.FreeAbuseCooccurIpMinAccounts > 0 {
+		trackCooccurrence("wip", ip, ip, userId, fp, bucket, window, setting.FreeAbuseCooccurIpMinAccounts, mode, banTTL)
+	}
+	if network := registrationNetworkKey(ip); network != "" && setting.FreeAbuseCooccurNetMinAccounts > 0 {
+		trackCooccurrence("wnet", network, network, userId, fp, bucket, window, setting.FreeAbuseCooccurNetMinAccounts, mode, banTTL)
+	}
 }

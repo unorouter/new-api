@@ -44,13 +44,15 @@ func (p *RegistrationProvenance) HasIdentity() bool {
 // 2026-09-07 were), and a Google login counts only at a mainstream address,
 // since Google accepts any address as an account name.
 func identityVouched(gitHubId, discordId, oidcId, telegramId, linuxDOId, weChatId, googleId, email string, unvouchedGitHub bool) bool {
-	if discordId != "" || oidcId != "" || telegramId != "" || linuxDOId != "" || weChatId != "" {
-		return true
-	}
-	if gitHubId != "" && !unvouchedGitHub {
-		return true
-	}
-	return googleId != "" && common.MainstreamEmailDomain(email)
+	return strongIdentityVouched(gitHubId, discordId, oidcId, telegramId, linuxDOId, weChatId, unvouchedGitHub) ||
+		(googleId != "" && common.MainstreamEmailDomain(email))
+}
+
+// strongIdentityVouched leaves out Google: farms buy Google accounts in bulk and
+// sign in with them, so a Google login alone does not prove a person behind a script.
+func strongIdentityVouched(gitHubId, discordId, oidcId, telegramId, linuxDOId, weChatId string, unvouchedGitHub bool) bool {
+	return discordId != "" || oidcId != "" || telegramId != "" || linuxDOId != "" || weChatId != "" ||
+		(gitHubId != "" && !unvouchedGitHub)
 }
 
 // RegistrationProvenanceSince returns every ordinary account registered after the

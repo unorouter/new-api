@@ -42,6 +42,8 @@ type QuotaSetting struct {
 	FreeAbuseCooccurNetMinAccounts int `json:"free_abuse_cooccur_net_min_accounts"` // 同一 /24（IPv6 /48）非浏览器窗口内账号数阈值；0=关闭
 	FreeAbuseCooccurWindowSeconds  int `json:"free_abuse_cooccur_window_seconds"`   // 同现统计窗口（秒）
 	FreeAbuseCooccurBanDays        int `json:"free_abuse_cooccur_ban_days"`         // 同现封禁保留天数，簇持续活跃则续期
+	// 仅凭 Google 登录或主流邮箱"验证"、从未付费、且用脚本客户端访问的账号，按 IP 与网段单独做同现检测。0=关闭，1=仅记录，2=执行。
+	FreeAbuseCooccurWeakMode int `json:"free_abuse_cooccur_weak_mode"`
 	// 用户名域名簇：用户名形如邮箱、未填写邮箱，且同一稀有域名下账号数达到阈值、几乎无人绑定身份，则视为农场。
 	FreeAbuseUsernameDomainMinAccounts int    `json:"free_abuse_username_domain_min_accounts"` // 0=关闭
 	FreeAbuseUsernameDomainAllowlist   string `json:"free_abuse_username_domain_allowlist"`    // 逗号分隔的公共邮箱域名，不参与统计
@@ -92,6 +94,7 @@ var quotaSetting = QuotaSetting{
 	FreeAbuseCooccurNetMinAccounts:     0,
 	FreeAbuseCooccurWindowSeconds:      600,
 	FreeAbuseCooccurBanDays:            7,
+	FreeAbuseCooccurWeakMode:           0,
 	FreeAbuseUsernameDomainMinAccounts: 0,
 	FreeAbuseUsernameDomainAllowlist:   "gmail.com,googlemail.com,qq.com,outlook.com,hotmail.com,live.com,163.com,126.com,foxmail.com,yahoo.com,icloud.com,proton.me,protonmail.com,mail.ru,yandex.ru,duck.com,mozmail.com",
 

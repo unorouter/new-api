@@ -461,11 +461,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// already clears one earned before (model.LiftShadowBan), so a flag still set
 		// was earned or set by an admin after the account proved itself.
 		freeVerified := service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail)
-		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels && relayInfo.UserQuota <= 0 && !freeVerified {
-			service.TrackFreeCooccurrence(c, relayInfo.UserId)
-		}
-		if relayInfo.UserQuota <= 0 &&
-			(relayInfo.UserSetting.BlockFreeWhenNoQuota || (!freeVerified && service.FreeModelsShadowBanned(relayInfo.UserId))) {
+		farmBanned := relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels && relayInfo.UserQuota <= 0 &&
+			service.FreeFarmBanned(c, relayInfo.UserId, freeVerified, relayInfo.UserHasStrongIdentity, relayInfo.UserUsedQuota)
+		if relayInfo.UserQuota <= 0 && (relayInfo.UserSetting.BlockFreeWhenNoQuota || farmBanned) {
 			// Shadow ban: return the same 429 rate-limit response a throttled free
 			// user gets, so an abuser cannot tell they are specifically blocked.
 			newAPIError = types.NewErrorWithStatusCode(
@@ -1531,11 +1529,9 @@ func executeTaskSubmissionWith(
 		// already clears one earned before (model.LiftShadowBan), so a flag still set
 		// was earned or set by an admin after the account proved itself.
 		freeVerified := service.FreeUserVerified(relayInfo.UserHasIdentity, relayInfo.UserUsedQuota, relayInfo.UserEmail)
-		if relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels && relayInfo.UserQuota <= 0 && !freeVerified {
-			service.TrackFreeCooccurrence(c, relayInfo.UserId)
-		}
-		if relayInfo.UserQuota <= 0 &&
-			(relayInfo.UserSetting.BlockFreeWhenNoQuota || (!freeVerified && service.FreeModelsShadowBanned(relayInfo.UserId))) {
+		farmBanned := relayInfo.UserId > 0 && !relayInfo.UserSetting.UnlimitedFreeModels && relayInfo.UserQuota <= 0 &&
+			service.FreeFarmBanned(c, relayInfo.UserId, freeVerified, relayInfo.UserHasStrongIdentity, relayInfo.UserUsedQuota)
+		if relayInfo.UserQuota <= 0 && (relayInfo.UserSetting.BlockFreeWhenNoQuota || farmBanned) {
 			return nil, service.TaskErrorWrapperLocal(
 				errors.New(shadowBanRateLimitMessage(c, relayInfo.UserId, relayInfo.OriginModelName)),
 				string(types.ErrorCodeRateLimitExceeded), http.StatusTooManyRequests)

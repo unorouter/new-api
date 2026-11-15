@@ -132,14 +132,15 @@ type RelayInfo struct {
 	ReasoningEffort            string
 	// ReasoningConversion is the suffix-derived reasoning intent attached
 	// after model mapping. Converters read it via ReasoningState().
-	ReasoningConversion *dto.ReasoningConversionState
-	UserSetting         hosttypes.UserSetting
-	UserEmail           string
-	UserQuota           int
-	UserHasIdentity     bool
-	UserUsedQuota       int
-	RelayFormat         types.RelayFormat
-	SendResponseCount   int
+	ReasoningConversion   *dto.ReasoningConversionState
+	UserSetting           hosttypes.UserSetting
+	UserEmail             string
+	UserQuota             int
+	UserHasIdentity       bool
+	UserHasStrongIdentity bool
+	UserUsedQuota         int
+	RelayFormat           types.RelayFormat
+	SendResponseCount     int
 	// ClaudeToChatStreamState / ChatToGeminiStreamState hold per-attempt
 	// stream converters. InitChannelMeta nils them so a retry cannot resume a
 	// dirty converter (advanced tool index / finalized).
@@ -670,8 +671,9 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		UserQuota:  common.GetContextKeyInt(c, constant.ContextKeyUserQuota),
 		UserEmail:  common.GetContextKeyString(c, constant.ContextKeyUserEmail),
 
-		UserHasIdentity: common.GetContextKeyBool(c, constant.ContextKeyUserHasIdentity),
-		UserUsedQuota:   common.GetContextKeyInt(c, constant.ContextKeyUserUsedQuota),
+		UserHasIdentity:       common.GetContextKeyBool(c, constant.ContextKeyUserHasIdentity),
+		UserHasStrongIdentity: common.GetContextKeyBool(c, constant.ContextKeyUserHasStrongIdentity),
+		UserUsedQuota:         common.GetContextKeyInt(c, constant.ContextKeyUserUsedQuota),
 
 		OriginModelName: originModelName,
 

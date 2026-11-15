@@ -170,19 +170,20 @@ func UpdateUserCustomerType(userId int, customerType string) (string, error) {
 
 func (user *User) ToBaseUser() *UserBase {
 	cache := &UserBase{
-		Id:          user.Id,
-		Group:       user.Group,
-		Quota:       user.Quota,
-		Status:      user.Status,
-		Role:        user.Role,
-		Username:    user.Username,
-		Setting:     user.Setting,
-		Email:       user.Email,
-		CreatedAt:   user.CreatedAt,
-		UsedQuota:   user.UsedQuota,
-		HasIdentity: user.HasIdentity(),
-		AuthVersion: user.AuthVersion,
-		CacheSchema: userCacheSchemaVersion,
+		Id:                user.Id,
+		Group:             user.Group,
+		Quota:             user.Quota,
+		Status:            user.Status,
+		Role:              user.Role,
+		Username:          user.Username,
+		Setting:           user.Setting,
+		Email:             user.Email,
+		CreatedAt:         user.CreatedAt,
+		UsedQuota:         user.UsedQuota,
+		HasIdentity:       user.HasIdentity(),
+		HasStrongIdentity: user.HasStrongIdentity(),
+		AuthVersion:       user.AuthVersion,
+		CacheSchema:       userCacheSchemaVersion,
 	}
 	return cache
 }
@@ -192,6 +193,11 @@ func (user *User) ToBaseUser() *UserBase {
 func (user *User) HasIdentity() bool {
 	return identityVouched(user.GitHubId, user.DiscordId, user.OidcId, user.TelegramId, user.LinuxDOId,
 		user.WeChatId, user.GoogleId, user.Email, user.GetSetting().UnvouchedGitHub)
+}
+
+func (user *User) HasStrongIdentity() bool {
+	return strongIdentityVouched(user.GitHubId, user.DiscordId, user.OidcId, user.TelegramId, user.LinuxDOId,
+		user.WeChatId, user.GetSetting().UnvouchedGitHub)
 }
 
 // Deprecated: 旧版面板访问令牌，仅在升级后的过渡期内使用；删除 users.access_token 列时一并移除。
