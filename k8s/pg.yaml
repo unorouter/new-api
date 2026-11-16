@@ -286,6 +286,10 @@ spec:
       autovacuum_vacuum_cost_limit: "1000"
       autovacuum_naptime: "30s"
       log_autovacuum_min_duration: "60s"
+      # WAL shares the 20Gi data volume: a replica that stops replaying (a diverged one after
+      # a switchover, cloudnative-pg#11715) would otherwise hold WAL until the primary is full.
+      # Past the cap the slot is invalidated and that replica is recloned instead.
+      max_slot_wal_keep_size: "5GB"
       # 2026-09-06: the Creem key leaked out of `options` by an unknown path and nothing
       # on the DB side could say who read it. Connection lines plus pgaudit object logging
       # on `options` (role auditor, see infra/infra/databases/options-audit.sql) give the
