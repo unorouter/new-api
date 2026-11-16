@@ -121,3 +121,7 @@ controller/token.go :: service.TokenPinOrderCustom
 # Text-only content arrays flattened for sellers that require a string (param_override "flatten_text")
 relay/common/override.go :: case "flatten_text":
 relay/common/override.go :: func flattenTextParts
+# A reply from a lighter model tier than requested pulls the lane and fails its test
+relay/common/response_model.go :: func (r *ResponseModel) Downgrade
+controller/relay.go :: observed.Downgrade()
+controller/channel-test.go :: observed.Downgrade()

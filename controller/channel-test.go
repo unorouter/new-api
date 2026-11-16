@@ -684,6 +684,14 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			newAPIError: types.NewOpenAIError(bodyErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError),
 		}
 	}
+	if observed := info.ResponseModel; observed.Downgrade() {
+		downgradeErr := fmt.Errorf("channel: upstream answered %s with lighter model %s", observed.RequestedModel, observed.ReturnedModel)
+		return testResult{
+			context:     c,
+			localErr:    downgradeErr,
+			newAPIError: types.NewOpenAIError(downgradeErr, types.ErrorCodeBadResponseBody, http.StatusBadGateway),
+		}
+	}
 	if operation_setting.GetMonitorSetting().DisableOnEmptyResponse && isEmptyTestResponseBody(respBody, isStream) {
 		emptyErr := errors.New("channel: empty response (upstream returned 200 with no content)")
 		return testResult{

@@ -659,6 +659,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			if requestRanAtLeast(c, service.ChannelTruncationMinDuration()) {
 				service.RecordChannelLongRequest(channel.Id)
 			}
+			if observed := relayInfo.ResponseModel; observed.Downgrade() {
+				reason := fmt.Sprintf("upstream answered %s with lighter model %s", observed.RequestedModel, observed.ReturnedModel)
+				logger.LogWarn(c, fmt.Sprintf("channel-guard: lane #%d (%s) %s", channel.Id, channel.Name, reason))
+				service.DisableChannel(*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), reason)
+			}
 			return
 		}
 
