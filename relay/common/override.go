@@ -1018,6 +1018,8 @@ func applyOperations(doc *ojson.Doc, operations []ParamOperation, conditionConte
 			if stripped {
 				auditRecorder.recordOperation("delete", "image", "", "", nil)
 			}
+		case "flatten_text":
+			_, err = flattenTextParts(doc)
 		case "move":
 			opFrom := processNegativeIndex(doc, op.From)
 			opTo := processNegativeIndex(doc, op.To)
@@ -1952,6 +1954,42 @@ func stripImageParts(doc *ojson.Doc) (bool, error) {
 		stripped = true
 	}
 	return stripped, nil
+}
+
+// flattenTextParts turns a message whose content is only text parts into one
+// string. Some sellers validate content as a plain string and answer 400 to the
+// array a client sends for prompt caching (a text part with cache_control), which
+// such an upstream ignores anyway. A message with any non-text part is left as is.
+func flattenTextParts(doc *ojson.Doc) (bool, error) {
+	messages := doc.Get("messages")
+	if !messages.IsArray() {
+		return false, nil
+	}
+	flattened := false
+	for mi, message := range messages.Array() {
+		content := message.Get("content")
+		if !content.IsArray() {
+			continue
+		}
+		parts := content.Array()
+		texts := make([]string, 0, len(parts))
+		textOnly := len(parts) > 0
+		for _, part := range parts {
+			if part.Get("type").String() != "text" {
+				textOnly = false
+				break
+			}
+			texts = append(texts, part.Get("text").String())
+		}
+		if !textOnly {
+			continue
+		}
+		if err := doc.Set(fmt.Sprintf("messages.%d.content", mi), strings.Join(texts, "\n")); err != nil {
+			return flattened, err
+		}
+		flattened = true
+	}
+	return flattened, nil
 }
 
 func deleteValue(doc *ojson.Doc, path string) error {

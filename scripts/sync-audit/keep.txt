@@ -118,3 +118,6 @@ service/group.go :: func ResolveTokenPinForModel
 service/group.go :: constant.ContextKeyTokenGroupOrdered
 middleware/distributor.go :: constant.ContextKeyTokenGroupOrdered, mappedOrdered
 controller/token.go :: service.TokenPinOrderCustom
+# Text-only content arrays flattened for sellers that require a string (param_override "flatten_text")
+relay/common/override.go :: case "flatten_text":
+relay/common/override.go :: func flattenTextParts
