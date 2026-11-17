@@ -69,6 +69,17 @@ type UpdateTokenRequest struct {
 	PromptCache *string `json:"prompt_cache"`
 }
 
+// TokenGroupRenameRequest is the body for PUT /api/token/group-rename.
+type TokenGroupRenameRequest struct {
+	From string `json:"from" description:"Group name the tokens reference today"`
+	To   string `json:"to"   description:"Group name to reference instead"`
+}
+
+// TokenGroupRenameResponse reports how many tokens were rewritten.
+type TokenGroupRenameResponse struct {
+	Changed int `json:"changed"`
+}
+
 // GuestTokenLimitsRequest is the body for PUT /api/token/guest-model-limits.
 // The token is addressed by its own key rather than an id: the sync knows the
 // guest key from its environment and must not be able to enumerate or edit any

@@ -125,3 +125,6 @@ relay/common/override.go :: func flattenTextParts
 relay/common/response_model.go :: func (r *ResponseModel) Downgrade
 controller/relay.go :: observed.Downgrade()
 controller/channel-test.go :: observed.Downgrade()
+# The sync moves token pins when it renames a lane group
+model/token_group_rename.go :: func RenameGroupInTokens
+router/api-router.go :: controller.RenameTokenGroup

@@ -606,6 +606,27 @@ func UpdateGuestTokenModelLimits(c fuego.ContextWithBody[dto.GuestTokenLimitsReq
 	return dto.Ok(dto.MessageResponse{Message: "ok"})
 }
 
+// RenameTokenGroup moves every token pin from one group name to another when the
+// sync renames a lane, so pinned users keep the lane instead of falling back to auto.
+func RenameTokenGroup(c fuego.ContextWithBody[dto.TokenGroupRenameRequest]) (*dto.Response[dto.TokenGroupRenameResponse], error) {
+	ginCtx := dto.GinCtx(c)
+	if !middleware.AuthenticatedViaSyncToken(ginCtx) {
+		return dto.Fail[dto.TokenGroupRenameResponse]("this route is limited to the sync service credential")
+	}
+	body, err := c.Body()
+	if err != nil {
+		return dto.Fail[dto.TokenGroupRenameResponse](err.Error())
+	}
+	if strings.TrimSpace(body.From) == "" || strings.TrimSpace(body.To) == "" {
+		return dto.Fail[dto.TokenGroupRenameResponse]("from and to are required")
+	}
+	changed, err := model.RenameGroupInTokens(body.From, body.To)
+	if err != nil {
+		return dto.Fail[dto.TokenGroupRenameResponse](err.Error())
+	}
+	return dto.Ok(dto.TokenGroupRenameResponse{Changed: changed})
+}
+
 func DeleteTokenBatch(c fuego.ContextWithBody[dto.TokenBatch]) (*dto.Response[int], error) {
 	tokenBatch, err := c.Body()
 	if err != nil || len(tokenBatch.Ids) == 0 {
