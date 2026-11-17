@@ -89,6 +89,22 @@ func responseHasReasoning(resp *dto.OpenAITextResponse) bool {
 	return false
 }
 
+// upstreamCostFields carry the provider's own price (OpenRouter usage.cost), which
+// callers read as their charge although it is what we pay.
+var upstreamCostFields = []string{"usage.cost", "usage.cost_details", "usage.is_byok"}
+
+func stripUpstreamCost(data string) string {
+	for _, path := range upstreamCostFields {
+		if !gjson.Get(data, path).Exists() {
+			continue
+		}
+		if stripped, err := ojson.Delete(data, path); err == nil {
+			data = stripped
+		}
+	}
+	return data
+}
+
 func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {
 	if data == "" {
 		return nil
@@ -106,7 +122,7 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 	}
 
 	if !forceFormat && !thinkToContent {
-		return helper.StringData(c, data)
+		return helper.StringData(c, stripUpstreamCost(data))
 	}
 
 	var lastStreamResponse dto.ChatCompletionsStreamResponse
@@ -700,6 +716,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
+		responseBody = []byte(stripUpstreamCost(string(responseBody)))
 		if usageModified {
 			usageJSON, err := common.Marshal(simpleResponse.Usage)
 			if err != nil {
