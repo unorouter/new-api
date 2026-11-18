@@ -105,6 +105,22 @@ func stripUpstreamCost(data string) string {
 	return data
 }
 
+// dropEmptyFunctionCalls removes the empty legacy function_call some pooled upstreams
+// attach to the last chunk of a plain text stream ({"name":"","arguments":""}).
+// Clients that treat its presence as a call crash on it (Janitor: "n.map is not a function").
+func dropEmptyFunctionCalls(data string) string {
+	for i, choice := range gjson.Get(data, "choices").Array() {
+		call := choice.Get("delta.function_call")
+		if !call.Exists() || call.Get("name").String() != "" || call.Get("arguments").String() != "" {
+			continue
+		}
+		if stripped, err := ojson.Delete(data, fmt.Sprintf("choices.%d.delta.function_call", i)); err == nil {
+			data = stripped
+		}
+	}
+	return data
+}
+
 func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {
 	if data == "" {
 		return nil
@@ -122,7 +138,7 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 	}
 
 	if !forceFormat && !thinkToContent {
-		return helper.StringData(c, stripUpstreamCost(data))
+		return helper.StringData(c, dropEmptyFunctionCalls(stripUpstreamCost(data)))
 	}
 
 	var lastStreamResponse dto.ChatCompletionsStreamResponse
