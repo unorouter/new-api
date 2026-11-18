@@ -105,17 +105,28 @@ func stripUpstreamCost(data string) string {
 	return data
 }
 
-// dropEmptyFunctionCalls removes the empty legacy function_call some pooled upstreams
-// attach to the last chunk of a plain text stream ({"name":"","arguments":""}).
-// Clients that treat its presence as a call crash on it (Janitor: "n.map is not a function").
-func dropEmptyFunctionCalls(data string) string {
+// dropNonStandardChoiceFields strips per-choice fields some upstreams add to an
+// OpenAI stream chunk: an empty legacy function_call on the last chunk of a text
+// reply, and a Mistral-hosted seller's response_error validation report plus a
+// stray delta.index on every chunk. Clients that read any of them as a call or an
+// error crash mid-reply (Janitor: "n.map is not a function").
+func dropNonStandardChoiceFields(data string) string {
 	for i, choice := range gjson.Get(data, "choices").Array() {
+		var paths []string
 		call := choice.Get("delta.function_call")
-		if !call.Exists() || call.Get("name").String() != "" || call.Get("arguments").String() != "" {
-			continue
+		if call.Exists() && call.Get("name").String() == "" && call.Get("arguments").String() == "" {
+			paths = append(paths, fmt.Sprintf("choices.%d.delta.function_call", i))
 		}
-		if stripped, err := ojson.Delete(data, fmt.Sprintf("choices.%d.delta.function_call", i)); err == nil {
-			data = stripped
+		if choice.Get("response_error").Exists() {
+			paths = append(paths, fmt.Sprintf("choices.%d.response_error", i))
+		}
+		if choice.Get("delta.index").Exists() {
+			paths = append(paths, fmt.Sprintf("choices.%d.delta.index", i))
+		}
+		for _, path := range paths {
+			if stripped, err := ojson.Delete(data, path); err == nil {
+				data = stripped
+			}
 		}
 	}
 	return data
@@ -138,7 +149,7 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 	}
 
 	if !forceFormat && !thinkToContent {
-		return helper.StringData(c, dropEmptyFunctionCalls(stripUpstreamCost(data)))
+		return helper.StringData(c, dropNonStandardChoiceFields(stripUpstreamCost(data)))
 	}
 
 	var lastStreamResponse dto.ChatCompletionsStreamResponse
