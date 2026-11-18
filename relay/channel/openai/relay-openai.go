@@ -105,12 +105,16 @@ func stripUpstreamCost(data string) string {
 	return data
 }
 
-// dropNonStandardChoiceFields strips per-choice fields some upstreams add to an
-// OpenAI stream chunk: an empty legacy function_call on the last chunk of a text
-// reply, and a Mistral-hosted seller's response_error validation report plus a
-// stray delta.index on every chunk. Clients that read any of them as a call or an
-// error crash mid-reply (Janitor: "n.map is not a function").
-func dropNonStandardChoiceFields(data string) string {
+// normalizeStreamChoices makes an upstream's OpenAI stream chunk read the way
+// clients expect. It strips per-choice fields some upstreams add (an empty legacy
+// function_call on the last chunk of a text reply, a Mistral-hosted seller's
+// response_error report and stray delta.index), and flattens a delta.content sent
+// as typed parts: on high reasoning that seller streams its thinking as
+// [{"type":"thinking","thinking":[{"type":"text","text":...}]}] inside content.
+// Janitor and most chat clients treat content as a string and crash on the array
+// ("n.map is not a function"), so text parts become content and thinking parts
+// become reasoning_content.
+func normalizeStreamChoices(data string) string {
 	for i, choice := range gjson.Get(data, "choices").Array() {
 		var paths []string
 		call := choice.Get("delta.function_call")
@@ -126,6 +130,36 @@ func dropNonStandardChoiceFields(data string) string {
 		for _, path := range paths {
 			if stripped, err := ojson.Delete(data, path); err == nil {
 				data = stripped
+			}
+		}
+		content := choice.Get("delta.content")
+		if !content.IsArray() {
+			continue
+		}
+		var text, thinking strings.Builder
+		for _, part := range content.Array() {
+			switch part.Get("type").String() {
+			case "text":
+				text.WriteString(part.Get("text").String())
+			case "thinking":
+				inner := part.Get("thinking")
+				if !inner.IsArray() {
+					thinking.WriteString(inner.String())
+					continue
+				}
+				for _, piece := range inner.Array() {
+					thinking.WriteString(piece.Get("text").String())
+				}
+			}
+		}
+		delta := fmt.Sprintf("choices.%d.delta", i)
+		if flattened, err := ojson.Set(data, delta+".content", text.String()); err == nil {
+			data = flattened
+		}
+		if thinking.Len() > 0 {
+			reasoning := choice.Get("delta.reasoning_content").String() + thinking.String()
+			if withReasoning, err := ojson.Set(data, delta+".reasoning_content", reasoning); err == nil {
+				data = withReasoning
 			}
 		}
 	}
@@ -149,7 +183,7 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 	}
 
 	if !forceFormat && !thinkToContent {
-		return helper.StringData(c, dropNonStandardChoiceFields(stripUpstreamCost(data)))
+		return helper.StringData(c, normalizeStreamChoices(stripUpstreamCost(data)))
 	}
 
 	var lastStreamResponse dto.ChatCompletionsStreamResponse

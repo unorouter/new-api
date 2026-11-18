@@ -128,8 +128,8 @@ controller/channel-test.go :: observed.Downgrade()
 # The sync moves token pins when it renames a lane group
 model/token_group_rename.go :: func RenameGroupInTokens
 router/api-router.go :: controller.RenameTokenGroup
-# Non-standard choice fields (empty function_call, response_error) crash Janitor
-relay/channel/openai/relay-openai.go :: func dropNonStandardChoiceFields
-relay/channel/openai/relay-openai.go :: dropNonStandardChoiceFields(stripUpstreamCost(data))
+# Non-standard choice fields and array delta.content (Mistral thinking parts) crash Janitor
+relay/channel/openai/relay-openai.go :: func normalizeStreamChoices
+relay/channel/openai/relay-openai.go :: normalizeStreamChoices(stripUpstreamCost(data))
 # Seller-specific parameter validation (si Mistral-hosted GLM) fails over
 service/upstream_class.go :: "sampling is not supported", "extra inputs are not permitted"
