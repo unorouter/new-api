@@ -131,3 +131,5 @@ router/api-router.go :: controller.RenameTokenGroup
 # Empty legacy function_call on a text stream crashes Janitor
 relay/channel/openai/relay-openai.go :: func dropEmptyFunctionCalls
 relay/channel/openai/relay-openai.go :: dropEmptyFunctionCalls(stripUpstreamCost(data))
+# Seller-specific parameter validation (si Mistral-hosted GLM) fails over
+service/upstream_class.go :: "sampling is not supported", "extra inputs are not permitted"
