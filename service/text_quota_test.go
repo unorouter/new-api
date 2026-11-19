@@ -1705,3 +1705,25 @@ func TestPostTextConsumeQuotaLogsMissingUsageAsStructuredContent(t *testing.T) {
 		map[string]any{"key": "Upstream returned no usage, so nothing was charged (possibly an upstream timeout)"},
 	}, other["content_parts"])
 }
+
+func TestAppendCompletionInfoWritesAdminInfo(t *testing.T) {
+	info := &relaycommon.RelayInfo{RequestMaxTokens: 1024}
+	info.ObserveFinishReason("")
+	info.ObserveFinishReason("MAX_TOKENS")
+	info.ObserveFinishReason("STOP")
+	usage := &dto.Usage{}
+	usage.CompletionTokenDetails.ReasoningTokens = 1000
+
+	other := model.NewLogOther()
+	appendCompletionInfo(info, usage, other)
+	adminInfo, ok := other.Snapshot()["admin_info"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "MAX_TOKENS", adminInfo["finish_reason"])
+	assert.Equal(t, 1024, adminInfo["request_max_tokens"])
+	assert.Equal(t, 1000, adminInfo["reasoning_tokens"])
+
+	other = model.NewLogOther()
+	appendCompletionInfo(&relaycommon.RelayInfo{}, nil, other)
+	_, ok = other.Snapshot()["admin_info"]
+	assert.False(t, ok)
+}

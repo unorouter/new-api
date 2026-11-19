@@ -38,6 +38,9 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	info.ObserveResponseModel(chatResp.Model)
+	for _, choice := range chatResp.Choices {
+		info.ObserveFinishReason(choice.FinishReason)
+	}
 	if responseID := helper.GetResponseID(c); responseID != "" {
 		chatResp.Id = responseID
 	}
@@ -176,6 +179,11 @@ func (e *chatToResponsesEmitter) chunk(data string, statusCode int) bool {
 
 func (e *chatToResponsesEmitter) convert(chunk *dto.ChatCompletionsStreamResponse) bool {
 	e.info.ObserveResponseModel(chunk.Model)
+	for _, choice := range chunk.Choices {
+		if choice.FinishReason != nil {
+			e.info.ObserveFinishReason(*choice.FinishReason)
+		}
+	}
 	results, err := service.ConvertStreamResponseChunk(e.c, e.info, e.state, chunk)
 	if err != nil {
 		if e.fail(err) {
@@ -361,6 +369,11 @@ func OaiChatToResponsesBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 		}
 		info.ObserveResponseModel(chunk.Model)
+		for _, choice := range chunk.Choices {
+			if choice.FinishReason != nil {
+				info.ObserveFinishReason(*choice.FinishReason)
+			}
+		}
 		if _, err := service.ConvertStreamResponseChunk(c, info, state, &chunk); err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		}

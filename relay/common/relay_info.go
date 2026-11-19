@@ -231,6 +231,9 @@ type RelayInfo struct {
 	// a text-only prompt cannot bill far past our count, nor output past max_tokens.
 	RequestTextOnly  bool
 	RequestMaxTokens int
+	// FinishReason is the upstream's terminal reason in its own spelling, for the
+	// consume log only; converters rewrite the client-facing one.
+	FinishReason string
 	// Set when settlement capped an upstream usage report above that ceiling.
 	UsageCap *UsageCap
 
@@ -311,8 +314,17 @@ func (info *RelayInfo) RequestedImageCount() int {
 	return 1
 }
 
+// ObserveFinishReason keeps the first non-empty reason the upstream reported.
+func (info *RelayInfo) ObserveFinishReason(reason string) {
+	if info == nil || info.FinishReason != "" {
+		return
+	}
+	info.FinishReason = strings.TrimSpace(reason)
+}
+
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	info.ResponseModel = nil
+	info.FinishReason = ""
 	info.FinalRequestRelayFormat = ""
 	info.RequestConversionChain = nil
 	info.InitRequestConversionChain()

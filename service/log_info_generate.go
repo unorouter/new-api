@@ -244,6 +244,22 @@ func AppendResponseModelLogInfo(relayInfo *relaycommon.RelayInfo, other *model.L
 	other.SetPublic("response_model", *observation)
 }
 
+// appendCompletionInfo records how the reply ended and the output budget it had.
+func appendCompletionInfo(relayInfo *relaycommon.RelayInfo, usage *dto.Usage, other *model.LogOther) {
+	if relayInfo == nil || other == nil {
+		return
+	}
+	if relayInfo.FinishReason != "" {
+		other.SetAdmin("finish_reason", relayInfo.FinishReason)
+	}
+	if relayInfo.RequestMaxTokens > 0 {
+		other.SetAdmin("request_max_tokens", relayInfo.RequestMaxTokens)
+	}
+	if usage != nil && usage.CompletionTokenDetails.ReasoningTokens > 0 {
+		other.SetAdmin("reasoning_tokens", usage.CompletionTokenDetails.ReasoningTokens)
+	}
+}
+
 func appendParamOverrideInfo(relayInfo *relaycommon.RelayInfo, other *model.LogOther) {
 	if relayInfo == nil || other == nil || len(relayInfo.ParamOverrideAudit) == 0 {
 		return
@@ -373,6 +389,7 @@ func appendFinalRequestFormat(relayInfo *relaycommon.RelayInfo, other *model.Log
 
 func GenerateWssOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.RealtimeUsage, modelRatio, groupRatio, completionRatio, audioRatio, audioCompletionRatio, modelPrice, userGroupRatio float64) *model.LogOther {
 	info := GenerateTextOtherInfo(ctx, relayInfo, modelRatio, groupRatio, completionRatio, 0, 0.0, modelPrice, userGroupRatio)
+	appendCompletionInfo(relayInfo, nil, info)
 	info.SetPublic("ws", true)
 	info.SetPublic("audio_input", usage.InputTokenDetails.AudioTokens)
 	info.SetPublic("audio_output", usage.OutputTokenDetails.AudioTokens)
@@ -385,6 +402,7 @@ func GenerateWssOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 func GenerateAudioOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, modelRatio, groupRatio, completionRatio, audioRatio, audioCompletionRatio, modelPrice, userGroupRatio float64) *model.LogOther {
 	info := GenerateTextOtherInfo(ctx, relayInfo, modelRatio, groupRatio, completionRatio, 0, 0.0, modelPrice, userGroupRatio)
+	appendCompletionInfo(relayInfo, usage, info)
 	info.SetPublic("audio", true)
 	info.SetPublic("audio_input", usage.PromptTokensDetails.AudioTokens)
 	info.SetPublic("audio_output", usage.CompletionTokenDetails.AudioTokens)

@@ -107,9 +107,11 @@ func ClaudeResponsesStreamHandler(c *gin.Context, resp *http.Response, info *rel
 		}
 
 		if claudeResponse.StopReason != "" {
+			info.ObserveFinishReason(claudeResponse.StopReason)
 			maybeMarkClaudeRefusal(c, info, claudeResponse.StopReason)
 		}
 		if claudeResponse.Delta != nil && claudeResponse.Delta.StopReason != nil {
+			info.ObserveFinishReason(*claudeResponse.Delta.StopReason)
 			maybeMarkClaudeRefusal(c, info, *claudeResponse.Delta.StopReason)
 		}
 		if claudeResponse.Type == "message_stop" {

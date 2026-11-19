@@ -135,3 +135,16 @@ relay/channel/openai/relay-openai.go :: normalizeStreamChoices(stripUpstreamCost
 service/upstream_class.go :: "sampling is not supported", "extra inputs are not permitted"
 controller/relay.go :: shouldDisable && !class.DisableNow && shouldSkipDisableForModality
 controller/relay.go :: if shouldDisable && class.DisableNow {
+# Consume logs record the upstream finish reason, max_tokens and reasoning tokens (admin only)
+relay/common/relay_info.go :: func (info *RelayInfo) ObserveFinishReason
+relay/common/relay_info.go :: info.FinishReason = ""
+service/log_info_generate.go :: func appendCompletionInfo
+service/log_info_generate.go :: appendCompletionInfo(relayInfo, usage, info)
+service/text_quota.go :: appendCompletionInfo(relayInfo, effectiveBillingUsage(originUsage), other)
+relay/channel/openai/relay-openai.go :: info.ObserveFinishReason(*choice.FinishReason)
+relay/channel/openai/relay-openai.go :: info.ObserveFinishReason(choice.FinishReason)
+relay/channel/gemini/relay-gemini.go :: func observeGeminiFinishReason
+relay/channel/gemini/relay-gemini.go :: observeGeminiFinishReason(info, &geminiResponse)
+relay/channel/gemini/relay-gemini-native.go :: observeGeminiFinishReason(info, &geminiResponse)
+relay/channel/claude/relay-claude.go :: info.ObserveFinishReason(claudeResponse.StopReason)
+service/responses_usage.go :: info.ObserveFinishReason(reason)

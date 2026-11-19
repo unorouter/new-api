@@ -118,6 +118,7 @@ func OaiStreamToJsonHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 				agg.reasoningContent.WriteString(s)
 			}
 			if choice.FinishReason != nil && *choice.FinishReason != "" {
+				info.ObserveFinishReason(*choice.FinishReason)
 				agg.finishReason = *choice.FinishReason
 			}
 			// Tool call delta: keyed by tool_call.Index. First chunk usually carries

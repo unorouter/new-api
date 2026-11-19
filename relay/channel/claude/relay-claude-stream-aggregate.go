@@ -183,6 +183,7 @@ func ClaudeStreamToJsonHandler(c *gin.Context, resp *http.Response, info *relayc
 			if event.Delta != nil {
 				if event.Delta.StopReason != nil {
 					stopReason = *event.Delta.StopReason
+					info.ObserveFinishReason(stopReason)
 				}
 			}
 			if event.Usage != nil {

@@ -129,6 +129,19 @@ func (g *geminiGroundingCounter) commit(info *relaycommon.RelayInfo) {
 	info.SetBillableToolCount(relaycommon.GoogleSearchGroundedPromptTool, 1)
 }
 
+func observeGeminiFinishReason(info *relaycommon.RelayInfo, response *dto.GeminiChatResponse) {
+	if len(response.Candidates) == 0 && response.PromptFeedback != nil &&
+		response.PromptFeedback.BlockReason != nil && *response.PromptFeedback.BlockReason != "" {
+		info.ObserveFinishReason("prompt_blocked:" + *response.PromptFeedback.BlockReason)
+		return
+	}
+	for _, candidate := range response.Candidates {
+		if candidate.FinishReason != nil && *candidate.FinishReason != "FINISH_REASON_UNSPECIFIED" {
+			info.ObserveFinishReason(*candidate.FinishReason)
+		}
+	}
+}
+
 func countGeminiBillableFunctionCalls(info *relaycommon.RelayInfo, response *dto.GeminiChatResponse) {
 	if info == nil || response == nil {
 		return
@@ -239,6 +252,7 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		grounding.observe(&geminiResponse)
 		grounding.commit(info)
 		countGeminiBillableFunctionCalls(info, &geminiResponse)
+		observeGeminiFinishReason(info, &geminiResponse)
 
 		// 统计图片数量
 		for _, candidate := range geminiResponse.Candidates {
@@ -465,6 +479,7 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	grounding.observe(&geminiResponse)
 	grounding.commit(info)
 	countGeminiBillableFunctionCalls(info, &geminiResponse)
+	observeGeminiFinishReason(info, &geminiResponse)
 	if len(geminiResponse.Candidates) == 0 {
 		usage := buildUsageFromGeminiResponse(c, info, &geminiResponse)
 

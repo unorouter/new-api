@@ -143,6 +143,7 @@ func ObserveResponsesOutcome(info *relaycommon.RelayInfo, event *dto.ResponsesSt
 		if event.Response != nil && event.Response.IncompleteDetails != nil {
 			reason = event.Response.IncompleteDetails.Reason
 		}
+		info.ObserveFinishReason(reason)
 		info.StreamStatus.MarkIncomplete(reason)
 	case event.Type == "response.cancelled" || event.Type == "response.canceled" || responseStatus == "cancelled":
 		info.StreamStatus.MarkCancelled()

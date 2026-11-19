@@ -619,6 +619,7 @@ func observeStreamChoices(info *relaycommon.RelayInfo, data string, seen map[str
 	}
 	for _, choice := range streamResponse.Choices {
 		if choice.FinishReason != nil && *choice.FinishReason != "" {
+			info.ObserveFinishReason(*choice.FinishReason)
 			if *choice.FinishReason == constant.FinishReasonContentFilter {
 				info.PerformanceBusinessRejection = true
 			}
@@ -699,6 +700,9 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	info.ObserveResponseModel(simpleResponse.Model)
 
 	contentFiltered := false
+	for _, choice := range simpleResponse.Choices {
+		info.ObserveFinishReason(choice.FinishReason)
+	}
 	for _, choice := range simpleResponse.Choices {
 		if choice.FinishReason == constant.FinishReasonContentFilter {
 			info.PerformanceBusinessRejection = true
