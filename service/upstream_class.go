@@ -271,7 +271,7 @@ func matchUpstreamRule(msg string) *upstreamRule {
 // refused it.
 const (
 	sharedFilterModerationMessage = "The provider's content filter rejected this prompt. Every provider for this model uses the same filter, so retrying will not change the answer. Rephrasing usually does."
-	upstreamModerationMessage     = "Every provider we tried refused this prompt on content grounds. Free providers often run a stricter filter than paid ones, so rephrasing or another model usually clears it."
+	upstreamModerationMessage     = "Every provider we tried refused this prompt on content grounds. That is the provider's own filter, not ours, and it scans the whole chat history, so one flagged word anywhere can trip it. Rephrasing, or another model or provider, usually clears it."
 )
 
 // UpstreamUserMessage is the sentence to show the customer in place of the
