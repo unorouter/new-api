@@ -1199,7 +1199,9 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// PROD-ONLY (fork): spare non-recoverable media/native-image channels from disable on
 	// user-caused request errors (the channel-test cron has no probe path for them, so a
 	// false-disable is permanent). Genuine channel faults are channel:* coded and NOT skipped.
-	if shouldDisable && shouldSkipDisableForModality(c.GetString("original_model"), err) {
+	// A lane-fatal upstream state (out of credit, model gone) is dead for every
+	// modality, so the media spare and a channel's auto_ban=0 do not hold it.
+	if shouldDisable && !class.DisableNow && shouldSkipDisableForModality(c.GetString("original_model"), err) {
 		logger.LogError(c, fmt.Sprintf("PROD-ONLY(fork): skip auto-disable channel #%d non-recoverable modality model=%s code=%s status=%d",
 			channelError.ChannelId, c.GetString("original_model"), err.GetErrorCode(), err.StatusCode))
 		shouldDisable = false
@@ -1251,6 +1253,9 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		if exceeded {
 			shouldDisable = true
 		}
+	}
+	if shouldDisable && class.DisableNow {
+		channelError.AutoBan = true
 	}
 	if shouldDisable && channelError.AutoBan {
 		// Default the status-history trigger to a live relay request; the

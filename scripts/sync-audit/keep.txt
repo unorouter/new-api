@@ -133,3 +133,5 @@ relay/channel/openai/relay-openai.go :: func normalizeStreamChoices
 relay/channel/openai/relay-openai.go :: normalizeStreamChoices(stripUpstreamCost(data))
 # Seller-specific parameter validation (si Mistral-hosted GLM) fails over
 service/upstream_class.go :: "sampling is not supported", "extra inputs are not permitted"
+controller/relay.go :: shouldDisable && !class.DisableNow && shouldSkipDisableForModality
+controller/relay.go :: if shouldDisable && class.DisableNow {
