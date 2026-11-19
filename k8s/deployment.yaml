@@ -99,6 +99,8 @@ spec:
           env:
             - name: POD_UID
               valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+            - name: CONTACT_EMAIL
+              value: support@unorouter.com
             # the primary comes from the Sentinels in k8s/redis.yaml; REDIS_CONN_STRING still
             # enables Redis and supplies DB and credentials
             - name: REDIS_SENTINEL_ADDRS
@@ -249,6 +251,8 @@ spec:
           env:
             - name: POD_UID
               valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+            - name: CONTACT_EMAIL
+              value: support@unorouter.com
             # the primary comes from the Sentinels in k8s/redis.yaml; REDIS_CONN_STRING still
             # enables Redis and supplies DB and credentials
             - name: REDIS_SENTINEL_ADDRS

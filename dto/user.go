@@ -210,3 +210,11 @@ type PartnerGrantData struct {
 	Granted      int `json:"granted"`
 	BalanceAfter int `json:"balance_after"`
 }
+
+// ContactRequest is the request body for POST /api/contact.
+type ContactRequest struct {
+	Name    string `json:"name" validate:"max=100"`
+	Email   string `json:"email" validate:"required,email,max=254"`
+	Subject string `json:"subject" validate:"max=200"`
+	Message string `json:"message" validate:"required,min=10,max=5000"`
+}

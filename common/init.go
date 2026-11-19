@@ -249,6 +249,8 @@ func initConstantEnv() {
 		constant.TaskPricePatches = taskPricePatches
 	}
 
+	ContactEmail = strings.TrimSpace(GetEnvOrDefaultString("CONTACT_EMAIL", ""))
+
 	// Initialize trusted redirect domains for URL validation
 	trustedDomainsStr := GetEnvOrDefaultString("TRUSTED_REDIRECT_DOMAINS", "")
 	var trustedDomains []string

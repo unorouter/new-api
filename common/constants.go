@@ -19,6 +19,9 @@ var Footer = ""
 var Logo = ""
 var TopUpLink = ""
 
+// ContactEmail receives the public contact form; the form is off while it is empty.
+var ContactEmail = ""
+
 var themeValue atomic.Value // stores string; safe for concurrent read/write
 
 func init() {

@@ -83,6 +83,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 
 		publicResetPwd := dto.NewRouter(engine, apiRouter.Group("", middleware.CriticalRateLimit(), middleware.TurnstileCheck()), "Auth", secPublic())
 		dto.GetP(publicResetPwd, "/reset_password", controller.SendPasswordResetEmail, dto.TurnstileQuery())
+		publicContact := dto.NewRouter(engine, apiRouter.Group("", middleware.CriticalRateLimit(), middleware.TurnstileCheck()), "Contact", secPublic())
+		dto.PostB(publicContact, "/contact", controller.SendContactMessage, dto.TurnstileQuery())
 
 		publicCritical := dto.NewRouter(engine, apiRouter.Group("", middleware.CriticalRateLimit()), "Auth", secPublic())
 		dto.PostB(publicCritical, "/user/reset", controller.ResetPassword)
