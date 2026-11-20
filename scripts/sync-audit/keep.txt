@@ -148,3 +148,4 @@ relay/channel/gemini/relay-gemini.go :: observeGeminiFinishReason(info, &geminiR
 relay/channel/gemini/relay-gemini-native.go :: observeGeminiFinishReason(info, &geminiResponse)
 relay/channel/claude/relay-claude.go :: info.ObserveFinishReason(claudeResponse.StopReason)
 service/responses_usage.go :: info.ObserveFinishReason(reason)
+service/upstream_reply_class.go :: "api key status: exceeded"

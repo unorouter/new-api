@@ -28,6 +28,9 @@ var replyRules = []replyRule{
 	{markers: []string{"please retry later, or reduce the request parameters/content"}},
 	{markers: []string{"this version of antigravity is no longer supported"}},
 	{markers: []string{"account restrictions for prohibited use policy"}},
+	// A relay whose own supplier key ran dry: "Your quota is exhausted. API key
+	// status: exceeded ... USDT balance: -0.000959", served as the answer for 22h.
+	{markers: []string{"api key status: exceeded", "your quota is exhausted"}},
 }
 
 const cannedReplyMaxRunes = 600
