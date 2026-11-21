@@ -223,6 +223,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			// Chinese, and the customer cannot tell a filter fired at all. Applied
 			// after both log writers above, so the upstream's exact text is still what
 			// triage reads.
+			upstreamClass := service.ClassifyUpstreamError(newAPIError)
 			if userMessage, ok := service.UpstreamUserMessage(newAPIError); ok {
 				newAPIError.SetMessage(userMessage)
 			}
@@ -245,6 +246,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			// passes through intact.
 			if newAPIError.StatusCode == http.StatusBadGateway {
 				newAPIError.StatusCode = http.StatusServiceUnavailable
+			}
+			// A quota that refills on the clock is a rate limit whatever status the
+			// upstream picked: a marketplace sends its per minute cap as a 404, which
+			// clients render as "model not found".
+			if upstreamClass.Window > 0 && newAPIError.StatusCode < http.StatusInternalServerError {
+				newAPIError.StatusCode = http.StatusTooManyRequests
 			}
 			// Response already streamed to the client. A JSON body would corrupt the
 			// committed stream, so it stays skipped, but returning nothing ends the
