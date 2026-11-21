@@ -96,6 +96,34 @@ func TestOaiStreamHandlerInterceptsMidStreamError(t *testing.T) {
 		assert.NotContains(t, body, "data_inspection_failed", "error chunk must not be forwarded even after content")
 	})
 
+	const reasoningChunk = `data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"thinking it over"}}]}`
+	const busyChunk = `data: {"error":{"message":"pinned merchant busy","type":"upstream_error","code":"fixed_merchant_unavailable"}}`
+	const toolChunk = `data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]}}]}`
+	const timeoutGuardChunk = `data: {"id":"chatcmpl-timeout-guard","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000,"completion_tokens":1000,"total_tokens":2000}}`
+	for _, tc := range []struct {
+		name          string
+		chunks        []string
+		wantSkipRetry bool
+	}{
+		{"error after reasoning only fails over", []string{reasoningChunk, busyChunk}, false},
+		{"error after whitespace content and reasoning fails over", []string{reasoningChunk, `data: {"id":"c1","choices":[{"index":0,"delta":{"content":"\n"}}]}`, busyChunk}, false},
+		{"error after answer text is a truncation", []string{reasoningChunk, contentChunk, busyChunk}, true},
+		{"error after a tool call is a truncation", []string{reasoningChunk, toolChunk, busyChunk}, true},
+		{"timeout guard after reasoning only fails over", []string{reasoningChunk, timeoutGuardChunk}, false},
+		{"timeout guard after answer text is a truncation", []string{contentChunk, timeoutGuardChunk}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, rec, resp, info := newStreamTestContext(t, strings.Join(tc.chunks, "\n\n")+"\n\n")
+
+			_, apiErr := OaiStreamHandler(c, info, resp)
+
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tc.wantSkipRetry, types.IsSkipRetryError(apiErr))
+			assert.Equal(t, tc.wantSkipRetry, types.IsStreamTruncatedError(apiErr))
+			assert.NotContains(t, rec.Body.String(), "[DONE]", "the next attempt or the error writer ends the stream")
+		})
+	}
+
 	t.Run("legit content_filter refusal is not hijacked", func(t *testing.T) {
 		sse := strings.Join([]string{
 			contentChunk,

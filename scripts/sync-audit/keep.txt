@@ -151,3 +151,5 @@ service/upstream_reply_class.go :: "api key status: exceeded"
 controller/relay.go :: upstreamClass.Window > 0 && newAPIError.StatusCode < http.StatusInternalServerError
 controller/relay.go :: shouldDisable && (class.DisableNow || service.IsCredentialFault(err))
 relay/channel/openai/relay-openai-stream-aggregate.go :: types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests, emptyResponseOptions(info, false)...)
+# a mid-stream fault after reasoning only fails over into the open stream
+relay/channel/openai/relay-openai.go :: buildStreamErrorAPIError(streamErrChunk, answerSent)

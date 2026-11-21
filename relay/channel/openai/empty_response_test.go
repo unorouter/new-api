@@ -198,3 +198,41 @@ data: [DONE]
 	assert.True(t, types.IsSkipDisableError(apiErr), "content-filter empties must not disable the lane")
 	assert.Empty(t, recorder.Body.String(), "nothing may be committed to the client before failover")
 }
+
+// Reasoning that ends on the length ceiling showed the reader no answer, so the
+// next lane continues the already-open stream; this attempt writes no [DONE].
+func TestOaiStreamHandlerReasoningOnlyFailsOverAfterStart(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+	ms := operation_setting.GetMonitorSetting()
+	oldFlag := ms.DisableOnEmptyResponse
+	ms.DisableOnEmptyResponse = true
+	t.Cleanup(func() { ms.DisableOnEmptyResponse = oldFlag })
+	oldRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = oldRedis })
+
+	sse := `data: {"id":"chatcmpl-r","object":"chat.completion.chunk","created":100,"choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}
+
+data: {"id":"chatcmpl-r","choices":[{"index":0,"delta":{"reasoning_content":"step one"}}]}
+
+data: {"id":"chatcmpl-r","choices":[{"index":0,"delta":{"reasoning_content":"step two"}}]}
+
+data: {"id":"chatcmpl-r","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}
+
+data: [DONE]
+
+`
+	c, recorder, resp, info := newStreamTestContext(t, sse)
+	_, apiErr := OaiStreamHandler(c, info, resp)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, types.ErrorCodeChannelEmptyResponse, apiErr.GetErrorCode())
+	assert.False(t, types.IsSkipRetryError(apiErr))
+	assert.Contains(t, recorder.Body.String(), "step one")
+	assert.NotContains(t, recorder.Body.String(), "finish_reason")
+	assert.NotContains(t, recorder.Body.String(), "[DONE]")
+}

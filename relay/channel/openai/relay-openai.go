@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -282,6 +283,13 @@ func SendPendingThinkClose(c *gin.Context, info *relaycommon.RelayInfo, response
 	_ = helper.ObjectData(c, &response)
 }
 
+// closeThinkForNextAttempt ends a thinking-to-content `<think>` block before a
+// failover, so the next lane, with or without that setting, opens its own.
+func closeThinkForNextAttempt(c *gin.Context, info *relaycommon.RelayInfo, lastStreamData string) {
+	SendPendingThinkClose(c, info, gjson.Get(lastStreamData, "id").String(), gjson.Get(lastStreamData, "created").Int())
+	info.ThinkingContentInfo = relaycommon.ThinkingContentInfo{IsFirstThinkingContent: true}
+}
+
 func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	if resp == nil || resp.Body == nil {
 		logger.LogError(c, common.LogText("invalid response or response body"))
@@ -316,6 +324,10 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var pendingFlush []string
 	var streamErrChunk string // PROD-ONLY (fork): raw mid-stream error chunk; "" = none
 	var timeoutGuardCut bool
+	// A failed attempt that showed the reader only reasoning can hand the stream to
+	// the next lane, which keeps writing chunks into it. Other formats carry
+	// per-message protocol state, so there any sent byte pins the attempt.
+	answerSent := info.RelayFormat != types.RelayFormatOpenAI || info.RelayMode != relayconstant.RelayModeChatCompletions
 	sendChunk := func(sr *helper.StreamResult, data string) {
 		if err := HandleStreamFormat(c, info, data, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 			common.SysLog("error handling stream format: " + err.Error())
@@ -338,6 +350,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 			if streamingStarted {
 				sendChunk(sr, lastStreamData)
+				if !answerSent && (toolCount > 0 || meaningfulRunes(outputStats.Content.String()) > 0) {
+					answerSent = true
+				}
 			} else {
 				pendingFlush = append(pendingFlush, lastStreamData)
 			}
@@ -382,14 +397,44 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// real error BEFORE the empty-response classification and before any forward of
 	// lastStreamData, so it flows through processChannelError (masking + type=5 log
 	// + failover). usage is still the zero &dto.Usage{} - nothing billable.
-	if streamErrChunk != "" {
-		return usage, buildStreamErrorAPIError(streamErrChunk, streamingStarted)
-	}
-	if timeoutGuardCut {
-		return usage, upstreamTimeoutGuardError(streamingStarted)
+	if streamErrChunk != "" || timeoutGuardCut {
+		if !answerSent {
+			closeThinkForNextAttempt(c, info, lastStreamData)
+		}
+		if streamErrChunk != "" {
+			return usage, buildStreamErrorAPIError(streamErrChunk, answerSent)
+		}
+		return usage, upstreamTimeoutGuardError(answerSent)
 	}
 
 	info.StreamStatus.RequireTerminal()
+
+	// A stream that finished with no usable output (empty content, no tool calls):
+	// either the upstream sent nothing usable at all (a silent free-tier reseller
+	// under load), or only reasoning that never reached an answer (GLM with thinking
+	// left on burning its budget on reasoning_content). Neither showed the reader an
+	// answer, so both fail over before the final chunk or [DONE] is written.
+	//
+	// Judged on outputStats, NOT responseTextBuilder: the builder also holds
+	// reasoning because it feeds billing, so testing it for emptiness only ever
+	// caught the first shape and was blind to every reasoning-only stream.
+	// A content_filter finish with nothing behind it is still a blank reply for the
+	// reader (Vertex safety blocks look exactly like this), so it fails over like
+	// any other empty; it just must not count toward disabling the lane.
+	// 429, not 5xx: chat frontends replace any 5xx body with their own generic text,
+	// so the reason never reaches the reader. 429 is rendered verbatim by those
+	// clients and by Cloudflare, and it points at the correct action (retry).
+	if info.RelayFormat == types.RelayFormatOpenAI &&
+		operation_setting.GetMonitorSetting().DisableOnEmptyResponse &&
+		!streamHadOutput(&outputStats, toolCount) &&
+		!(clientCappedOutput(info) && outputStats.ReasoningChars > 0) {
+		contentFiltered := streamFinishedOnContentFilter(lastStreamData)
+		closeThinkForNextAttempt(c, info, lastStreamData)
+		return usage, types.NewOpenAIError(
+			errors.New(emptyResponseMessage(contentFiltered)),
+			types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests,
+			emptyResponseOptions(info, contentFiltered)...)
+	}
 
 	// 处理最后的响应
 	shouldSendLastResp := true
@@ -441,50 +486,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		info.CountBillableToolCall(dto.BuildInCallFunctionCall, name)
 	}
 
-	// A stream that finished with no usable output (empty content, no tool calls).
-	// Two shapes: (a) the upstream opened the SSE and closed it having flushed real
-	// content deltas that were all blank / reasoning-only (a dead reasoning channel,
-	// e.g. GLM with thinking left on that burned its budget on reasoning_content) -
-	// bytes are already on the wire, so we can't fail over; (b) the upstream accepted
-	// the request and sent ZERO usable data (a silent free-tier reseller under load).
-	// In case (b) nothing real was flushed, so we can still fail over to a sibling.
-	//
-	// Judged on outputStats, NOT responseTextBuilder: the builder also holds
-	// reasoning because it feeds billing, so testing it for emptiness only ever
-	// caught shape (b) and was blind to every reasoning-only stream.
-	// A content_filter finish with nothing behind it is still a blank reply for the
-	// reader (Vertex safety blocks look exactly like this), so it fails over like
-	// any other empty; it just must not count toward disabling the lane.
-	contentFiltered := streamFinishedOnContentFilter(lastStreamData)
-	emptyResponse := info.RelayFormat == types.RelayFormatOpenAI &&
-		operation_setting.GetMonitorSetting().DisableOnEmptyResponse &&
-		!streamHadOutput(&outputStats, toolCount) &&
-		!(clientCappedOutput(info) && outputStats.ReasoningChars > 0)
-
-	// Case (b): the opener chunks were buffered (streamingStarted stayed false), so
-	// nothing was flushed and the response is uncommitted. Return a retryable error -
-	// no [DONE], no skip-retry - so the outer loop fails over to another channel.
-	// 429, not 5xx: chat frontends replace any 5xx body with their own generic text,
-	// so the reason never reaches the reader. 429 is rendered verbatim by those
-	// clients and by Cloudflare, and it points at the correct action (retry).
-	if emptyResponse && !streamingStarted {
-		return usage, types.NewOpenAIError(
-			errors.New(emptyResponseMessage(contentFiltered)),
-			types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests,
-			emptyResponseOptions(info, contentFiltered)...)
-	}
-
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
-	// Case (a): bytes were already streamed, so this can't fail over or re-write the
-	// client response; skip retry and let the outer defer skip the JSON error write
-	// (guarded on Written()). The error still runs processChannelError to disable.
-	if emptyResponse {
-		return usage, types.NewOpenAIError(
-			fmt.Errorf("the upstream provider returned an empty reply after the response had already started, so it could not be retried automatically. Send the message again"),
-			types.ErrorCodeChannelEmptyResponse, http.StatusServiceUnavailable,
-			types.ErrOptionWithSkipRetry())
-	}
 	if toolCount == 0 {
 		if cannedErr := service.CannedReplyError(outputStats.Content.String(), true); cannedErr != nil {
 			return usage, cannedErr
@@ -539,9 +542,9 @@ func emptyResponseDisableOption(info *relaycommon.RelayInfo) []types.NewAPIError
 // moderation reject (inappropriate content / data_inspection_failed) is mapped to
 // 400 so IsUpstreamModerationError matches - failover to a sibling, do NOT disable
 // the channel. WithOpenAIError marks ErrorTypeOpenAIError (required for those
-// classifiers). When bytes were already committed (streamingStarted), skip retry
-// to avoid a double-send; the type=5 log still runs.
-func buildStreamErrorAPIError(errChunk string, streamingStarted bool) *types.NewAPIError {
+// classifiers). Once answer text or a tool call reached the client, skip retry to
+// avoid a double-send; the type=5 log still runs.
+func buildStreamErrorAPIError(errChunk string, answerSent bool) *types.NewAPIError {
 	e := gjson.Get(errChunk, "error")
 	msg := e.Get("message").String()
 	if msg == "" {
@@ -563,7 +566,7 @@ func buildStreamErrorAPIError(errChunk string, streamingStarted bool) *types.New
 		Code:    e.Get("code").Value(),
 	}
 	var opts []types.NewAPIErrorOptions
-	if streamingStarted {
+	if answerSent {
 		// Content already reached the client, so the answer is truncated and no
 		// sibling lane can rescue it. Flag it so the guard can weigh a truncation
 		// far more heavily than a fault that failed over invisibly.
@@ -582,9 +585,9 @@ func isUpstreamTimeoutGuard(data string) bool {
 	return gjson.Get(data, "id").String() == upstreamTimeoutGuardChunkID
 }
 
-func upstreamTimeoutGuardError(streamingStarted bool) *types.NewAPIError {
+func upstreamTimeoutGuardError(answerSent bool) *types.NewAPIError {
 	err := errors.New("the provider cut this reply off at its own time limit before it finished, so it was not charged. Send it again")
-	if !streamingStarted {
+	if !answerSent {
 		return types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusGatewayTimeout)
 	}
 	return types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusGatewayTimeout,
