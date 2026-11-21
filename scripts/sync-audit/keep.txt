@@ -134,7 +134,6 @@ relay/channel/openai/relay-openai.go :: normalizeStreamChoices(stripUpstreamCost
 # Seller-specific parameter validation (si Mistral-hosted GLM) fails over
 service/upstream_class.go :: "sampling is not supported", "extra inputs are not permitted"
 controller/relay.go :: shouldDisable && !class.DisableNow && shouldSkipDisableForModality
-controller/relay.go :: if shouldDisable && class.DisableNow {
 # Consume logs record the upstream finish reason, max_tokens and reasoning tokens (admin only)
 relay/common/relay_info.go :: func (info *RelayInfo) ObserveFinishReason
 relay/common/relay_info.go :: info.FinishReason = ""
