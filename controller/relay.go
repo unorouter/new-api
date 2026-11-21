@@ -1261,7 +1261,9 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			shouldDisable = true
 		}
 	}
-	if shouldDisable && class.DisableNow {
+	// The credential override above clears the class, so it has to reach auto_ban 0
+	// lanes itself: image lanes kept answering a dead key or an empty wallet all day.
+	if shouldDisable && (class.DisableNow || service.IsCredentialFault(err)) {
 		channelError.AutoBan = true
 	}
 	if shouldDisable && channelError.AutoBan {
