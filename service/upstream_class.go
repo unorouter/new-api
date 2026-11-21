@@ -91,7 +91,9 @@ var upstreamRules = []upstreamRule{
 	// Cooled as well as counted: the body says the merchant is busy or cooling, so
 	// sending it the next request immediately just buys another failure. A healthy
 	// lane sheds the strike on its next success, so only real bursts bite.
-	{markers: []string{"您固定的商家当前处于繁忙", "该商家拒绝了本次请求", "该商家上游返回了错误"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "The provider is busy or refused this request. Retrying usually lands on a different provider."},
+	// "该商家没有提供所请求的模型或接口" is the merchant's own upstream answering 404 for a
+	// model it lists; one lane alternated it with passes (20 fails, 86 ok) and stayed in rotation.
+	{markers: []string{"您固定的商家当前处于繁忙", "该商家拒绝了本次请求", "该商家上游返回了错误", "该商家没有提供所请求的模型或接口"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "The provider is busy or refused this request. Retrying usually lands on a different provider."},
 	// Reseller, the merchant's own wallet or plan cannot fund the call ("请充值").
 	// "您已超过输入 tokens 配额" is the same state metered differently: it fires on
 	// prompts as small as 2 tokens, so it is the merchant's allowance, not this
