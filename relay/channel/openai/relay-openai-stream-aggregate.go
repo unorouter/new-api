@@ -2,6 +2,7 @@ package openai
 
 import (
 	"errors"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"net/http"
 	"strings"
 	"time"
@@ -165,6 +166,25 @@ func OaiStreamToJsonHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 			if cannedErr := service.CannedReplyError(first.content.String(), false); cannedErr != nil {
 				return nil, cannedErr
 			}
+		}
+	}
+
+	// Nothing is written until the aggregate is complete, so an empty one fails over
+	// unbilled like the streamed path's uncommitted empty reply. Without this a client
+	// that hung up on a silent upstream was billed its prompt as a success.
+	if operation_setting.GetMonitorSetting().DisableOnEmptyResponse {
+		hadOutput := false
+		for _, idx := range orderedIndexes {
+			agg := choicesByIndex[idx]
+			if len(agg.toolCallOrder) > 0 || meaningfulRunes(agg.content.String()) > 0 ||
+				(agg.reasoningContent.Len() > 0 && agg.finishReason == constant.FinishReasonStop) {
+				hadOutput = true
+				break
+			}
+		}
+		if !hadOutput {
+			return nil, types.NewOpenAIError(errors.New(emptyResponseMessage(false)),
+				types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests, emptyResponseOptions(info, false)...)
 		}
 	}
 

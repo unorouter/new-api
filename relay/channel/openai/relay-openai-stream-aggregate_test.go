@@ -1,12 +1,18 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -193,4 +199,49 @@ func TestAggregateReturnsPartialContentWhenStreamEndsWithoutDone(t *testing.T) {
 
 	require.Len(t, out.Choices, 1)
 	assert.Equal(t, "partial", out.Choices[0].Message.StringContent())
+}
+
+// A client that hung up on a silent upstream was billed its estimated prompt as a
+// success; nothing was written yet, so the empty aggregate must fail over unbilled.
+func TestAggregateWithNoOutputFailsOverUnbilled(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+	monitor := operation_setting.GetMonitorSetting()
+	oldEmpty := monitor.DisableOnEmptyResponse
+	monitor.DisableOnEmptyResponse = true
+	t.Cleanup(func() { monitor.DisableOnEmptyResponse = oldEmpty })
+	oldRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = oldRedis })
+
+	// The upstream holds the stream open with keepalives and the client gives up.
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { _ = pw.Close() })
+	go func() {
+		for range 40 {
+			if _, err := pw.Write([]byte(": keepalive\n\n")); err != nil {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}()
+	c, recorder, resp, info := newStreamTestContext(t, "")
+	resp.Body = pr
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	c.Request = c.Request.WithContext(ctx)
+	time.AfterFunc(300*time.Millisecond, cancel)
+	info.SetEstimatePromptTokens(8000)
+
+	usage, apiErr := OaiStreamToJsonHandler(c, info, resp)
+
+	require.NotNil(t, apiErr)
+	assert.Nil(t, usage)
+	assert.Equal(t, types.ErrorCodeChannelEmptyResponse, apiErr.GetErrorCode())
+	assert.False(t, types.IsSkipRetryError(apiErr))
+	assert.Zero(t, recorder.Body.Len())
 }
