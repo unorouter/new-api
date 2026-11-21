@@ -345,6 +345,10 @@ func ClassifyUpstreamError(err *types.NewAPIError) UpstreamClass {
 	case err.StatusCode == 410:
 		// Gone is permanent by definition: the route or model will not return.
 		return UpstreamClass{Known: true, Failover: true, DisableNow: true}
+	case err.StatusCode == 401:
+		// Users authenticate with us, so an upstream 401 is our own key. DisableNow also
+		// reaches auto_ban 0 lanes: two image lanes answered "Invalid token" 279 times in a day.
+		return UpstreamClass{Known: true, Failover: true, DisableNow: true}
 	case err.StatusCode == 413:
 		return UpstreamClass{Known: true, Failover: true, Count: CountNone, ContextCap: true}
 	case err.StatusCode == 429:
