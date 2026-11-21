@@ -100,9 +100,12 @@ func TrackFreeCooccurrence(c *gin.Context, userId int) {
 	banTTL := time.Duration(banDays) * 24 * time.Hour
 	bucket := time.Now().Unix() / int64(window)
 	ip := publicClientIP(c)
+	if ip == "" {
+		return
+	}
 	fp := ClientFingerprint(c)
 	network := registrationNetworkKey(ip)
-	if ip != "" && setting.FreeAbuseCooccurIpMinAccounts > 0 {
+	if setting.FreeAbuseCooccurIpMinAccounts > 0 {
 		spread := fp
 		if spread == "" {
 			spread = "web"
@@ -247,8 +250,11 @@ func trackWeakCooccurrence(c *gin.Context, userId, mode int) {
 	banTTL := time.Duration(banDays) * 24 * time.Hour
 	bucket := time.Now().Unix() / int64(window)
 	ip := publicClientIP(c)
+	if ip == "" {
+		return
+	}
 	fp := ClientFingerprint(c)
-	if ip != "" && setting.FreeAbuseCooccurIpMinAccounts > 0 {
+	if setting.FreeAbuseCooccurIpMinAccounts > 0 {
 		trackCooccurrence("wip", ip, ip, userId, fp, bucket, window, setting.FreeAbuseCooccurIpMinAccounts, mode, banTTL)
 	}
 	if network := registrationNetworkKey(ip); network != "" && setting.FreeAbuseCooccurNetMinAccounts > 0 {
@@ -279,7 +285,8 @@ var sharedEgressNets = func() []*net.IPNet {
 
 // publicClientIP is empty for cluster and loopback addresses: those are our own
 // services calling on behalf of many users, never one host running many accounts.
-// Shared egress is empty too, so only the client fingerprint axis judges it.
+// Shared egress is empty too: every account behind it would land in one group on
+// every axis, so it skips co-occurrence entirely.
 func publicClientIP(c *gin.Context) string {
 	ip := c.ClientIP()
 	parsed := net.ParseIP(ip)
