@@ -486,14 +486,21 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		info.CountBillableToolCall(dto.BuildInCallFunctionCall, name)
 	}
 
-	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
-
+	var cannedErr *types.NewAPIError
 	if toolCount == 0 {
-		if cannedErr := service.CannedReplyError(outputStats.Content.String(), true); cannedErr != nil {
-			return usage, cannedErr
-		}
+		cannedErr = service.CannedReplyError(outputStats.Content.String(), true)
+	}
+	// An OpenAI stream must stay open for the controller to append the error
+	// event; after [DONE] the client keeps the canned text as an ordinary reply.
+	if cannedErr != nil && info.RelayFormat == types.RelayFormatOpenAI {
+		return usage, cannedErr
 	}
 
+	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
+
+	if cannedErr != nil {
+		return usage, cannedErr
+	}
 	return usage, nil
 }
 
