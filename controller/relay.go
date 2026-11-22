@@ -886,7 +886,10 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	// except after a first-byte timeout, where it only makes the caller wait out
 	// the same deadline a second time.
 	firstByteTimeout := info.LastError != nil && info.LastError.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded
-	if !acquired && !firstByteTimeout && len(skipChannels) > 0 && len(skipChannels[0]) > 0 {
+	// A lane that refused the request itself refuses it again: a token pinned to one
+	// lane sat through four identical 400s once the retry budget went to 3.
+	capacityFault := info.LastError == nil || info.LastError.StatusCode == http.StatusTooManyRequests || info.LastError.StatusCode >= http.StatusInternalServerError
+	if !acquired && !firstByteTimeout && capacityFault && len(skipChannels) > 0 && len(skipChannels[0]) > 0 {
 		channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
 		if err == nil && channel != nil && !service.TryAcquireLane(channel) {
 			channel = nil
