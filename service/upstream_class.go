@@ -94,6 +94,9 @@ var upstreamRules = []upstreamRule{
 	// "该商家没有提供所请求的模型或接口" is the merchant's own upstream answering 404 for a
 	// model it lists; one lane alternated it with passes (20 fails, 86 ok) and stayed in rotation.
 	{markers: []string{"您固定的商家当前处于繁忙", "该商家拒绝了本次请求", "该商家上游返回了错误", "该商家没有提供所请求的模型或接口"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "The provider is busy or refused this request. Retrying usually lands on a different provider."},
+	// Google's paid-tier 403 arrives intermittently on lanes that pass in between
+	// (one lane: 9 of these against 50 passes in 12h), so it cools instead of disabling.
+	{markers: []string{"requires an eligible paid billing account"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "This provider could not serve that model on this attempt. Retry and another provider will pick it up."},
 	// Reseller, the merchant's own wallet or plan cannot fund the call ("请充值").
 	// "您已超过输入 tokens 配额" is the same state metered differently: it fires on
 	// prompts as small as 2 tokens, so it is the merchant's allowance, not this
