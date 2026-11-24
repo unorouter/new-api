@@ -87,6 +87,10 @@ type MonitorSetting struct {
 	// Minimum seconds a paid lane (group ratio > 0) stays auto-disabled, 0 = none.
 	// Skipped when none of the lane's models has another enabled channel.
 	ChannelPaidReenableHoldSeconds int `json:"channel_paid_reenable_hold_seconds"`
+	// Seconds a lane auto-disabled for an empty upstream balance stays off, 0 = none.
+	// A short probe still fits under what is left while real prompts do not, so
+	// without it the lane flapped back on every test cycle and served the error.
+	ChannelCreditReenableHoldSeconds int `json:"channel_credit_reenable_hold_seconds"`
 	// Transient faults skip the lane for a growing cooldown instead of disabling it;
 	// a provider-wide throttle skips every lane of that host.
 	ChannelCooldownBaseSeconds int `json:"channel_cooldown_base_seconds"`
@@ -150,6 +154,7 @@ var monitorSetting = MonitorSetting{
 	ChannelProbeBackoffBaseSeconds:   600,
 	ChannelProbeBackoffMaxSeconds:    3600,
 	ChannelPaidReenableHoldSeconds:   0,
+	ChannelCreditReenableHoldSeconds: 21600,
 	ChannelCooldownBaseSeconds:       30,
 	ChannelCooldownMaxSeconds:        600,
 	ProviderCooldownSeconds:          60,

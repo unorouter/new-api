@@ -156,3 +156,7 @@ relay/channel/openai/relay-openai-stream-aggregate.go :: types.ErrorCodeChannelE
 # a mid-stream fault after reasoning only fails over into the open stream
 relay/channel/openai/relay-openai.go :: buildStreamErrorAPIError(streamErrChunk, answerSent)
 controller/relay.go :: if !acquired && !firstByteTimeout && capacityFault && len(skipChannels) > 0
+controller/channel-test.go :: service.IsOutOfCreditReason(reason)
+service/upstream_class.go :: func IsOutOfCreditReason
+model/channel_diagnostics.go :: func LastAutoDisable
+setting/operation_setting/monitor_setting.go :: ChannelCreditReenableHoldSeconds: 21600

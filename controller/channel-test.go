@@ -1385,7 +1385,15 @@ func testChannelForCycle(ctx context.Context, channel *model.Channel, testUserID
 		// real traffic; hold it disabled with exponential cooldown instead of
 		// re-enabling it every probe cycle (each flap leaks user-visible errors).
 		monitor := operation_setting.GetMonitorSetting()
-		if wait := model.FlapCooldownRemainingSeconds(channel); wait > 0 {
+		creditHold := int64(0)
+		if hold := monitor.ChannelCreditReenableHoldSeconds; hold > 0 {
+			if reason, at := model.LastAutoDisable(channel.Id); at > 0 && service.IsOutOfCreditReason(reason) {
+				creditHold = max(at+int64(hold)-common.GetTimestamp(), 0)
+			}
+		}
+		if creditHold > 0 {
+			common.SysLog(fmt.Sprintf("channel-test: probe passed but channel #%d (%s) was disabled for an empty upstream balance; keeping disabled for %ds more", channel.Id, channel.Name, creditHold))
+		} else if wait := model.FlapCooldownRemainingSeconds(channel); wait > 0 {
 			common.SysLog(fmt.Sprintf("channel-test: probe passed but channel #%d (%s) is flapping; keeping disabled for %ds more", channel.Id, channel.Name, wait))
 		} else if wait := model.PaidReenableHoldRemainingSeconds(channel, monitor.ChannelPaidReenableHoldSeconds); wait > 0 {
 			common.SysLog(fmt.Sprintf("channel-test: probe passed but paid channel #%d (%s) is inside its re-enable hold; %ds more", channel.Id, channel.Name, wait))

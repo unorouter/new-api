@@ -293,6 +293,25 @@ func PaidReenableHoldRemainingSeconds(channel *Channel, holdSeconds int) int64 {
 	return remaining
 }
 
+// LastAutoDisable returns the reason and time of the channel's most recent
+// auto-disable transition, empty and 0 when there is none or the query fails.
+func LastAutoDisable(channelId int) (string, int64) {
+	var row struct {
+		StatusReason string `gorm:"column:status_reason"`
+		CreatedAt    int64  `gorm:"column:created_at"`
+	}
+	err := DB.Table("channel_diagnostics").
+		Select("status_reason, created_at").
+		Where("probe_only = ? AND to_status = ? AND channel_id = ?", false, common.ChannelStatusAutoDisabled, channelId).
+		Order("created_at DESC").
+		Limit(1).
+		Scan(&row).Error
+	if err != nil {
+		return "", 0
+	}
+	return row.StatusReason, row.CreatedAt
+}
+
 // FlapCooldownRemainingSeconds returns how many seconds a channel whose recovery
 // probe just passed must still stay disabled, based on how often it auto-disabled
 // inside the lookback window. Best-effort: any query error yields 0 so recovery is

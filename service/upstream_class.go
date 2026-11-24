@@ -28,6 +28,9 @@ type UpstreamClass struct {
 	DisableNow bool
 	// Provider marks a fault every lane of the host shares right now.
 	Provider bool
+	// OutOfCredit marks our balance at the upstream as spent: the retest holds the
+	// lane off for ChannelCreditReenableHoldSeconds instead of trusting a small probe.
+	OutOfCredit bool
 	// Cooldown skips the lane for a growing period even when the failure still
 	// counts: a flapping upstream is passed over, a dead one still trips the guard.
 	Cooldown bool
@@ -104,10 +107,10 @@ var upstreamRules = []upstreamRule{
 	// 2026-09-25 our own balance at a reseller ran out and a counted rule kept every lane on it in
 	// rotation for five hours while each request walked several of them. A lane that
 	// only flapped comes back through the scheduled retest.
-	{markers: []string{"可用额度不足", "您已超过输入 tokens 配额", "account quota is insufficient"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true, Provider: true}, userMessage: "This provider ran out of credit on their side. That is on us, not you: retry and the request goes to another provider."},
+	{markers: []string{"可用额度不足", "您已超过输入 tokens 配额", "account quota is insufficient"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true, OutOfCredit: true, Provider: true}, userMessage: "This provider ran out of credit on their side. That is on us, not you: retry and the request goes to another provider."},
 	// The upstream balance is gone (a reseller adds "and will not recover soon"),
 	// or our account there is banned.
-	{markers: []string{"上游账户余额不足", "账号处于封禁状态", "insufficient balance", "no credits available", "may have insufficient balance", "insufficient free or premium credits", "balance is exhausted (0 tokens remaining)", "credits remaining, not enough to fulfill this request"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider can no longer take requests from us. We have taken it out of rotation, so please retry."},
+	{markers: []string{"上游账户余额不足", "账号处于封禁状态", "insufficient balance", "no credits available", "may have insufficient balance", "insufficient free or premium credits", "balance is exhausted (0 tokens remaining)", "credits remaining, not enough to fulfill this request"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true, OutOfCredit: true}, userMessage: "This provider can no longer take requests from us. We have taken it out of rotation, so please retry."},
 	// Reseller, platform-wide faults every lane on the host answers together (auth
 	// database degraded, CPU admission, no channel found, platform concurrency):
 	// 290 rows across 55 lanes in three minutes on 2026-09-16. Counted per lane
@@ -127,7 +130,7 @@ var upstreamRules = []upstreamRule{
 	{markers: []string{"的可用渠道不存在", "的可用管道不存在", "无可用渠道", "no available channel for model"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "This provider has no capacity for that model right now. Retry and another provider will pick it up."},
 	{markers: []string{"等待响应超时", "上游响应超时", "未接收到上游响应内容", "upstream failed: no completion within"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure, Cooldown: true}, userMessage: "The provider took too long to answer. Retry and another provider will pick it up."},
 	{markers: []string{"sensitive words detected", "内容不符合安全策略", "请求内容未通过安全检查"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone}, userMessage: "This provider refused the prompt on content grounds. Retrying may reach one that accepts it; otherwise rephrase it."},
-	{markers: []string{"免费点数不足", "预扣费额度失败", "failed to pre-consume quota", "当前商户余额不足", "insufficient user quota", "user quota is not enough"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true, Provider: true}, userMessage: "This provider ran out of credit on their side. That is on us, not you: retry and the request goes to another provider."},
+	{markers: []string{"免费点数不足", "预扣费额度失败", "failed to pre-consume quota", "当前商户余额不足", "insufficient user quota", "user quota is not enough"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true, OutOfCredit: true, Provider: true}, userMessage: "This provider ran out of credit on their side. That is on us, not you: retry and the request goes to another provider."},
 	{markers: []string{"的价格尚未由管理员配置", "该商家渠道已暂停、下架或不存在"}, class: UpstreamClass{Known: true, Failover: true, DisableNow: true}, userMessage: "This provider can no longer serve this model. We have removed it from rotation, so retry and another provider will take it."},
 	{markers: []string{"智能路由流式响应中途失败"}, class: UpstreamClass{Known: true, Failover: true, Count: CountFailure}, userMessage: "The provider dropped the response partway through. Please send the request again."},
 	// A merchant answering a generic "parameters incorrect" to normal requests is faulty,
@@ -306,6 +309,13 @@ func UpstreamUserMessage(err *types.NewAPIError) (string, bool) {
 		return rule.userMessage, true
 	}
 	return "", false
+}
+
+// IsOutOfCreditReason reports whether a recorded disable reason (the upstream's
+// raw error text) means our balance at that upstream is spent.
+func IsOutOfCreditReason(reason string) bool {
+	rule := matchUpstreamRule(strings.ToLower(reason))
+	return rule != nil && rule.class.OutOfCredit
 }
 
 func upstreamHost(baseURL string) string {
