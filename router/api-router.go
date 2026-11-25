@@ -129,6 +129,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		paymentWebhook.GinPost("/creem/webhook", controller.CreemWebhook, dto.GinResp[dto.MessageResponse]())
 		paymentWebhook.GinPost("/nowpayments/webhook", controller.NowPaymentsWebhook, dto.GinResp[dto.MessageResponse]())
 		paymentWebhook.GinPost("/delopay/webhook", controller.DeloPayWebhook, dto.GinResp[dto.MessageResponse]())
+		paymentWebhook.GinPost("/freemius/webhook", controller.FreemiusWebhook, dto.GinResp[dto.MessageResponse]())
 		paymentWebhook.GinPost("/waffo/webhook", controller.WaffoWebhook, dto.GinResp[dto.MessageResponse]())
 		// :env is matched against the event's own mode, so each environment gets
 		// its own callback URL registered upstream.
@@ -233,6 +234,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.PostB(selfTopUp, "/stripe/amount", controller.RequestStripeAmount)
 		dto.PostB(selfTopUp, "/nowpayments/amount", controller.RequestNowPaymentsAmount)
 		dto.PostB(selfTopUp, "/delopay/amount", controller.RequestDeloPayAmount)
+		dto.PostB(selfTopUp, "/freemius/amount", controller.RequestFreemiusAmount)
 		selfTopUp.GinPost("/waffo/amount", controller.RequestWaffoAmount, dto.GinResp[dto.ApiResponse]())
 		selfTopUp.GinPost("/waffo-pancake/amount", controller.RequestWaffoPancakeAmount, dto.GinResp[dto.ApiResponse]())
 
@@ -269,6 +271,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.PostB(selfCritical, "/creem/pay", controller.RequestCreemPay)
 		dto.PostB(selfCritical, "/nowpayments/pay", controller.RequestNowPaymentsPay)
 		dto.PostB(selfCritical, "/delopay/pay", controller.RequestDeloPayPay)
+		dto.PostB(selfCritical, "/freemius/pay", controller.RequestFreemiusPay)
 		selfCritical.GinPost("/waffo/pay", controller.RequestWaffoPay, dto.GinResp[dto.ApiResponse]())
 		selfCritical.GinPost("/waffo-pancake/pay", controller.RequestWaffoPancakePay, dto.GinResp[dto.ApiResponse]())
 
@@ -367,6 +370,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.PostB(subCritical, "/creem/pay", controller.SubscriptionRequestCreemPay)
 		dto.PostB(subCritical, "/nowpayments/pay", controller.SubscriptionRequestNowPaymentsPay)
 		dto.PostB(subCritical, "/delopay/pay", controller.SubscriptionRequestDeloPayPay)
+		dto.PostB(subCritical, "/freemius/pay", controller.SubscriptionRequestFreemiusPay)
 		dto.PostB(subCritical, "/balance/pay", controller.SubscriptionRequestBalancePay)
 		subCritical.GinPost("/waffo-pancake/pay", controller.SubscriptionRequestWaffoPancakePay, dto.GinResp[dto.ApiResponse]())
 

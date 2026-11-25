@@ -1167,6 +1167,16 @@ type CreemRenewalInput struct {
 	CreemOrderId           string
 	ProviderPayload        string
 	Money                  float64
+	// Empty means creem. Other recurring providers reuse the same renewal path
+	// and only differ in how the ledger row is labelled.
+	Provider string
+}
+
+func (in CreemRenewalInput) provider() string {
+	if in.Provider == "" {
+		return PaymentProviderCreem
+	}
+	return in.Provider
 }
 
 // How long after a checkout order completes its own first subscription.paid can
@@ -1308,7 +1318,7 @@ func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
 			if pending {
 				return nil
 			}
-			created, cErr := CreateUserSubscriptionFromPlanTx(tx, userId, plan, "creem_renewal")
+			created, cErr := CreateUserSubscriptionFromPlanTx(tx, userId, plan, in.provider()+"_renewal")
 			if cErr != nil {
 				return cErr
 			}
@@ -1383,13 +1393,13 @@ func RenewUserSubscriptionByCreem(in CreemRenewalInput) (int, int, error) {
 	}
 	if resolvedUserId > 0 {
 		clearFreeBlockOnGrant(resolvedUserId)
-		refreshSubscriptionUserGroupCache(resolvedUserId, "creem subscription renewal")
+		refreshSubscriptionUserGroupCache(resolvedUserId, in.provider()+" subscription renewal")
 	}
 	// Only the first charge went through CompleteSubscriptionOrder, so inviters were
 	// paid once per subscriber and never on a renewal. Keyed on the renewal order
 	// under its own method: order and top_up ids share a range.
 	if resolvedUserId > 0 && resolvedOrderId > 0 {
-		if err := CreditReferralCommission(resolvedUserId, in.Money, "creem_renewal", resolvedOrderId); err != nil {
+		if err := CreditReferralCommission(resolvedUserId, in.Money, in.provider()+"_renewal", resolvedOrderId); err != nil {
 			common.SysLog(fmt.Sprintf("subscription renewal referral commission failed for user %d: %v", resolvedUserId, err))
 		}
 	}
@@ -1421,15 +1431,16 @@ func recordCreemRenewalOrderTx(tx *gorm.DB, userId, planId int, in CreemRenewalI
 		// duplicate. The subscription itself is already extended.
 		return 0, nil
 	}
-	tradeNo := "creem_renewal:" + in.LastTransactionId
+	provider := in.provider()
+	tradeNo := provider + "_renewal:" + in.LastTransactionId
 	now := common.GetTimestamp()
 	order := SubscriptionOrder{
 		UserId:          userId,
 		PlanId:          planId,
 		Money:           in.Money,
 		TradeNo:         tradeNo,
-		PaymentMethod:   "creem",
-		PaymentProvider: PaymentProviderCreem,
+		PaymentMethod:   provider,
+		PaymentProvider: provider,
 		Status:          common.TopUpStatusSuccess,
 		CreateTime:      now,
 		CompleteTime:    now,

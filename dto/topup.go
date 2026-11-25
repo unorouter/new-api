@@ -17,13 +17,17 @@ type EpayPayResponse struct {
 }
 
 type TopUpInfoData struct {
-	EnableOnlineTopup             bool                `json:"enable_online_topup"`
-	EnableStripeTopup             bool                `json:"enable_stripe_topup"`
-	EnableCreemTopup              bool                `json:"enable_creem_topup"`
-	EnableWaffoTopup              bool                `json:"enable_waffo_topup"`
-	EnableWaffoPancakeTopup       bool                `json:"enable_waffo_pancake_topup"`
-	EnableNowPaymentsTopup        bool                `json:"enable_nowpayments_topup"`
-	EnableDeloPayTopup            bool                `json:"enable_delopay_topup"`
+	EnableOnlineTopup       bool `json:"enable_online_topup"`
+	EnableStripeTopup       bool `json:"enable_stripe_topup"`
+	EnableCreemTopup        bool `json:"enable_creem_topup"`
+	EnableWaffoTopup        bool `json:"enable_waffo_topup"`
+	EnableWaffoPancakeTopup bool `json:"enable_waffo_pancake_topup"`
+	EnableNowPaymentsTopup  bool `json:"enable_nowpayments_topup"`
+	EnableDeloPayTopup      bool `json:"enable_delopay_topup"`
+	EnableFreemiusTopup     bool `json:"enable_freemius_topup"`
+	// The only amounts the Freemius checkout sells, and the subscription plan ids it can bill.
+	FreemiusAmounts               []int               `json:"freemius_amounts"`
+	FreemiusSubscriptionPlans     []int               `json:"freemius_subscription_plans"`
 	EnableRedemption              bool                `json:"enable_redemption"`
 	PaymentComplianceConfirmed    bool                `json:"payment_compliance_confirmed"`
 	PaymentComplianceTermsVersion string              `json:"payment_compliance_terms_version"`

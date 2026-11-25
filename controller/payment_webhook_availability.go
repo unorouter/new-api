@@ -158,3 +158,16 @@ func isDeloPayWebhookConfigured() bool {
 func isDeloPayWebhookEnabled() bool {
 	return isDeloPayTopUpEnabled()
 }
+
+func isFreemiusTopUpEnabled() bool {
+	if !isPaymentComplianceConfirmed() {
+		return false
+	}
+	if !setting.FreemiusEnabled {
+		return false
+	}
+	return strings.TrimSpace(setting.FreemiusProductId) != "" &&
+		strings.TrimSpace(setting.FreemiusPublicKey) != "" &&
+		strings.TrimSpace(setting.FreemiusSecretKey) != "" &&
+		len(setting.GetFreemiusTopUpPlans()) > 0
+}

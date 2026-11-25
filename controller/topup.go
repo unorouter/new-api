@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -145,6 +146,28 @@ func GetTopUpInfo(c fuego.ContextNoBody) (*dto.Response[dto.TopUpInfoData], erro
 		}
 	}
 
+	enableFreemius := isFreemiusTopUpEnabled()
+	freemiusAmounts := []int{}
+	if enableFreemius {
+		for amount := range setting.GetFreemiusTopUpPlans() {
+			freemiusAmounts = append(freemiusAmounts, amount)
+		}
+		slices.Sort(freemiusAmounts)
+		payMethods = append(payMethods, map[string]string{
+			"name":      "PayPal",
+			"type":      model.PaymentMethodFreemius,
+			"color":     "rgba(var(--semi-indigo-5), 1)",
+			"min_topup": strconv.Itoa(freemiusAmounts[0]),
+		})
+	}
+	freemiusSubscriptionPlans := []int{}
+	if enableFreemius && setting.FreemiusSubscriptionEnabled {
+		for planId := range setting.GetFreemiusSubscriptionPlans() {
+			freemiusSubscriptionPlans = append(freemiusSubscriptionPlans, planId)
+		}
+		slices.Sort(freemiusSubscriptionPlans)
+	}
+
 	data := dto.TopUpInfoData{
 		EnableOnlineTopup:             isEpayTopUpEnabled(),
 		EnableStripeTopup:             isStripeTopUpEnabled(),
@@ -153,6 +176,9 @@ func GetTopUpInfo(c fuego.ContextNoBody) (*dto.Response[dto.TopUpInfoData], erro
 		EnableWaffoPancakeTopup:       enableWaffoPancake,
 		EnableNowPaymentsTopup:        enableNowPayments,
 		EnableDeloPayTopup:            enableDeloPay,
+		EnableFreemiusTopup:           enableFreemius,
+		FreemiusAmounts:               freemiusAmounts,
+		FreemiusSubscriptionPlans:     freemiusSubscriptionPlans,
 		EnableRedemption:              complianceConfirmed,
 		PaymentComplianceConfirmed:    complianceConfirmed,
 		PaymentComplianceTermsVersion: operation_setting.CurrentComplianceTermsVersion,

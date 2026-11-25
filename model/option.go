@@ -147,6 +147,14 @@ func InitOptionMap() {
 	common.OptionMap["DeloPayFeeThreshold"] = strconv.FormatFloat(setting.DeloPayFeeThreshold, 'f', -1, 64)
 	common.OptionMap["DeloPaySubscriptionEnabled"] = strconv.FormatBool(setting.DeloPaySubscriptionEnabled)
 	common.OptionMap["DeloPayCheckoutPane"] = setting.DeloPayCheckoutPane
+	common.OptionMap["FreemiusEnabled"] = strconv.FormatBool(setting.FreemiusEnabled)
+	common.OptionMap["FreemiusSubscriptionEnabled"] = strconv.FormatBool(setting.FreemiusSubscriptionEnabled)
+	common.OptionMap["FreemiusProductId"] = setting.FreemiusProductId
+	common.OptionMap["FreemiusPublicKey"] = setting.FreemiusPublicKey
+	common.OptionMap["FreemiusSecretKey"] = setting.FreemiusSecretKey
+	common.OptionMap["FreemiusSandbox"] = strconv.FormatBool(setting.FreemiusSandbox)
+	common.OptionMap["FreemiusTopUpPlans"] = setting.FreemiusTopUpPlans
+	common.OptionMap["FreemiusSubscriptionPlans"] = setting.FreemiusSubscriptionPlans
 	common.OptionMap["WaffoEnabled"] = strconv.FormatBool(setting.WaffoEnabled)
 	common.OptionMap["WaffoApiKey"] = setting.WaffoApiKey
 	common.OptionMap["WaffoPrivateKey"] = setting.WaffoPrivateKey
@@ -508,7 +516,7 @@ func updateOptionMap(key string, value string) (err error) {
 			common.ImageDownloadPermission = intValue
 		}
 	}
-	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" || key == "NowPaymentsSandbox" || key == "NowPaymentsFeePaidByUser" || key == "NowPaymentsIsFixedRate" || key == "DeloPayTestMode" {
+	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" || key == "NowPaymentsSandbox" || key == "NowPaymentsFeePaidByUser" || key == "NowPaymentsIsFixedRate" || key == "DeloPayTestMode" || key == "FreemiusSandbox" {
 		boolValue := value == "true"
 		switch key {
 		case "PasswordRegisterEnabled":
@@ -616,6 +624,12 @@ func updateOptionMap(key string, value string) (err error) {
 			setting.DeloPayTestMode = boolValue
 		case "DeloPaySubscriptionEnabled":
 			setting.DeloPaySubscriptionEnabled = boolValue
+		case "FreemiusEnabled":
+			setting.FreemiusEnabled = boolValue
+		case "FreemiusSubscriptionEnabled":
+			setting.FreemiusSubscriptionEnabled = boolValue
+		case "FreemiusSandbox":
+			setting.FreemiusSandbox = boolValue
 		case "ExposeRatioEnabled":
 			ratio_setting.SetExposeRatioEnabled(boolValue)
 		}
@@ -745,6 +759,16 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.DeloPayFeeThreshold, _ = strconv.ParseFloat(value, 64)
 	case "DeloPayCheckoutPane":
 		setting.DeloPayCheckoutPane = value
+	case "FreemiusProductId":
+		setting.FreemiusProductId = value
+	case "FreemiusPublicKey":
+		setting.FreemiusPublicKey = value
+	case "FreemiusSecretKey":
+		setting.FreemiusSecretKey = value
+	case "FreemiusTopUpPlans":
+		setting.FreemiusTopUpPlans = value
+	case "FreemiusSubscriptionPlans":
+		setting.FreemiusSubscriptionPlans = value
 	case "WaffoEnabled":
 		setting.WaffoEnabled = value == "true"
 	case "WaffoApiKey":

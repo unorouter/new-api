@@ -60,6 +60,7 @@ const (
 	PaymentMethodWaffoPancake = "waffo_pancake"
 	PaymentMethodNowPayments  = "nowpayments"
 	PaymentMethodDeloPay      = "delopay"
+	PaymentMethodFreemius     = "freemius"
 )
 
 const (
@@ -71,6 +72,7 @@ const (
 	PaymentProviderWaffoPancake = "waffo_pancake"
 	PaymentProviderNowPayments  = "nowpayments"
 	PaymentProviderDeloPay      = "delopay"
+	PaymentProviderFreemius     = "freemius"
 )
 
 var (
@@ -626,7 +628,8 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 		var quotaErr error
 		if topUp.PaymentProvider == PaymentProviderStripe ||
 			topUp.PaymentProvider == PaymentProviderNowPayments ||
-			topUp.PaymentProvider == PaymentProviderDeloPay {
+			topUp.PaymentProvider == PaymentProviderDeloPay ||
+			topUp.PaymentProvider == PaymentProviderFreemius {
 			quotaToAdd, quotaErr = common.WalletQuotaFromDecimalStrict(
 				decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
 			)
