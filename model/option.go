@@ -155,6 +155,7 @@ func InitOptionMap() {
 	common.OptionMap["FreemiusSandbox"] = strconv.FormatBool(setting.FreemiusSandbox)
 	common.OptionMap["FreemiusTopUpPlans"] = setting.FreemiusTopUpPlans
 	common.OptionMap["FreemiusSubscriptionPlans"] = setting.FreemiusSubscriptionPlans
+	common.OptionMap["FreemiusSandboxUserIds"] = setting.FreemiusSandboxUserIds
 	common.OptionMap["WaffoEnabled"] = strconv.FormatBool(setting.WaffoEnabled)
 	common.OptionMap["WaffoApiKey"] = setting.WaffoApiKey
 	common.OptionMap["WaffoPrivateKey"] = setting.WaffoPrivateKey
@@ -769,6 +770,8 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.FreemiusTopUpPlans = value
 	case "FreemiusSubscriptionPlans":
 		setting.FreemiusSubscriptionPlans = value
+	case "FreemiusSandboxUserIds":
+		setting.FreemiusSandboxUserIds = value
 	case "WaffoEnabled":
 		setting.WaffoEnabled = value == "true"
 	case "WaffoApiKey":

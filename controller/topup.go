@@ -146,7 +146,7 @@ func GetTopUpInfo(c fuego.ContextNoBody) (*dto.Response[dto.TopUpInfoData], erro
 		}
 	}
 
-	enableFreemius := isFreemiusTopUpEnabled()
+	enableFreemius := isFreemiusTopUpEnabled() && setting.FreemiusAllowedFor(dto.UserID(c))
 	freemiusAmounts := []int{}
 	if enableFreemius {
 		for amount := range setting.GetFreemiusTopUpPlans() {

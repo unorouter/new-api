@@ -16,6 +16,22 @@ var FreemiusPublicKey = ""
 var FreemiusSecretKey = ""
 var FreemiusSandbox = false
 
+// While sandbox checkout links are live, only these user ids (comma separated)
+// see and use the method; a sandbox payment is a test card, never real money.
+var FreemiusSandboxUserIds = ""
+
+func FreemiusAllowedFor(userId int) bool {
+	if !FreemiusSandbox {
+		return true
+	}
+	for _, f := range strings.Split(FreemiusSandboxUserIds, ",") {
+		if n, err := strconv.Atoi(strings.TrimSpace(f)); err == nil && n > 0 && n == userId {
+			return true
+		}
+	}
+	return false
+}
+
 // Freemius prices are fixed per plan, so every sellable amount is its own plan
 // with one pricing. JSON objects: top-up amount in USD -> ids, and our
 // subscription plan id -> ids, e.g. {"10":{"plan_id":"81724","pricing_id":"123911"}}.

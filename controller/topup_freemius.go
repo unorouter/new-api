@@ -62,6 +62,9 @@ func freemiusCheckoutLink(ref setting.FreemiusPlanRef, billingCycle string, emai
 }
 
 func RequestFreemiusAmount(c fuego.ContextWithBody[dto.FreemiusPayRequest]) (*dto.Response[string], error) {
+	if !setting.FreemiusAllowedFor(dto.UserID(c)) {
+		return dto.Fail[string]("Payment channel is not supported")
+	}
 	req, err := c.Body()
 	if err != nil {
 		return dto.Fail[string]("Invalid parameters")
@@ -74,7 +77,7 @@ func RequestFreemiusAmount(c fuego.ContextWithBody[dto.FreemiusPayRequest]) (*dt
 }
 
 func RequestFreemiusPay(c fuego.ContextWithBody[dto.FreemiusPayRequest]) (*dto.Response[dto.FreemiusPayData], error) {
-	if !isFreemiusTopUpEnabled() {
+	if !isFreemiusTopUpEnabled() || !setting.FreemiusAllowedFor(dto.UserID(c)) {
 		return dto.Fail[dto.FreemiusPayData]("Payment channel is not supported")
 	}
 	req, err := c.Body()
@@ -126,7 +129,7 @@ func SubscriptionRequestFreemiusPay(c fuego.ContextWithBody[dto.SubscriptionFree
 	if !operation_setting.IsPaymentComplianceConfirmed() {
 		return dto.Fail[dto.FreemiusPayData]("Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 	}
-	if !setting.FreemiusSubscriptionEnabled || !isFreemiusTopUpEnabled() {
+	if !setting.FreemiusSubscriptionEnabled || !isFreemiusTopUpEnabled() || !setting.FreemiusAllowedFor(dto.UserID(c)) {
 		return dto.Fail[dto.FreemiusPayData]("Payment channel is not supported")
 	}
 	req, err := c.Body()
