@@ -870,7 +870,7 @@ func (m *Message) ParseContent() []MediaContent {
 				}
 			}
 		case ContentTypeVideoUrl:
-			if videoUrl, ok := contentItem["video_url"].(string); ok {
+			if videoUrl := videoURLOf(contentItem["video_url"]); videoUrl != "" {
 				contentList = append(contentList, MediaContent{
 					Type: ContentTypeVideoUrl,
 					VideoUrl: &MessageVideoUrl{
@@ -1043,7 +1043,7 @@ func (m *Message) ParseContent() []MediaContent {
 					}
 				}
 			case ContentTypeVideoUrl:
-				if videoUrl, ok := contentItem["video_url"].(string); ok {
+				if videoUrl := videoURLOf(contentItem["video_url"]); videoUrl != "" {
 					contentList = append(contentList, MediaContent{
 						Type: ContentTypeVideoUrl,
 						VideoUrl: &MessageVideoUrl{
@@ -1415,4 +1415,16 @@ func (r *OpenAIResponsesRequest) ParseInput() []MediaInput {
 	}
 
 	return mediaInputs
+}
+
+// video_url arrives as a bare string (Ali) or as {"url": ...} like image_url.
+func videoURLOf(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case map[string]any:
+		u, _ := x["url"].(string)
+		return u
+	}
+	return ""
 }
