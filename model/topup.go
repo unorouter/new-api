@@ -876,7 +876,7 @@ func ReverseTopUp(in TopUpReversalInput) (TopUpReversalResult, error) {
 // Stripe credits Money*QuotaPerUnit and keeps the typed dollar count in Amount, so
 // reversing Amount took back $0.002 of a $1000 top-up.
 func reversibleQuota(topUp *TopUp) int64 {
-	if topUp.PaymentMethod == "stripe" {
+	if topUp.PaymentMethod == "stripe" || topUp.PaymentMethod == PaymentMethodFreemius {
 		return decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Round(0).IntPart()
 	}
 	return topUp.Amount
