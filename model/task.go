@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 )
@@ -135,11 +136,36 @@ type TaskPrivateData struct {
 	PluginState json.RawMessage `json:"plugin_state,omitempty"`
 	// PollFailures counts consecutive unrecognized or transient poll outcomes.
 	PollFailures int `json:"poll_failures,omitempty"`
-	// ResultDiscarded marks an immediate terminal result whose submit route
-	// declared retainResult: false. The upstream snapshot was never written
-	// and every retrieval surface treats the task as not found. The zero
-	// value keeps historical rows retained and retrievable.
+	// ResultDiscarded marks an immediate result delivered inline by openai_image
+	// or a route with retainResult: false. Retrieval treats the task as missing.
 	ResultDiscarded bool `json:"result_discarded,omitempty"`
+	// CredentialAccount is the account of the plugin credential that
+	// submitted the task, which polls the task and fetches its content.
+	CredentialAccount string `json:"credential_account,omitempty"`
+	// RequestPlugins is set when a request plugin instance may report the
+	// task: the task reports once, at its final state.
+	RequestPlugins *TaskRequestPlugins `json:"request_plugins,omitempty"`
+}
+
+// TaskRequestPlugins is what the report of a task needs from its
+// submission. The request id and path are in Execution; the model, group,
+// user, channel and token are on the task.
+type TaskRequestPlugins struct {
+	// Instances are the ids of the report instances that matched.
+	Instances   []string `json:"instances"`
+	Format      string   `json:"format"`
+	ChannelType int      `json:"channel_type,omitempty"`
+	Attempt     int      `json:"attempt,omitempty"`
+	Username    string   `json:"username,omitempty"`
+	TokenName   string   `json:"token_name,omitempty"`
+	// StartedAt is when the submission started, in Unix milliseconds.
+	StartedAt int64 `json:"started_at"`
+	// Request is the client body as a report shows it, inline media
+	// replaced by references; null when it is not JSON or too large.
+	Request json.RawMessage           `json:"request,omitempty"`
+	Media   []jsplugin.TransformMedia `json:"media,omitempty"`
+	// Record is the submission's public record.
+	Record []commonRelay.RequestPluginRecord `json:"record,omitempty"`
 }
 
 type TaskExecutionSnapshot struct {
@@ -232,23 +258,16 @@ func (p *TaskPrivateData) Scan(val any) error {
 }
 
 func (p TaskPrivateData) Value() (driver.Value, error) {
-	// Slice-containing structs aren't directly comparable; check zero by
-	// inspecting each field. Matches the previous "all-zero -> NULL"
-	// behavior so empty rows don't carry a "{}" payload in the DB.
-	if p.Key == "" &&
-		p.UpstreamTaskID == "" &&
-		p.ResultURL == "" &&
-		len(p.ResultURLs) == 0 &&
-		p.Execution == nil &&
-		p.BillingSource == "" &&
-		p.SubscriptionId == 0 &&
-		p.TokenId == 0 &&
-		p.NodeName == "" &&
-		!p.ResponsesBackground &&
-		p.BillingContext == nil &&
-		len(p.PluginState) == 0 &&
-		p.PollFailures == 0 &&
-		!p.ResultDiscarded {
+	if p.ResultDiscarded {
+		// A plugin can return the inline image itself as the result URL.
+		// The submit presenter and report still have the in-memory result.
+		p.ResultURL = ""
+	}
+	if p.Key == "" && p.UpstreamTaskID == "" && p.ResultURL == "" && len(p.ResultURLs) == 0 &&
+		p.Execution == nil && p.BillingSource == "" && p.SubscriptionId == 0 &&
+		p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil &&
+		!p.ResponsesBackground && len(p.PluginState) == 0 && p.PollFailures == 0 &&
+		!p.ResultDiscarded && p.RequestPlugins == nil && p.CredentialAccount == "" {
 		return nil, nil
 	}
 	// 同 Properties.Value:string 避免 PG simple protocol 的 bytea 编码。
@@ -282,6 +301,11 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeVertexAi ||
 			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeNewAPI {
 			privateData.Key = relayInfo.ChannelMeta.ApiKey
+		}
+		if relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeTaskPlugin {
+			if credential, ok := jsplugin.ParseCredential(relayInfo.ChannelMeta.ApiKey); ok {
+				privateData.CredentialAccount = credential.AccountID
+			}
 		}
 		if relayInfo.UpstreamModelName != "" {
 			properties.UpstreamModelName = relayInfo.UpstreamModelName
@@ -399,8 +423,7 @@ func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*
 
 func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 	var tasks []*Task
-	err := DB.Where("progress != ?", "100%").
-		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
+	err := DB.Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
 		Where("submit_time < ?", cutoffUnix).
 		Order("submit_time").
 		Limit(limit).
@@ -414,8 +437,8 @@ func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 func GetAllUnFinishSyncTasks(limit int) []*Task {
 	var tasks []*Task
 	var err error
-	// get all tasks progress is not 100%
-	err = DB.Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
+	// Upstream progress can reach 100% before the task enters a terminal state.
+	err = DB.Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
 	if err != nil {
 		return nil
 	}
@@ -429,7 +452,6 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 func HasUnfinishedSyncTasks() bool {
 	var id int64
 	err := DB.Model(&Task{}).
-		Where("progress != ?", "100%").
 		Where("status != ?", TaskStatusFailure).
 		Where("status != ?", TaskStatusSuccess).
 		Limit(1).

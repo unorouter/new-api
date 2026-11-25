@@ -121,6 +121,12 @@ func (channel *Channel) AfterFind(tx *gorm.DB) error {
 	return nil
 }
 
+// sealChannelKey is the key_enc value for a map update, which skips BeforeSave.
+func sealChannelKey(key string) (string, error) {
+	channelKeyCryptoReady()
+	return encryptChannelKey(key)
+}
+
 // UpdateChannelKey is the one write path for a key set outside a struct save (OAuth
 // completion, credential refresh).
 func UpdateChannelKey(id int, key string) error {

@@ -137,6 +137,9 @@ func shouldResponsesUseChatCompletions(info *relaycommon.RelayInfo) bool {
 	switch info.ApiType {
 	case constant.APITypeAnthropic, constant.APITypeAws, constant.APITypeGemini, constant.APITypeVertexAi:
 		return false
+	// Their routes map each incoming path to an upstream and converter of its own.
+	case constant.APITypeAdvancedCustom, constant.APITypeProviderPlugin:
+		return false
 	}
 	modelToCheck := info.UpstreamModelName
 	if modelToCheck == "" {

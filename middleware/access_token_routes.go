@@ -48,6 +48,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/perf-metrics/summary":       accessTokenAnyRule,
 	"GET /api/perf-metrics":               accessTokenAnyRule,
 	"GET /api/rankings":                   accessTokenAnyRule,
+	"POST /api/contact":                   accessTokenAnyRule,
 	"POST /api/oauth/state":               accessTokenSessionRule,
 	"POST /api/oauth/email/bind/start":    accessTokenScopeRule("account_security:write"),
 	"POST /api/oauth/email/bind/resend":   accessTokenScopeRule("account_security:write"),
@@ -187,6 +188,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/system-task/current":                 accessTokenScopeRule("ops:read"),
 	"GET /api/system-task/:task_id":                accessTokenScopeRule("ops:read"),
 	"GET /api/system-info/instances":               accessTokenScopeRule("ops:read"),
+	"GET /api/system-info/sync":                    accessTokenScopeRule("ops:read"),
 	"DELETE /api/system-info/stale-instances":      accessTokenScopeRule("ops:write"),
 	"DELETE /api/system-info/instances/:node_name": accessTokenScopeRule("ops:write"),
 
@@ -204,6 +206,9 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/plugin/task/:key/status":              accessTokenScopeRule("plugin:write"),
 	"POST /api/plugin/task/:key/dryrun":              accessTokenScopeRule("plugin:write"),
 	"DELETE /api/plugin/task/:key/versions/:version": accessTokenScopeRule("plugin:write"),
+	// router/api-router.go: /api/request_plugin
+	"PUT /api/request_plugin/instances": accessTokenScopeRule("plugin:write"),
+	"POST /api/request_plugin/dry_run":  accessTokenScopeRule("plugin:write"),
 
 	// router/channel-router.go: the key route is RootAuth, not Casbin-guarded.
 	"POST /api/channel/:id/key": accessTokenScopeRule(service.AccessTokenScopeOf(authz.ChannelSecretView)),
@@ -246,6 +251,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/log/export":                       accessTokenScopeRule("log:read"),
 	"GET /api/log/self/export":                  accessTokenScopeRule("usage:read"),
 	"GET /api/data/":                            accessTokenScopeRule("log:read"),
+	"GET /api/data/perf-metrics/summary":        accessTokenScopeRule("log:read"),
 	"GET /api/data/users":                       accessTokenScopeRule("log:read"),
 	"GET /api/data/self":                        accessTokenScopeRule("usage:read"),
 	"GET /api/data/flow":                        accessTokenScopeRule("log:read"),
@@ -279,6 +285,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/models/delete":               accessTokenScopeRule("model:write"),
 	"GET /api/models/missing":               accessTokenScopeRule("model:read"),
 	"GET /api/models/list":                  accessTokenScopeRule("model:read"),
+	"GET /api/models/square_usage":          accessTokenScopeRule("log:read"),
 	"GET /api/models/search":                accessTokenScopeRule("model:read"),
 	"GET /api/models/:id":                   accessTokenScopeRule("model:read"),
 	"POST /api/models/":                     accessTokenScopeRule("model:write"),
@@ -353,6 +360,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/user/partner/redemption":            accessTokenScopeRule("wallet:write"),
 	"POST /api/user/setting":                       accessTokenScopeRule("profile:write"),
 	"PUT /api/token/guest-model-limits":            accessTokenSessionRule,
+	"PUT /api/token/group-rename":                  accessTokenSessionRule,
 	"PUT /api/user/self/timeout":                   accessTokenScopeRule("profile:write"),
 	"GET /api/user/self/own-purpose-objection":     accessTokenScopeRule("profile:read"),
 	"PUT /api/user/self/own-purpose-objection":     accessTokenScopeRule("profile:write"),

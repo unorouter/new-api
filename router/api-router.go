@@ -465,6 +465,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 
 		systemInfoGroup := apiRouter.Group("/system-info", middleware.RootAuth(), middleware.NoPAT())
 		systemInfoGroup.GET("/instances", controller.ListSystemInstances)
+		systemInfoGroup.GET("/sync", controller.GetNodeSync)
 		systemInfoGroup.DELETE("/stale-instances", controller.DeleteStaleSystemInstances)
 		systemInfoGroup.DELETE("/instances/:node_name", controller.DeleteStaleSystemInstance)
 
@@ -486,6 +487,10 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		chReadG.GET("/:id/vllm/status", controller.GetVLLMChannelStatus)
 		chReadG.GET("/:id/sglang/status", controller.GetSGLangChannelStatus)
 		chReadG.GET("/priority/order", controller.GetChannelPriorityOrder)
+		chReadG.GET("/:id/plugin_credentials", controller.GetPluginCredentials)
+		chSensG.POST("/:id/plugin_login", controller.StartPluginLogin)
+		chSensG.POST("/:id/plugin_login/continue", controller.ContinuePluginLogin)
+		chSensG.POST("/plugin_login/callback", controller.CompletePluginLoginCallback)
 		chWriteG.POST("/priority/reorder", controller.ReorderChannelPriority)
 
 		ch := dto.NewRouter(engine, chReadG, "Channel", secDashboard())
@@ -501,7 +506,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Get(ch, "/:id", controller.GetChannel, option.Path("id", "Channel ID"))
 		dto.Get(chOp, "/test", controller.TestAllChannels)
 		dto.GetP(chOp, "/test/:id", controller.TestChannel, option.Path("id", "Channel ID"))
-		dto.Get(chOp, "/update_balance", controller.UpdateAllChannelsBalance)
+		chOp.GinGet("/update_balance", controller.UpdateAllChannelsBalance, dto.GinResp[dto.ApiResponse]())
+		chOp.GinGet("/update_balance/task/:task_id", controller.GetChannelBalanceTask, option.Path("task_id", "Task ID"), dto.GinResp[dto.ApiResponse]())
 		dto.Get(chOp, "/update_balance/:id", controller.UpdateChannelBalance, option.Path("id", "Channel ID"))
 		dto.PostB(chSens, "/", controller.AddChannel)
 		dto.PutB(chWrite, "/", controller.UpdateChannel)
@@ -631,6 +637,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Get(logToken, "/token", controller.GetLogByKey)
 
 		// ---- Data routes ----
+		apiRouter.GET("/data/perf-metrics/summary", middleware.DisableCache(), middleware.AdminAuth(), controller.GetDashboardPerfMetricsSummary)
 		dataAdmin := dto.NewRouter(engine, apiRouter.Group("/data", middleware.ModAuth()), "Data", secDashboard())
 		dto.GetP(dataAdmin, "/", controller.GetAllQuotaDates)
 		dto.GetP(dataAdmin, "/flow", controller.GetFlowQuotaDates)
@@ -685,6 +692,13 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		}
 		middleware.DeclareAccessTokenPermissionRoute("GET", "/api/task_plugin_options", authz.TaskPluginBind)
 		apiRouter.GET("/task_plugin_options", middleware.AdminAuth(), middleware.RequirePermission(authz.TaskPluginBind), controller.GetTaskPluginOptions)
+		// Channel editors read the instances to bind them; changing them is
+		// plugin management, as installing a plugin is.
+		middleware.DeclareAccessTokenPermissionRoute("GET", "/api/request_plugin/instances", authz.TaskPluginBind)
+		apiRouter.GET("/request_plugin/instances", middleware.AdminAuth(), middleware.RequirePermission(authz.TaskPluginBind), controller.GetRequestPluginInstances)
+		requestPluginGroup := apiRouter.Group("/request_plugin", middleware.RootAuth(), middleware.NoPAT())
+		requestPluginGroup.PUT("/instances", controller.UpdateRequestPluginInstances)
+		requestPluginGroup.POST("/dry_run", controller.DryRunRequestPlugins)
 		taskPluginRoute.GET("/:key/icon", controller.GetTaskPluginIcon)
 		// Audit log reads: moderators and admins holding the audit permission see
 		// everything but root, a user sees their own rows.
@@ -714,6 +728,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// /list is prod's alias for the paged admin list: gin 301s "/models/" to
 		// the public dashboard list, which the sync credential cannot pass.
 		models.GinGet("/list", controller.GetAllModelsMeta, dto.PageParams(), dto.GinResp[dto.ApiResponse]())
+		models.GinGet("/square_usage", controller.GetModelSquareUsage, dto.GinResp[dto.ApiResponse]())
 		models.GinGet("/search", controller.SearchModelsMeta, dto.PageParams(), dto.GinResp[dto.ApiResponse]())
 		models.GinGet("/:id", controller.GetModelMeta, option.Path("id", "Model ID"), dto.GinResp[dto.ApiResponse]())
 		models.GinPost("/", controller.CreateModelMeta, dto.GinResp[dto.ApiResponse]())

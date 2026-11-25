@@ -95,6 +95,7 @@ func ResponseGeminiChat2OpenAI(id string, created int64, response *dto.GeminiCha
 			},
 			FinishReason: types.FinishReasonStop,
 		}
+		textParts := make([]renderedGeminiPart, len(candidate.Content.Parts))
 		if len(candidate.Content.Parts) > 0 {
 			var content strings.Builder
 			var inlineGrow int
@@ -107,18 +108,17 @@ func ResponseGeminiChat2OpenAI(id string, created int64, response *dto.GeminiCha
 				content.Grow(inlineGrow)
 			}
 			appended := 0
-			prevText := false
-			// Consecutive text parts are one string split by the upstream, sometimes mid
-			// word; only a block such as an image or code gets its own line.
+			lastWasText := false
 			writeSep := func(text bool) {
-				if appended > 0 && !(text && prevText) {
+				if appended > 0 && !(text && lastWasText) {
 					content.WriteByte('\n')
 				}
 				appended++
-				prevText = text
+				lastWasText = text
 			}
 			var toolCalls []dto.ToolCallResponse
-			for _, part := range candidate.Content.Parts {
+			for index, part := range candidate.Content.Parts {
+				textParts[index].startByte = -1
 				if part.InlineData != nil {
 					if strings.HasPrefix(part.InlineData.MimeType, "image") {
 						writeSep(false)
@@ -155,8 +155,9 @@ func ResponseGeminiChat2OpenAI(id string, created int64, response *dto.GeminiCha
 						content.WriteString("```output\n")
 						content.WriteString(part.CodeExecutionResult.Output)
 						content.WriteString("\n```")
-					} else if part.Text != "\n" {
+					} else if part.Text != "" {
 						writeSep(true)
+						textParts[index] = renderedGeminiPart{text: part.Text, startByte: content.Len()}
 						content.WriteString(part.Text)
 					}
 				}
@@ -182,7 +183,7 @@ func ResponseGeminiChat2OpenAI(id string, created int64, response *dto.GeminiCha
 		if isToolCall {
 			choice.FinishReason = types.FinishReasonToolCalls
 		}
-		choice.Message.Annotations = groundingAnnotationsToChat(candidate.GroundingMetadata, candidate.Content, choice.Message.StringContent())
+		choice.Message.Annotations = groundingAnnotationsToChat(candidate.GroundingMetadata, textParts, choice.Message.StringContent())
 
 		fullTextResponse.Choices = append(fullTextResponse.Choices, choice)
 	}
@@ -190,7 +191,13 @@ func ResponseGeminiChat2OpenAI(id string, created int64, response *dto.GeminiCha
 }
 
 func StreamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*dto.ChatCompletionsStreamResponse, bool) {
+	response, isStop, _ := streamResponseGeminiChat2OpenAI(geminiResponse)
+	return response, isStop
+}
+
+func streamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*dto.ChatCompletionsStreamResponse, bool, [][]renderedGeminiPart) {
 	choices := make([]dto.ChatCompletionsStreamResponseChoice, 0, len(geminiResponse.Candidates))
+	contentParts := make([][]renderedGeminiPart, 0, len(geminiResponse.Candidates))
 	isStop := false
 	for _, candidate := range geminiResponse.Candidates {
 		if candidate.FinishReason != nil && *candidate.FinishReason == "STOP" {
@@ -212,15 +219,13 @@ func StreamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 			content.Grow(inlineGrow)
 		}
 		appended := 0
-		prevText := false
-		// Consecutive text parts are one string split by the upstream, sometimes mid
-		// word; only a block such as an image or code gets its own line.
+		lastWasText := false
 		writeSep := func(text bool) {
-			if appended > 0 && !(text && prevText) {
+			if appended > 0 && !(text && lastWasText) {
 				content.WriteByte('\n')
 			}
 			appended++
-			prevText = text
+			lastWasText = text
 		}
 		isTools := false
 		isThought := false
@@ -236,7 +241,9 @@ func StreamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 				choice.FinishReason = &types.FinishReasonContentFilter
 			}
 		}
-		for _, part := range candidate.Content.Parts {
+		textParts := make([]renderedGeminiPart, len(candidate.Content.Parts))
+		for index, part := range candidate.Content.Parts {
+			textParts[index].startByte = -1
 			if part.InlineData != nil {
 				if strings.HasPrefix(part.InlineData.MimeType, "image") {
 					writeSep(false)
@@ -254,7 +261,7 @@ func StreamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 				}
 			} else if part.Thought {
 				isThought = true
-				writeSep(true)
+				writeSep(false)
 				content.WriteString(part.Text)
 			} else {
 				if part.ExecutableCode != nil {
@@ -269,22 +276,26 @@ func StreamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 					content.WriteString("```output\n")
 					content.WriteString(part.CodeExecutionResult.Output)
 					content.WriteString("\n```\n")
-				} else if part.Text != "\n" {
+				} else if part.Text != "" {
 					writeSep(true)
+					textParts[index] = renderedGeminiPart{text: part.Text, startByte: content.Len()}
 					content.WriteString(part.Text)
 				}
 			}
 		}
+		var emittedParts []renderedGeminiPart
 		if isThought {
 			choice.Delta.SetReasoningContent(content.String())
 		} else {
 			choice.Delta.SetContentString(content.String())
+			emittedParts = textParts
 		}
 		if isTools {
 			choice.FinishReason = &types.FinishReasonToolCalls
 		}
-		choice.Delta.Annotations = groundingAnnotationsToChat(candidate.GroundingMetadata, candidate.Content, content.String())
+		choice.Delta.Annotations = groundingAnnotationsToChat(candidate.GroundingMetadata, textParts, content.String())
 		choices = append(choices, choice)
+		contentParts = append(contentParts, emittedParts)
 	}
 
 	response := dto.ChatCompletionsStreamResponse{
@@ -296,7 +307,7 @@ func StreamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 	if metadata := geminiResponse.GetUsageMetadata(); dto.HasGeminiUsageMetadataTokens(metadata) {
 		response.Usage = UsageFromGeminiMetadata(metadata, 0)
 	}
-	return &response, isStop
+	return &response, isStop, contentParts
 }
 
 type GeminiToChatStreamState struct {
@@ -378,7 +389,7 @@ func (s *GeminiToChatStreamState) ConvertChunk(geminiResponse *dto.GeminiChatRes
 			break
 		}
 	}
-	response, isStop := StreamResponseGeminiChat2OpenAI(geminiResponse)
+	response, isStop, contentParts := streamResponseGeminiChat2OpenAI(geminiResponse)
 	if response == nil {
 		return nil, nil
 	}
@@ -414,7 +425,7 @@ func (s *GeminiToChatStreamState) ConvertChunk(geminiResponse *dto.GeminiChatRes
 			grounding = newGeminiGroundingStreamCandidate()
 			s.groundingByCandidate[candidate.Index] = grounding
 		}
-		grounding.appendContent(candidate.Content, response.Choices[index].Delta.GetContentString())
+		grounding.appendContent(candidate.Content, contentParts[index], response.Choices[index].Delta.GetContentString())
 		response.Choices[index].Delta.Annotations = grounding.groundingAnnotations(
 			candidate.GroundingMetadata,
 			candidate.Index,

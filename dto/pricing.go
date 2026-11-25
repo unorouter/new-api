@@ -243,4 +243,13 @@ type PricingData struct {
 	SupportedEndpoint map[string]EndpointInfo `json:"supported_endpoint"`
 	AutoGroups        []string                `json:"auto_groups" validate:"required"`
 	ShowOriginalPrice bool                    `json:"show_original_price"`
+	ModelOrder        ModelSquareOrder        `json:"model_order"`
+}
+
+// ModelSquareOrder is the model square's recommended order and its orders by
+// requests and by tokens.
+type ModelSquareOrder struct {
+	Recommended []string `json:"recommended"`
+	Requests    []string `json:"requests"`
+	Tokens      []string `json:"tokens"`
 }

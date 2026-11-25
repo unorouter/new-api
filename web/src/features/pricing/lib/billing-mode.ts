@@ -20,6 +20,7 @@ import { QUOTA_TYPE_VALUES } from '../constants'
 import type { PricingModel } from '../types'
 import { hasTaskUsageSchema, isDynamicPricingModel } from './dynamic-price'
 import { isTokenBasedModel } from './model-helpers'
+import { withBasePricing } from './plugin-pricing'
 
 export type BillingModeLabelKey =
   | 'Per Request'
@@ -30,8 +31,9 @@ export type BillingModeLabelKey =
   | 'Grid'
 
 export function getBillingModeLabelKey(
-  model: PricingModel
+  listedModel: PricingModel
 ): BillingModeLabelKey {
+  const model = withBasePricing(listedModel)
   // Task-usage models badge as one business category; the metering unit
   // ($/1M token, $/credit, $/second) is already carried by the price line.
   if (model.quota_type === QUOTA_TYPE_VALUES.CUSTOM) return 'Custom'

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,20 +34,20 @@ import (
 )
 
 // ApplyUpstreamBodyMetadata restores metadata that net/http cannot infer from
-// a ReplayableBody. Callers must pass the original body because NewRequest
-// hides its dynamic type behind req.Body's io.ReadCloser wrapper.
+// a ReplayableBody. Callers pass the body given to NewRequest, which wraps a
+// body that has no Close method.
 func ApplyUpstreamBodyMetadata(req *http.Request, body io.Reader) {
 	replayable, ok := body.(common2.ReplayableBody)
 	if !ok {
 		return
 	}
 
-	// BodyStorage structurally satisfies ReplayableBody, but it also exposes
-	// io.Closer. If a caller passes the storage directly instead of using
-	// NewReplayableBodyReader, hide Close before the transport takes ownership
-	// of req.Body so the shared replay source remains available to GetBody.
-	if _, rawStorage := body.(common2.BodyStorage); rawStorage {
-		req.Body = io.NopCloser(body)
+	// BodyStorage structurally satisfies ReplayableBody, but its Read uses the
+	// shared storage cursor and its Close closes the storage. Send it through
+	// a body with its own cursor so the replay source stays open for GetBody.
+	if storage, rawStorage := body.(common2.BodyStorage); rawStorage {
+		replayable = common2.NewReplayableBodyReader(storage)
+		req.Body = replayable.(io.ReadCloser)
 	}
 
 	req.ContentLength = replayable.Size()
@@ -312,14 +313,49 @@ func ResolveHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 	return processHeaderOverride(info, c)
 }
 
-// ApplyHeaderOverride applies channel overrides after the adaptor's headers.
-// Without a client request, only static values and {api_key} are resolved.
+// ApplyHeaderOverride applies the request plugins' header changes, then the
+// channel overrides, after the adaptor's headers. Without a client request,
+// only static values and {api_key} are resolved.
 func ApplyHeaderOverride(info *common.RelayInfo, c *gin.Context, req *http.Request) error {
 	headers, err := processHeaderOverride(info, c)
 	if err != nil {
 		return err
 	}
+	if info == nil || req == nil || len(info.RequestPluginHeaders) == 0 {
+		applyHeaderOverrideToRequest(req, headers)
+		return nil
+	}
+	// The outbound stage refused protected and credential header names; a
+	// header that carries the channel key is a credential too and stays as
+	// the adaptor set it.
+	pluginValues := map[string][]string{}
+	for _, effect := range info.RequestPluginHeaders {
+		for _, name := range effect.Remove {
+			name = strings.TrimSpace(name)
+			if info.ApiKey == "" || !strings.Contains(req.Header.Get(name), info.ApiKey) {
+				req.Header.Del(name)
+			}
+			pluginValues[strings.ToLower(name)] = nil
+		}
+		for name, value := range effect.Set {
+			name = strings.TrimSpace(name)
+			if info.ApiKey == "" || !strings.Contains(req.Header.Get(name), info.ApiKey) {
+				req.Header.Set(name, value)
+			}
+			pluginValues[strings.ToLower(name)] = nil
+		}
+	}
+	for name := range pluginValues {
+		pluginValues[name] = req.Header.Values(name)
+	}
 	applyHeaderOverrideToRequest(req, headers)
+	var replaced []string
+	for name, values := range pluginValues {
+		if !slices.Equal(values, req.Header.Values(name)) {
+			replaced = append(replaced, name)
+		}
+	}
+	info.MarkRequestPluginHeaderOverrides(replaced)
 	return nil
 }
 
@@ -334,6 +370,24 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
 			req.Host = value
 		}
 	}
+}
+
+// RequestSigner is an adaptor that signs every upstream request it sends.
+// The request senders call it last, after the header overrides; it may
+// change only the headers and the URL query.
+type RequestSigner interface {
+	SignUpstreamRequest(c *gin.Context, info *common.RelayInfo, method string, target *url.URL, header http.Header) error
+}
+
+func signUpstreamRequest(adaptor any, c *gin.Context, info *common.RelayInfo, method string, target *url.URL, header http.Header) error {
+	signer, ok := adaptor.(RequestSigner)
+	if !ok {
+		return nil
+	}
+	if err := signer.SignUpstreamRequest(c, info, method, target, header); err != nil {
+		return fmt.Errorf("sign request failed: %w", err)
+	}
+	return nil
 }
 
 func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
@@ -357,8 +411,12 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err = ApplyHeaderOverride(info, c, req); err != nil {
 		return nil, err
 	}
+	// Stripping rewrites the body, so it runs before a signature covers it.
 	if err := stripClientIdentifiers(info, req, requestBody); err != nil {
 		return nil, fmt.Errorf("strip client identifiers failed: %w", err)
+	}
+	if err = signUpstreamRequest(a, c, info, req.Method, req.URL, req.Header); err != nil {
+		return nil, err
 	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
@@ -457,6 +515,9 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	if err = ApplyHeaderOverride(info, c, req); err != nil {
 		return nil, err
 	}
+	if err = signUpstreamRequest(a, c, info, req.Method, req.URL, req.Header); err != nil {
+		return nil, err
+	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
@@ -464,11 +525,22 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	return resp, nil
 }
 
+// WebSocketPreparer is an adaptor that prepares the request before its
+// WebSocket handshake is built, such as binding the key it sends.
+type WebSocketPreparer interface {
+	PrepareWebSocket(c *gin.Context, info *common.RelayInfo) error
+}
+
 // DoWssRequest dials the adaptor's upstream over WebSocket for the realtime
 // and Responses WebSocket relays. It honors the channel proxy, is bound to the
 // request context, and reports a rejected handshake as a *types.NewAPIError
 // carrying the upstream status code (types.NewError preserves it).
 func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*websocket.Conn, error) {
+	if preparer, ok := a.(WebSocketPreparer); ok {
+		if err := preparer.PrepareWebSocket(c, info); err != nil {
+			return nil, err
+		}
+	}
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
@@ -492,6 +564,16 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		targetHeader.Set(key, value)
 	}
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
+	if _, signs := a.(RequestSigner); signs {
+		targetURL, parseErr := url.Parse(fullRequestURL)
+		if parseErr != nil {
+			return nil, fmt.Errorf("get request url failed: %w", parseErr)
+		}
+		if err = signUpstreamRequest(a, c, info, http.MethodGet, targetURL, targetHeader); err != nil {
+			return nil, err
+		}
+		fullRequestURL = targetURL.String()
+	}
 	dialer := *websocket.DefaultDialer
 	if info.ChannelSetting.Proxy != "" {
 		proxyURL, _, proxyErr := common2.ParseProxyURLRuntime(info.ChannelSetting.Proxy)
@@ -691,7 +773,14 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 	resp, err := relayClient.Do(req)
 	if err != nil {
-		logger.LogError(c, "do request failed: "+err.Error())
+		// A url.Error quotes the request URL, whose query may carry a
+		// credential: log its operation, the host and the cause only.
+		reason := err.Error()
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) && urlErr.Err != nil {
+			reason = fmt.Sprintf("%s %s: %v", urlErr.Op, req.URL.Host, urlErr.Err)
+		}
+		logger.LogError(c, common2.LogText("do request failed: %s", reason))
 		// PROD-ONLY (fork): an upstream first-byte/header timeout is a channel fault
 		// (fail over + disable via the channel:-prefixed code), NOT a client hangup.
 		//
@@ -756,7 +845,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		c.Set(common2.UpstreamRequestIdKey, upID)
 	}
 
-	_ = req.Body.Close()
+	// The transport closes req.Body once it has written it. Closing it here
+	// would abort a body still being written after an early response and
+	// make the transport drop the connection that carries the response.
 	_ = c.Request.Body.Close()
 	return resp, nil
 }
@@ -785,6 +876,9 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
 	if err = ApplyHeaderOverride(info, c, req); err != nil {
+		return nil, err
+	}
+	if err = signUpstreamRequest(a, c, info, req.Method, req.URL, req.Header); err != nil {
 		return nil, err
 	}
 	resp, err := doRequest(c, req, info)

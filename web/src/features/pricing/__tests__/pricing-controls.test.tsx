@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -140,6 +140,43 @@ describe('pricing controls', () => {
         billing_mode: 'tiered_expr',
         billing_expr: 'tier("base", u("seconds") * 0.4)',
         billing_usage_schema: { seconds: { type: 'number', unit: 'second' } },
+      },
+      matches: ['task'],
+    },
+    {
+      name: 'a plugin model whose ordinary requests pay a token ratio',
+      pricing: {
+        billing_usage_schema: { seconds: { type: 'number', unit: 'second' } },
+        ordinary_pricing: true,
+        billing_plugin_variants: [
+          {
+            plugin_key: 'alpha',
+            plugin_name: 'Alpha',
+            billing_mode: 'tiered_expr',
+            billing_expr: '',
+            billing_usage_schema: {
+              seconds: { type: 'number', unit: 'second' },
+            },
+          },
+        ],
+      },
+      matches: ['token'],
+    },
+    {
+      name: 'a plugin model without ordinary requests retaining the task category',
+      pricing: {
+        billing_usage_schema: { seconds: { type: 'number', unit: 'second' } },
+        billing_plugin_variants: [
+          {
+            plugin_key: 'alpha',
+            plugin_name: 'Alpha',
+            billing_mode: 'tiered_expr',
+            billing_expr: '',
+            billing_usage_schema: {
+              seconds: { type: 'number', unit: 'second' },
+            },
+          },
+        ],
       },
       matches: ['task'],
     },
@@ -328,6 +365,28 @@ describe('pricing controls', () => {
       screen.getByRole('menuitem', { name: 'Input Price: Low to High' })
     )
     expect(props.onSortChange).toHaveBeenCalledWith('input-price-low')
+  })
+
+  it('lists the model order sorts above the name and price sorts', async () => {
+    const props = { ...toolbarProps(), sortBy: 'recommended' }
+    const user = userEvent.setup()
+    render(<PricingToolbar {...props} />)
+    await user.click(screen.getByRole('button', { name: 'Recommended' }))
+    const [orderGroup, otherGroup] = within(
+      await screen.findByRole('menu')
+    ).getAllByRole('group')
+    expect(
+      within(orderGroup)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent)
+    ).toEqual(['Recommended', 'Most requests', 'Most tokens'])
+    expect(within(otherGroup).getAllByRole('menuitem')[0]).toHaveTextContent(
+      'Name'
+    )
+    await user.click(
+      within(orderGroup).getByRole('menuitem', { name: 'Most requests' })
+    )
+    expect(props.onSortChange).toHaveBeenCalledWith('requests')
   })
 
   // Prod's sidebar renders groups with its own online/offline markers; the

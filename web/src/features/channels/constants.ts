@@ -544,6 +544,8 @@ export const MODEL_FETCHABLE_TYPES = new Set([
   CHANNEL_TYPE_TYPESAFE,
 ])
 
+// A plugin channel relays the formats its plugin's routes serve, so it takes
+// every field control, as an Advanced Custom channel does.
 export const FIELD_PASSTHROUGH_TYPES = new Set([
   1,
   14,
@@ -551,6 +553,7 @@ export const FIELD_PASSTHROUGH_TYPES = new Set([
   58,
   59,
   CHANNEL_TYPE_NEW_API,
+  CHANNEL_TYPE_TASK_PLUGIN,
   CHANNEL_TYPE_VLLM,
   CHANNEL_TYPE_SGLANG,
 ])
@@ -561,6 +564,7 @@ export const OPENAI_FIELD_PASSTHROUGH_TYPES = new Set([
   58,
   59,
   CHANNEL_TYPE_NEW_API,
+  CHANNEL_TYPE_TASK_PLUGIN,
   CHANNEL_TYPE_VLLM,
   CHANNEL_TYPE_SGLANG,
 ])
@@ -570,6 +574,7 @@ export const CLAUDE_FIELD_PASSTHROUGH_TYPES = new Set([
   58,
   59,
   CHANNEL_TYPE_NEW_API,
+  CHANNEL_TYPE_TASK_PLUGIN,
   CHANNEL_TYPE_VLLM,
   CHANNEL_TYPE_SGLANG,
 ])

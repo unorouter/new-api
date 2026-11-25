@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -9,41 +10,73 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
+	"github.com/gin-gonic/gin"
 	"github.com/go-fuego/fuego"
 	"github.com/samber/lo"
 	"golang.org/x/sync/singleflight"
 )
+
+// usablePerfMetricGroups limits public metrics to the groups the caller may
+// use, so a private group's traffic is not visible to everyone.
+func usablePerfMetricGroups(c *gin.Context) []string {
+	userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+	usableGroups := service.GetUserUsableGroups(userGroup)
+	// A non-nil empty list restricts the metrics query to zero groups.
+	groups := make([]string, 0, len(usableGroups))
+	for group := range usableGroups {
+		if group == "auto" || ratio_setting.ContainsGroupRatio(group) {
+			groups = append(groups, group)
+		}
+	}
+	slices.Sort(groups)
+	return groups
+}
 
 func GetPerfMetricsSummary(c fuego.ContextWithParams[dto.GetPerfMetricsSummaryParams]) (*dto.Response[perfmetrics.SummaryAllResult], error) {
 	p, err := dto.ParseParams[dto.GetPerfMetricsSummaryParams](c)
 	if err != nil {
 		return dto.Fail[perfmetrics.SummaryAllResult](err.Error())
 	}
-	hours := p.Hours
-	if hours <= 0 {
-		hours = 24
-	}
-
-	recentModels := dto.GinCtx(c).QueryArray("recent_model")
-	if len(recentModels) > perfmetrics.MaxRecentModels {
-		return dto.Fail[perfmetrics.SummaryAllResult]("Invalid parameters")
-	}
-	activeGroups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto")
-	sorted := slices.Clone(recentModels)
-	slices.Sort(sorted)
-	key := strconv.Itoa(hours) + "|" + strings.Join(sorted, ",")
-	result, err := cachedPublicPerfSummary(key, func() (perfmetrics.SummaryAllResult, error) {
-		return perfmetrics.QuerySummaryAll(hours, activeGroups, recentModels...)
-	})
+	g := dto.GinCtx(c)
+	result, err := perfSummaryForGroups(p.Hours, g.QueryArray("recent_model"), usablePerfMetricGroups(g))
 	if err != nil {
 		return dto.Fail[perfmetrics.SummaryAllResult](err.Error())
 	}
 	return dto.Ok(result)
+}
+
+func GetDashboardPerfMetricsSummary(c *gin.Context) {
+	hours, _ := strconv.Atoi(c.Query("hours"))
+	groups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto")
+	slices.Sort(groups)
+	result, err := perfSummaryForGroups(hours, c.QueryArray("recent_model"), groups)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
+func perfSummaryForGroups(hours int, recentModels []string, groups []string) (perfmetrics.SummaryAllResult, error) {
+	if hours <= 0 {
+		hours = 24
+	}
+	if len(recentModels) > perfmetrics.MaxRecentModels {
+		return perfmetrics.SummaryAllResult{}, errors.New("Invalid parameters")
+	}
+	sorted := slices.Clone(recentModels)
+	slices.Sort(sorted)
+	key := strconv.Itoa(hours) + "|" + strings.Join(sorted, ",") + "|" + strings.Join(groups, ",")
+	return cachedPublicPerfSummary(key, func() (perfmetrics.SummaryAllResult, error) {
+		return perfmetrics.QuerySummaryAll(hours, groups, recentModels...)
+	})
 }
 
 type publicPerfSummaryItem struct {
@@ -103,12 +136,13 @@ func GetPerfMetrics(c fuego.ContextWithParams[dto.GetPerfMetricsParams]) (*dto.R
 		hours = 24
 	}
 
+	groups := usablePerfMetricGroups(dto.GinCtx(c))
 	build := func() (perfmetrics.QueryResult, error) {
 		result, err := perfmetrics.Query(perfmetrics.QueryParams{
 			Model:         p.Model,
 			Group:         p.Group,
 			Hours:         hours,
-			AllowedGroups: append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto"),
+			AllowedGroups: groups,
 		})
 		if err != nil {
 			return result, err
@@ -121,7 +155,7 @@ func GetPerfMetrics(c fuego.ContextWithParams[dto.GetPerfMetricsParams]) (*dto.R
 	_, known := model.GetPricingByModelName(p.Model)
 	var result perfmetrics.QueryResult
 	if known && p.Group == "" && hours == 24 {
-		result, err = memoryCached("perf:"+p.Model, time.Minute, build)
+		result, err = memoryCached("perf:"+p.Model+"|"+strings.Join(groups, ","), time.Minute, build)
 	} else {
 		result, err = build()
 	}

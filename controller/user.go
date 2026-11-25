@@ -1071,6 +1071,7 @@ func UpdateUser(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error
 		return dto.FailMsg(err.Error())
 	}
 	if authzTouched {
+		model.BumpSyncTopic(model.SyncTopicAuthz)
 		if err := authz.ReloadPolicy(); err != nil {
 			return dto.FailMsg(err.Error())
 		}
@@ -1421,6 +1422,7 @@ func CreateUser(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error
 		return dto.FailMsg(err.Error())
 	}
 	if authzTouched {
+		model.BumpSyncTopic(model.SyncTopicAuthz)
 		if err := authz.ReloadPolicy(); err != nil {
 			return dto.FailMsg(err.Error())
 		}
@@ -1723,6 +1725,7 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		}); err != nil {
 			return dto.Fail[dto.ManageUserData](err.Error())
 		}
+		model.BumpSyncTopic(model.SyncTopicAuthz)
 		if err := authz.ReloadPolicy(); err != nil {
 			return dto.Fail[dto.ManageUserData](err.Error())
 		}

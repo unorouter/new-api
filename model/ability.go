@@ -544,6 +544,7 @@ func FixAbility() (int, int, error) {
 		common.SysLog(fmt.Sprintf("Orphan ability sweep failed: %s", err.Error()))
 	}
 	InitChannelCache()
+	BumpSyncTopic(SyncTopicChannels)
 	return successCount, failCount, nil
 }
 

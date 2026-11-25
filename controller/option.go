@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/request_plugin_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/go-fuego/fuego"
@@ -241,6 +242,10 @@ func UpdateOption(c fuego.ContextWithBody[dto.OptionUpdateRequest]) (dto.Message
 	default:
 		if isPaymentComplianceOptionKey(option.Key) {
 			return dto.FailMsg("Compliance confirmation fields cannot be modified through the general settings interface")
+		}
+		// The request plugin API validates each instance config.
+		if option.Key == request_plugin_setting.InstancesOption {
+			return dto.FailMsg("Request plugin instances cannot be changed through the general settings API")
 		}
 	}
 	if option.Key == "TaskPublicAddress" && option.Value.(string) != "" {

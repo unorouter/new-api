@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Calcium-Ion/moejs/engine"
+	"github.com/MoeForge/moejs/engine"
 	"github.com/QuantumNous/new-api/common"
 )
 
@@ -16,7 +16,8 @@ const (
 	CapabilitySubmitSSEDelta = "submit-sse-delta@1"
 	CapabilityJSONOrder      = "json-order@1"
 	CapabilityDurationAuto   = "duration-auto@1"
-	MaxJSONToolBytes         = 1 << 20
+	MaxJSONToolBytes         = 1 << 20 // Encoded JSON held by the submit SSE accumulator.
+	maxJSONCloneBytes        = 4 << 20
 	maxJSONToolDepth         = 32
 	maxJSONToolNodes         = 32768
 	maxJSONChanges           = 256

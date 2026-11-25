@@ -424,7 +424,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// 429, not 5xx: chat frontends replace any 5xx body with their own generic text,
 	// so the reason never reaches the reader. 429 is rendered verbatim by those
 	// clients and by Cloudflare, and it points at the correct action (retry).
-	if info.RelayFormat == types.RelayFormatOpenAI &&
+	// A legacy completion answers in choices[].text, which this check does not read.
+	if info.RelayFormat == types.RelayFormatOpenAI && info.RelayMode != relayconstant.RelayModeCompletions &&
 		operation_setting.GetMonitorSetting().DisableOnEmptyResponse &&
 		!streamHadOutput(&outputStats, toolCount) &&
 		!(clientCappedOutput(info) && outputStats.ReasoningChars > 0) {
@@ -737,7 +738,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	// Guarded: only OpenAI-format chat, only when the operator flag is on. A
 	// content-filter refusal WITH text is a real reply and passes; one with no
 	// text is blank to the reader and fails over, without counting against the lane.
-	if info.RelayFormat == types.RelayFormatOpenAI &&
+	if info.RelayFormat == types.RelayFormatOpenAI && info.RelayMode != relayconstant.RelayModeCompletions &&
 		operation_setting.GetMonitorSetting().DisableOnEmptyResponse &&
 		!OpenAIResponseHasOutput(&simpleResponse) &&
 		!(clientCappedOutput(info) && responseHasReasoning(&simpleResponse)) {

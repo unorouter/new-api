@@ -14,6 +14,8 @@ type ChannelBalanceResponse struct {
 	Message     string  `json:"message"`
 	Balance     float64 `json:"balance,omitempty"`
 	RawResponse string  `json:"raw_response,omitempty"`
+	// BalanceDetail is a *model.ChannelBalanceDetail; dto cannot import model.
+	BalanceDetail any `json:"balance_detail,omitempty"`
 }
 
 // AddChannelResult lists the channels POST /api/channel created; Id is set

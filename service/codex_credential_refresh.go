@@ -94,6 +94,7 @@ func RefreshCodexChannelCredential(ctx context.Context, channelID int, opts Code
 	if err := model.UpdateChannelKey(ch.Id, string(encoded)); err != nil {
 		return nil, nil, err
 	}
+	model.BumpSyncTopic(model.SyncTopicChannels)
 
 	if opts.ResetCaches {
 		model.InitChannelCache()

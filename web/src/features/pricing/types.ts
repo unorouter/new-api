@@ -57,6 +57,8 @@ export type BillingPluginVariant = {
 
 export type PricingModel = {
   billing_plugin_variants?: BillingPluginVariant[]
+  // Requests outside the plugin variants still pay the model-level price.
+  ordinary_pricing?: boolean
   id: number
   model_name: string
   description?: string
@@ -123,6 +125,9 @@ export type ModelCapability =
   | 'caching'
   | 'embeddings'
 
+/** Model names in each server-ordered sort; unlisted models follow by name. */
+export type ModelOrder = Record<'recommended' | 'requests' | 'tokens', string[]>
+
 export type PricingData = {
   success: boolean
   message?: string
@@ -132,6 +137,7 @@ export type PricingData = {
   usable_group: Record<string, { desc: string; ratio: number }>
   supported_endpoint: Record<string, string>
   auto_groups: string[]
+  model_order?: ModelOrder
 }
 
 export type TokenUnit = 'M' | 'K'

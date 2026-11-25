@@ -98,7 +98,9 @@ func fetchCodexChannelWhamData(c fuego.ContextNoBody, fetch codexWhamFetchFunc, 
 
 			encoded, encErr := common.Marshal(oauthKey)
 			if encErr == nil {
-				_ = model.UpdateChannelKey(ch.Id, string(encoded))
+				if model.UpdateChannelKey(ch.Id, string(encoded)) == nil {
+					model.BumpSyncTopic(model.SyncTopicChannels)
+				}
 				model.InitChannelCache()
 			}
 
