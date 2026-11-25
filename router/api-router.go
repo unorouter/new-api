@@ -695,7 +695,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// Channel editors read the instances to bind them; changing them is
 		// plugin management, as installing a plugin is.
 		middleware.DeclareAccessTokenPermissionRoute("GET", "/api/request_plugin/instances", authz.TaskPluginBind)
-		apiRouter.GET("/request_plugin/instances", middleware.AdminAuth(), middleware.RequirePermission(authz.TaskPluginBind), controller.GetRequestPluginInstances)
+		apiRouter.GET("/request_plugin/instances", middleware.AdminAuth(), middleware.NoPAT(), middleware.RequirePermission(authz.TaskPluginBind), controller.GetRequestPluginInstances)
 		requestPluginGroup := apiRouter.Group("/request_plugin", middleware.RootAuth(), middleware.NoPAT())
 		requestPluginGroup.PUT("/instances", controller.UpdateRequestPluginInstances)
 		requestPluginGroup.POST("/dry_run", controller.DryRunRequestPlugins)
