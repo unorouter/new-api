@@ -150,6 +150,7 @@ service/responses_usage.go :: info.ObserveFinishReason(reason)
 service/upstream_reply_class.go :: "api key status: exceeded"
 service/upstream_reply_class.go :: "i encountered an error doing what you asked"
 service/upstream_class.go :: "requires an eligible paid billing account"
+service/upstream_class.go :: "no marketplace sellers currently meet the minimum"
 controller/relay.go :: upstreamClass.Window > 0 && newAPIError.StatusCode < http.StatusInternalServerError
 controller/relay.go :: shouldDisable && (class.DisableNow || service.IsCredentialFault(err))
 relay/channel/openai/relay-openai-stream-aggregate.go :: types.ErrorCodeChannelEmptyResponse, http.StatusTooManyRequests, emptyResponseOptions(info, false)...)

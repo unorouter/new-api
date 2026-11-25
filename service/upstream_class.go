@@ -70,6 +70,10 @@ type upstreamRule struct {
 // busy/cooling" and "merchant rejects the request" arrive as 400, which the
 // generic rules read as a malformed request and never fail over.
 var upstreamRules = []upstreamRule{
+	// A marketplace lane's discount floor found no seller cheap enough: the market is
+	// out of stock at our price, not rate limiting. A minute-window rule used to claim
+	// it was a per minute limit (2026-11-25).
+	{markers: []string{"no marketplace sellers currently meet the minimum", "below your minimum"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 5 * time.Minute}, userMessage: "This provider has no seller at its price right now. Retry and another provider will pick it up, or pick another provider."},
 	// The upstream's own backend crashed and said so at HTTP 400 (a reseller on 2026-10-12:
 	// "Database error: (...UndefinedColumn) column users.discord_id does not exist"):
 	// nothing about the request is wrong, a sibling serves it, and the SQL stays out
