@@ -385,21 +385,35 @@ func handleFreemiusReversal(c *gin.Context, event *dto.FreemiusWebhookEvent, raw
 		c.Status(http.StatusOK)
 		return
 	}
-	original := string(p.BoundPaymentId)
-	if original == "" {
-		original = string(p.Id)
+	// A payment.refund carries the refunded payment as id and the refund's own
+	// payment as bound_payment_id; try the original first, then the bound one.
+	var res model.TopUpReversalResult
+	var err error
+	original := ""
+	for _, cand := range []string{string(p.Id), string(p.BoundPaymentId)} {
+		if cand == "" {
+			continue
+		}
+		original = cand
+		payKey := freemiusPaymentKeyPrefix + cand
+		LockOrder(payKey)
+		res, err = model.ReverseTopUp(model.TopUpReversalInput{
+			Provider:      model.PaymentProviderFreemius,
+			EventId:       string(event.Id),
+			TransactionId: payKey,
+			ReversedCents: int(math.Round(math.Abs(p.Gross) * 100)),
+			Dispute:       dispute,
+		})
+		UnlockOrder(payKey)
+		if !errors.Is(err, model.ErrReversalUnmatched) && !errors.Is(err, model.ErrTopUpNotFound) {
+			break
+		}
 	}
-	payKey := freemiusPaymentKeyPrefix + original
-	LockOrder(payKey)
-	defer UnlockOrder(payKey)
-
-	res, err := model.ReverseTopUp(model.TopUpReversalInput{
-		Provider:      model.PaymentProviderFreemius,
-		EventId:       string(event.Id),
-		TransactionId: payKey,
-		ReversedCents: int(math.Round(math.Abs(p.Gross) * 100)),
-		Dispute:       dispute,
-	})
+	if original == "" {
+		logger.LogWarn(ctx, fmt.Sprintf("Freemius %s without a payment id event_id=%s", kind, event.Id))
+		c.Status(http.StatusOK)
+		return
+	}
 	userId := res.UserId
 	switch {
 	case err == nil:
