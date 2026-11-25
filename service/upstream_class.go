@@ -244,7 +244,7 @@ var upstreamRules = []upstreamRule{
 	{markers: []string{"upstream returned an empty answer", "free model capacity exhausted", "upstream returned http 405"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Cooldown: true}, userMessage: "This model is at capacity right now. Nothing is used up on your side. Try again in a few moments."},
 	// Full slots refill as answers finish; on the rate gate they pulled most lanes
 	// of two shard series on 2026-10-30 while those shards were serving.
-	{markers: []string{"shard busy, retry on another shard", "shard exit at concurrent limit"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 30 * time.Second}, userMessage: "This model is at capacity right now. Nothing is used up on your side. Try again in a few moments."},
+	{markers: []string{"shard busy, retry on another shard", "shard exit at concurrent limit", "this account already has a request running"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 30 * time.Second}, userMessage: "This model is at capacity right now. Nothing is used up on your side. Try again in a few moments."},
 	// Any host, rate limits and capacity: fail over, count nothing. One host alone
 	// produced 190k of these in a week; each one disabled a lane the probe
 	// re-enabled five minutes later.
