@@ -166,3 +166,4 @@ model/provider_consent.go :: unchanged[alias.Alias]
 model/provider_consent.go :: func consentTextId
 model/main.go :: &ConsentText{},
 service/consent_prune.go :: go model.CompactProviderConsentTexts()
+service/upstream_class.go :: Operator markers come first

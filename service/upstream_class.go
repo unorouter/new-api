@@ -70,6 +70,9 @@ type upstreamRule struct {
 // busy/cooling" and "merchant rejects the request" arrive as 400, which the
 // generic rules read as a malformed request and never fail over.
 var upstreamRules = []upstreamRule{
+	// Operator markers come first: one is added to override how a built-in rule reads that text.
+	{markers: operation_setting.MinuteWindowMarkers, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: time.Minute}, userMessage: "This model is at its provider's per minute limit right now. Nothing is used up on your side. Try again in a minute."},
+	{markers: operation_setting.QuarterHourWindowMarkers, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 15 * time.Minute}, userMessage: "This model is at its provider's hourly limit right now. Nothing is used up on your side. Retry and another provider will take it."},
 	// A marketplace lane's discount floor found no seller cheap enough: the market is
 	// out of stock at our price, not rate limiting. A minute-window rule used to claim
 	// it was a per minute limit (2026-11-25).
@@ -196,7 +199,7 @@ var upstreamRules = []upstreamRule{
 	// free keys allowed one request in flight 7s apart (that cap is a 403). The
 	// markers that name an upstream come from MINUTE_WINDOW_MARKERS. The generic rate limit rule below would double the
 	// sit out up to ten minutes.
-	{markers: append([]string{"free tier rate limit (", "account per-minute rate limit exceeded (", "duck.ai rate limit exceeded (err_rate_limit)"}, operation_setting.MinuteWindowMarkers...), class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: time.Minute}, userMessage: "This model is at its provider's per minute limit right now. Nothing is used up on your side. Try again in a minute."},
+	{markers: []string{"free tier rate limit (", "account per-minute rate limit exceeded (", "duck.ai rate limit exceeded (err_rate_limit)"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: time.Minute}, userMessage: "This model is at its provider's per minute limit right now. Nothing is used up on your side. Try again in a minute."},
 	// One upstream admits signed-in and paid accounts first; an anonymous key at peak gets
 	// this for minutes at a time, and its text carried its signup link and model
 	// list straight to our users (2026-10-04, glm-5.3-flash:free).
@@ -209,7 +212,6 @@ var upstreamRules = []upstreamRule{
 	{markers: []string{"due to abuse prevention, your ip address has been put into timeout"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 5 * time.Minute}, userMessage: "This model's provider is full right now. Nothing is used up on your side. Retry and another provider will take it, or try again in a few minutes."},
 	// Our own proxy shards announce an exhausted hourly allowance this way.
 	{markers: []string{"shard exit at rph limit", "sign up for free to continue"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 15 * time.Minute}, userMessage: "This model is at its provider's hourly limit right now. Nothing is used up on your side. Retry and another provider will take it."},
-	{markers: operation_setting.QuarterHourWindowMarkers, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 15 * time.Minute}, userMessage: "This model is at its provider's hourly limit right now. Nothing is used up on your side. Retry and another provider will take it."},
 	// A free lane whose upstream keeps answering that free capacity is limited
 	// and paid credits lift it: a 429 in words, but one lane failed 583
 	// requests against 15 successes all day, so it counts toward the guard.
