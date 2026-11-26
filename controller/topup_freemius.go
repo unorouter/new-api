@@ -286,6 +286,11 @@ func handleFreemiusPayment(c *gin.Context, event *dto.FreemiusWebhookEvent, rawB
 		}
 		tradeNo, err := model.FindPendingTopUpByEmail(model.PaymentProviderFreemius, email, int64(amount))
 		if err != nil {
+			if tradeNo, err = model.FindSolePendingTopUp(model.PaymentProviderFreemius, int64(amount)); err == nil {
+				logger.LogInfo(ctx, fmt.Sprintf("Freemius top-up matched the only recent open order despite another email trade_no=%s payment_id=%s", tradeNo, p.Id))
+			}
+		}
+		if err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("Freemius top-up payment matched no open order event_id=%s payment_id=%s amount=%d body=%q", event.Id, p.Id, amount, rawBody))
 			c.Status(http.StatusOK)
 			return
@@ -338,6 +343,11 @@ func handleFreemiusPayment(c *gin.Context, event *dto.FreemiusWebhookEvent, rawB
 		}
 
 		tradeNo, err := model.FindPendingSubscriptionOrderByEmail(model.PaymentProviderFreemius, email, planId)
+		if err != nil {
+			if tradeNo, err = model.FindSolePendingSubscriptionOrder(model.PaymentProviderFreemius, planId); err == nil {
+				logger.LogInfo(ctx, fmt.Sprintf("Freemius subscription matched the only recent open order despite another email trade_no=%s payment_id=%s", tradeNo, p.Id))
+			}
+		}
 		if err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("Freemius subscription payment matched no open order event_id=%s payment_id=%s plan_id=%d body=%q", event.Id, p.Id, planId, rawBody))
 			c.Status(http.StatusOK)

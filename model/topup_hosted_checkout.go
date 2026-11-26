@@ -59,6 +59,47 @@ func FindPendingSubscriptionOrderByEmail(provider string, email string, planId i
 	return order.TradeNo, nil
 }
 
+// A buyer paying with a PayPal or checkout account under another email arrives
+// unmatched; it is still theirs when one account alone opened that item lately.
+const hostedCheckoutSoleBuyerWindowSeconds = 30 * 60
+
+// FindSolePendingTopUp returns the newest open top-up of this provider and amount
+// from the last 30 minutes, but only when every such order belongs to one account.
+func FindSolePendingTopUp(provider string, amount int64) (string, error) {
+	var rows []TopUp
+	err := DB.Model(&TopUp{}).
+		Where("payment_provider = ? AND status = ? AND amount = ? AND create_time >= ?",
+			provider, common.TopUpStatusPending, amount, common.GetTimestamp()-hostedCheckoutSoleBuyerWindowSeconds).
+		Order("id DESC").Select("trade_no, user_id").Find(&rows).Error
+	if err != nil || len(rows) == 0 {
+		return "", ErrTopUpNotFound
+	}
+	for _, r := range rows[1:] {
+		if r.UserId != rows[0].UserId {
+			return "", ErrTopUpNotFound
+		}
+	}
+	return rows[0].TradeNo, nil
+}
+
+// FindSolePendingSubscriptionOrder is FindSolePendingTopUp for subscription orders.
+func FindSolePendingSubscriptionOrder(provider string, planId int) (string, error) {
+	var rows []SubscriptionOrder
+	err := DB.Model(&SubscriptionOrder{}).
+		Where("payment_provider = ? AND status = ? AND plan_id = ? AND create_time >= ?",
+			provider, common.TopUpStatusPending, planId, common.GetTimestamp()-hostedCheckoutSoleBuyerWindowSeconds).
+		Order("id DESC").Select("trade_no, user_id").Find(&rows).Error
+	if err != nil || len(rows) == 0 {
+		return "", ErrSubscriptionOrderNotFound
+	}
+	for _, r := range rows[1:] {
+		if r.UserId != rows[0].UserId {
+			return "", ErrSubscriptionOrderNotFound
+		}
+	}
+	return rows[0].TradeNo, nil
+}
+
 // ProviderPaymentProcessed reports whether a provider payment id was already
 // applied to a top-up or a subscription order (webhook redelivery).
 func ProviderPaymentProcessed(providerPaymentId string) bool {
