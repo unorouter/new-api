@@ -30,6 +30,9 @@ var replyRules = []replyRule{
 	{markers: []string{"account restrictions for prohibited use policy"}},
 	// Gemini web's transient refusal, resold behind a marketplace supplier.
 	{markers: []string{"i encountered an error doing what you asked"}},
+	// A supplier's own "abnormal network requests, access temporarily restricted"
+	// notice, served at 200 to 40 users on one lane in two hours (2026-11-25).
+	{markers: []string{"已被临时限制访问", "当前网络的请求存在异常"}},
 	// A relay whose own supplier key ran dry: "Your quota is exhausted. API key
 	// status: exceeded ... USDT balance: -0.000959", served as the answer for 22h.
 	{markers: []string{"api key status: exceeded", "your quota is exhausted"}},

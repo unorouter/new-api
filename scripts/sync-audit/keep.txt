@@ -149,6 +149,7 @@ relay/channel/claude/relay-claude.go :: info.ObserveFinishReason(claudeResponse.
 service/responses_usage.go :: info.ObserveFinishReason(reason)
 service/upstream_reply_class.go :: "api key status: exceeded"
 service/upstream_reply_class.go :: "i encountered an error doing what you asked"
+service/upstream_reply_class.go :: "已被临时限制访问"
 service/upstream_class.go :: "requires an eligible paid billing account"
 service/upstream_class.go :: "no marketplace sellers currently meet the minimum"
 controller/relay.go :: upstreamClass.Window > 0 && newAPIError.StatusCode < http.StatusInternalServerError
