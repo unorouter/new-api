@@ -1129,9 +1129,10 @@ func consentRequiredError(c *gin.Context, userId int, scope model.ConsentScope) 
 }
 
 func ownPurposeObjectedError(c *gin.Context, requestedModel string, scope model.ConsentScope) *ConsentRefusalError {
+	link := system_setting.UserLinkBase() + "/consents"
 	named := model.ProviderNames(scope.Providers)
 	if len(named) == 0 {
-		return &ConsentRefusalError{Message: i18n.T(c, i18n.MsgDistributorOwnPurposeObjectedGeneric, map[string]any{"Model": requestedModel}), Code: "own_purpose_objected"}
+		return &ConsentRefusalError{Message: i18n.T(c, i18n.MsgDistributorOwnPurposeObjectedGeneric, map[string]any{"Model": requestedModel, "Url": link}), Code: "own_purpose_objected"}
 	}
 	// Param lets a client name the providers in its own language.
 	param := make([]objectedProvider, 0, len(named))
@@ -1140,7 +1141,7 @@ func ownPurposeObjectedError(c *gin.Context, requestedModel string, scope model.
 	}
 	raw, _ := common.Marshal(param)
 	return &ConsentRefusalError{
-		Message: i18n.T(c, i18n.MsgDistributorOwnPurposeObjected, map[string]any{"Model": requestedModel, "Providers": providerList(c, named)}),
+		Message: i18n.T(c, i18n.MsgDistributorOwnPurposeObjected, map[string]any{"Model": requestedModel, "Providers": providerList(c, named), "Url": link}),
 		Code:    "own_purpose_objected",
 		Param:   string(raw),
 	}
