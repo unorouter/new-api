@@ -199,7 +199,7 @@ var upstreamRules = []upstreamRule{
 	// free keys allowed one request in flight 7s apart (that cap is a 403). The
 	// markers that name an upstream come from MINUTE_WINDOW_MARKERS. The generic rate limit rule below would double the
 	// sit out up to ten minutes.
-	{markers: []string{"free tier rate limit (", "account per-minute rate limit exceeded (", "duck.ai rate limit exceeded (err_rate_limit)"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: time.Minute}, userMessage: "This model is at its provider's per minute limit right now. Nothing is used up on your side. Try again in a minute."},
+	{markers: []string{"free tier rate limit (", "account per-minute rate limit exceeded (", "duck.ai rate limit exceeded (err_rate_limit)", "upstream is rate limited right now. please retry in a moment", "rate limit exceeded: 10/10 requests per minute"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: time.Minute}, userMessage: "This model is at its provider's per minute limit right now. Nothing is used up on your side. Try again in a minute."},
 	// One upstream admits signed-in and paid accounts first; an anonymous key at peak gets
 	// this for minutes at a time, and its text carried its signup link and model
 	// list straight to our users (2026-10-04, glm-5.3-flash:free).
