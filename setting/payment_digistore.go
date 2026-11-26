@@ -12,6 +12,10 @@ var DigistoreSubscriptionEnabled = false
 // The IPN passphrase set on the Digistore24 IPN connection, the key of sha_sign.
 var DigistoreIpnPassphrase = ""
 
+// Optional: with an API key the checkout comes from createBuyUrl with the
+// account email read only, otherwise from a plain prefilled order form link.
+var DigistoreApiKey = ""
+
 // While test mode is on, only these user ids (comma separated) see the method,
 // only api_mode=test IPNs for their orders are applied and live IPNs wait.
 var DigistoreTestMode = false

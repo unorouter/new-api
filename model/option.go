@@ -159,6 +159,7 @@ func InitOptionMap() {
 	common.OptionMap["DigistoreEnabled"] = strconv.FormatBool(setting.DigistoreEnabled)
 	common.OptionMap["DigistoreSubscriptionEnabled"] = strconv.FormatBool(setting.DigistoreSubscriptionEnabled)
 	common.OptionMap["DigistoreIpnPassphrase"] = setting.DigistoreIpnPassphrase
+	common.OptionMap["DigistoreApiKey"] = setting.DigistoreApiKey
 	common.OptionMap["DigistoreTestMode"] = strconv.FormatBool(setting.DigistoreTestMode)
 	common.OptionMap["DigistoreTestUserIds"] = setting.DigistoreTestUserIds
 	common.OptionMap["DigistoreTopUpProducts"] = setting.DigistoreTopUpProducts
@@ -787,6 +788,8 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.FreemiusSandboxUserIds = value
 	case "DigistoreIpnPassphrase":
 		setting.DigistoreIpnPassphrase = value
+	case "DigistoreApiKey":
+		setting.DigistoreApiKey = value
 	case "DigistoreTestUserIds":
 		setting.DigistoreTestUserIds = value
 	case "DigistoreTopUpProducts":

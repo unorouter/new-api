@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"crypto/sha512"
 	"crypto/subtle"
 	"encoding/hex"
@@ -28,7 +29,8 @@ import (
 )
 
 const (
-	DigistoreOrderFormBase     = "https://www.digistore24.com/product"
+	DigistoreOrderFormBase     = "https://www.checkout-ds24.com/product"
+	DigistoreBuyUrlApi         = "https://www.digistore24.com/api/createBuyUrl"
 	DigistoreTopUpRefPrefix    = "dsref_"
 	DigistoreSubOrderRefPrefix = "dssubref_"
 	// An IPN names the order and the product, not the payment a refund reverses,
@@ -40,7 +42,7 @@ const (
 )
 
 // digistoreOrderFormLink opens the product's order form with our trade_no in
-// custom, which every IPN of the order carries back. The buyer can still edit
+// custom, which every IPN of the order carries back. A plain link cannot lock
 // the email, so it is only a prefill and the fallback match.
 func digistoreOrderFormLink(productId string, tradeNo string, email string) string {
 	q := url.Values{}
@@ -51,6 +53,59 @@ func digistoreOrderFormLink(productId string, tradeNo string, email string) stri
 		q.Set("email", email)
 	}
 	return fmt.Sprintf("%s/%s?%s", DigistoreOrderFormBase, url.PathEscape(productId), q.Encode())
+}
+
+// digistoreCheckoutLink asks createBuyUrl for an order form with the account
+// email read only when an API key is set, else (or when the call fails) it
+// falls back to the plain prefilled link.
+func digistoreCheckoutLink(ctx context.Context, productId string, tradeNo string, email string) string {
+	plain := digistoreOrderFormLink(productId, tradeNo, email)
+	apiKey := strings.TrimSpace(setting.DigistoreApiKey)
+	if apiKey == "" || email == "" {
+		return plain
+	}
+	form := url.Values{}
+	form.Set("product_id", productId)
+	form.Set("buyer[email]", email)
+	form.Set("buyer[readonly_keys]", "email")
+	form.Set("tracking[custom]", tradeNo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, DigistoreBuyUrlApi, strings.NewReader(form.Encode()))
+	if err != nil {
+		return plain
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-DS-API-KEY", apiKey)
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("Digistore24 createBuyUrl failed, using the plain order form link trade_no=%s error=%q", tradeNo, err.Error()))
+		return plain
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	// The API wraps results in {"result":"success","data":{...}}; the spec shows them bare.
+	var out struct {
+		Result  string `json:"result"`
+		Message string `json:"message"`
+		Url     string `json:"url"`
+		Data    struct {
+			Url string `json:"url"`
+		} `json:"data"`
+	}
+	_ = common.Unmarshal(body, &out)
+	buyUrl := out.Data.Url
+	if buyUrl == "" {
+		buyUrl = out.Url
+	}
+	parsed, perr := url.Parse(buyUrl)
+	if resp.StatusCode != http.StatusOK || buyUrl == "" || perr != nil || parsed.Scheme != "https" {
+		logger.LogWarn(ctx, fmt.Sprintf("Digistore24 createBuyUrl returned no url, using the plain order form link trade_no=%s status=%d result=%q message=%q", tradeNo, resp.StatusCode, out.Result, out.Message))
+		return plain
+	}
+	q := parsed.Query()
+	q.Set("quantity_locked", "")
+	parsed.RawQuery = q.Encode()
+	return parsed.String()
 }
 
 func RequestDigistoreAmount(c fuego.ContextWithBody[dto.DigistorePayRequest]) (*dto.Response[string], error) {
@@ -91,7 +146,7 @@ func RequestDigistorePay(c fuego.ContextWithBody[dto.DigistorePayRequest]) (*dto
 
 	reference := fmt.Sprintf("digistore-ref-%d-%d-%s", user.Id, time.Now().UnixMilli(), randstr.String(4))
 	tradeNo := DigistoreTopUpRefPrefix + common.Sha1([]byte(reference))
-	payLink := digistoreOrderFormLink(productId, tradeNo, strings.TrimSpace(user.Email))
+	payLink := digistoreCheckoutLink(c.Context(), productId, tradeNo, strings.TrimSpace(user.Email))
 
 	topUp := &model.TopUp{
 		UserId:          id,
@@ -159,7 +214,7 @@ func SubscriptionRequestDigistorePay(c fuego.ContextWithBody[dto.SubscriptionDig
 
 	reference := fmt.Sprintf("sub-digistore-ref-%d-%d-%s", user.Id, time.Now().UnixMilli(), randstr.String(4))
 	tradeNo := DigistoreSubOrderRefPrefix + common.Sha1([]byte(reference))
-	payLink := digistoreOrderFormLink(productId, tradeNo, strings.TrimSpace(user.Email))
+	payLink := digistoreCheckoutLink(c.Context(), productId, tradeNo, strings.TrimSpace(user.Email))
 
 	order := &model.SubscriptionOrder{
 		UserId:          userId,
@@ -297,7 +352,8 @@ func (ipn digistoreIpn) testBlocked(userId int) bool {
 }
 
 func (ipn digistoreIpn) amount() float64 {
-	for _, k := range []string{"amount_brutto", "transaction_amount"} {
+	// Prices are net with VAT added on top, and the plan price is the net one.
+	for _, k := range []string{"amount_netto", "amount_brutto", "transaction_amount"} {
 		if v, err := strconv.ParseFloat(ipn.f.Get(k), 64); err == nil && v != 0 {
 			return v
 		}
@@ -385,6 +441,12 @@ func handleDigistorePayment(c *gin.Context, ipn digistoreIpn) {
 	seq, _ := strconv.Atoi(ipn.f.Get("pay_sequence_no"))
 	if orderId == "" || productId == "" {
 		logger.LogWarn(ctx, fmt.Sprintf("Digistore24 on_payment without order or product body=%q", ipn.raw))
+		digistoreAnswer(c, true)
+		return
+	}
+	// Every product is one fixed priced item; a changed quantity is not guessed at.
+	if q := strings.TrimSpace(ipn.f.Get("quantity")); q != "" && q != "1" {
+		logger.LogError(ctx, fmt.Sprintf("Digistore24 payment with quantity %s not credited, needs a manual decision order_id=%s product_id=%s custom=%s body=%q", q, orderId, productId, custom, ipn.raw))
 		digistoreAnswer(c, true)
 		return
 	}
