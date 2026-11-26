@@ -269,7 +269,7 @@ func handleFreemiusPayment(c *gin.Context, event *dto.FreemiusWebhookEvent, rawB
 		return
 	}
 	payKey := freemiusPaymentKeyPrefix + string(p.Id)
-	if model.FreemiusPaymentProcessed(payKey) {
+	if model.ProviderPaymentProcessed(payKey) {
 		logger.LogInfo(ctx, fmt.Sprintf("Freemius payment already applied event_id=%s payment_id=%s", event.Id, p.Id))
 		c.Status(http.StatusOK)
 		return
@@ -284,7 +284,7 @@ func handleFreemiusPayment(c *gin.Context, event *dto.FreemiusWebhookEvent, rawB
 		if ref.PricingId != pricingId {
 			continue
 		}
-		tradeNo, err := model.FindPendingFreemiusTopUp(email, int64(amount))
+		tradeNo, err := model.FindPendingTopUpByEmail(model.PaymentProviderFreemius, email, int64(amount))
 		if err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("Freemius top-up payment matched no open order event_id=%s payment_id=%s amount=%d body=%q", event.Id, p.Id, amount, rawBody))
 			c.Status(http.StatusOK)
@@ -292,7 +292,7 @@ func handleFreemiusPayment(c *gin.Context, event *dto.FreemiusWebhookEvent, rawB
 		}
 		LockOrder(tradeNo)
 		defer UnlockOrder(tradeNo)
-		if err := model.RechargeFreemius(tradeNo, payKey); err != nil {
+		if err := model.RechargeHostedCheckout(model.PaymentProviderFreemius, "Freemius", tradeNo, payKey); err != nil {
 			logger.LogError(ctx, fmt.Sprintf("Freemius top-up processing failed trade_no=%s payment_id=%s error=%q", tradeNo, p.Id, err.Error()))
 			c.AbortWithStatus(http.StatusInternalServerError)
 			return
@@ -337,7 +337,7 @@ func handleFreemiusPayment(c *gin.Context, event *dto.FreemiusWebhookEvent, rawB
 			return
 		}
 
-		tradeNo, err := model.FindPendingFreemiusSubscriptionOrder(email, planId)
+		tradeNo, err := model.FindPendingSubscriptionOrderByEmail(model.PaymentProviderFreemius, email, planId)
 		if err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("Freemius subscription payment matched no open order event_id=%s payment_id=%s plan_id=%d body=%q", event.Id, p.Id, planId, rawBody))
 			c.Status(http.StatusOK)

@@ -21,10 +21,11 @@ var FreemiusSandbox = false
 var FreemiusSandboxUserIds = ""
 
 func FreemiusAllowedFor(userId int) bool {
-	if !FreemiusSandbox {
-		return true
-	}
-	for _, f := range strings.Split(FreemiusSandboxUserIds, ",") {
+	return !FreemiusSandbox || userIdListed(FreemiusSandboxUserIds, userId)
+}
+
+func userIdListed(list string, userId int) bool {
+	for f := range strings.SplitSeq(list, ",") {
 		if n, err := strconv.Atoi(strings.TrimSpace(f)); err == nil && n > 0 && n == userId {
 			return true
 		}

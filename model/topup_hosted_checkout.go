@@ -12,14 +12,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// Freemius checkout carries no metadata of ours, so a payment is matched to the
-// order the buyer opened: same account email (the checkout locks it) and the
-// same priced item, newest first, within this window.
-const freemiusOrderMatchWindowSeconds = 48 * 3600
+// Hosted checkouts (Freemius, Digistore24) sell fixed priced items and may lose
+// our reference, so a payment can be matched to the order the buyer opened: same
+// account email and the same priced item, newest first, within this window.
+const hostedCheckoutOrderMatchWindowSeconds = 48 * 3600
 
-// FindPendingFreemiusTopUp returns the trade_no of the newest open Freemius
-// top-up of this amount placed by an account with this email.
-func FindPendingFreemiusTopUp(email string, amount int64) (string, error) {
+// FindPendingTopUpByEmail returns the trade_no of the newest open top-up of this
+// provider and amount placed by an account with this email.
+func FindPendingTopUpByEmail(provider string, email string, amount int64) (string, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
 		return "", ErrTopUpNotFound
@@ -28,7 +28,7 @@ func FindPendingFreemiusTopUp(email string, amount int64) (string, error) {
 	err := DB.Model(&TopUp{}).
 		Joins("JOIN users ON users.id = top_ups.user_id").
 		Where("LOWER(users.email) = ? AND top_ups.payment_provider = ? AND top_ups.status = ? AND top_ups.amount = ? AND top_ups.create_time >= ?",
-			email, PaymentProviderFreemius, common.TopUpStatusPending, amount, common.GetTimestamp()-freemiusOrderMatchWindowSeconds).
+			email, provider, common.TopUpStatusPending, amount, common.GetTimestamp()-hostedCheckoutOrderMatchWindowSeconds).
 		Order("top_ups.id DESC").
 		Select("top_ups.trade_no").
 		First(&topUp).Error
@@ -38,9 +38,9 @@ func FindPendingFreemiusTopUp(email string, amount int64) (string, error) {
 	return topUp.TradeNo, nil
 }
 
-// FindPendingFreemiusSubscriptionOrder returns the trade_no of the newest open
-// Freemius subscription order for this plan placed by an account with this email.
-func FindPendingFreemiusSubscriptionOrder(email string, planId int) (string, error) {
+// FindPendingSubscriptionOrderByEmail returns the trade_no of the newest open
+// subscription order of this provider and plan placed by an account with this email.
+func FindPendingSubscriptionOrderByEmail(provider string, email string, planId int) (string, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
 		return "", ErrSubscriptionOrderNotFound
@@ -49,7 +49,7 @@ func FindPendingFreemiusSubscriptionOrder(email string, planId int) (string, err
 	err := DB.Model(&SubscriptionOrder{}).
 		Joins("JOIN users ON users.id = subscription_orders.user_id").
 		Where("LOWER(users.email) = ? AND subscription_orders.payment_provider = ? AND subscription_orders.status = ? AND subscription_orders.plan_id = ? AND subscription_orders.create_time >= ?",
-			email, PaymentProviderFreemius, common.TopUpStatusPending, planId, common.GetTimestamp()-freemiusOrderMatchWindowSeconds).
+			email, provider, common.TopUpStatusPending, planId, common.GetTimestamp()-hostedCheckoutOrderMatchWindowSeconds).
 		Order("subscription_orders.id DESC").
 		Select("subscription_orders.trade_no").
 		First(&order).Error
@@ -59,9 +59,9 @@ func FindPendingFreemiusSubscriptionOrder(email string, planId int) (string, err
 	return order.TradeNo, nil
 }
 
-// FreemiusPaymentProcessed reports whether a Freemius payment id was already
+// ProviderPaymentProcessed reports whether a provider payment id was already
 // applied to a top-up or a subscription order (webhook redelivery).
-func FreemiusPaymentProcessed(providerPaymentId string) bool {
+func ProviderPaymentProcessed(providerPaymentId string) bool {
 	var n int64
 	DB.Model(&TopUp{}).Where("provider_payment_id = ?", providerPaymentId).Count(&n)
 	if n > 0 {
@@ -81,9 +81,19 @@ func GetSubscriptionOrderByProviderPaymentId(providerPaymentId string) *Subscrip
 	return &order
 }
 
-func RechargeFreemius(referenceId string, providerPaymentId string) (err error) {
+func GetTopUpByProviderPaymentId(provider string, providerPaymentId string) *TopUp {
+	var topUp TopUp
+	if err := DB.Where("provider_payment_id = ? AND payment_provider = ?", providerPaymentId, provider).First(&topUp).Error; err != nil {
+		return nil
+	}
+	return &topUp
+}
+
+// RechargeHostedCheckout credits a pending fixed priced top-up of this provider:
+// Money is the USD price, so the credit is Money times QuotaPerUnit.
+func RechargeHostedCheckout(provider string, label string, referenceId string, providerPaymentId string) (err error) {
 	if referenceId == "" {
-		return errors.New("Freemius order reference not provided")
+		return errors.New(label + " order reference not provided")
 	}
 
 	var quota int
@@ -97,16 +107,16 @@ func RechargeFreemius(referenceId string, providerPaymentId string) (err error) 
 
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockForUpdate(tx).Where(refCol+" = ?", referenceId).First(topUp).Error; err != nil {
-			return errors.New("Freemius order not found")
+			return errors.New(label + " order not found")
 		}
-		if topUp.PaymentProvider != PaymentProviderFreemius {
+		if topUp.PaymentProvider != provider {
 			return ErrPaymentMethodMismatch
 		}
 		if topUp.Status == common.TopUpStatusSuccess {
 			return nil
 		}
 		if topUp.Status != common.TopUpStatusPending {
-			return errors.New("Freemius order status error")
+			return errors.New(label + " order status error")
 		}
 
 		topUp.CompleteTime = common.GetTimestamp()
@@ -127,17 +137,17 @@ func RechargeFreemius(referenceId string, providerPaymentId string) (err error) 
 	})
 
 	if err != nil {
-		common.SysError("Freemius top-up processing failed: " + err.Error())
-		return errors.New("Freemius top-up failed")
+		common.SysError(label + " top-up processing failed: " + err.Error())
+		return errors.New(label + " top-up failed")
 	}
 
 	if quota > 0 {
-		syncCreditUserQuotaCache(topUp.UserId, quota, common.LogText("freemius topup"))
-		RecordTopupLog(topUp.UserId, withTopUpBonus(common.NewMessage("Freemius top-up succeeded, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"quota": logger.FormatQuota(quota), "amount": topUp.Money}), bonusPercent), "", topUp.PaymentMethod, PaymentProviderFreemius)
-		common.CapturePaymentSuccess(topUp.UserId, topUp.Money, "freemius", topUp.Id)
+		syncCreditUserQuotaCache(topUp.UserId, quota, common.LogText("%s topup", provider))
+		RecordTopupLog(topUp.UserId, withTopUpBonus(common.NewMessage("{{provider}} top-up succeeded, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"provider": label, "quota": logger.FormatQuota(quota), "amount": fmt.Sprintf("%.2f", topUp.Money)}), bonusPercent), "", topUp.PaymentMethod, provider)
+		common.CapturePaymentSuccess(topUp.UserId, topUp.Money, provider, topUp.Id)
 	}
 
-	if err := CreditReferralCommission(topUp.UserId, topUp.Money, "freemius", topUp.Id); err != nil {
+	if err := CreditReferralCommission(topUp.UserId, topUp.Money, provider, topUp.Id); err != nil {
 		common.SysLog(fmt.Sprintf("referral commission failed for user %v: %v", topUp.UserId, err))
 	}
 	return nil

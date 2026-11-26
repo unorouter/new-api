@@ -168,6 +168,28 @@ func GetTopUpInfo(c fuego.ContextNoBody) (*dto.Response[dto.TopUpInfoData], erro
 		slices.Sort(freemiusSubscriptionPlans)
 	}
 
+	enableDigistore := isDigistoreTopUpEnabled() && setting.DigistoreAllowedFor(dto.UserID(c))
+	digistoreAmounts := []int{}
+	if enableDigistore {
+		for amount := range setting.GetDigistoreTopUpProducts() {
+			digistoreAmounts = append(digistoreAmounts, amount)
+		}
+		slices.Sort(digistoreAmounts)
+		payMethods = append(payMethods, map[string]string{
+			"name":      "Digistore24",
+			"type":      model.PaymentMethodDigistore,
+			"color":     "rgba(var(--semi-blue-5), 1)",
+			"min_topup": strconv.Itoa(digistoreAmounts[0]),
+		})
+	}
+	digistoreSubscriptionPlans := []int{}
+	if enableDigistore && setting.DigistoreSubscriptionEnabled {
+		for planId := range setting.GetDigistoreSubscriptionProducts() {
+			digistoreSubscriptionPlans = append(digistoreSubscriptionPlans, planId)
+		}
+		slices.Sort(digistoreSubscriptionPlans)
+	}
+
 	data := dto.TopUpInfoData{
 		EnableOnlineTopup:             isEpayTopUpEnabled(),
 		EnableStripeTopup:             isStripeTopUpEnabled(),
@@ -179,6 +201,9 @@ func GetTopUpInfo(c fuego.ContextNoBody) (*dto.Response[dto.TopUpInfoData], erro
 		EnableFreemiusTopup:           enableFreemius,
 		FreemiusAmounts:               freemiusAmounts,
 		FreemiusSubscriptionPlans:     freemiusSubscriptionPlans,
+		EnableDigistoreTopup:          enableDigistore,
+		DigistoreAmounts:              digistoreAmounts,
+		DigistoreSubscriptionPlans:    digistoreSubscriptionPlans,
 		EnableRedemption:              complianceConfirmed,
 		PaymentComplianceConfirmed:    complianceConfirmed,
 		PaymentComplianceTermsVersion: operation_setting.CurrentComplianceTermsVersion,

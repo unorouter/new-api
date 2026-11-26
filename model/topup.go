@@ -61,6 +61,7 @@ const (
 	PaymentMethodNowPayments  = "nowpayments"
 	PaymentMethodDeloPay      = "delopay"
 	PaymentMethodFreemius     = "freemius"
+	PaymentMethodDigistore    = "digistore"
 )
 
 const (
@@ -73,6 +74,7 @@ const (
 	PaymentProviderNowPayments  = "nowpayments"
 	PaymentProviderDeloPay      = "delopay"
 	PaymentProviderFreemius     = "freemius"
+	PaymentProviderDigistore    = "digistore"
 )
 
 var (
@@ -629,7 +631,8 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 		if topUp.PaymentProvider == PaymentProviderStripe ||
 			topUp.PaymentProvider == PaymentProviderNowPayments ||
 			topUp.PaymentProvider == PaymentProviderDeloPay ||
-			topUp.PaymentProvider == PaymentProviderFreemius {
+			topUp.PaymentProvider == PaymentProviderFreemius ||
+			topUp.PaymentProvider == PaymentProviderDigistore {
 			quotaToAdd, quotaErr = common.WalletQuotaFromDecimalStrict(
 				decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
 			)
@@ -876,7 +879,7 @@ func ReverseTopUp(in TopUpReversalInput) (TopUpReversalResult, error) {
 // Stripe credits Money*QuotaPerUnit and keeps the typed dollar count in Amount, so
 // reversing Amount took back $0.002 of a $1000 top-up.
 func reversibleQuota(topUp *TopUp) int64 {
-	if topUp.PaymentMethod == "stripe" || topUp.PaymentMethod == PaymentMethodFreemius {
+	if topUp.PaymentMethod == "stripe" || topUp.PaymentMethod == PaymentMethodFreemius || topUp.PaymentMethod == PaymentMethodDigistore {
 		return decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Round(0).IntPart()
 	}
 	return topUp.Amount

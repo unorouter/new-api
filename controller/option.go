@@ -96,6 +96,7 @@ func GetOptions(c fuego.ContextNoBody) (*dto.Response[[]*model.Option], error) {
 			strings.HasSuffix(k, "Secret") ||
 			strings.HasSuffix(k, "Key") ||
 			strings.HasSuffix(k, "Password") ||
+			strings.HasSuffix(k, "Passphrase") ||
 			strings.HasSuffix(k, "secret") ||
 			strings.HasSuffix(k, "api_key") ||
 			strings.HasSuffix(k, "password") ||

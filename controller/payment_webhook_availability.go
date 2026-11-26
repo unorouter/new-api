@@ -171,3 +171,11 @@ func isFreemiusTopUpEnabled() bool {
 		strings.TrimSpace(setting.FreemiusSecretKey) != "" &&
 		len(setting.GetFreemiusTopUpPlans()) > 0
 }
+
+func isDigistoreTopUpEnabled() bool {
+	if !isPaymentComplianceConfirmed() || !setting.DigistoreEnabled {
+		return false
+	}
+	return strings.TrimSpace(setting.DigistoreIpnPassphrase) != "" &&
+		len(setting.GetDigistoreTopUpProducts()) > 0
+}

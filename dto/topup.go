@@ -26,8 +26,12 @@ type TopUpInfoData struct {
 	EnableDeloPayTopup      bool `json:"enable_delopay_topup"`
 	EnableFreemiusTopup     bool `json:"enable_freemius_topup"`
 	// The only amounts the Freemius checkout sells, and the subscription plan ids it can bill.
-	FreemiusAmounts               []int               `json:"freemius_amounts"`
-	FreemiusSubscriptionPlans     []int               `json:"freemius_subscription_plans"`
+	FreemiusAmounts           []int `json:"freemius_amounts"`
+	FreemiusSubscriptionPlans []int `json:"freemius_subscription_plans"`
+	EnableDigistoreTopup      bool  `json:"enable_digistore_topup"`
+	// Same for Digistore24: one fixed priced product per amount and per plan.
+	DigistoreAmounts              []int               `json:"digistore_amounts"`
+	DigistoreSubscriptionPlans    []int               `json:"digistore_subscription_plans"`
 	EnableRedemption              bool                `json:"enable_redemption"`
 	PaymentComplianceConfirmed    bool                `json:"payment_compliance_confirmed"`
 	PaymentComplianceTermsVersion string              `json:"payment_compliance_terms_version"`

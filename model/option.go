@@ -156,6 +156,13 @@ func InitOptionMap() {
 	common.OptionMap["FreemiusTopUpPlans"] = setting.FreemiusTopUpPlans
 	common.OptionMap["FreemiusSubscriptionPlans"] = setting.FreemiusSubscriptionPlans
 	common.OptionMap["FreemiusSandboxUserIds"] = setting.FreemiusSandboxUserIds
+	common.OptionMap["DigistoreEnabled"] = strconv.FormatBool(setting.DigistoreEnabled)
+	common.OptionMap["DigistoreSubscriptionEnabled"] = strconv.FormatBool(setting.DigistoreSubscriptionEnabled)
+	common.OptionMap["DigistoreIpnPassphrase"] = setting.DigistoreIpnPassphrase
+	common.OptionMap["DigistoreTestMode"] = strconv.FormatBool(setting.DigistoreTestMode)
+	common.OptionMap["DigistoreTestUserIds"] = setting.DigistoreTestUserIds
+	common.OptionMap["DigistoreTopUpProducts"] = setting.DigistoreTopUpProducts
+	common.OptionMap["DigistoreSubscriptionProducts"] = setting.DigistoreSubscriptionProducts
 	common.OptionMap["WaffoEnabled"] = strconv.FormatBool(setting.WaffoEnabled)
 	common.OptionMap["WaffoApiKey"] = setting.WaffoApiKey
 	common.OptionMap["WaffoPrivateKey"] = setting.WaffoPrivateKey
@@ -517,7 +524,7 @@ func updateOptionMap(key string, value string) (err error) {
 			common.ImageDownloadPermission = intValue
 		}
 	}
-	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" || key == "NowPaymentsSandbox" || key == "NowPaymentsFeePaidByUser" || key == "NowPaymentsIsFixedRate" || key == "DeloPayTestMode" || key == "FreemiusSandbox" {
+	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" || key == "NowPaymentsSandbox" || key == "NowPaymentsFeePaidByUser" || key == "NowPaymentsIsFixedRate" || key == "DeloPayTestMode" || key == "FreemiusSandbox" || key == "DigistoreTestMode" {
 		boolValue := value == "true"
 		switch key {
 		case "PasswordRegisterEnabled":
@@ -631,6 +638,12 @@ func updateOptionMap(key string, value string) (err error) {
 			setting.FreemiusSubscriptionEnabled = boolValue
 		case "FreemiusSandbox":
 			setting.FreemiusSandbox = boolValue
+		case "DigistoreEnabled":
+			setting.DigistoreEnabled = boolValue
+		case "DigistoreSubscriptionEnabled":
+			setting.DigistoreSubscriptionEnabled = boolValue
+		case "DigistoreTestMode":
+			setting.DigistoreTestMode = boolValue
 		case "ExposeRatioEnabled":
 			ratio_setting.SetExposeRatioEnabled(boolValue)
 		}
@@ -772,6 +785,14 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.FreemiusSubscriptionPlans = value
 	case "FreemiusSandboxUserIds":
 		setting.FreemiusSandboxUserIds = value
+	case "DigistoreIpnPassphrase":
+		setting.DigistoreIpnPassphrase = value
+	case "DigistoreTestUserIds":
+		setting.DigistoreTestUserIds = value
+	case "DigistoreTopUpProducts":
+		setting.DigistoreTopUpProducts = value
+	case "DigistoreSubscriptionProducts":
+		setting.DigistoreSubscriptionProducts = value
 	case "WaffoEnabled":
 		setting.WaffoEnabled = value == "true"
 	case "WaffoApiKey":

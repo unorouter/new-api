@@ -73,6 +73,7 @@ var accessTokenExemptRoutes = []string{
 	"POST /api/nowpayments/webhook",
 	"POST /api/delopay/webhook",
 	"POST /api/freemius/webhook",
+	"POST /api/digistore/webhook",
 	"GET /api/user/epay/notify",
 	"POST /api/user/epay/notify",
 	"GET /api/subscription/epay/notify",
