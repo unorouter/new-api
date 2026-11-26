@@ -196,11 +196,11 @@ var upstreamRules = []upstreamRule{
 	// free keys allowed one request in flight 7s apart (that cap is a 403). The
 	// markers that name an upstream come from MINUTE_WINDOW_MARKERS. The generic rate limit rule below would double the
 	// sit out up to ten minutes.
-	{markers: append([]string{"free tier rate limit (", "account per-minute rate limit exceeded ("}, operation_setting.MinuteWindowMarkers...), class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: time.Minute}, userMessage: "This model is at its provider's per minute limit right now. Nothing is used up on your side. Try again in a minute."},
+	{markers: append([]string{"free tier rate limit (", "account per-minute rate limit exceeded (", "duck.ai rate limit exceeded (err_rate_limit)"}, operation_setting.MinuteWindowMarkers...), class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: time.Minute}, userMessage: "This model is at its provider's per minute limit right now. Nothing is used up on your side. Try again in a minute."},
 	// One upstream admits signed-in and paid accounts first; an anonymous key at peak gets
 	// this for minutes at a time, and its text carried its signup link and model
 	// list straight to our users (2026-10-04, glm-5.3-flash:free).
-	{markers: []string{"at concurrency capacity. signed-in and paid accounts are admitted first"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 5 * time.Minute}, userMessage: "This model's provider is full right now. Nothing is used up on your side. Retry and another provider will take it, or try again in a few minutes."},
+	{markers: []string{"at concurrency capacity. signed-in and paid accounts are admitted first", "duck.ai daily limit for this exit is used up"}, class: UpstreamClass{Known: true, Failover: true, Count: CountNone, Window: 5 * time.Minute}, userMessage: "This model's provider is full right now. Nothing is used up on your side. Retry and another provider will take it, or try again in a few minutes."},
 	// A free key capped per hour across all its free ids (a 403) disabled six of
 	// eight lanes within minutes of their first sync (2026-09-26). Markers from
 	// QUARTER_HOUR_WINDOW_MARKERS.
