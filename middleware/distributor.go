@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -1113,7 +1112,7 @@ type ConsentRefusalError struct {
 const consentRequiredListLimit = 5
 
 func consentRequiredError(c *gin.Context, userId int, scope model.ConsentScope) *ConsentRefusalError {
-	link := system_setting.UserLinkBase() + "/consents?model=" + url.QueryEscape(scope.Model)
+	link := system_setting.UserLinkBase() + "/consents"
 	missing, err := model.MissingConsentProviders(userId, "", scope.Providers)
 	if err != nil || len(missing) == 0 {
 		return &ConsentRefusalError{Message: i18n.T(c, i18n.MsgDistributorConsentRequiredGeneric, map[string]any{"Model": scope.Model, "Url": link}), Code: "consent_required"}
