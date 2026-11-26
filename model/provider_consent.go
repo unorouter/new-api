@@ -1,6 +1,8 @@
 package model
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -29,9 +31,12 @@ type ProviderAlias struct {
 }
 
 // ProviderConsent documents a consent to one provider under Art. 4 No. 11 GDPR.
-// Text is the dialog exactly as shown, because the consent is only provable
-// together with what the person agreed to. Exactly one of UserId and GuestId is
-// set; a guest is a browser identified by the chat BFF's guest cookie.
+// TextId points at the dialog exactly as shown, because the consent is only
+// provable together with what the person agreed to; one grant of many providers
+// shares one ConsentText. Text holds that dialog only on rows written before
+// consent_texts existed and is emptied once they are moved over. Exactly one of
+// UserId and GuestId is set; a guest is a browser identified by the chat BFF's
+// guest cookie.
 type ProviderConsent struct {
 	Id        int    `json:"id" gorm:"primaryKey"`
 	UserId    int    `json:"user_id" gorm:"index:idx_provider_consent_user;not null;default:0"`
@@ -40,8 +45,36 @@ type ProviderConsent struct {
 	Country   string `json:"country" gorm:"type:varchar(8);not null;default:''"`
 	Locale    string `json:"locale" gorm:"type:varchar(16);not null;default:''"`
 	Text      string `json:"-" gorm:"type:text;not null"`
+	TextId    int    `json:"-" gorm:"index:idx_provider_consent_text;not null;default:0"`
 	CreatedAt int64  `json:"created_at" gorm:"bigint;not null"`
 	RevokedAt int64  `json:"revoked_at" gorm:"bigint;not null;default:0"`
+}
+
+// ConsentText is a consent dialog stored once, found again by its SHA-256.
+type ConsentText struct {
+	Id        int    `json:"-" gorm:"primaryKey"`
+	Hash      string `json:"-" gorm:"type:varchar(64);uniqueIndex:uk_consent_text_hash;not null"`
+	Text      string `json:"-" gorm:"type:text;not null"`
+	CreatedAt int64  `json:"-" gorm:"bigint;not null"`
+}
+
+// consentTextId returns the id of text, storing it on first use. A concurrent
+// insert of the same text loses on the unique hash and reads the winner's row.
+func consentTextId(tx *gorm.DB, text string) (int, error) {
+	sum := sha256.Sum256([]byte(text))
+	hash := hex.EncodeToString(sum[:])
+	row := ConsentText{Hash: hash, Text: text, CreatedAt: common.GetTimestamp()}
+	if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "hash"}}, DoNothing: true}).Create(&row).Error; err != nil {
+		return 0, err
+	}
+	if row.Id > 0 {
+		return row.Id, nil
+	}
+	var existing ConsentText
+	if err := lockForUpdate(tx).Select("id").Where("hash = ?", hash).Take(&existing).Error; err != nil {
+		return 0, err
+	}
+	return existing.Id, nil
 }
 
 // unknownAliasCountry prefixes the alias of a provider whose seat is not recorded.
@@ -490,14 +523,18 @@ func GrantProviderConsents(userId int, guestId string, aliases []ProviderAlias, 
 	now := common.GetTimestamp()
 	where, arg := consentWhere(userId, guestId)
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		textId, err := consentTextId(tx, text)
+		if err != nil {
+			return err
+		}
 		var active []ProviderConsent
-		if err := tx.Select("alias", "locale", "text").Where(where, arg).Find(&active).Error; err != nil {
+		if err := tx.Select("alias", "locale", "text", "text_id").Where(where, arg).Find(&active).Error; err != nil {
 			return err
 		}
 		// A repeated grant of the same text would only duplicate the proof it replaces.
 		unchanged := make(map[string]bool, len(active))
 		for _, consent := range active {
-			if consent.Locale == locale && consent.Text == text {
+			if consent.Locale == locale && (consent.TextId == textId || consent.TextId == 0 && consent.Text == text) {
 				unchanged[consent.Alias] = true
 			}
 		}
@@ -508,7 +545,7 @@ func GrantProviderConsents(userId int, guestId string, aliases []ProviderAlias, 
 			if err := tx.Model(&ProviderConsent{}).Where(where, arg).Where("alias = ?", alias.Alias).Update("revoked_at", now).Error; err != nil {
 				return err
 			}
-			if err := tx.Create(&ProviderConsent{UserId: userId, GuestId: guestId, Alias: alias.Alias, Country: alias.Country, Locale: locale, Text: text, CreatedAt: now}).Error; err != nil {
+			if err := tx.Create(&ProviderConsent{UserId: userId, GuestId: guestId, Alias: alias.Alias, Country: alias.Country, Locale: locale, TextId: textId, CreatedAt: now}).Error; err != nil {
 				return err
 			}
 		}
@@ -536,7 +573,60 @@ func PruneProviderConsents(now time.Time) (int64, error) {
 			" OR (revoked_at = 0 AND user_id > 0 AND created_at < ? AND NOT EXISTS (SELECT 1 FROM users WHERE users.id = provider_consents.user_id))",
 		cutoff.Unix(), cutoff.Add(-guestIdLifetime).Unix(), cutoff, cutoff.Unix(),
 	).Delete(&ProviderConsent{})
-	return res.RowsAffected, res.Error
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	err := DB.Where("NOT EXISTS (SELECT 1 FROM provider_consents WHERE provider_consents.text_id = consent_texts.id)").Delete(&ConsentText{}).Error
+	return res.RowsAffected, err
+}
+
+// CompactProviderConsentTexts moves the dialog of rows written before
+// consent_texts existed into it, a batch at a time, and empties their copy.
+func CompactProviderConsentTexts() {
+	const batchSize = 2000
+	moved := 0
+	for {
+		var rows []ProviderConsent
+		if err := DB.Select("id", "text").Where("text_id = 0 AND text <> ''").Order("id").Limit(batchSize).Find(&rows).Error; err != nil {
+			common.SysError("consent text compaction failed: " + err.Error())
+			return
+		}
+		if len(rows) == 0 {
+			break
+		}
+		err := DB.Transaction(func(tx *gorm.DB) error {
+			byText := map[int][]int{}
+			ids := map[string]int{}
+			for _, row := range rows {
+				id, ok := ids[row.Text]
+				if !ok {
+					var err error
+					if id, err = consentTextId(tx, row.Text); err != nil {
+						return err
+					}
+					ids[row.Text] = id
+				}
+				byText[id] = append(byText[id], row.Id)
+			}
+			for textId, rowIds := range byText {
+				if err := tx.Model(&ProviderConsent{}).Where("id IN ?", rowIds).Updates(map[string]any{"text_id": textId, "text": ""}).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			common.SysError("consent text compaction failed: " + err.Error())
+			return
+		}
+		moved += len(rows)
+		if len(rows) < batchSize {
+			break
+		}
+	}
+	if moved > 0 {
+		common.SysLog(fmt.Sprintf("consent text compaction moved %d rows", moved))
+	}
 }
 
 // NamedProvider is a provider by its public names. Alias is empty for a

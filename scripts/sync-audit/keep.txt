@@ -163,3 +163,6 @@ service/upstream_class.go :: func IsOutOfCreditReason
 model/channel_diagnostics.go :: func LastAutoDisable
 setting/operation_setting/monitor_setting.go :: ChannelCreditReenableHoldSeconds: 21600
 model/provider_consent.go :: unchanged[alias.Alias]
+model/provider_consent.go :: func consentTextId
+model/main.go :: &ConsentText{},
+service/consent_prune.go :: go model.CompactProviderConsentTexts()

@@ -13,6 +13,7 @@ func StartConsentPruner() {
 	if !common.IsMasterNode {
 		return
 	}
+	go model.CompactProviderConsentTexts()
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
