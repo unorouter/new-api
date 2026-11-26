@@ -490,7 +490,21 @@ func GrantProviderConsents(userId int, guestId string, aliases []ProviderAlias, 
 	now := common.GetTimestamp()
 	where, arg := consentWhere(userId, guestId)
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		var active []ProviderConsent
+		if err := tx.Select("alias", "locale", "text").Where(where, arg).Find(&active).Error; err != nil {
+			return err
+		}
+		// A repeated grant of the same text would only duplicate the proof it replaces.
+		unchanged := make(map[string]bool, len(active))
+		for _, consent := range active {
+			if consent.Locale == locale && consent.Text == text {
+				unchanged[consent.Alias] = true
+			}
+		}
 		for _, alias := range aliases {
+			if unchanged[alias.Alias] {
+				continue
+			}
 			if err := tx.Model(&ProviderConsent{}).Where(where, arg).Where("alias = ?", alias.Alias).Update("revoked_at", now).Error; err != nil {
 				return err
 			}

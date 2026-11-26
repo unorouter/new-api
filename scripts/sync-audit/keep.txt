@@ -162,3 +162,4 @@ controller/channel-test.go :: service.IsOutOfCreditReason(reason)
 service/upstream_class.go :: func IsOutOfCreditReason
 model/channel_diagnostics.go :: func LastAutoDisable
 setting/operation_setting/monitor_setting.go :: ChannelCreditReenableHoldSeconds: 21600
+model/provider_consent.go :: unchanged[alias.Alias]
