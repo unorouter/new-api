@@ -199,8 +199,9 @@ func forwardedClientIp(c *gin.Context) (net.IP, bool) {
 }
 
 // backfillRegisterIp stores the login IP for accounts created before register IPs were recorded.
+// IP retention blanks register_ip after 30 days and keeps the hash, so a hash means already recorded.
 func backfillRegisterIp(user *model.User, c *gin.Context) {
-	if user.RegisterIp != "" {
+	if user.RegisterIp != "" || user.RegisterIpHash != "" {
 		return
 	}
 	ip := publicClientIp(c)
@@ -208,7 +209,7 @@ func backfillRegisterIp(user *model.User, c *gin.Context) {
 		return
 	}
 	err := model.DB.Model(&model.User{}).
-		Where("id = ? AND (register_ip = '' OR register_ip IS NULL)", user.Id).
+		Where("id = ? AND (register_ip = '' OR register_ip IS NULL) AND (register_ip_hash = '' OR register_ip_hash IS NULL)", user.Id).
 		Updates(map[string]any{
 			"register_ip":      ip,
 			"register_ip_hash": common.RegisterIpHash(ip),
