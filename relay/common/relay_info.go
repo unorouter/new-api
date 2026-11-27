@@ -928,6 +928,8 @@ type UsageCap struct {
 	PromptCapped     int `json:"prompt_capped,omitempty"`
 	CompletionBilled int `json:"completion_billed,omitempty"`
 	CompletionCapped int `json:"completion_capped,omitempty"`
+	CacheWriteBilled int `json:"cache_write_billed,omitempty"`
+	CacheWriteCapped int `json:"cache_write_capped,omitempty"`
 }
 
 func (info *RelayInfo) SetRequestShape(meta *types.TokenCountMeta) {

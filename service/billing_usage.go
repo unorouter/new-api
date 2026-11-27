@@ -1,9 +1,17 @@
 package service
 
 import (
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -78,26 +86,42 @@ const (
 )
 
 // capInflatedUsage bills our own count when an upstream reports more than the
-// request could have used: a text-only prompt far past our estimate, or output
-// past the request's max_tokens, which bounds visible and reasoning output alike
-// at every vendor. Only OpenAI-semantic usage, where prompt tokens include the
-// cached share; the original report is left untouched for the log.
+// request could have used: a text-only prompt far past our estimate, cache writes
+// that with the rest of the input outgrow it, or output past the request's
+// max_tokens, which bounds visible and reasoning output alike at every vendor.
+// The original report is left untouched for the log.
 func capInflatedUsage(info *relaycommon.RelayInfo, usage *dto.Usage) *dto.Usage {
 	if info == nil || usage == nil {
 		return usage
 	}
-	if usage.UsageSemantic != "" && usage.UsageSemantic != dto.BillingUsageSemanticOpenAI {
+	openAISemantic := usage.UsageSemantic == "" || usage.UsageSemantic == dto.BillingUsageSemanticOpenAI
+	anthropicSemantic := usage.UsageSemantic == dto.BillingUsageSemanticAnthropic
+	if !openAISemantic && !anthropicSemantic {
 		return usage
 	}
 	capped := *usage
 	report := relaycommon.UsageCap{}
 	estimate := info.GetEstimatePromptTokens()
-	if info.RequestTextOnly && estimate > 0 &&
-		usage.PromptTokens > estimate*promptInflationFactor+promptInflationSlack {
+	allowance := estimate*promptInflationFactor + promptInflationSlack
+	checkInput := info.RequestTextOnly && estimate > 0
+	if checkInput && openAISemantic && usage.PromptTokens > allowance {
 		report.PromptBilled, report.PromptCapped = usage.PromptTokens, estimate
 		capped.PromptTokens = estimate
 		capped.PromptTokensDetails.CachedTokens = min(capped.PromptTokensDetails.CachedTokens, estimate)
 		capped.PromptCacheHitTokens = min(capped.PromptCacheHitTokens, estimate)
+	}
+	// A cache write never exceeds the prompt it stores, so writes that push the
+	// whole input past the allowance are padding (a7 6693 billed 345k writes on 7k chats).
+	if writes := capped.PromptTokensDetails.CacheCreationTokensTotal(); checkInput && writes > 0 {
+		claimed := capped.PromptTokens + writes
+		if anthropicSemantic {
+			claimed += capped.PromptTokensDetails.CachedTokens
+		}
+		if claimed > allowance {
+			kept := max(0, writes-(claimed-allowance))
+			report.CacheWriteBilled, report.CacheWriteCapped = writes, kept
+			capCacheWrites(&capped, kept)
+		}
 	}
 	// Headroom for channel overrides that raise max_tokens on the way upstream.
 	if limit := max(info.RequestMaxTokens*2, info.RequestMaxTokens+completionOverrideSlack); info.RequestMaxTokens > 0 && usage.CompletionTokens > limit {
@@ -108,7 +132,59 @@ func capInflatedUsage(info *relaycommon.RelayInfo, usage *dto.Usage) *dto.Usage 
 	if report == (relaycommon.UsageCap{}) {
 		return usage
 	}
-	capped.TotalTokens = capped.PromptTokens + capped.CompletionTokens
+	if openAISemantic {
+		capped.TotalTokens = capped.PromptTokens + capped.CompletionTokens
+	}
 	info.UsageCap = &report
 	return &capped
+}
+
+func capCacheWrites(usage *dto.Usage, kept int) {
+	d := &usage.PromptTokensDetails
+	d.CacheWriteTokens = min(d.CacheWriteTokens, kept)
+	d.CachedCreationTokens = min(d.CachedCreationTokens, kept)
+	d.CacheCreationInputTokens = min(d.CacheCreationInputTokens, kept)
+	usage.ClaudeCacheCreation1hTokens = min(usage.ClaudeCacheCreation1hTokens, kept)
+	usage.ClaudeCacheCreation5mTokens = min(usage.ClaudeCacheCreation5mTokens, kept-usage.ClaudeCacheCreation1hTokens)
+}
+
+// A lane whose input bill is clamped this often in the window over-reports on
+// purpose, not by tokenizer drift; each clamp already billed our count.
+const (
+	usageInflationStrikeLimit = 5
+	usageInflationWindow      = time.Hour
+)
+
+var usageInflationStrikes = struct {
+	sync.Mutex
+	hits map[int][]time.Time
+}{hits: map[int][]time.Time{}}
+
+func noteUsageInflation(c *gin.Context, info *relaycommon.RelayInfo) {
+	if info == nil || info.ChannelMeta == nil || info.UsageCap == nil ||
+		(info.UsageCap.PromptCapped == 0 && info.UsageCap.CacheWriteBilled == 0) {
+		return
+	}
+	now := time.Now()
+	usageInflationStrikes.Lock()
+	recent := usageInflationStrikes.hits[info.ChannelId][:0]
+	for _, at := range usageInflationStrikes.hits[info.ChannelId] {
+		if now.Sub(at) < usageInflationWindow {
+			recent = append(recent, at)
+		}
+	}
+	recent = append(recent, now)
+	pull := len(recent) >= usageInflationStrikeLimit
+	if pull {
+		delete(usageInflationStrikes.hits, info.ChannelId)
+	} else {
+		usageInflationStrikes.hits[info.ChannelId] = recent
+	}
+	usageInflationStrikes.Unlock()
+	if !pull {
+		return
+	}
+	reason := fmt.Sprintf("upstream over-reported input usage %d times within %s; billed on our own count", usageInflationStrikeLimit, usageInflationWindow)
+	DisableChannel(*types.NewChannelError(info.ChannelId, info.ChannelType, common.GetContextKeyString(c, constant.ContextKeyChannelName),
+		info.ChannelIsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), common.GetContextKeyBool(c, constant.ContextKeyChannelAutoBan)), reason)
 }

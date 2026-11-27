@@ -168,3 +168,6 @@ model/main.go :: &ConsentText{},
 service/consent_prune.go :: go model.CompactProviderConsentTexts()
 service/upstream_class.go :: Operator markers come first
 service/upstream_class.go :: fixed_merchant_marketplace_listing_unavailable
+service/billing_usage.go :: func capCacheWrites
+service/billing_usage.go :: func noteUsageInflation
+service/text_quota.go :: noteUsageInflation(ctx, relayInfo)

@@ -590,6 +590,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	attachQuotaSaturation(ctx, relayInfo, other)
 	if relayInfo.UsageCap != nil {
 		other.SetAdmin("usage_capped", relayInfo.UsageCap)
+		noteUsageInflation(ctx, relayInfo)
 	}
 	if relayInfo.StreamedOutputBytes > 0 {
 		other.SetAdmin("streamed_output_bytes", relayInfo.StreamedOutputBytes)
