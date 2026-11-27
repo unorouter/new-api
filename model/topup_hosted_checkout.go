@@ -61,43 +61,53 @@ func FindPendingSubscriptionOrderByEmail(provider string, email string, planId i
 
 // A buyer paying with a PayPal or checkout account under another email arrives
 // unmatched; it is still theirs when one account alone opened that item lately.
-const hostedCheckoutSoleBuyerWindowSeconds = 30 * 60
+// The short window breaks a tie with someone else's checkout abandoned earlier.
+var hostedCheckoutSoleBuyerWindows = []int64{30 * 60, 5 * 60}
 
 // FindSolePendingTopUp returns the newest open top-up of this provider and amount
-// from the last 30 minutes, but only when every such order belongs to one account.
+// when every such order of the last 30, else the last 5 minutes belongs to one account.
 func FindSolePendingTopUp(provider string, amount int64) (string, error) {
-	var rows []TopUp
-	err := DB.Model(&TopUp{}).
-		Where("payment_provider = ? AND status = ? AND amount = ? AND create_time >= ?",
-			provider, common.TopUpStatusPending, amount, common.GetTimestamp()-hostedCheckoutSoleBuyerWindowSeconds).
-		Order("id DESC").Select("trade_no, user_id").Find(&rows).Error
-	if err != nil || len(rows) == 0 {
-		return "", ErrTopUpNotFound
-	}
-	for _, r := range rows[1:] {
-		if r.UserId != rows[0].UserId {
+	for _, window := range hostedCheckoutSoleBuyerWindows {
+		var rows []TopUp
+		err := DB.Model(&TopUp{}).
+			Where("payment_provider = ? AND status = ? AND amount = ? AND create_time >= ?",
+				provider, common.TopUpStatusPending, amount, common.GetTimestamp()-window).
+			Order("id DESC").Select("trade_no, user_id").Find(&rows).Error
+		if err != nil || len(rows) == 0 {
 			return "", ErrTopUpNotFound
 		}
+		if soleBuyer(len(rows), func(i int) int { return rows[i].UserId }) {
+			return rows[0].TradeNo, nil
+		}
 	}
-	return rows[0].TradeNo, nil
+	return "", ErrTopUpNotFound
+}
+
+func soleBuyer(n int, userAt func(int) int) bool {
+	for i := 1; i < n; i++ {
+		if userAt(i) != userAt(0) {
+			return false
+		}
+	}
+	return true
 }
 
 // FindSolePendingSubscriptionOrder is FindSolePendingTopUp for subscription orders.
 func FindSolePendingSubscriptionOrder(provider string, planId int) (string, error) {
-	var rows []SubscriptionOrder
-	err := DB.Model(&SubscriptionOrder{}).
-		Where("payment_provider = ? AND status = ? AND plan_id = ? AND create_time >= ?",
-			provider, common.TopUpStatusPending, planId, common.GetTimestamp()-hostedCheckoutSoleBuyerWindowSeconds).
-		Order("id DESC").Select("trade_no, user_id").Find(&rows).Error
-	if err != nil || len(rows) == 0 {
-		return "", ErrSubscriptionOrderNotFound
-	}
-	for _, r := range rows[1:] {
-		if r.UserId != rows[0].UserId {
+	for _, window := range hostedCheckoutSoleBuyerWindows {
+		var rows []SubscriptionOrder
+		err := DB.Model(&SubscriptionOrder{}).
+			Where("payment_provider = ? AND status = ? AND plan_id = ? AND create_time >= ?",
+				provider, common.TopUpStatusPending, planId, common.GetTimestamp()-window).
+			Order("id DESC").Select("trade_no, user_id").Find(&rows).Error
+		if err != nil || len(rows) == 0 {
 			return "", ErrSubscriptionOrderNotFound
 		}
+		if soleBuyer(len(rows), func(i int) int { return rows[i].UserId }) {
+			return rows[0].TradeNo, nil
+		}
 	}
-	return rows[0].TradeNo, nil
+	return "", ErrSubscriptionOrderNotFound
 }
 
 // ProviderPaymentProcessed reports whether a provider payment id was already
