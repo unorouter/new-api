@@ -241,12 +241,15 @@ func RenderClaude(model string, intent Intent, maxTokens *uint, adapterBudgetPer
 		}
 
 		thinking := &dto.Thinking{Type: "adaptive"}
-		if intent.IncludeThoughts != nil {
-			if *intent.IncludeThoughts {
-				thinking.Display = "summarized"
-			} else {
-				thinking.Display = "omitted"
-			}
+		switch {
+		case intent.IncludeThoughts != nil && *intent.IncludeThoughts:
+			thinking.Display = "summarized"
+		case intent.IncludeThoughts != nil:
+			thinking.Display = "omitted"
+		case intent.Mode == ModeEnabled:
+			// Opus 4.7+ omits thinking text unless asked, and a client that turned
+			// reasoning on expects to see it.
+			thinking.Display = "summarized"
 		}
 		return ClaudeRender{
 			Thinking:                  thinking,

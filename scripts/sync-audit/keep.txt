@@ -171,3 +171,4 @@ service/upstream_class.go :: fixed_merchant_marketplace_listing_unavailable
 service/billing_usage.go :: func capCacheWrites
 service/billing_usage.go :: func noteUsageInflation
 service/text_quota.go :: noteUsageInflation(ctx, relayInfo)
+relaykit/relayconvert/reasoning/claude.go :: Opus 4.7+ omits thinking text unless asked
