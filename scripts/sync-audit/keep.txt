@@ -172,3 +172,12 @@ service/billing_usage.go :: func capCacheWrites
 service/billing_usage.go :: func noteUsageInflation
 service/text_quota.go :: noteUsageInflation(ctx, relayInfo)
 relaykit/relayconvert/reasoning/claude.go :: Opus 4.7+ omits thinking text unless asked
+# a key's price ceiling skips lanes above it and refuses with a clear message (key settings)
+model/token.go :: MaxInputPrice  float64 `json:"max_input_price"
+model/token_cache.go :: 'MaxInputPrice', ARGV[26]
+common/redis.go :: case reflect.Float64:
+service/channel_select.go :: func LaneExceedsTokenPriceCap
+service/channel_select.go :: func TokenPriceCapMessage
+middleware/distributor.go :: service.TokenPriceCapMessage(c, modelRequest.Model)
+controller/relay.go :: service.TokenPriceCapMessage(c, info.OriginModelName)
+controller/token.go :: func validTokenPriceCap

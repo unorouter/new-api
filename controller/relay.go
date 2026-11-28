@@ -926,6 +926,9 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, types.NewError(fmt.Errorf("failed to get an available channel for model %s in group %s (retry): %s", info.OriginModelName, selectGroup, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	if channel == nil {
+		if msg, capped := service.TokenPriceCapMessage(c, info.OriginModelName); capped {
+			return nil, types.NewErrorWithStatusCode(errors.New(msg), types.ErrorCodeGetChannelFailed, http.StatusPaymentRequired, types.ErrOptionWithSkipRetry())
+		}
 		// A pinned token whose groups are all down gets a targeted error when the
 		// model is still served elsewhere - the OVERRIDE is the lockout, not the
 		// platform. Pins come in two shapes: a per-model GroupMapping (flag below)

@@ -254,7 +254,7 @@ func Distribute() func(c *gin.Context) {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetTokenAutoGroups(c, userGroup, usingGroup)
 							for _, g := range autoGroups {
-								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) {
+								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) && !service.LaneExceedsTokenPriceCap(c, g, modelRequest.Model) {
 									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
 									channel = preferred
 									affinityUsable = true
@@ -262,7 +262,7 @@ func Distribute() func(c *gin.Context) {
 									break
 								}
 							}
-						} else if model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, preferred.Id) {
+						} else if model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, preferred.Id) && !service.LaneExceedsTokenPriceCap(c, usingGroup, modelRequest.Model) {
 							channel = preferred
 							affinityUsable = true
 							service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
@@ -308,6 +308,10 @@ func Distribute() func(c *gin.Context) {
 					}
 
 					if err != nil || channel == nil {
+						if msg, capped := service.TokenPriceCapMessage(c, modelRequest.Model); capped {
+							abortWithOpenAiMessage(c, http.StatusPaymentRequired, msg, types.ErrorCodeGetChannelFailed)
+							return
+						}
 						// A pinned token whose groups are all down gets a targeted error
 						// when the model is still served elsewhere - the OVERRIDE is the
 						// lockout, not the platform. Pins come as a per-model GroupMapping

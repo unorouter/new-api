@@ -1083,6 +1083,12 @@ func SetupContextForToken(c *gin.Context, token *model.Token) error {
 	if token.PromptCache != "" {
 		common.SetContextKey(c, constant.ContextKeyTokenPromptCache, token.PromptCache)
 	}
+	if token.MaxInputPrice > 0 {
+		common.SetContextKey(c, constant.ContextKeyTokenMaxInputPrice, token.MaxInputPrice)
+	}
+	if token.MaxOutputPrice > 0 {
+		common.SetContextKey(c, constant.ContextKeyTokenMaxOutputPrice, token.MaxOutputPrice)
+	}
 	if token.AutoGroups != "" {
 		autoGroups, err := token.GetAutoGroups()
 		if err != nil {

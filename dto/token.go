@@ -42,6 +42,9 @@ type CreateTokenRequest struct {
 	DefaultReasoningEffort *string `json:"default_reasoning_effort"`
 	// on, off or "" (auto); nil on update keeps the stored value.
 	PromptCache *string `json:"prompt_cache"`
+	// USD per 1M tokens, 0 clears the ceiling; nil on update keeps the stored value.
+	MaxInputPrice  *float64 `json:"max_input_price"`
+	MaxOutputPrice *float64 `json:"max_output_price"`
 }
 
 // UpdateTokenRequest is the request body for PUT /api/token/.
@@ -67,6 +70,9 @@ type UpdateTokenRequest struct {
 	DefaultReasoningEffort *string `json:"default_reasoning_effort"`
 	// on, off or "" (auto); nil on update keeps the stored value.
 	PromptCache *string `json:"prompt_cache"`
+	// USD per 1M tokens, 0 clears the ceiling; nil on update keeps the stored value.
+	MaxInputPrice  *float64 `json:"max_input_price"`
+	MaxOutputPrice *float64 `json:"max_output_price"`
 }
 
 // TokenGroupRenameRequest is the body for PUT /api/token/group-rename.

@@ -110,7 +110,8 @@ redis.call('HSET', KEYS[1],
   'AllowIps', ARGV[11], 'Group', ARGV[12], 'CrossGroupRetry', ARGV[13],
   'AutoGroups', ARGV[14], 'GroupMapping', ARGV[17], 'AllowUserQuotaQuery', ARGV[18],
   'DefaultReasoningEffort', ARGV[19], 'PromptCache', ARGV[20],
-  'CacheExpiresAt', ARGV[22], 'CacheMAC', ARGV[23])
+  'CacheExpiresAt', ARGV[22], 'CacheMAC', ARGV[23],
+  'MaxInputPrice', ARGV[26], 'MaxOutputPrice', ARGV[27])
 for _, counter in ipairs({{'AccessedTime', ARGV[6]}, {'RemainQuota', ARGV[15]}, {'UsedQuota', ARGV[16]}}) do
   if not string.match(redis.call('HGET', KEYS[1], counter[1]) or '', '^-?%d+$') then
     redis.call('HSET', KEYS[1], counter[1], counter[2])
@@ -136,6 +137,7 @@ return 1`
 		token.PromptCache,
 		tokenCacheTTLSeconds(),
 		token.CacheExpiresAt, mac, strconv.FormatBool(repair), existing.CacheMAC,
+		strconv.FormatFloat(token.MaxInputPrice, 'f', -1, 64), strconv.FormatFloat(token.MaxOutputPrice, 'f', -1, 64),
 	).Int()
 }
 

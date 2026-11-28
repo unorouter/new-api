@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -16,6 +17,59 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
+
+// TokenPriceCap is the price a key's ceiling turned away, in USD per 1M tokens.
+type TokenPriceCap struct {
+	Input, Output       float64
+	MaxInput, MaxOutput float64
+}
+
+// LaneExceedsTokenPriceCap reports whether serving modelName from group costs more
+// than the key's price ceiling. Per-call priced models have no token price to
+// compare and always pass. The first (cheapest, groups are ordered by price) lane
+// turned away is kept for the error message.
+func LaneExceedsTokenPriceCap(c *gin.Context, group, modelName string) bool {
+	maxIn, _ := common.GetContextKey(c, constant.ContextKeyTokenMaxInputPrice)
+	maxOut, _ := common.GetContextKey(c, constant.ContextKeyTokenMaxOutputPrice)
+	capIn, _ := maxIn.(float64)
+	capOut, _ := maxOut.(float64)
+	if capIn <= 0 && capOut <= 0 {
+		return false
+	}
+	if _, perCall := ratio_setting.GetModelPrice(modelName, false); perCall {
+		return false
+	}
+	modelRatio, ok, _ := ratio_setting.GetModelRatio(modelName)
+	if !ok {
+		return false
+	}
+	input := modelRatio * ratio_setting.GetGroupRatio(group) * 1e6 / common.QuotaPerUnit
+	output := input * ratio_setting.GetCompletionRatio(modelName)
+	if (capIn <= 0 || input <= capIn) && (capOut <= 0 || output <= capOut) {
+		return false
+	}
+	if _, seen := common.GetContextKey(c, constant.ContextKeyTokenPriceCapped); !seen {
+		common.SetContextKey(c, constant.ContextKeyTokenPriceCapped, TokenPriceCap{Input: input, Output: output, MaxInput: capIn, MaxOutput: capOut})
+	}
+	return true
+}
+
+// TokenPriceCapMessage explains a request refused only because every lane that
+// could serve it costs more than the key's price ceiling.
+func TokenPriceCapMessage(c *gin.Context, modelName string) (string, bool) {
+	capped, ok := common.GetContextKeyType[TokenPriceCap](c, constant.ContextKeyTokenPriceCapped)
+	if !ok {
+		return "", false
+	}
+	var limit []string
+	if capped.MaxInput > 0 {
+		limit = append(limit, fmt.Sprintf("$%g input", capped.MaxInput))
+	}
+	if capped.MaxOutput > 0 {
+		limit = append(limit, fmt.Sprintf("$%g output", capped.MaxOutput))
+	}
+	return fmt.Sprintf("Your API key's price limit blocked this request and nothing was charged. The cheapest available provider for %q costs $%.2f input / $%.2f output per 1M tokens, above your limit of %s per 1M tokens. Raise or clear the limit in your key settings to use it.", modelName, capped.Input, capped.Output, strings.Join(limit, " / ")), true
+}
 
 func GetChannelConstraints(c *gin.Context) *dto.ChannelConstraints {
 	if c == nil {
@@ -163,6 +217,9 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam, skipIDs ...map[int]bool) 
 				filters,
 				skipIDs...,
 			)
+			if channel != nil && LaneExceedsTokenPriceCap(param.Ctx, autoGroup, param.ModelName) {
+				channel = nil
+			}
 			if channel != nil && param.TokenGroup == "auto" && common.AutoGroupFailoverMaxRatio > 0 {
 				ratio := ratio_setting.GetGroupRatio(autoGroup)
 				anchor, anchored := common.GetContextKey(param.Ctx, constant.ContextKeyAutoGroupAnchorRatio)
@@ -222,6 +279,9 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam, skipIDs ...map[int]bool) 
 		)
 		if err != nil {
 			return nil, param.TokenGroup, err
+		}
+		if channel != nil && LaneExceedsTokenPriceCap(param.Ctx, param.TokenGroup, param.ModelName) {
+			channel = nil
 		}
 	}
 	return channel, selectGroup, nil
@@ -356,7 +416,7 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 				if usingGroup == "auto" {
 					userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 					for _, g := range GetRequestAutoGroups(c, userGroup) {
-						if model.IsChannelEnabledForGroupModel(g, modelName, preferred.Id) {
+						if model.IsChannelEnabledForGroupModel(g, modelName, preferred.Id) && !LaneExceedsTokenPriceCap(c, g, modelName) {
 							selectGroup = g
 							common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
 							channel = preferred
@@ -365,7 +425,7 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 							break
 						}
 					}
-				} else if model.IsChannelEnabledForGroupModel(usingGroup, modelName, preferred.Id) {
+				} else if model.IsChannelEnabledForGroupModel(usingGroup, modelName, preferred.Id) && !LaneExceedsTokenPriceCap(c, usingGroup, modelName) {
 					channel = preferred
 					selectGroup = usingGroup
 					affinityUsable = true

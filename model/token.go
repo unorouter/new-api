@@ -34,6 +34,10 @@ type Token struct {
 	// PromptCache is "on" (mark requests for providers with explicit caching),
 	// "off" (defeat every prefix cache) or "" (requests untouched).
 	PromptCache string `json:"prompt_cache" gorm:"type:varchar(8);default:''"`
+	// Price ceilings in USD per 1M tokens; 0 means no ceiling. Lanes priced above
+	// either one are skipped, so a price rise cannot drain the balance unnoticed.
+	MaxInputPrice  float64 `json:"max_input_price" gorm:"default:0"`
+	MaxOutputPrice float64 `json:"max_output_price" gorm:"default:0"`
 	// GroupMapping pins specific groups per model (JSON {"model":["group",...]});
 	// unmapped models keep the token's base group behavior (usually auto).
 	GroupMapping string         `json:"group_mapping" gorm:"type:text"`
@@ -364,7 +368,7 @@ func (token *Token) Update() (err error) {
 	}
 	return DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "group_mapping", "auto_groups",
-		"allow_user_quota_query", "default_reasoning_effort", "prompt_cache").Updates(token).Error
+		"allow_user_quota_query", "default_reasoning_effort", "prompt_cache", "max_input_price", "max_output_price").Updates(token).Error
 }
 
 // UpdateModelLimitsOnly writes model_limits and nothing else. Token.Update()

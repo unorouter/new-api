@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -107,6 +108,11 @@ var tokenReasoningEfforts = map[string]bool{"": true, "low": true, "medium": tru
 func normalizeTokenReasoningEffort(value string) (string, bool) {
 	effort := strings.ToLower(strings.TrimSpace(value))
 	return effort, tokenReasoningEfforts[effort]
+}
+
+// validTokenPriceCap accepts a key's price ceiling in USD per 1M tokens; 0 clears it.
+func validTokenPriceCap(value float64) bool {
+	return !math.IsNaN(value) && value >= 0 && value <= 100000
 }
 
 // tokenPromptCacheModes are the key settings prompt cache choices; "" is auto.
@@ -408,6 +414,18 @@ func AddToken(c fuego.ContextWithBody[dto.CreateTokenRequest]) (dto.MessageRespo
 		}
 		cleanToken.PromptCache = mode
 	}
+	if token.MaxInputPrice != nil {
+		if !validTokenPriceCap(*token.MaxInputPrice) {
+			return dto.FailMsg("Invalid max input price")
+		}
+		cleanToken.MaxInputPrice = *token.MaxInputPrice
+	}
+	if token.MaxOutputPrice != nil {
+		if !validTokenPriceCap(*token.MaxOutputPrice) {
+			return dto.FailMsg("Invalid max output price")
+		}
+		cleanToken.MaxOutputPrice = *token.MaxOutputPrice
+	}
 	err = cleanToken.Insert()
 	if err != nil {
 		return dto.FailMsg(err.Error())
@@ -515,6 +533,18 @@ func UpdateToken(c fuego.Context[dto.UpdateTokenRequest, dto.StatusOnlyParams]) 
 				return dto.Fail[TokenResponse]("Invalid prompt cache mode")
 			}
 			cleanToken.PromptCache = mode
+		}
+		if token.MaxInputPrice != nil {
+			if !validTokenPriceCap(*token.MaxInputPrice) {
+				return dto.Fail[TokenResponse]("Invalid max input price")
+			}
+			cleanToken.MaxInputPrice = *token.MaxInputPrice
+		}
+		if token.MaxOutputPrice != nil {
+			if !validTokenPriceCap(*token.MaxOutputPrice) {
+				return dto.Fail[TokenResponse]("Invalid max output price")
+			}
+			cleanToken.MaxOutputPrice = *token.MaxOutputPrice
 		}
 		cleanToken.Group = token.Group
 		if token.CrossGroupRetry != nil {
