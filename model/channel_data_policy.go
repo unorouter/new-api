@@ -329,6 +329,20 @@ func consentScope(state *groupDataPolicySnapshot, modelName string, groups []str
 	return scope
 }
 
+// ConsentScopeWithin is ConsentScopeFor narrowed to the routing groups a key
+// may reach, so a key pinned to a provider that keeps no inputs needs no consent
+// for the model's other providers.
+func ConsentScopeWithin(modelName string, allowed []string) ConsentScope {
+	resolved, groups := consentModelGroups(modelName)
+	reachable := make([]string, 0, len(groups))
+	for _, g := range groups {
+		if slices.Contains(allowed, g) {
+			reachable = append(reachable, g)
+		}
+	}
+	return consentScope(groupDataPolicyState(), resolved, reachable)
+}
+
 // ConsentRequired reports whether inputs may reach the model only with a
 // recorded consent.
 func ConsentRequired(modelName string) bool {

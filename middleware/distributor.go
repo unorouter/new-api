@@ -66,12 +66,16 @@ func Distribute() func(c *gin.Context) {
 		if !tokenModelAllowed(c, modelRequest.Model) {
 			return
 		}
-		if refusal := ConsentRefusal(c, modelRequest.Model); refusal != nil {
-			abortWithOpenAiError(c, http.StatusForbidden, refusal.Message, refusal.Code, refusal.Param)
-			return
+		pin, pinFound, overridden := constraints.ResolvedPin()
+		// A key's per-model pin resolves further down, and the consent scope follows it.
+		if pinFound || !shouldSelectChannel {
+			if refusal := ConsentRefusal(c, modelRequest.Model); refusal != nil {
+				abortWithOpenAiError(c, http.StatusForbidden, refusal.Message, refusal.Code, refusal.Param)
+				return
+			}
 		}
 
-		if pin, found, overridden := constraints.ResolvedPin(); found {
+		if pinFound {
 			for _, lost := range overridden {
 				logger.LogWarn(c, fmt.Sprintf(
 					"channel pin overridden: winning_source=%s winning_channel_id=%d overridden_source=%s overridden_channel_id=%d",
@@ -228,6 +232,10 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 
+				if refusal := ConsentRefusal(c, modelRequest.Model); refusal != nil {
+					abortWithOpenAiError(c, http.StatusForbidden, refusal.Message, refusal.Code, refusal.Param)
+					return
+				}
 				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
@@ -1087,6 +1095,9 @@ func ConsentRefusal(c *gin.Context, requestedModel string) *ConsentRefusalError 
 		return nil
 	}
 	scope := model.ConsentScopeFor(requestedModel)
+	if pinned := pinnedConsentGroups(c); pinned != nil {
+		scope = model.ConsentScopeWithin(requestedModel, pinned)
+	}
 	if enforced && scope.Required && !userSetting.GuestConsentDelegated {
 		userId := c.GetInt("id")
 		switch model.ConsentAccessFor(userId, "", scope.Providers) {
@@ -1100,6 +1111,18 @@ func ConsentRefusal(c *gin.Context, requestedModel string) *ConsentRefusalError 
 		return ownPurposeObjectedError(c, requestedModel, scope)
 	}
 	return nil
+}
+
+// pinnedConsentGroups is the groups a pinned key routes to, nil when the key
+// routes the whole model (auto, the account group or no group).
+func pinnedConsentGroups(c *gin.Context) []string {
+	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+	pinned := common.GetContextKeyBool(c, constant.ContextKeyTokenGroupMappingApplied) ||
+		(usingGroup != "" && usingGroup != "auto" && usingGroup != "default" && usingGroup != common.GetContextKeyString(c, constant.ContextKeyUserGroup))
+	if !pinned || usingGroup == "" || usingGroup == "auto" {
+		return nil
+	}
+	return service.ParseTokenGroups(usingGroup)
 }
 
 type ConsentRefusalError struct {
