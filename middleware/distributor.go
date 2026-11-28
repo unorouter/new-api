@@ -1140,16 +1140,24 @@ const consentRequiredListLimit = 5
 
 func consentRequiredError(c *gin.Context, userId int, scope model.ConsentScope) *ConsentRefusalError {
 	link := system_setting.UserLinkBase() + "/consents"
+	// Consents granted on a second account were the usual cause, so the refusal
+	// names the account the key belongs to. Email-like names are masked since
+	// whoever holds the key reads this.
+	account := common.GetContextKeyString(c, constant.ContextKeyUserName)
+	if local, domain, isEmail := strings.Cut(account, "@"); isEmail {
+		account = local[:min(3, len(local))] + "***@" + domain
+	}
+	account = fmt.Sprintf("%s (ID %d)", account, userId)
 	missing, err := model.MissingConsentProviders(userId, "", scope.Providers)
 	if err != nil || len(missing) == 0 {
-		return &ConsentRefusalError{Message: i18n.T(c, i18n.MsgDistributorConsentRequiredGeneric, map[string]any{"Model": scope.Model, "Url": link}), Code: "consent_required"}
+		return &ConsentRefusalError{Message: i18n.T(c, i18n.MsgDistributorConsentRequiredGeneric, map[string]any{"Model": scope.Model, "Url": link, "Account": account}), Code: "consent_required"}
 	}
 	aliases := make([]string, 0, len(missing))
 	for _, p := range missing {
 		aliases = append(aliases, p.Alias)
 	}
 	return &ConsentRefusalError{
-		Message: i18n.T(c, i18n.MsgDistributorConsentRequired, map[string]any{"Model": scope.Model, "Providers": providerList(c, missing), "Url": link}),
+		Message: i18n.T(c, i18n.MsgDistributorConsentRequired, map[string]any{"Model": scope.Model, "Providers": providerList(c, missing), "Url": link, "Account": account}),
 		Code:    "consent_required",
 		Param:   strings.Join(aliases, ","),
 	}

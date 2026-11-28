@@ -181,3 +181,4 @@ service/channel_select.go :: func TokenPriceCapMessage
 middleware/distributor.go :: service.TokenPriceCapMessage(c, modelRequest.Model)
 controller/relay.go :: service.TokenPriceCapMessage(c, info.OriginModelName)
 controller/token.go :: func validTokenPriceCap
+middleware/distributor.go :: "Account": account
